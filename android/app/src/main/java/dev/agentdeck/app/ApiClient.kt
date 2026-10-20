@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 }
 @Serializable data class ApiMessage(val id:String,val role:String,val text:String,val status:String="completed")
 @Serializable data class ApiConversation(val id:String,val title:String,val archived:Boolean=false,val pinned:Boolean=false,val updatedAt:String="",val messages:List<ApiMessage> = emptyList())
-@Serializable data class ApiDocument(val config:ApiConfig=ApiConfig(),val conversations:List<ApiConversation> = emptyList())
+@Serializable data class ApiDocument(val config:ApiConfig=ApiConfig(),val conversations:List<ApiConversation> = emptyList(),val models:List<String> = emptyList())
 
 fun apiBase(raw:String):HttpUrl {
     val url=raw.trim().toHttpUrl()
@@ -46,7 +46,7 @@ class ApiClient(private val client:OkHttpClient=OkHttpClient.Builder().followRed
             check(response.isSuccessful){"模型列表请求失败（HTTP ${response.code}）"}
             val body=response.body?:error("API 返回空内容")
             val source=body.source();source.request(1024L*1024+1);require(source.buffer.size<=1024*1024){"模型列表过大"}
-            wire.parseToJsonElement(source.readUtf8()).jsonObject["data"]?.jsonArray?.mapNotNull{it.jsonObject["id"]?.jsonPrimitive?.content}?.distinct()?.sorted()?:error("API 模型列表格式不兼容")
+            wire.parseToJsonElement(source.readUtf8()).jsonObject["data"]?.jsonArray?.mapNotNull{it.jsonObject["id"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)}?.distinct()?.sorted()?.takeIf{it.isNotEmpty()}?:error("对端未返回可用模型，请手动填写模型 ID")
         }
     }
     suspend fun chat(config:ApiConfig,messages:List<ApiMessage>,onCall:(Call)->Unit,onDelta:(String)->Unit):Unit=withContext(Dispatchers.IO){
@@ -71,7 +71,7 @@ class ApiClient(private val client:OkHttpClient=OkHttpClient.Builder().followRed
                 val value=wire.parseToJsonElement(source.readUtf8()).jsonObject
                 val choice=value["choices"]?.jsonArray?.firstOrNull()?.jsonObject?:error("API 响应格式不兼容")
                 val message=choice["message"]?.jsonObject?:error("API 未返回消息")
-                check(message["tool_calls"]==null&&message["function_call"]==null){"API 对话不执行工具调用"}
+                check(message["tool_calls"]==null&&message["function_call"]==null){"chat 不执行工具调用"}
                 emit(message["content"]?.jsonPrimitive?.contentOrNull?:"")
                 finish(choice["finish_reason"]?.jsonPrimitive?.contentOrNull)
             }
@@ -97,7 +97,7 @@ class ChatStreamDecoder(private val onDelta:(String)->Unit){
             check(choice["index"]?.jsonPrimitive?.intOrNull in listOf(null,0)){"不支持多个回复选项"}
             choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.let{finishReason=it}
             choice["delta"]?.jsonObject?.let{delta->
-                check(delta["tool_calls"]==null&&delta["function_call"]==null){"API 对话不执行工具调用"}
+                check(delta["tool_calls"]==null&&delta["function_call"]==null){"chat 不执行工具调用"}
                 delta["content"]?.jsonPrimitive?.contentOrNull?.let(onDelta)
             }
         }else if(line.startsWith("data:")){

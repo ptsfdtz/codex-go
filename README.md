@@ -8,7 +8,7 @@ Windows 使用 **Tauri 2 + React + 原生 Rust Bridge**，无系统标题栏，�
 
 配对后直接进入对话界面：左侧按项目切换会话，底部输入框同时支持新任务和继续对话。模型回复合并流式片段，命令执行默认折叠，审批在当前会话中处理。横屏保留会话侧栏，窄屏用抽屉；发送后收起键盘，草稿按主机/会话隔离并支持页面重建。没有总览仪表盘或新任务弹窗。详见 [对话体验改版](docs/CHAT_EXPERIENCE.md)。
 
-安卓顶部 **API 对话** 可在不配对 Windows 时配置 HTTPS 基础地址、密钥和模型，直连 OpenAI 兼容 Chat Completions，支持流式回复、停止和本地会话管理。密钥与记录由 Keystore 加密；此模式不访问工作区或执行工具。详见 [功能和配置说明](docs/CONVERSATIONS_AND_API.md)。当前不是 Codex 桌面端全部功能复制。
+安卓顶部 **chat** 可在不配对 Windows 时配置 HTTPS 基础地址、密钥和模型，直连 OpenAI 兼容 Chat Completions，支持流式回复、停止和本地会话管理。密钥与记录由 Keystore 加密；此模式不访问工作区或执行工具。详见 [功能和配置说明](docs/CONVERSATIONS_AND_API.md)。当前不是 Codex 桌面端全部功能复制。
 
 设置页支持浅色/深色/跟随系统、默认关闭的任务与审批通知、Bridge 日志保留策略，以及不含提示词/路径/凭据的诊断 JSON 导出。通知依赖仍在运行的应用连接；系统休眠或结束进程后不保证送达。
 
@@ -41,6 +41,8 @@ pnpm desktop:build
 Windows 防火墙若拦截，仅允许 `runtime/agentdeck-service.exe` 的当前 Bridge 端口、Private 配置文件和本地子网。不要开放 Public 配置文件、路由器端口映射或公网隧道。需要管理员执行防火墙规则时，示例和删除命令见 [安全说明](docs/SECURITY.md)。本程序不自动修改防火墙。
 
 配置通过进程环境变量传入；`.env.example` 只作示例，不自动加载 `.env`：`AGENTDECK_PORT`、`AGENTDECK_DATA_DIR`、`AGENTDECK_CODEX_EXE`（必须为本机 exe）。默认数据目录 `%LOCALAPPDATA%\AgentDeck`，TLS 私钥用当前用户 DPAPI 保护。不要复制 Codex 登录文件给 Bridge 或平板。
+
+安卓端支持保存多台 Windows 电脑的配对。点击顶部的电脑名称或侧栏“切换电脑”，选择已配对电脑；“添加电脑”可扫描另一台电脑的二维码。设置中的“我的电脑”也可切换、重命名或移除当前电脑。每次连接一台，项目、会话、草稿和缓存按电脑隔离；切换会断开原电脑的连接，待处理审批遵循现有断线失效规则；切回后同步任务状态。重新打开应用会连接上次选择的电脑，旧版本的单电脑配对会自动迁移。
 
 ## 安装 Android
 

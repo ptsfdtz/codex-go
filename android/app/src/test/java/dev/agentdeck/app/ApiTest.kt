@@ -59,6 +59,60 @@ class ApiTest{
     @Test fun modelListIsReadFromRealHttpsFixture()=runBlocking{
         val (server,client)=server();server.use{server.enqueue(MockResponse().setBody("{\"data\":[{\"id\":\"model-b\"},{\"id\":\"model-a\"}]}"));assertEquals(listOf("model-a","model-b"),client.models(config(server.url("/v1").toString())){});assertEquals("/v1/models",server.takeRequest().path)}
     }
+    private class MemoryStore(@Volatile var doc:ApiDocument=ApiDocument()):ApiPersistence{
+        override fun read()=doc
+        override fun write(value:ApiDocument){doc=value}
+    }
+    @Test fun configuringWithoutModelDiscoversSelectsAndPersistsModels()=runBlocking{
+        val (server,client)=server();server.use{
+            val memory=MemoryStore();val repo=ApiRepository(memory,client)
+            withTimeout(5000){repo.state.first{it.storageReady}}
+            server.enqueue(MockResponse().setBody("{\"data\":[{\"id\":\"model-b\"},{\"id\":\"\"},{\"id\":\"model-a\"},{\"id\":\"model-b\"}]}"))
+            repo.configure(server.url("/custom/v1").toString(),config().key,"","")
+            val discovered=withTimeout(5000){repo.state.first{!it.busy}}
+            assertNull(discovered.error);assertEquals("model-a",discovered.config.model)
+            assertEquals(listOf("model-a","model-b"),discovered.models)
+            val request=server.takeRequest();assertEquals("/custom/v1/models",request.path)
+            assertEquals("Bearer "+config().key,request.getHeader("Authorization"))
+            repo.chooseModel("model-b");withTimeout(5000){repo.state.first{!it.busy}}
+            val reloaded=ApiRepository(memory,client)
+            val restored=withTimeout(5000){reloaded.state.first{it.storageReady}}
+            assertEquals("model-b",restored.config.model);assertEquals(discovered.models,restored.models)
+            assertEquals(memory.doc,wire.decodeFromString(ApiDocument.serializer(),wire.encodeToString(ApiDocument.serializer(),memory.doc)))
+            assertEquals(emptyList<String>(),wire.decodeFromString(ApiDocument.serializer(),"{}").models)
+            assertEquals(1,server.requestCount)
+        }
+    }
+    @Test fun unsupportedDiscoveryKeepsManualModelAndRefreshAddsRemoteModels()=runBlocking{
+        val (server,client)=server();server.use{
+            val memory=MemoryStore(ApiDocument(config(server.url("/old/v1").toString()),models=listOf("old-model")))
+            val repo=ApiRepository(memory,client);withTimeout(5000){repo.state.first{it.storageReady}}
+            server.enqueue(MockResponse().setResponseCode(404))
+            repo.configure(server.url("/new/v1").toString(),config().key,"manual-model","")
+            val saved=withTimeout(5000){repo.state.first{!it.busy}}
+            assertNull(saved.error);assertNotNull(saved.modelNotice)
+            assertEquals(listOf("manual-model"),memory.doc.models)
+            server.enqueue(MockResponse().setBody("{\"data\":[{\"id\":\"remote-model\"}]}"))
+            repo.models();val refreshed=withTimeout(5000){repo.state.first{!it.busy}}
+            assertNull(refreshed.error);assertEquals("manual-model",refreshed.config.model)
+            assertEquals(listOf("manual-model","remote-model"),memory.doc.models)
+            assertEquals("/new/v1/models",server.takeRequest().path)
+            assertEquals("/new/v1/models",server.takeRequest().path)
+        }
+    }
+    @Test fun failedDiscoveryWithoutManualModelPreservesPreviousConfigurationAndCache()=runBlocking{
+        val (server,client)=server();server.use{
+            val original=ApiDocument(config(),models=listOf("old-model"))
+            val memory=MemoryStore(original);val repo=ApiRepository(memory,client)
+            withTimeout(5000){repo.state.first{it.storageReady}}
+            server.enqueue(MockResponse().setResponseCode(401))
+            repo.configure(server.url("/v1").toString(),config().key,"","")
+            val failed=withTimeout(5000){repo.state.first{!it.busy}}
+            assertNotNull(failed.error);assertEquals(original,memory.doc)
+            server.enqueue(MockResponse().setBody("{\"data\":[]}"))
+            assertTrue(failure{client.models(config(server.url("/v1").toString())){}}.message.orEmpty().contains("未返回可用模型"))
+        }
+    }
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test fun stoppingBeforeNetworkPersistsInterruptedInsteadOfCompleted()=runBlocking{
         Dispatchers.setMain(UnconfinedTestDispatcher())

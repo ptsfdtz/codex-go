@@ -38,7 +38,7 @@ class ApiSecureStore(context:Context):ApiPersistence{
         val output=file.startWrite();try{output.write(data);file.finishWrite(output)}catch(e:Exception){file.failWrite(output);throw e}
     }
 }
-data class ApiState(val config:ApiConfig=ApiConfig(),val conversations:List<ApiConversation> = emptyList(),val selected:String?=null,val models:List<String> = emptyList(),val busy:Boolean=false,val loading:Boolean=true,val running:String?=null,val error:String?=null,val storageReady:Boolean=false)
+data class ApiState(val config:ApiConfig=ApiConfig(),val conversations:List<ApiConversation> = emptyList(),val selected:String?=null,val models:List<String> = emptyList(),val busy:Boolean=false,val loading:Boolean=true,val running:String?=null,val error:String?=null,val storageReady:Boolean=false,val modelNotice:String?=null)
 
 class ApiRepository(private val store:ApiPersistence,private val client:ApiClient=ApiClient()){
     constructor(context:Context):this(ApiSecureStore(context))
@@ -47,8 +47,8 @@ class ApiRepository(private val store:ApiPersistence,private val client:ApiClien
     val state:StateFlow<ApiState> = mutable.asStateFlow()
     @Volatile private var call:Call?=null
     private var job:Job?=null
-    init{scope.launch{try{val doc=store.read();val chats=doc.conversations.map{chat->chat.copy(messages=chat.messages.map{if(it.status=="running")it.copy(status="unknown") else it})};store.write(doc.copy(conversations=chats));mutable.value=ApiState(config=doc.config,conversations=chats,loading=false,storageReady=true)}catch(_:Exception){mutable.value=ApiState(loading=false,error="无法解密 API 本地数据。记录未被覆盖，请检查设备 Keystore。")}}}
-    private fun persist(){val current=mutable.value;store.write(ApiDocument(current.config,current.conversations))}
+    init{scope.launch{try{val doc=store.read();val chats=doc.conversations.map{chat->chat.copy(messages=chat.messages.map{if(it.status=="running")it.copy(status="unknown") else it})};store.write(doc.copy(conversations=chats));mutable.value=ApiState(config=doc.config,conversations=chats,models=doc.models,loading=false,storageReady=true)}catch(_:Exception){mutable.value=ApiState(loading=false,error="无法解密 API 本地数据。记录未被覆盖，请检查设备 Keystore。")}}}
+    private fun persist(){val current=mutable.value;store.write(ApiDocument(current.config,current.conversations,current.models))}
     private fun action(block:suspend()->Unit){synchronized(this){if(mutable.value.busy||!mutable.value.storageReady)return;mutable.update{it.copy(busy=true,error=null)};job=scope.launch{try{block()}catch(_:CancellationException){throw CancellationException()}catch(e:Exception){mutable.update{it.copy(error=safeError(e))}}finally{call=null;runCatching{persist()}.onFailure{mutable.update{it.copy(error="API 记录保存失败，请清理旧会话后重试")}};mutable.update{it.copy(busy=false,running=null)}}}}}
     private fun safeError(e:Exception)=when(e){is javax.net.ssl.SSLException->"API TLS 证书校验失败";is java.io.IOException->"API 网络中断或超时，回复可能未完成";is IllegalArgumentException,is IllegalStateException->e.message?.takeIf{!it.contains(mutable.value.config.key.takeIf(String::isNotEmpty)?:"\u0000") }?.take(180)?:"API 请求未完成";else->"API 请求未完成，请检查配置"}
     fun configure(base:String,key:String,model:String,effort:String){action{
@@ -56,11 +56,27 @@ class ApiRepository(private val store:ApiPersistence,private val client:ApiClien
         val previous=mutable.value.config
         require(key.isNotBlank()||normalized==previous.baseUrl.trimEnd('/')){"更换 API 地址时请重新输入密钥，避免将旧密钥发送到另一主机"}
         require(effort in listOf("","none","minimal","low","medium","high","xhigh"))
-        val config=ApiConfig(normalized,key.ifBlank{previous.key},model.trim(),effort)
-        require(config.model.isNotBlank()&&config.key.isNotBlank()){"请填写模型和 API 密钥"}
-        store.write(ApiDocument(config,mutable.value.conversations));mutable.update{it.copy(config=config,models=emptyList())}
+        var config=ApiConfig(normalized,key.ifBlank{previous.key},model.trim(),effort)
+        require(config.key.isNotBlank()){"请填写 API 密钥"}
+        var notice:String?=null
+        val models=try{client.models(config){call=it}}catch(e:Exception){
+            if(e is CancellationException)throw e
+            if(config.model.isBlank())throw IllegalStateException("获取对端模型失败，请检查地址和密钥，或手动填写模型 ID")
+            notice="获取模型失败，已保留手动模型；可在模型菜单重试。"
+            if(config.baseUrl==previous.baseUrl&&config.key==previous.key)mutable.value.models else emptyList()
+        }
+        currentCoroutineContext().ensureActive()
+        if(config.model.isBlank())config=config.copy(model=models.first())
+        val available=(models+config.model).distinct().sorted()
+        store.write(ApiDocument(config,mutable.value.conversations,available))
+        mutable.update{it.copy(config=config,models=available,modelNotice=notice?:"已获取并添加 ${models.size} 个对端模型")}
     }}
-    fun models(){action{val models=client.models(mutable.value.config){call=it};mutable.update{it.copy(models=models)}}}
+    fun models(){action{
+        val config=mutable.value.config
+        val models=client.models(config){call=it}
+        currentCoroutineContext().ensureActive()
+        mutable.update{it.copy(config=if(config.model.isBlank())config.copy(model=models.first()) else config,models=(models+listOfNotNull(config.model.takeIf(String::isNotBlank))).distinct().sorted(),modelNotice="已获取并添加 ${models.size} 个对端模型")}
+    }}
     fun chooseModel(model:String){action{require(model in mutable.value.models);mutable.update{it.copy(config=it.config.copy(model=model))}}}
     fun chooseEffort(effort:String){action{require(effort in listOf("","none","minimal","low","medium","high","xhigh"));mutable.update{it.copy(config=it.config.copy(effort=effort))}}}
     fun select(id:String?){if(mutable.value.busy)return;mutable.update{it.copy(selected=id,error=null)}}
@@ -73,13 +89,13 @@ class ApiRepository(private val store:ApiPersistence,private val client:ApiClien
         val selected=mutable.value.selected
         val existing=mutable.value.conversations.find{it.id==selected}
         require(existing?.archived!=true){"请先恢复已归档会话"}
-        require(existing!=null||mutable.value.conversations.size<100){"最多保留 100 个 API 会话，请删除旧会话"}
+        require(existing!=null||mutable.value.conversations.size<100){"最多保留 100 个 chat 会话，请删除旧会话"}
         val chat=existing?:ApiConversation(UUID.randomUUID().toString(),text.take(40))
-        require(chat.messages.size<500){"单个 API 会话最多 500 条消息，请新建会话"}
+        require(chat.messages.size<500){"单个 chat 会话最多 500 条消息，请新建会话"}
         val user=ApiMessage(UUID.randomUUID().toString(),"user",text)
         val reply=ApiMessage(UUID.randomUUID().toString(),"assistant","",status="running")
         val updated=chat.copy(updatedAt=Instant.now().toString(),messages=chat.messages+user+reply)
-        store.write(ApiDocument(config,mutable.value.conversations.filterNot{it.id==chat.id}+updated))
+        store.write(ApiDocument(config,mutable.value.conversations.filterNot{it.id==chat.id}+updated,mutable.value.models))
         mutable.update{it.copy(selected=chat.id,running=reply.id,conversations=it.conversations.filterNot{c->c.id==chat.id}+updated)}
         fun update(status:String?=null,delta:String=""){mutable.update{state->state.copy(conversations=state.conversations.map{c->if(c.id==chat.id)c.copy(messages=c.messages.map{m->if(m.id==reply.id)m.copy(text=m.text+delta,status=status?:m.status) else m}) else c})}}
         try{withContext(Dispatchers.Main){onAccepted()};client.chat(config,chat.messages+user,{call=it},{update(delta=it)});currentCoroutineContext().ensureActive();update(status="completed")}

@@ -35,13 +35,14 @@ import kotlinx.coroutines.launch
     val approvals=state.snapshot.approvals.filter{it.sessionId==state.selectedSession&&it.status=="pending"}
     val active=session?.status in listOf("running","queued","waitingApproval","unknown")
     var drafts by rememberSaveable{mutableStateOf(mapOf<String,String>())}
+    LaunchedEffect(state.hosts){if(state.hosts.isNotEmpty())drafts=drafts.filterKeys{key->state.hosts.any{key.startsWith("${it.hostId}:")}}}
     val draftKey="${state.host?.hostId}:"+(state.selectedSession?:"new:${state.selectedProject}")
     val text=drafts[draftKey].orEmpty()
     val list=rememberLazyListState()
     val scope=rememberCoroutineScope()
-    var follow by remember(state.selectedSession){mutableStateOf(true)}
+    var follow by remember(state.host?.hostId,state.selectedSession){mutableStateOf(true)}
     LaunchedEffect(list){snapshotFlow{list.isScrollInProgress to list.canScrollForward}.collect{(moving,away)->if(moving)follow=!away}}
-    LaunchedEffect(state.selectedSession,entries.lastOrNull(),approvals.size){if(follow){withFrameNanos{};if(list.layoutInfo.totalItemsCount>0)list.scrollToItem(list.layoutInfo.totalItemsCount-1)}}
+    LaunchedEffect(state.host?.hostId,state.selectedSession,entries.lastOrNull(),approvals.size){if(follow){withFrameNanos{};if(list.layoutInfo.totalItemsCount>0)list.scrollToItem(list.layoutInfo.totalItemsCount-1)}}
     Column(Modifier.fillMaxSize()){
         if(session!=null)Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text(session.title,fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f));if(session.archived==1)TextButton(onClick={repo.manageSession(session,"restore")},enabled=!state.stale&&!state.busy){Text("恢复会话")};SessionActions(session,state,repo);if(state.busy)CircularProgressIndicator(Modifier.size(14.dp),strokeWidth=1.5.dp)}
         Box(Modifier.weight(1f).fillMaxWidth()){
@@ -52,8 +53,8 @@ import kotlinx.coroutines.launch
                 if(state.selectedProject==null)OutlinedButton(onClick=repo::addProject,enabled=!state.stale){Text("在 Windows 选择项目")}
             }else LazyColumn(Modifier.fillMaxSize().testTag("execution-timeline"),state=list,contentPadding=PaddingValues(horizontal=24.dp,vertical=20.dp),verticalArrangement=Arrangement.spacedBy(24.dp)){
                 item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderEvents,enabled=!state.stale&&!state.busy){Text("加载更早的消息",fontSize=12.sp)}}}
-                items(entries,key={it.id}){entry->ChatWidth{ChatMessage(entry,state.displayMask)}}
-                items(approvals,key={"approval:"+it.approvalId}){approval->ChatWidth{ApprovalCard(approval,state.stale||state.busy,repo::decide)}}
+                items(entries,key={"${state.host?.hostId}:${it.id}"}){entry->ChatWidth{ChatMessage(entry,state.displayMask)}}
+                items(approvals,key={"${state.host?.hostId}:approval:"+it.approvalId}){approval->ChatWidth{ApprovalCard(approval,state.stale||state.busy,repo::decide)}}
                 item{ChatWidth{if(active&&approvals.isEmpty())Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){if(!state.stale&&session.status!="unknown")CircularProgressIndicator(Modifier.size(13.dp),strokeWidth=1.5.dp);Text(if(state.stale)"连接恢复后核对任务状态" else statusLabel(session.status),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
             }
             if(!follow&&session!=null)FilledTonalIconButton(onClick={follow=true;scope.launch{list.animateScrollToItem((list.layoutInfo.totalItemsCount-1).coerceAtLeast(0))}},modifier=Modifier.align(Alignment.BottomCenter).padding(8.dp)){Icon(Icons.Outlined.ArrowDownward,"回到最新消息")}

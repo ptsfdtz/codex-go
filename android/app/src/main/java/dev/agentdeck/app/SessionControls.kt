@@ -12,9 +12,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable fun SessionActions(session:Session,state:DeckState,repo:DeckRepository){
-    var menu by remember{mutableStateOf(false)}
-    var operation by remember{mutableStateOf("")}
-    var title by rememberSaveable(session.sessionId){mutableStateOf(session.title)}
+    var menu by remember(state.host?.hostId){mutableStateOf(false)}
+    var operation by remember(state.host?.hostId){mutableStateOf("")}
+    var title by rememberSaveable(state.host?.hostId,session.sessionId){mutableStateOf(session.title)}
     val enabled=!state.stale&&!state.busy&&session.status !in listOf("queued","running","waitingApproval","unknown")
     Box{
         IconButton(onClick={menu=true}){Icon(Icons.Outlined.MoreHoriz,"管理会话 ${session.title}",Modifier.size(18.dp))}
@@ -33,8 +33,8 @@ import androidx.compose.ui.unit.dp
 fun effortLabel(value:String)=when(value){"none"->"无";"minimal"->"最少";"low"->"低";"medium"->"中";"high"->"高";"xhigh"->"超高";else->value}
 
 @Composable fun CodexModelPicker(state:DeckState,repo:DeckRepository,enabled:Boolean){
-    var modelsOpen by remember{mutableStateOf(false)}
-    var effortOpen by remember{mutableStateOf(false)}
+    var modelsOpen by remember(state.host?.hostId){mutableStateOf(false)}
+    var effortOpen by remember(state.host?.hostId){mutableStateOf(false)}
     val selected=state.models.find{it.model==state.selectedModel}
     Row(Modifier.horizontalScroll(rememberScrollState())){
         Box{TextButton(onClick={modelsOpen=true},enabled=enabled){Text(selected?.displayName?:state.selectedModel.ifEmpty{"默认模型"});Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))}

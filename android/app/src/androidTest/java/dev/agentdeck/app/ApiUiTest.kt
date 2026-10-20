@@ -17,12 +17,13 @@ class ApiUiTest {
     @get:Rule val compose=createAndroidComposeRule<MainActivity>()
     @Test fun apiModeIsAvailableWithoutPairing(){
         compose.runOnUiThread{val repo=(compose.activity.application as DeckApplication).repository;compose.activity.setContent{DeckTheme{DeckApp(DeckState(),repo)}}}
-        compose.onNodeWithText("API 对话").performClick()
-        compose.onNodeWithContentDescription("配置 API").assertIsDisplayed().performClick()
+        compose.onNodeWithText("chat").performClick()
+        compose.onNodeWithTag("api-open-settings").assertIsDisplayed().performClick()
         compose.onNodeWithTag("api-base").assertExists()
+        compose.onNodeWithTag("api-settings").performScrollToNode(hasTestTag("api-key"))
         compose.onNodeWithTag("api-key").performTextInput("fixture-only-key")
         compose.onNodeWithTag("api-key").assert(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.Password))
-        compose.onNodeWithText("取消").performClick()
+        compose.onNodeWithText("返回对话").performClick()
         compose.onNodeWithText("Codex").performClick()
         compose.onNodeWithText("配对 Windows 主机").assertExists()
     }
@@ -35,7 +36,7 @@ class ApiUiTest {
         val repo=ApiRepository(memory)
         compose.waitUntil(5000){repo.state.value.storageReady};repo.select("fixture")
         compose.runOnUiThread{compose.activity.setContent{DeckTheme{ApiWorkspace(repo){}}}}
-        fun manage(label:String){compose.onNodeWithContentDescription("管理 API 会话").performClick();compose.onNodeWithText(label,useUnmergedTree=true).performClick()}
+        fun manage(label:String){compose.onNodeWithContentDescription("管理 chat 会话").performClick();compose.onNodeWithText(label,useUnmergedTree=true).performClick()}
         manage("重命名")
         compose.onNode(hasSetTextAction() and hasText("Local fixture")).performTextReplacement("Renamed fixture")
         compose.onNodeWithText("确认").performClick();compose.waitUntil(5000){!repo.state.value.busy&&repo.state.value.conversations[0].title=="Renamed fixture"}

@@ -49,18 +49,26 @@ class DeckRepository(context:Context){
     private var connectionJob:Job?=null
     private var selectionJob:Job?=null
     private var pairingJob:Job?=null
+    private var pairGeneration=0L
+    private var credentialsUnreadable=false
     private var snapshotJob:Job?=null
     private var transport:DeckTransport?=null
     private var cursor="0"
     private val cacheMutex=Mutex()
     private val actionMutex=Mutex()
+    private val connectionMutex=Mutex()
+    @Volatile private var switchingHost=false
+    @Volatile private var hostEpoch=0L
     private val connectivity=context.getSystemService(ConnectivityManager::class.java)
     private val callback=object:ConnectivityManager.NetworkCallback(){override fun onAvailable(network:Network){val host=mutable.value.host;if(host!=null&&mutable.value.connection!="已连接")startConnection(host)}}
     init {
         connectivity.registerDefaultNetworkCallback(callback)
-        scope.launch{try{val host=vault.read();if(host!=null){mutable.update{it.copy(host=host,connection="正在连接",stale=true)};dao.host(host.hostId)?.let{cached->cursor=cached.cursor;mutable.update{it.copy(snapshot=wire.decodeFromString(Snapshot.serializer(),cached.snapshot),lastSynced=cached.syncedAt)}};restoreLastSession(mutable.value.snapshot);startConnection(host)}}catch(e:Exception){mutable.update{it.copy(error="本机凭据不可读取，请重新配对",connection="需要重新配对")}}}
+        scope.launch{actionMutex.withLock{
+            val book=try{vault.readBook()}catch(e:CancellationException){throw e}catch(_:Exception){credentialsUnreadable=true;mutable.update{it.copy(error="已保存的电脑凭据无法读取，请重新配对所需电脑",connection="需要重新配对")};return@withLock}
+            try{activateBook(book)}catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}
+        }}
     }
-    private fun startConnection(host:Host){synchronized(this){connectionJob?.cancel();transport?.close();connectionJob=scope.launch{
+    private fun startConnection(host:Host){synchronized(this){if(switchingHost||mutable.value.host!=host)return;connectionJob?.cancel();transport?.close();connectionJob=scope.launch{connectionMutex.withLock{
         var attempt=0
         while(isActive){
             val current=DeckTransport(host);transport=current
@@ -77,10 +85,29 @@ class DeckRepository(context:Context){
                 mutable.value.selectedSession?.let{refreshSession(it)}
                 for(packet in current.events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),packet);val id=event.eventId.toLong();if(id<=cursor.toLong())continue;if(id>cursor.toLong()+1)replay(current);if(id>cursor.toLong()){applyEvent(event);notifications.publish(event,mutable.value.preferences.notifications)};scheduleSnapshot(current)}
                 throw java.io.IOException("Bridge 连接已结束")
-            }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(connection="重新连接中",stale=true,busy=false,error=errorMessage(e))};attempt++;delay(min(30000L,500L*(1L shl min(attempt,6)))+Random.nextLong(250))}
+            }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(connection="重新连接中",stale=true,error=errorMessage(e))};attempt++;delay(min(30000L,500L*(1L shl min(attempt,6)))+Random.nextLong(250))}
             finally{current.close()}
         }
-    }}}
+    }}}}
+    // Called under actionMutex: complete/cancel old work before publishing the new host.
+    private suspend fun activateBook(book:HostBook){
+        synchronized(this){switchingHost=true;hostEpoch++;connectionJob?.cancel();transport?.close()}
+        try{
+            connectionJob?.cancelAndJoin();connectionMutex.withLock{};snapshotJob?.cancelAndJoin();selectionJob?.cancelAndJoin()
+            connectionJob=null;snapshotJob=null;selectionJob=null;transport=null
+            cacheMutex.withLock{cursor="0";restoreNavigation=true;mutable.value=mutable.value.forHost(book)}
+            book.active?.let{host->
+                dao.host(host.hostId)?.let{cached->
+                    try{val snapshot=wire.decodeFromString(Snapshot.serializer(),cached.snapshot);require(snapshot.host?.hostId==host.hostId);cursor=cached.cursor;mutable.update{it.copy(snapshot=snapshot,selectedProject=snapshot.projects.firstOrNull()?.projectId,lastSynced=cached.syncedAt)}}
+                    catch(e:CancellationException){throw e}catch(_:Exception){dao.removeHost(host.hostId)}
+                }
+                restoreLastSession(mutable.value.snapshot)
+            }
+        }finally{synchronized(this){switchingHost=false}}
+        book.active?.let{startConnection(it)}
+    }
+    fun selectHost(id:String){action{val book=vault.readBook();if(book.active?.hostId!=id){val next=book.selected(id);vault.saveBook(next);activateBook(next)}}}
+    fun renameHost(id:String,name:String){action{val book=vault.readBook().renamed(id,name);vault.saveBook(book);mutable.update{it.copy(hosts=book.hosts,host=book.active)}}}
     private fun errorMessage(e:Throwable):String=when(e){is DeckException->"${e.code}: ${e.message}";is java.security.cert.CertificateException,is javax.net.ssl.SSLPeerUnverifiedException,is javax.net.ssl.SSLHandshakeException->"证书校验失败。请在 Windows 核对指纹后重新配对。";is TimeoutCancellationException->"请求超时，操作结果可能未知，请先核对会话状态。";else->"连接暂不可用：${e.message?.take(180)?:"网络错误"}"}
     private suspend fun replay(current:DeckTransport){do{val result=current.request("events.replay",buildJsonObject{put("cursor",cursor);put("limit",500)});val events=result["events"]?.jsonArray?:JsonArray(emptyList());for(element in events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),element);if(event.eventId.toLong()>cursor.toLong())applyEvent(event)};val more=result["more"]?.jsonPrimitive?.boolean==true}while(more)}
     private suspend fun applyEvent(event:DeckEvent){cacheMutex.withLock{val host=mutable.value.host?:return;val id=event.eventId.toLong();if(id<=cursor.toLong())return;db.withTransaction{dao.saveEvents(listOf(CachedEvent(host.hostId,id,event.sessionId,wire.encodeToString(DeckEvent.serializer(),event))));cursor=event.eventId;dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),mutable.value.snapshot),cursor,Instant.now().toString()))};if(id%100L==0L)dao.trim(host.hostId)};if(event.action=="git.changed"&&mutable.value.git!=null)refreshGit()}
@@ -107,19 +134,19 @@ class DeckRepository(context:Context){
     private suspend fun refreshSnapshot(current:DeckTransport?=transport){val connection=current?:return;updateSnapshot(wire.decodeFromJsonElement(Snapshot.serializer(),connection.request("snapshot.get")));restoreLastSession(mutable.value.snapshot)}
     private fun scheduleSnapshot(current:DeckTransport){if(snapshotJob?.isActive==true)return;snapshotJob=scope.launch{delay(250);try{refreshSnapshot(current)}catch(_:Exception){}}}
     private fun rpc():DeckTransport {check(mutable.value.connection=="已连接"&&!mutable.value.stale){"离线时不能执行操作"};return transport?:error("Bridge 未连接")}
-    private fun action(block:suspend()->Unit){scope.launch{if(!actionMutex.tryLock())return@launch;mutable.update{it.copy(busy=true,error=null)};try{block()}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}finally{mutable.update{it.copy(busy=false)};actionMutex.unlock()}}}
-    fun beginPair(raw:String){pairingJob?.cancel();pairingJob=scope.launch{mutable.update{it.copy(busy=true,error=null)};var client:okhttp3.OkHttpClient?=null;try{
+    private fun action(block:suspend()->Unit){val epoch=hostEpoch;scope.launch{if(!actionMutex.tryLock())return@launch;if(epoch!=hostEpoch){actionMutex.unlock();return@launch};mutable.update{it.copy(busy=true,error=null)};try{block()}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}finally{mutable.update{it.copy(busy=false)};actionMutex.unlock()}}}
+    fun beginPair(raw:String){val generation=++pairGeneration;pairingJob?.cancel();pairingJob=scope.launch{mutable.update{it.copy(busy=true,error=null)};var client:okhttp3.OkHttpClient?=null;try{
         val qr=wire.decodeFromString(PairQr.serializer(),raw).validated();client=pinnedClient(qr.fingerprint)
         val nonce=ByteArray(32).also{SecureRandom().nextBytes(it)};val result=post(client,qr.endpoint.trimEnd('/')+"/api/v1/pair/request",buildJsonObject{put("token",qr.token);put("displayName","${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".take(80));put("nonce",Base64.encodeToString(nonce,Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))})
         val requestId=result.getValue("requestId").jsonPrimitive.content;val claim=result.getValue("claimToken").jsonPrimitive.content
         mutable.update{it.copy(pairingCode=result.getValue("code").jsonPrimitive.content,pairingName=qr.endpoint)}
         var host:Host?=null
         while(Instant.now().isBefore(Instant.parse(qr.expiresAt))){val claimed=post(client,qr.endpoint.trimEnd('/')+"/api/v1/pair/claim",payload("requestId" to requestId,"claimToken" to claim));when(claimed["status"]?.jsonPrimitive?.content){"approved"->{host=Host(qr.endpoint.trimEnd('/'),qr.fingerprint,qr.hostId,claimed.getValue("deviceId").jsonPrimitive.content,claimed.getValue("credential").jsonPrimitive.content);break};"rejected"->throw DeckException("PAIRING_REJECTED","Windows 已拒绝此设备")};delay(1200)}
-        requireNotNull(host){"配对已过期，请重新生成二维码"};require(Regex("[A-Za-z0-9_-]{43}").matches(host.credential)){"设备凭据无效"};vault.save(host);cursor="0";mutable.update{it.copy(host=host,pairingCode=null,pairingName=null,connection="正在连接",snapshot=Snapshot(),events=emptyList(),selectedSession=null,selectedProject=null,diagnostics=null,retention=Retention())};startConnection(host)
-    }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e),pairingCode=null)}}finally{client?.dispatcher?.executorService?.shutdown();client?.connectionPool?.evictAll();mutable.update{it.copy(busy=false)}}}}
-    fun cancelPair(){pairingJob?.cancel();mutable.update{it.copy(pairingCode=null,pairingName=null,busy=false)}}
+        val pairedHost=requireNotNull(host){"配对已过期，请重新生成二维码"};require(Regex("[A-Za-z0-9_-]{43}").matches(pairedHost.credential)){"设备凭据无效"};actionMutex.withLock{ensureActive();withContext(NonCancellable){val book=(if(credentialsUnreadable)HostBook()else vault.readBook()).paired(pairedHost);vault.saveBook(book);credentialsUnreadable=false;activateBook(book)}}
+    }catch(e:CancellationException){throw e}catch(e:Exception){if(generation==pairGeneration)mutable.update{it.copy(error=errorMessage(e),pairingCode=null)}}finally{client?.dispatcher?.executorService?.shutdown();client?.connectionPool?.evictAll();if(generation==pairGeneration)mutable.update{it.copy(busy=false)}}}}
+    fun cancelPair(){pairGeneration++;pairingJob?.cancel();mutable.update{it.copy(pairingCode=null,pairingName=null,busy=false)}}
     fun selectProject(id:String){restoreNavigation=false;selectionJob?.cancel();navigation.edit().remove("${mutable.value.host?.hostId}:session").apply();mutable.update{it.copy(selectedProject=id,selectedSession=null,events=emptyList(),git=null,diff=null)}}
-    fun selectSession(id:String){val host=mutable.value.host?:return;restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();val session=mutable.value.snapshot.sessions.find{it.sessionId==id}?:return;mutable.update{it.copy(selectedSession=id,selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.selectedSession==id)it.copy(events=events)else it}}}}
+    fun selectSession(id:String){val host=mutable.value.host?:return;restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();val session=mutable.value.snapshot.sessions.find{it.sessionId==id}?:return;mutable.update{it.copy(selectedSession=id,selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(events=events)else it}}}}
     private suspend fun refreshSession(id:String,before:String?=null){val host=mutable.value.host?:return;val result=rpc().request("sessions.detail",buildJsonObject{put("sessionId",id);put("limit",500);if(before!=null)put("before",before)});val events=result["events"]?.jsonArray?.map{wire.decodeFromJsonElement(DeckEvent.serializer(),it)}?:emptyList();dao.saveEvents(events.map{CachedEvent(host.hostId,it.eventId.toLong(),it.sessionId,wire.encodeToString(DeckEvent.serializer(),it))})}
     private fun turnPayload(id:String,text:String)=buildJsonObject{put("sessionId",id);put("text",text);mutable.value.selectedModel.takeIf{it.isNotBlank()}?.let{put("model",it);mutable.value.selectedEffort.takeIf{it.isNotBlank()}?.let{effort->put("effort",effort)}}}
     private suspend fun loadModels(){try{val list=rpc().request("models.list")["models"]?.jsonArray?.map{wire.decodeFromJsonElement(CodexModel.serializer(),it)}?:emptyList();mutable.update{it.copy(models=list)}}catch(_:Exception){mutable.update{it.copy(models=emptyList())}}}
@@ -134,9 +161,19 @@ class DeckRepository(context:Context){
     fun decide(approval:Approval,decision:String){action{require(Instant.parse(approval.expiresAt).isAfter(Instant.now())){"审批已过期"};rpc().request("approvals.decide",payload("sessionId" to approval.sessionId,"turnId" to approval.turnId,"approvalId" to approval.approvalId,"decision" to decision));refreshSnapshot()}}
     fun addProject(){action{rpc().request("projects.add");mutable.update{it.copy(error="请在 Windows 管理窗选择并确认目录")}}}
     fun refresh(){action{refreshSnapshot();mutable.value.selectedSession?.let{refreshSession(it)}}}
-    fun refreshGit(){scope.launch{try{val id=mutable.value.selectedProject?:return@launch;val git=wire.decodeFromJsonElement(GitStatus.serializer(),rpc().request("git.status",payload("projectId" to id)));mutable.update{if(it.selectedProject==id)it.copy(git=git)else it}}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}}}
+    fun refreshGit(){val epoch=hostEpoch;scope.launch{try{if(epoch!=hostEpoch)return@launch;val id=mutable.value.selectedProject?:return@launch;val git=wire.decodeFromJsonElement(GitStatus.serializer(),rpc().request("git.status",payload("projectId" to id)));mutable.update{if(epoch==hostEpoch&&it.selectedProject==id)it.copy(git=git)else it}}catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{if(epoch==hostEpoch)it.copy(error=errorMessage(e))else it}}}}
     fun selectFile(file:GitFile){action{val id=mutable.value.selectedProject?:return@action;val hostId=mutable.value.host?.hostId;val diff=wire.decodeFromJsonElement(Diff.serializer(),rpc().request("git.diff",payload("projectId" to id,"fileId" to file.fileId)));mutable.update{if(it.selectedProject==id&&it.host?.hostId==hostId)it.copy(diff=diff)else it}}}
-    fun forgetHost(){action{val host=mutable.value.host;try{if(!mutable.value.stale)rpc().request("devices.revokeSelf")}finally{connectionJob?.cancel();transport?.close();selectionJob?.cancel();vault.clear();if(host!=null){dao.removeHost(host.hostId);dao.removeEvents(host.hostId)};mutable.value=DeckState(preferences=preferences.read());cursor="0"}}}
+    fun forgetHost(){action{
+        val host=mutable.value.host?:return@action
+        var revoked=false
+        try{if(!mutable.value.stale){rpc().request("devices.revokeSelf");revoked=true}}
+        catch(e:CancellationException){throw e}catch(_:Exception){}
+        val remaining=vault.readBook().removed(host.hostId);vault.saveBook(remaining)
+        activateBook(remaining)
+        dao.removeHost(host.hostId);dao.removeEvents(host.hostId)
+        navigation.edit().remove("${host.hostId}:session").apply()
+        if(!revoked)mutable.update{it.copy(error="已从平板移除此电脑，请在该 Windows 电脑撤销设备凭据")}
+    }}
     fun clearError(){mutable.update{it.copy(error=null)}}
     fun reconnect(){mutable.value.host?.let{startConnection(it)}}
     fun setTheme(theme:String){require(theme in listOf("system","light","dark"));val next=mutable.value.preferences.copy(theme=theme);preferences.save(next);mutable.update{it.copy(preferences=next)}}
