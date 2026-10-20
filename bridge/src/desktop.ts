@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { log } from './log.js';
 
 const localMessage = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('workspaces.sync') }).strict(),
   z.object({ action: z.literal('project.add'), path: z.string().min(1).max(32768) }).strict(),
   z.object({ action: z.literal('project.remove'), projectId: z.string().min(1).max(160) }).strict(),
   z.object({ action: z.literal('pair.create'), address: z.string().max(64) }).strict(),

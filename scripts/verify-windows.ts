@@ -86,6 +86,10 @@ const fixture = {
 try {
   const rendered = await inspect('state', fixture);
   assert(
+    rendered.borderless && !rendered.sidebarVisible,
+    'The simplified window must have no system title bar or sidebar',
+  );
+  assert(
     rendered.projects === 2 && rendered.approvals === 1 && rendered.approvalTabVisible,
     'Native approval visibility failed',
   );
@@ -100,9 +104,9 @@ try {
     'LAN address selection must prefer the existing listener',
   );
   for (const [width, height] of [
-    [900, 620],
+    [700, 560],
+    [780, 620],
     [1120, 740],
-    [1440, 900],
   ]) {
     for (const page of ['pair', 'projects', 'approvals', 'devices']) {
       const layout = await inspect('verify.layout', { width, height, page });
@@ -139,7 +143,8 @@ try {
     cleared.approvals === 0 && !cleared.approveEnabled && !cleared.rejectEnabled,
     'Resolved request retained active actions',
   );
-  const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=';
+  const image =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=';
   ui.stdin.write(
     JSON.stringify({
       type: 'pair.qr',
@@ -181,6 +186,8 @@ try {
     refreshPreservesSelection: true,
     expiredAndUnsupportedDecisionsDisabled: true,
     qrExpiry: true,
+    borderless: true,
+    noSidebar: true,
     scope:
       'Isolated native render/state/layout verification; no real human approval or pairing submitted',
   };

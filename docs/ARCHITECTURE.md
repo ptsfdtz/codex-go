@@ -21,6 +21,8 @@ flowchart LR
 
 Windows Bridge runs in the logged-in user's foreground session. Three .NET Framework helpers compile from reviewed C# sources on first use. DPAPI helper input is stdin, never an argument. Certificate creation uses Windows CNG RSA 3072/SHA-256. The WinForms process reads a bounded local JSON channel and emits only validated local management actions. It has no network listener.
 
+The Windows window has no system title bar or sidebar. Home combines Windows-local workspace sync with QR pairing; secondary management lives in the more menu. Sync discovers trusted config directories and paginated interactive thread cwd through stable config/read and thread/list, validates and deduplicates paths, then grants them only on the explicit local action. Desktop-only projects absent from these records cannot be enumerated. Sync is additive and never available over WSS. Snapshots refresh every two seconds and on durable changes; lists preserve selection and scroll. Device presence requires authenticated hello. Approval review shows full retained context, rechecks expiry after confirmation and disables duplicate submissions; the backend remains the exactly-once authority. Confirmation defaults to cancel. See DESKTOP_EXPERIENCE.md.
+
 `packages/protocol` defines independent strict AgentDeck requests. Android never sends raw Codex RPC or filesystem paths. Project addition opens the native folder selector; Android can only request that local action. A session binds a project ID to one upstream thread. A turn binds one local turn ID to its upstream turn ID. Two active sessions are allowed; reservations are acquired before asynchronous starts.
 
 ## Sources of truth

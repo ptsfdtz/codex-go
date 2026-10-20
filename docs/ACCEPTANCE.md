@@ -70,7 +70,7 @@ PC 窗口早期允许测试只证明审批传输；其子命令因 Desktop 缓�
 
 ## 补测与范围限制
 
-正式启动：`pnpm install --frozen-lockfile` → `pnpm build` → `pnpm start` → Windows Authorize folder → 本机选择可信 LAN 地址并生成 QR → Pad 扫码 → 两屏核码 → Windows 人工确认。必要时按 [SECURITY](SECURITY.md) 由管理员配置仅 Private/LocalSubnet/当前 Node/Bridge 端口的防火墙规则，不关闭整机防火墙。
+正式启动：`pnpm install --frozen-lockfile` → `pnpm build` → `pnpm start` → Windows 项目工作区 / 添加项目 → 本机选择可信 LAN 地址并生成 QR → Pad 扫码 → 两屏核码 → Windows 人工确认。必要时按 [SECURITY](SECURITY.md) 由管理员配置仅 Private/LocalSubnet/当前 Node/Bridge 端口的防火墙规则，不关闭整机防火墙。
 
 真机仪器测试只在明确设置 `-e physicalLan true` 时运行。先启动 `bridge/test/physical-host.ts`（设置 `AGENTDECK_TEST_ADDRESS`），人工配对，再逐项运行 PhysicalLifecycleTest、PhysicalGitTest、PhysicalConnectedUiTest、PhysicalCodingTest。Git 特殊用例先在本机用 `prepare-physical-git.ts` 准备**标记过的临时 harness**；实际 restart 需要协调在 READY_TO_CRASH 后停止/恢复目标测试进程。原始输出与设备 result JSON 必须同时核对。PhysicalApprovalTest 是可选人工 UI 仪器，不能仅凭它的进程退出码宣称审批通过；正常应用+认证审计更可靠。
 
@@ -87,3 +87,23 @@ PC 窗口早期允许测试只证明审批传输；其子命令因 Desktop 缓�
 最终证据：artifacts/chat-final-verification.json、chat-final-physical-ui-retest.txt、chat-real-result.json、chat-build.txt、chat-lint.txt、android-conversation-tests.xml，截图 chat-real-landscape.png / chat-real-portrait.png。前几轮的真实回复已到达但键盘/测试定位失败、Git 懒加载定位失败、遮盖消息滚出视口等原始日志保留，最终复测修复后才记 PASS。
 
 本轮没有重新要求用户触发实时人工审批或相机配对；既有上游审批验证属于之前版本，新的内联控件本轮由 fixture 验证上下文与禁用条件。前述 PARTIAL 发布门槛仍未消除；本记录不表示桌面全功能一致或正式 release 已完成。旧 delivery-verification / clean-final-package 记录属于改版前产物，当前 APK 以 chat-final-verification.json 中哈希为准。
+
+## Windows 管理窗口改版复测（2026-10-20）
+
+本轮将原生管理窗重做为中文侧栏的配对、项目、审批和设备四页，改善 DPI 缩放、窗口调整、完整路径、配对有效期、完整审批上下文、确认取消默认值、重复提交保护及行内反馈。设备在线状态来自完成 hello 的真实认证 socket。详见 [DESKTOP_EXPERIENCE](DESKTOP_EXPERIENCE.md)。
+
+实际通过：`pnpm build`、`pnpm check`、`pnpm format:check`；Vitest **33/33**（含设备 hello 前后及撤销后的在线状态断言）。`pnpm verify:windows` 通过真实 DPAPI 与证书持久化、原生窗口启动、12 组页面/尺寸布局、中文与长上下文、刷新保留所选项目、过期及不支持审批禁用和过期二维码清除。原生状态测试使用隔离 fixture，不提交真实审批或配对。
+
+在确认没有活动任务或 pending 审批后，使用原数据目录与端口重新启动编译后的生产 Bridge；实际窗口显示原有两个授权测试项目、Codex 已连接，以及原配对 Xiaomi 在线。未重置凭据、证书或平板数据。通过 Computer Use 查看实际窗口和页面；没有代替用户点击真实审批或配对确认。本轮不重新构建或重测 Android；原 APK 保持此前哈希。
+
+证据：`artifacts/windows-native.json`、`bridge-tests.xml`、`desktop-final-verification.json`；最新源码包校验以 `package-verification.json` 为准。本轮没有触发新窗口的真实人工批准/拒绝或相机扫码，既有发布 PARTIAL 项仍需独立补测。
+
+## Windows 极简单页与项目同步（2026-10-20）
+
+后续按用户反馈移除系统标题栏和侧栏：首页只保留工作区同步与扫码配对；项目、设备、审批与网络管理收在更多菜单。保留自定义拖动、调整大小、最小化和托盘关闭。同步使用生成 schema 验证的 `config/read` 和全分页 `thread/list`，不读取桌面私有文件，不接管桌面活动任务。
+
+实际执行 `pnpm build`、`pnpm check`、`pnpm format:check` 通过；Vitest **36/36**，包括新增的分页/归档/去重、ID 保持、安全路径跳过、重复 cursor 和非法响应；远程 `workspaces.sync` 被拒绝。12 组原生页面/尺寸检查调整为 700×560、780×620、1120×740，增加无系统标题栏和无侧栏断言，保留 DPAPI/证书/审批和 QR 检查。
+
+真实 Codex 只读 smoke 发现 18 个有效目录、跳过 62 个无效或临时目录，内存注册表重复同步 ID 不变。随后生产入口通过显式本机 `--sync-workspaces` 执行相同同步：原有两个测试授权保留，加导入 18 个目录共 20 个，实际保存时间；真实窗口显示 QR、无系统标题栏、原平板在线。官方 App 工具列出的六个本机项目中，两个目录实际存在并全部覆盖，另外四个已不存在，未静默创建。同步还包含有效的历史会话目录，不声称精确镜像桌面侧栏。
+
+本轮没有重新触发用户扫码核码或人工审批，不重新构建 Android，不将此前真实审批记录混作本轮验收。证据：`workspace-sync-smoke.json`、`desktop-simple-verification.json`、`windows-native.json`、`bridge-tests.xml`。此前 `desktop-final-verification.json` 属于四页设计；以本节及新报告为当前结果。发布 PARTIAL 项继续保留。

@@ -1,5 +1,21 @@
 # Changelog
 
+## Simplified Windows connection window — 2026-10-20
+
+- Removed the system title bar and sidebar; home combines workspace sync with QR pairing.
+- Moved project/device/network management into the more menu; added custom drag, resize, minimize and tray controls.
+- Discover projects via validated config/read and paginated thread/list, canonicalize paths, skip temporary/missing directories and preserve IDs across repeated syncs.
+- Generate pairing QR after explicit local sync and reuse existing credentials; preserve human approval requirements.
+- Added pagination/security tests and real read-only Codex smoke. Scope: docs/DESKTOP_EXPERIENCE.md.
+
+## Windows management UX update — 2026-10-20
+
+- Rebuilt the native window with Chinese sidebar navigation, consistent spacing, DPI scaling and resizable layouts.
+- Added guided QR pairing with expiry and explicit device-code confirmation, complete project paths and live device presence.
+- Replaced truncated Yes/No approval prompts with full scrollable context, explicit actions, expiry checks and safe cancel defaults.
+- Preserved list selection during refresh, added inline feedback and guarded duplicate submissions.
+- Added 12 native layout checks plus Unicode, long approval context, expiry and selection regression checks. See docs/DESKTOP_EXPERIENCE.md.
+
 ## Conversation UX update — 2026-10-20
 
 - Replaced dashboard/tab navigation with project/session sidebar, continuous conversation and persistent composer.

@@ -27,7 +27,7 @@ let decisionDone = false;
 const state = () =>
   desktop.send('state', {
     windowTitle: 'AgentDeck - Real Approval Test',
-    status: 'REAL APPROVAL TEST: Approvals tab > Review selected approval. No automatic decisions.',
+    status: '真实审批测试：进入审批中心，核对完整操作，再亲自选择拒绝此请求或允许一次…。',
     projects: store.projects(),
     devices: [],
     approvals: store.approvals(),

@@ -385,10 +385,14 @@ describe('real TLS + SQLite + JSONL fixture integration', () => {
     port = await server.listen('127.0.0.1', 0);
     const cred = await credential();
     const ws = await connect(cred);
+    const deviceId = pairing.authenticate(cred)!.deviceId;
+    expect(server.connectedDeviceIds()).toEqual([]);
     await call(ws, 'system.hello', { client: 'test', version: 1 });
+    expect(server.connectedDeviceIds()).toEqual([deviceId]);
     const close = once(ws, 'close');
-    pairing.revokeLocal(pairing.authenticate(cred)!.deviceId);
+    pairing.revokeLocal(deviceId);
     await close;
+    await waitFor(() => server.connectedDeviceIds().length === 0);
     expect(pairing.authenticate(cred)).toBeNull();
   });
   it('reopens persistent state after restart and reauthenticates without false completion', async () => {

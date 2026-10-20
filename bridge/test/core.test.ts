@@ -48,6 +48,9 @@ describe('protocol and trust boundaries', () => {
   });
   it('rejects arbitrary paths, raw methods, unsupported versions and excessive prompts', () => {
     expect(() =>
+      parseRequest({ v: 1, type: 'request', id: 'r', action: 'workspaces.sync', payload: {} }),
+    ).toThrow();
+    expect(() =>
       parseRequest({
         v: 1,
         type: 'request',

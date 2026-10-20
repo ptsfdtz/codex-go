@@ -22,6 +22,7 @@ import { Desktop } from './desktop.js';
 import { verifySandbox } from '../../scripts/verify-sandbox.js';
 import { invariant, safeError } from './errors.js';
 import { log, redact } from './log.js';
+import { syncWorkspacesLocal } from './workspaces.js';
 
 invariant(
   process.platform === 'win32',
@@ -68,6 +69,7 @@ const state = () =>
     listenAddress: address,
     codexReady: supervisor.ready,
     sandboxVerified: store.meta('sandboxVerifiedVersion') === CODEX_VERSION,
+    lastWorkspaceSync: store.meta('lastWorkspaceSync') ?? '',
     projects: store.projects(),
     devices: store.db
       .prepare('SELECT deviceId,displayName,createdAt FROM devices WHERE revokedAt IS NULL')
@@ -83,6 +85,48 @@ const state = () =>
     })),
     addresses: ['127.0.0.1', ...localAddresses()],
   });
+async function createPairingLocal(selected: string): Promise<void> {
+  invariant(
+    selected === '127.0.0.1' || localAddresses().includes(selected),
+    'CONFIG_ERROR',
+    'Choose an address assigned to this PC',
+  );
+  invariant(
+    new X509Certificate(tls.cert).checkIP(selected),
+    'CERTIFICATE_ADDRESS_MISMATCH',
+    'Network address changed; regenerate certificate locally and pair again',
+  );
+  if (selected !== address) {
+    await server.close();
+    server = makeServer();
+    await server.listen(selected, port);
+    address = selected;
+  }
+  // Only this Windows-local action grants future LAN rebinding. Never accept it over WSS.
+  store.setMeta('listenAddress', selected);
+  const qr = pairing.createLocal(`https://${address}:${port}`, tls.fingerprint);
+  desktop.send('pair.qr', {
+    ...qr,
+    image: (
+      await QRCode.toBuffer(JSON.stringify(qr), {
+        width: 512,
+        margin: 2,
+        errorCorrectionLevel: 'M',
+      })
+    ).toString('base64'),
+  });
+}
+async function syncAndPairLocal(): Promise<void> {
+  const result = await syncWorkspacesLocal(supervisor, projects);
+  store.setMeta('lastWorkspaceSync', result.at);
+  desktop.send('workspaces.synced', result);
+  const selected = address !== '127.0.0.1' ? address : localAddresses()[0];
+  if (selected) await createPairingLocal(selected);
+  else
+    desktop.send('error', {
+      message: '项目已同步；尚无可用局域网地址。连接 Wi-Fi 后点击显示配对码。',
+    });
+}
 async function shutdown(): Promise<void> {
   if (stopping) return;
   stopping = true;
@@ -116,39 +160,12 @@ desktop.on('action', (action: Record<string, unknown>) => {
         case 'project.remove':
           projects.removeLocal(String(action.projectId));
           break;
-        case 'pair.create': {
-          const selected = String(action.address);
-          invariant(
-            selected === '127.0.0.1' || localAddresses().includes(selected),
-            'CONFIG_ERROR',
-            'Choose an address assigned to this PC',
-          );
-          invariant(
-            new X509Certificate(tls.cert).checkIP(selected),
-            'CERTIFICATE_ADDRESS_MISMATCH',
-            'Network address changed; regenerate certificate locally and pair again',
-          );
-          if (selected !== address) {
-            await server.close();
-            server = makeServer();
-            await server.listen(selected, port);
-            address = selected;
-          }
-          // Only this Windows-local action grants future LAN rebinding. Never accept it over WSS.
-          store.setMeta('listenAddress', selected);
-          const qr = pairing.createLocal(`https://${address}:${port}`, tls.fingerprint);
-          desktop.send('pair.qr', {
-            ...qr,
-            image: (
-              await QRCode.toBuffer(JSON.stringify(qr), {
-                width: 512,
-                margin: 2,
-                errorCorrectionLevel: 'M',
-              })
-            ).toString('base64'),
-          });
+        case 'workspaces.sync':
+          await syncAndPairLocal();
           break;
-        }
+        case 'pair.create':
+          await createPairingLocal(String(action.address));
+          break;
         case 'pair.confirm':
           await pairing.confirmLocal(String(action.requestId), action.approve === true);
           break;
@@ -206,6 +223,16 @@ try {
   );
   store.setMeta('sandboxVerifiedVersion', CODEX_VERSION);
   await supervisor.start();
+  if (process.argv.includes('--sync-workspaces')) {
+    localBusy = true;
+    try {
+      await syncAndPairLocal();
+    } finally {
+      localBusy = false;
+    }
+  } else if (store.meta('lastWorkspaceSync') && address !== '127.0.0.1') {
+    await createPairingLocal(address);
+  }
   state();
   if (process.env.AGENTDECK_STARTUP_CHECK === '1') {
     await writeFile(
