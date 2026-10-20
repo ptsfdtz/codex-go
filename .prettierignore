@@ -1,0 +1,7 @@
+bridge/generated/
+pnpm-lock.yaml
+android/gradle/wrapper/
+artifacts/
+verification/
+android/app/schemas/
+TECHNICAL_DESIGN.md

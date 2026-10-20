@@ -1,0 +1,16 @@
+node_modules/
+dist/
+artifacts/
+.env
+*.log
+*.db*
+*.pem
+*.pfx
+*.jks
+*.keystore
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/local.properties
+.idea/
+.DS_Store

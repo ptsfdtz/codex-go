@@ -1,0 +1,54 @@
+name: AgentDeck CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bridge:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.3
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm check
+      - run: pnpm schema:verify
+      - run: pnpm exec vitest run --reporter=default --reporter=junit --outputFile=artifacts/bridge-tests.xml
+      - run: pnpm verify:windows
+      - run: pnpm audit --prod
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bridge-test-reports
+          path: artifacts/
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+        working-directory: android
+      - run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+        working-directory: android
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-debug-and-reports
+          path: |
+            android/app/build/outputs/apk/
+            android/app/build/reports/
+            android/app/build/test-results/
