@@ -1,5 +1,11 @@
 # AgentDeck 验收记录
 
+## 电脑端与 Android 样式统一（2026-10-20）
+
+仅修改 Windows React 界面：去掉宣传标题、插画、左右分栏与首页项目预览，改为黑白灰单列工作区/设备设置，跟随系统深浅主题，保留无系统标题栏、二维码过期、人工配对确认、审批二次确认和真实状态源。
+
+实际通过：React 7 项、Playwright 4 项，TypeScript、ESLint、Prettier 和 React 生产构建。浏览器检查 1000×700、780×600、1200×800 三个尺寸，二维码流程无横向或整页纵向溢出；检查深色主题及连接断开状态。截图 artifacts/tauri-connected-fixture.png、tauri-ui-fixture-780x600.png、tauri-pair-dark-fixture.png 均标注 UI FIXTURE · NOT LIVE，不能当作真实设备配对证据。本轮未修改 Rust/Android 或重跑真机审批。Windows release、NSIS 安装器和便携版已重新构建并打包通过，见 artifacts/simple-desktop-build.txt 与 tauri-package.json；已安装程序未自动替换。
+
 ## 当前 0.3.0 原生 Rust 与旧代码清理（2026-10-20）
 
 旧 Node Bridge、WinForms/C# 辅助程序、Zod 协议包、无用生成 TS 和对应启动/测试/打包脚本已删除。保留 React/Tauri/Rust、Android 和 314 份原样 JSON schema。用户数据库、证书、项目授权、配对记录及已安装旧程序均未修改。

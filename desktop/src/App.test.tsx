@@ -53,7 +53,7 @@ afterEach(cleanup);
 describe('desktop human interactions', () => {
   it('shows real state without starting sync or pairing automatically', async () => {
     render(<App />);
-    await screen.findByText('1 个工作区，已就位');
+    await screen.findByText('1 个工作区');
     expect(mocked.action).not.toHaveBeenCalled();
     expect(screen.getByText('Codex 已就绪')).toBeTruthy();
     expect(screen.getByRole('button', { name: '收起到托盘' })).toBeTruthy();

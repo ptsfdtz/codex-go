@@ -2,21 +2,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ArrowRight,
-  Check,
-  ChevronDown,
-  ChevronRight,
   CircleCheck,
   Ellipsis,
   Folder,
-  Layers2,
   LoaderCircle,
-  LockKeyhole,
   Minus,
-  Monitor,
   Plus,
   QrCode,
   RefreshCw,
-  ScanLine,
   ShieldCheck,
   Smartphone,
   Unplug,
@@ -92,23 +85,6 @@ function Modal({
       )}
       {children}
     </dialog>
-  );
-}
-
-function AppMark({ small = false }: { small?: boolean }) {
-  return (
-    <span className={`app-mark ${small ? 'small' : ''}`} aria-hidden="true">
-      <svg viewBox="0 0 40 40" fill="none">
-        <path d="m9 14 11-6 11 6-11 6-11-6Z" fill="currentColor" />
-        <path
-          d="m9 20 11 6 11-6M9 26l11 6 11-6"
-          stroke="currentColor"
-          strokeWidth="2.7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </span>
   );
 }
 
@@ -257,9 +233,7 @@ export function App() {
     <div className="app-shell">
       <header className="topbar" onPointerDown={drag}>
         <div className="brand">
-          <AppMark small />
           <span>AgentDeck</span>
-          <span className="brand-tag">桌面连接器</span>
         </div>
         <div className="window-actions">
           <span className={`status ${ready ? 'ready' : ''}`}>
@@ -320,241 +294,135 @@ export function App() {
         </div>
       </header>
       <main>
-        <section className="intro">
-          <div className="eyebrow">
-            <span /> YOUR WORK, WITH YOU
+        <div className="connection-content">
+          <div className="page-heading">
+            <h1>连接平板</h1>
+            <p>同步工作区后，在平板扫码即可。</p>
           </div>
-          <h1>
-            从电脑，<span>延伸到平板。</span>
-          </h1>
-          <p>同步工作区，扫码连接。让 Codex 随时触手可及。</p>
-        </section>
-        {visibleError && (
-          <div className="notice" role="alert">
-            <span>{visibleError}</span>
-            {notice && (
-              <button className="icon-button" aria-label="关闭提示" onClick={() => setNotice(null)}>
-                <X size={15} />
-              </button>
-            )}
-          </div>
-        )}
-        <section className="connection-grid" aria-label="工作区与配对">
-          <div className="workspace-pane">
-            <div className="section-label">
-              <span className="step-index">01</span>工作区同步
-            </div>
-            <div className="workspace-heading">
-              <span className="folder-symbol">
-                <Layers2 size={25} strokeWidth={1.6} />
-              </span>
-              <div>
-                <h2>
-                  {state.projects.length
-                    ? `${state.projects.length} 个工作区，已就位`
-                    : '把工作带在身边'}
-                </h2>
-                <p>
-                  {state.lastWorkspaceSync
-                    ? `最近同步于 ${time(state.lastWorkspaceSync)}`
-                    : '同步这台电脑上的 Codex 项目目录'}
-                </p>
-              </div>
-            </div>
-            <div className="workspace-list">
-              {state.projects.length ? (
-                state.projects.slice(0, 3).map((project, index) => (
-                  <button
-                    key={project.projectId}
-                    className="workspace-row"
-                    onClick={() => choose('projects')}
-                    title={project.canonicalPath}
-                  >
-                    <span className={`project-glyph tone-${index}`}>
-                      <Folder size={17} strokeWidth={1.7} />
-                    </span>
-                    <span className="project-name">{project.name}</span>
-                    <ChevronRight size={14} />
-                  </button>
-                ))
-              ) : (
-                <div className="workspace-empty">
-                  <div className="empty-lines">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <p>同步后，在平板自由切换项目。</p>
-                </div>
-              )}
-              {state.projects.length > 3 && (
-                <button className="text-button all-workspaces" onClick={() => choose('projects')}>
-                  查看全部工作区
-                  <ArrowRight size={13} />
+          {visibleError && (
+            <div className="notice" role="alert">
+              <span>{visibleError}</span>
+              {notice && (
+                <button
+                  className="icon-button"
+                  aria-label="关闭提示"
+                  onClick={() => setNotice(null)}
+                >
+                  <X size={16} />
                 </button>
               )}
             </div>
-            <div className="sync-action">
+          )}
+          <section className="connection-settings" aria-label="工作区与配对">
+            <div className="setting-row">
+              <Folder size={20} />
+              <div className="setting-copy">
+                <h2>工作区</h2>
+                <button className="text-button workspace-count" onClick={() => choose('projects')}>
+                  {state.projects.length ? state.projects.length + ' 个工作区' : '尚未同步工作区'}
+                </button>
+                {state.lastWorkspaceSync && (
+                  <span className="sync-time"> · {time(state.lastWorkspaceSync)} 同步</span>
+                )}
+              </div>
               <button
-                className="button primary"
+                className="button secondary"
                 disabled={!ready || busy !== null}
                 onClick={() => void send('sync', { action: 'workspaces.sync' })}
               >
                 {busy === 'sync' ? (
-                  <LoaderCircle className="spin" size={17} />
+                  <LoaderCircle className="spin" size={16} />
                 ) : (
                   <RefreshCw size={16} />
-                )}{' '}
-                {busy === 'sync'
-                  ? '正在同步工作区…'
-                  : state.projects.length
-                    ? '同步工作区'
-                    : '同步 Codex 工作区'}
-                {busy !== 'sync' && <ArrowRight className="button-arrow" size={16} />}
+                )}
+                {busy === 'sync' ? '正在同步…' : '同步工作区'}
               </button>
-              <span className="action-note">
-                {view.running
-                  ? '仅同步目录授权，文件保留在电脑。'
-                  : '服务未连接，已显示的信息可能过期。'}
-              </span>
             </div>
-          </div>
-          <div className="pair-pane">
-            <div className="section-label">
-              <span className="step-index">02</span>
-              {knownDevice && !showPair ? (online ? '平板已连接' : '平板已配对') : '扫码连接'}
-              <span className="secure-pill">
-                <LockKeyhole size={11} />
-                加密连接
-              </span>
-            </div>
-            {knownDevice && !showPair ? (
-              <div className="connected-view">
-                <div className="tablet-visual">
-                  <div className="tablet-frame">
-                    <AppMark />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                  <span className="connected-badge">
-                    <Check size={17} />
-                  </span>
-                </div>
-                <h2>{knownDevice.displayName}</h2>
+            <div className="setting-row">
+              <Smartphone size={20} />
+              <div className="setting-copy">
+                <h2>{knownDevice ? knownDevice.displayName : '平板'}</h2>
                 <p>
                   {online
-                    ? '连接已建立。在平板上继续你的工作。'
-                    : '打开平板上的 AgentDeck 即可重新连接。'}
+                    ? '已连接'
+                    : knownDevice
+                      ? view.running
+                        ? '已配对 · 等待连接'
+                        : '服务未连接'
+                      : '尚未配对'}
                 </p>
-                <div className={`connection-state ${online ? '' : 'offline'}`}>
-                  <i />
-                  {online ? '实时连接中' : view.running ? '已配对 · 等待平板连接' : '服务未连接'}
-                </div>
+              </div>
+              {knownDevice && (
                 <button
-                  className="text-button"
+                  className="button secondary"
                   disabled={!ready || busy !== null}
                   onClick={() => void pair()}
                 >
-                  配对其他设备
-                  <ChevronRight size={14} />
+                  {busy === 'pair' ? '正在生成…' : '重新配对'}
                 </button>
-              </div>
-            ) : (
-              <>
-                <div className={`qr-frame ${activeQr ? 'has-code' : ''}`}>
-                  {activeQr ? (
+              )}
+            </div>
+          </section>
+          {(!knownDevice || showPair) && (
+            <section className="pair-area" aria-label="扫码配对">
+              {activeQr ? (
+                <>
+                  <div className="qr-frame">
                     <img
-                      src={`data:image/png;base64,${activeQr.image}`}
+                      src={'data:image/png;base64,' + activeQr.image}
                       alt="使用 AgentDeck 平板端扫描此配对码"
                     />
-                  ) : (
-                    <div className="qr-placeholder">
-                      <QrCode size={64} strokeWidth={1} />
-                      <span>{view.qr && seconds === 0 ? '配对码已过期' : '等待安全配对'}</span>
-                      <button
-                        className="button qr-generate"
-                        disabled={!ready || busy !== null || !effectiveAddress}
-                        onClick={() => void pair()}
-                      >
-                        {busy === 'pair' ? (
-                          <LoaderCircle className="spin" size={15} />
-                        ) : (
-                          <ScanLine size={15} />
-                        )}{' '}
-                        {busy === 'pair' ? '正在生成…' : view.qr ? '重新生成' : '显示配对码'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="pair-description">
-                  <h2>{activeQr ? '在平板上打开 AgentDeck' : '连接你的平板'}</h2>
-                  <p>
-                    {activeQr
-                      ? '进入配对页面，扫描上方二维码。'
-                      : '电脑和平板连接同一 Wi-Fi 即可。'}
-                  </p>
-                  <div className="qr-footer">
-                    {activeQr ? (
-                      <>
-                        <span className="expiry">
-                          <i />
-                          {seconds} 秒后失效
-                        </span>
-                        <button
-                          className="text-button"
-                          disabled={busy !== null}
-                          onClick={() => void pair()}
-                        >
-                          <RefreshCw size={12} />
-                          刷新
-                        </button>
-                      </>
-                    ) : (
-                      <span className="privacy-note">
-                        <ShieldCheck size={12} />
-                        扫码后，在电脑上核对配对码
-                      </span>
-                    )}
                   </div>
-                </div>
-                {knownDevice && showPair && (
-                  <button className="text-button back-device" onClick={() => setShowPair(false)}>
-                    返回已连接设备
+                  <p>用平板上的 AgentDeck 扫码</p>
+                  <div className="qr-footer">
+                    <span>{seconds} 秒后失效</span>
+                    <button
+                      className="text-button"
+                      disabled={busy !== null}
+                      onClick={() => void pair()}
+                    >
+                      刷新
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p>{view.qr && seconds === 0 ? '配对码已过期' : '电脑和平板需连接同一 Wi-Fi'}</p>
+                  <button
+                    className="button primary"
+                    disabled={!ready || busy !== null || !effectiveAddress}
+                    onClick={() => void pair()}
+                  >
+                    {busy === 'pair' ? (
+                      <LoaderCircle className="spin" size={17} />
+                    ) : (
+                      <QrCode size={17} />
+                    )}
+                    {busy === 'pair' ? '正在生成…' : view.qr ? '重新生成配对码' : '显示配对码'}
                   </button>
-                )}
-              </>
-            )}
-          </div>
-        </section>
-        {approvals.length > 0 && (
-          <button className="approval-banner" onClick={() => choose('approvals')}>
-            <ShieldCheck size={18} />
-            <span>
-              <strong>{approvals.length} 个操作等待你确认</strong>
-              <span>检查后允许一次，或拒绝。</span>
-            </span>
-            <span className="review-link">
-              查看审批
+                </>
+              )}
+              {knownDevice && (
+                <button className="text-button" onClick={() => setShowPair(false)}>
+                  返回已配对设备
+                </button>
+              )}
+            </section>
+          )}
+          {online && !showPair && <p className="connected-hint">可以在平板上继续工作了。</p>}
+          {!view.running && <p className="stale-hint">服务未连接，以上信息可能已过期。</p>}
+          {approvals.length > 0 && (
+            <button className="approval-banner" onClick={() => choose('approvals')}>
+              <ShieldCheck size={18} />
+              <span>{approvals.length} 个操作等待你确认</span>
               <ArrowRight size={16} />
-            </span>
+            </button>
+          )}
+          <button className="text-button network-link" onClick={() => choose('network')}>
+            连接详情
           </button>
-        )}
+        </div>
       </main>
-      <footer className="app-footer">
-        <span>
-          <Monitor size={14} />
-          这台电脑<span className="footer-dot">·</span>
-          <button className="text-button" onClick={() => choose('network')}>
-            {state.endpoint?.replace('https://', '') ?? '等待连接'}
-            <ChevronDown size={11} />
-          </button>
-        </span>
-        <span>
-          <ShieldCheck size={13} />
-          本机授权 · 安全配对
-        </span>
-      </footer>
       {view.pairing && view.pairing.requestId !== dismissedPair ? (
         <Modal
           error={visibleError}

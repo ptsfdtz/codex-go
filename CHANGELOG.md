@@ -1,5 +1,11 @@
 # Changelog
 
+## Simplified desktop appearance — 2026-10-20
+
+- Matched Android's monochrome palette, compact typography, rounded controls and system light/dark appearance.
+- Replaced the promotional split layout with two rows for workspace sync and tablet connection; removed illustrations and project previews.
+- Kept pairing expiration, human confirmations, approval handling and device management; verified the QR flow fits the minimum window without page scrolling.
+
 ## Native Rust Bridge 0.3.0 — 2026-10-20
 
 - Moved TLS/WSS, SQLite, DPAPI, Codex supervision, approvals, paths and Git into native Rust.
