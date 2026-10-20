@@ -1,5 +1,19 @@
 # Changelog
 
+## Native Rust Bridge 0.3.0 — 2026-10-20
+
+- Moved TLS/WSS, SQLite, DPAPI, Codex supervision, approvals, paths and Git into native Rust.
+- Removed the obsolete Node Bridge, WinForms/C# helpers, legacy launchers and their test/build scripts.
+- Kept byte-identical pinned JSON schemas under packages/codex-protocol and moved required fixtures into Rust tests.
+- Simplified dependencies, CI and packaging to the React/Tauri/Rust implementation. Existing user data and installed application are untouched.
+
+## Tauri Windows desktop 0.2.0 — 2026-10-20
+
+- Replaced the Windows desktop UI with React in a borderless Tauri window: warm-white/green styling, two-step sync/pair flow, connected/offline device states and optional management panels.
+- Added a Rust local backend for windows/tray, typed IPC, bounded correlated messages, data-directory locking and Windows Job Object lifecycle.
+- Bundled the existing Node Bridge as an explicit compatibility service retaining projects, TLS pins, devices and Codex behavior. This is not a full Rust Bridge rewrite.
+- Added React/browser/Rust/stdio integration coverage and NSIS packaging with pinned runtime resources.
+
 ## Simplified Windows connection window — 2026-10-20
 
 - Removed the system title bar and sidebar; home combines workspace sync with QR pairing.

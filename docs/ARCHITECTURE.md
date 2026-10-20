@@ -1,5 +1,7 @@
 # Architecture
 
+Windows 0.3.0 uses React in Tauri 2, a Rust desktop host and a native Rust Bridge (`desktop/core`). The host owns windows, tray, locks, native folder selection and bounded correlated IPC; the service implements TLS/WSS, SQLite, Codex, Git, pairing and approvals. Node is only a build/test tool. The former Node Bridge and WinForms/C# helpers have been removed. See [migration boundaries](TAURI_MIGRATION.md).
+
 The first production launch binds loopback. A Windows-local QR action may save an exact private interface address; production restart restores it only while assigned and certified. No remote action can change that listener grant. The Codex child environment excludes Desktop cached PowerShell and MSIX alias paths that Windows MXC cannot execute; this does not alter the parent PATH, user login/configuration, or sandbox permissions.
 
 ## Components
@@ -10,7 +12,8 @@ flowchart LR
   R <--> C[Room stale cache]
   R --> V[Keystore encrypted device credential]
   R <-->|pinned HTTPS/WSS v1| B[BridgeServer]
-  U[Local Windows management + tray] --> P[Pairing / ProjectRegistry]
+  U[React / Tauri window] --> D[Rust local backend]
+  D -->|private stdio| P[Native Rust service: Pairing / ProjectRegistry]
   B --> P
   B --> T[Tasks + Approvals]
   T <--> S[SQLite journal and indexes]
@@ -19,11 +22,11 @@ flowchart LR
   X --> W[MXC authorized workspace]
 ```
 
-Windows Bridge runs in the logged-in user's foreground session. Three .NET Framework helpers compile from reviewed C# sources on first use. DPAPI helper input is stdin, never an argument. Certificate creation uses Windows CNG RSA 3072/SHA-256. The WinForms process reads a bounded local JSON channel and emits only validated local management actions. It has no network listener.
+The Windows Bridge runs in the logged-in user session. Rust calls Windows CurrentUser DPAPI directly with the legacy entropy identifier, preserving existing encrypted certificates. New certificates are generated with rcgen. No C# helper compiler or Node runtime ships with the application.
 
 The Windows window has no system title bar or sidebar. Home combines Windows-local workspace sync with QR pairing; secondary management lives in the more menu. Sync discovers trusted config directories and paginated interactive thread cwd through stable config/read and thread/list, validates and deduplicates paths, then grants them only on the explicit local action. Desktop-only projects absent from these records cannot be enumerated. Sync is additive and never available over WSS. Snapshots refresh every two seconds and on durable changes; lists preserve selection and scroll. Device presence requires authenticated hello. Approval review shows full retained context, rechecks expiry after confirmation and disables duplicate submissions; the backend remains the exactly-once authority. Confirmation defaults to cancel. See DESKTOP_EXPERIENCE.md.
 
-`packages/protocol` defines independent strict AgentDeck requests. Android never sends raw Codex RPC or filesystem paths. Project addition opens the native folder selector; Android can only request that local action. A session binds a project ID to one upstream thread. A turn binds one local turn ID to its upstream turn ID. Two active sessions are allowed; reservations are acquired before asynchronous starts.
+`desktop/core/src/protocol.rs` defines strict AgentDeck requests; Android maintains its Kotlin wire models. Pinned upstream contracts are under `packages/codex-protocol/`. Android never sends raw Codex RPC or filesystem paths. Project addition opens the native folder selector; Android can only request that local action. A session binds a project ID to one upstream thread. A turn binds one local turn ID to its upstream turn ID. Two active sessions are allowed; reservations are acquired before asynchronous starts.
 
 ## Sources of truth
 
@@ -35,7 +38,7 @@ Android Room is an offline cache. The UI disables task and approval actions whil
 
 ## Limits and recovery
 
-JSONL frames: 8 MiB; outstanding upstream calls: 128; writes: 16 MiB. Public inbound WSS frames: 1 MiB; at most 8 connections / 64 TCP connections; slow socket buffers close after 2 MiB and replay on reconnect. Individual journal payloads retain a maximum 256 KiB preview and explicitly signal truncation. Replay/history pages have a 512 KiB payload budget. Approval context is limited to 128 KiB. Git lists at most 2,000 safe entries; text previews are 256 KiB total. The client bounds queued events and closes/replays on overload.
+JSONL frames: 8 MiB; outstanding upstream calls: 128; writes: a two-slot queue of frames up to 8 MiB each. Public inbound WSS frames: 1 MiB; at most 8 connections / 64 TCP connections; slow socket buffers close after 2 MiB and replay on reconnect. Individual journal payloads retain a maximum 256 KiB preview and explicitly signal truncation. Replay/history pages have a 512 KiB payload budget. Approval context is limited to 128 KiB. Git lists at most 2,000 safe entries; text previews are 256 KiB total. The client bounds queued events and closes/replays on overload.
 
 Raw upstream stderr is diagnostics byte counts only, never task output. Missing/unknown methods fail closed. Pending approvals expire after five minutes, on loss of the last client, on revocation, upstream loss or restart. A disconnected device cannot cause automatic approval. Large previews and retained journals are not a complete archive of every upstream byte; the UI exposes truncation.
 

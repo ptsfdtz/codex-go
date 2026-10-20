@@ -1,5 +1,7 @@
 # Codex compatibility
 
+Windows desktop 0.3.0 uses React 19.2.0, Vite 6.4.1, Tauri 2.11.5 and a native Rust Bridge. Locally built with Rust 1.97.1/MSVC; the service declares Rust 1.88 minimum. Both Cargo.lock files pin dependencies. Android v1 is unchanged. Node 22 is required for source tooling, not the installed application. The old Node service and C# helper sources have been removed.
+
 Validated locally 2026-10-20 on Windows 11 Pro build 26300; **Codex CLI 0.159.2**. Node 22.22.3, pnpm 12.3.4, Git 2.54.0, JDK 21, Android SDK 36. Physical device detected: Xiaomi `2410CRP4CC`, Android 16/API 36, 2136×3200. Detection is not successful physical acceptance.
 
 ## Sources and generated contracts
@@ -11,21 +13,22 @@ Validated locally 2026-10-20 on Windows 11 Pro build 26300; **Codex CLI 0.159.2*
 - [Official repository App Server README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md)
 - [Protocol source](https://github.com/openai/codex/tree/main/codex-rs/app-server-protocol)
 
-The local CLI's exported stable schema is the implementation authority. `codex app-server --help`, `generate-ts --help`, `generate-json-schema --help` were inspected before generation. Original exports live in `bridge/generated/codex` and `bridge/generated/schema`: **1,048 files**. No `--experimental` option was supplied. The schema manifest `bridge/schema-lock.json` SHA-256 is:
+The local CLI's exported stable schema is the implementation authority. `codex app-server --help`, `generate-ts --help`, `generate-json-schema --help` were inspected before generation. The original export contained 1,048 TS/JSON files. Rust consumes JSON schemas directly; the 314 JSON files now live in `packages/codex-protocol/schema`, unchanged byte-for-byte. Unused generated TypeScript was removed. The filtered `packages/codex-protocol/schema-lock.json` manifest SHA-256 is:
 
 ```text
-0ef515a4f603f09721a85560dfc42534f02eabcccf66ee62668d1f6b0c9a69f8
+ddf660102dca5dd531ad7a4e9db9feb3c2c3360b7022c334b3df04f64138e484
 ```
 
-`pnpm schema:verify` hashes every file; `schema:record` only records an explicitly reviewed regeneration. It does not verify against a newly installed CLI. Production checks the exact CLI version and refuses a mismatch. Regenerate with the pinned binary:
+`pnpm schema:verify` hashes every JSON schema and rejects additions/removals. Updating the manifest requires explicit review; no automatic record command is retained. It does not verify against a newly installed CLI. Production checks the exact CLI version and refuses a mismatch. Regenerate with the pinned binary:
 
 ```powershell
-codex app-server generate-ts --out bridge/generated/codex
-codex app-server generate-json-schema --out bridge/generated/schema
+codex app-server generate-json-schema --out <temporary-review-directory>
 pnpm schema:verify
 ```
 
 ## Methods actually used
+
+The table describes the pinned integration contract. Real verification entries include historical Node-version checks; current Rust evidence and pending physical checks are listed separately in ACCEPTANCE.md.
 
 | Method                         | Contract / role                                                         | Verification                                |
 | ------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------- |
@@ -65,7 +68,7 @@ Each response is validated against the exported method-specific JSON schema. Ori
 
 9. Real command review initially succeeded as a transport operation while the selected Desktop cached PowerShell executable failed to start. Removing that child PATH entry exposed an MSIX `pwsh.exe` alias, which MXC also refused. Production now removes only those incompatible cached PowerShell/WindowsApps locations from the child environment. Installed unpackaged PowerShell and Windows PowerShell remain discoverable; the parent environment and sandbox permissions are unchanged. The real shell smoke requires exit code 0 and an exact output marker. See [the pinned upstream shell discovery implementation](https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/shell-command/src/shell_detect.rs) and [official configuration reference](https://developers.openai.com/codex/config-reference/). No undocumented Codex request/config field was added.
 
-Physical tablet command approval and rejection are now verified through authenticated WSS request audit and authoritative terminals. Approval success additionally requires actual `AGENTDECK_APPROVAL_OK` command output with exit code 0; `turn/completed` alone never proves individual tool success. Real file/permission variants remain separately listed in `ACCEPTANCE.md`.
+Historical Node-version physical tablet command approval and rejection were verified through authenticated WSS request audit and authoritative terminals. Approval success additionally requires actual `AGENTDECK_APPROVAL_OK` command output with exit code 0; `turn/completed` alone never proves individual tool success. Real file/permission variants remain separately listed in `ACCEPTANCE.md`.
 
 ## Local workspace discovery
 

@@ -1,0 +1,132 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod host;
+use host::{Action, Host, View};
+use std::{path::PathBuf, sync::Arc};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, State,
+};
+
+#[tauri::command]
+fn host_snapshot(host: State<'_, Arc<Host>>) -> View {
+    host.snapshot()
+}
+#[tauri::command]
+async fn host_action(
+    host: State<'_, Arc<Host>>,
+    action: Action,
+) -> Result<serde_json::Value, String> {
+    let host = Arc::clone(&host);
+    tauri::async_runtime::spawn_blocking(move || host.action(action))
+        .await
+        .map_err(|_| "本机操作意外中断".to_owned())?
+}
+#[tauri::command]
+async fn pick_project(host: State<'_, Arc<Host>>) -> Result<Option<serde_json::Value>, String> {
+    let host = Arc::clone(&host);
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("选择允许平板访问的项目目录")
+            .pick_folder()
+        {
+            host.add_folder(path).map(Some)
+        } else {
+            Ok(None)
+        }
+    })
+    .await
+    .map_err(|_| "目录选择器意外关闭".to_owned())?
+}
+#[tauri::command]
+async fn quit_app(app: tauri::AppHandle, host: State<'_, Arc<Host>>) -> Result<(), String> {
+    let host = Arc::clone(&host);
+    tauri::async_runtime::spawn_blocking(move || host.shutdown())
+        .await
+        .map_err(|_| "服务退出失败".to_owned())?;
+    app.exit(0);
+    Ok(())
+}
+fn runtime(app: &tauri::AppHandle) -> PathBuf {
+    if cfg!(debug_assertions) {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/native-runtime")
+    } else {
+        app.path()
+            .resource_dir()
+            .expect("resource directory")
+            .join("runtime")
+    }
+}
+fn reveal(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| reveal(app)))
+        .invoke_handler(tauri::generate_handler![
+            host_snapshot,
+            host_action,
+            pick_project,
+            quit_app
+        ])
+        .setup(|app| {
+            let host = Host::new(app.handle().clone());
+            app.manage(Arc::clone(&host));
+            let root = runtime(app.handle());
+            std::thread::spawn(move || {
+                if let Err(e) = host.start(root) {
+                    host.error(e);
+                }
+            });
+            let show = MenuItem::with_id(app, "show", "打开 AgentDeck", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "停止并退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().expect("application icon").clone())
+                .tooltip("AgentDeck · 平板工作区")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        reveal(tray.app_handle());
+                    }
+                })
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => reveal(app),
+                    "quit" => {
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            app.state::<Arc<Host>>().shutdown();
+                            app.exit(0);
+                        });
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("AgentDeck initialization failed")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<Arc<Host>>().shutdown();
+            }
+        });
+}

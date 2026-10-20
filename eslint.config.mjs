@@ -6,14 +6,15 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/artifacts/**',
-      'bridge/generated/**',
+      'packages/codex-protocol/**',
       'android/**',
+      'desktop/src-tauri/**',
     ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['**/*.ts'],
+    files: ['**/*.ts', '**/*.tsx'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': [
@@ -30,6 +31,7 @@ export default tseslint.config(
         console: 'readonly',
         Buffer: 'readonly',
         setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         URL: 'readonly',
         structuredClone: 'readonly',
       },

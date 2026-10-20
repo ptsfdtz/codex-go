@@ -1,4 +1,9 @@
 node_modules/
+desktop/src-tauri/target/
+desktop/core/target/
+desktop/src-tauri/resources/
+desktop/src-tauri/gen/
+desktop/test-results/
 dist/
 artifacts/
 .env

@@ -1,0 +1,31 @@
+[package]
+name = "agentdeck-desktop"
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.85"
+description = "AgentDeck Windows desktop host"
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+tauri-codegen = "=2.6.3"
+
+[dependencies]
+tauri = { version = "=2.11.5", features = ["tray-icon"] }
+tauri-runtime = "=2.11.3"
+tauri-runtime-wry = "=2.11.4"
+tauri-utils = "=2.9.3"
+tauri-macros = "=2.6.3"
+tauri-plugin-single-instance = "=2.3.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+fs2 = "0.4"
+dunce = "=1.0.5"
+rfd = "=0.16.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

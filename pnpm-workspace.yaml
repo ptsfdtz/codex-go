@@ -1,6 +1,4 @@
 packages:
-  - bridge
-  - packages/*
+  - desktop
 allowBuilds:
-  better-sqlite3: true
   esbuild: true

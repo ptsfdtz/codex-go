@@ -1,27 +1,27 @@
 {
   "name": "agentdeck",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "packageManager": "pnpm@12.3.4",
   "engines": {
     "node": ">=22.22.0 <23"
   },
   "scripts": {
-    "build": "pnpm -r build && node scripts/build-assets.mjs",
+    "desktop:dev": "pnpm desktop:prepare && pnpm --filter @agentdeck/desktop desktop:dev",
+    "desktop:prepare": "node scripts/prepare-native-desktop.mjs",
+    "desktop:build": "pnpm desktop:prepare && pnpm --filter @agentdeck/desktop desktop:build",
+    "desktop:test": "pnpm --filter @agentdeck/desktop test && cargo test --locked --manifest-path desktop/core/Cargo.toml && cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml",
+    "native:check": "node scripts/verify-native-runtime.mjs",
+    "build": "pnpm --filter @agentdeck/desktop build",
     "check": "pnpm -r check && eslint .",
-    "test": "vitest run",
-    "test:integration": "vitest run bridge/test/integration.test.ts",
-    "smoke:codex": "tsx scripts/smoke-codex.ts",
-    "start": "node bridge/dist/bridge/src/main.js",
-    "dev": "tsx bridge/src/main.ts",
-    "schema:verify": "tsx scripts/schema.ts verify",
-    "schema:record": "tsx scripts/schema.ts record",
-    "verify:windows": "tsx scripts/verify-windows.ts",
-    "verify:sandbox": "tsx scripts/verify-sandbox.ts",
-    "smoke:bridge": "tsx scripts/real-bridge-smoke.ts",
-    "smoke:approval": "tsx scripts/real-approval-smoke.ts",
-    "package:windows": "node scripts/package-windows.mjs",
+    "test": "pnpm desktop:test",
+    "test:integration": "cargo test --locked --manifest-path desktop/core/Cargo.toml --test native",
+    "smoke:codex": "cargo test --locked --manifest-path desktop/core/Cargo.toml --test real real_codex -- --ignored --nocapture",
+    "start": "node scripts/launch-desktop.mjs",
+    "dev": "pnpm desktop:dev",
+    "schema:verify": "node scripts/schema.mjs",
+    "package:windows": "node scripts/package-desktop.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
@@ -30,9 +30,7 @@
     "eslint": "9.39.1",
     "typescript-eslint": "8.46.2",
     "prettier": "3.6.2",
-    "tsx": "4.20.6",
     "typescript": "5.9.3",
-    "vitest": "3.2.4",
     "@types/node": "22.18.12"
   }
 }

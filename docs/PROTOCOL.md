@@ -1,5 +1,7 @@
 # AgentDeck protocol v1
 
+Windows 0.3.0 uses a private stdio channel between the Rust Tauri host and native Rust Bridge. It is never exposed over WSS; local `workspaces.sync` and `pair.create` cannot be invoked by Android. `localRequestId` correlates local actions independently of the pairing `requestId`. React receives revisioned snapshots and human confirmation requests through typed Tauri commands/events. Android v1 envelopes and pinned Codex JSON schemas remain unchanged. See [desktop migration](TAURI_MIGRATION.md).
+
 TLS 1.2+ HTTPS; WSS at `/api/v1/ws`; no plaintext transport. The certificate fingerprint is SHA-256 of certificate DER (not SPKI). Android verifies the exact pin, validity, self-signature and default HTTPS hostname matching; IP SANs must match the selected endpoint. Redirects are disabled.
 
 ## Pairing

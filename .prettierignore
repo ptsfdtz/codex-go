@@ -1,4 +1,8 @@
-bridge/generated/
+packages/codex-protocol/
+desktop/core/target/
+desktop/src-tauri/target/
+desktop/src-tauri/resources/
+desktop/src-tauri/gen/
 pnpm-lock.yaml
 android/gradle/wrapper/
 artifacts/

@@ -1,5 +1,29 @@
 # AgentDeck 验收记录
 
+## 当前 0.3.0 原生 Rust 与旧代码清理（2026-10-20）
+
+旧 Node Bridge、WinForms/C# 辅助程序、Zod 协议包、无用生成 TS 和对应启动/测试/打包脚本已删除。保留 React/Tauri/Rust、Android 和 314 份原样 JSON schema。用户数据库、证书、项目授权、配对记录及已安装旧程序均未修改。
+
+清理后已实际通过：Rust service 18 项集成测试、Tauri host 4 项、React 7 项、Playwright 4 项（共 33 项）；schema 校验 314/314；TypeScript、ESLint、Prettier、两 crate 的 cargo fmt/Clippy；React 生产构建；pnpm audit --prod 未发现已知漏洞（不等于完整安全审计）。新 release service 已在隔离目录通过真实 DPAPI 证书、MXC 沙箱边界和 Codex 初始化检查，exitCode 0，见 artifacts/cleanup-native-startup.txt。Android 源码未改，本轮未重跑 Android/真机测试。默认测试中的两个真实环境用例为 ignored，不能声称在默认测试中通过。此前原生真实 Codex 两次文本回合与 resume、DPAPI/MXC 初始化、旧数据隔离副本验证报告分别为 artifacts/native-real-codex.json、native-runtime-startup.json、native-data-compatibility.json。
+
+Windows release/NSIS 构建及便携打包已通过：artifacts/AgentDeck_0.3.0_x64-setup.exe、AgentDeck-0.3.0-windows/。包内 runtime 仅 Rust EXE + manifest，SHA-256 匹配；21 个旧源码打包暂存目录及 0.2.0 便携包已删除。新的 node:sqlite 备份工具实际生成隔离副本并通过旧数据兼容检查：20 个授权目录、1 个设备、原 host ID、端口和证书均可读取（见 artifacts/cleanup-data-compatibility.txt）。源码数据未修改。
+
+原生版本的安装后窗口、平板 LAN 扫码、人工审批及异常重启仍待真机复测；下文所有 0.2.0/Node、旧脚本命令和真机记录均为历史证据，不代表当前 Rust 发布验收。
+
+## 历史记录：Windows Tauri 0.2.0 迁移复测（2026-10-20）
+
+本次新增 React/Tauri/Rust Windows 桌面，不重写 Android。Rust 负责本机控制，Node Bridge 仍作为明确标注的兼容服务，尚未完成全 Rust 后端迁移。
+
+| 检查             | 当前证据                                                                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| React 交互测试   | 7 PASS；真实动作只由用户操作触发、重复点击抑制、二次审批确认、配对确认、过期拒绝、错误可读、revision 去重；`artifacts/tauri-react-tests.txt`              |
+| Rust 边界测试    | 4 PASS；有界完整帧、严格动作/字段、跨会话/失效请求拒绝、Windows 资源路径规范化；`artifacts/tauri-rust-tests.txt`                                          |
+| Bridge 回归      | 37 PASS（原有 36 + 本机 stdio 请求关联/非法动作测试）；`artifacts/tauri-bridge-regression.txt`                                                            |
+| 浏览器交互和布局 | 4 PASS；1000×700、780×600、1200×800，工作区搜索、键盘退出、二维码过期、连接/断开；`artifacts/tauri-playwright.txt`。数据均为隔离 fixture，不是 LAN 验收。 |
+| 真实调试版       | 实际窗口显示 Codex 就绪、20 个工作区、旧证书对应平板 `Xiaomi 2410CRP4CC` 在线；未重新签发设备凭据。                                                       |
+
+历史 Android/LAN/人工审批记录继续保留，但不当作本次安装器的全新验收。全 Rust Bridge、安装后的完整真机任务/人工审批复测和正式签名仍未完成；发布版实际启动/打包结果在下方追加。
+
 记录日期：2026-10-20。**可安装开发版；核心 Pad LAN 链路已实际通过，完整发布门槛仍有未验收项。** Fixture、PC 真实 Codex、真机 UI、真机 LAN 和人工决定分别记录，不能互相替代。
 
 ## 环境与构建
