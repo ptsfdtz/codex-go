@@ -55,6 +55,15 @@ impl Core {
         Ok(session)
     }
     pub async fn start_turn(&self, session_id: &str, text: &str) -> Result<Value> {
+        self.start_turn_options(session_id, text, None, None).await
+    }
+    pub async fn start_turn_options(
+        &self,
+        session_id: &str,
+        text: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Result<Value> {
         let rpc = self.upstream()?;
         let _permit = self
             .task_limit
@@ -84,12 +93,38 @@ impl Core {
             )?;
             busy.insert(session_id.into());
         }
-        let result = self.start_inner(&rpc, session_id, text).await;
+        let result = self
+            .start_inner(&rpc, session_id, text, model, effort)
+            .await;
         self.busy.lock().unwrap().remove(session_id);
         result
     }
-    async fn start_inner(&self, rpc: &Rpc, session_id: &str, text: &str) -> Result<Value> {
+    async fn start_inner(
+        &self,
+        rpc: &Rpc,
+        session_id: &str,
+        text: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Result<Value> {
         let mut session = self.store.session(session_id)?;
+        ensure(
+            session["archived"] != 1,
+            "CONFLICT",
+            "Restore archived conversation before sending",
+        )?;
+        let selected_model = model.unwrap_or(s(&session, "model")).to_owned();
+        let selected_effort = effort.unwrap_or(s(&session, "effort")).to_owned();
+        if !selected_model.is_empty() {
+            self.check_model(&selected_model, &selected_effort).await?;
+        } else {
+            ensure(
+                selected_effort.is_empty(),
+                "INVALID_REQUEST",
+                "Select a model before reasoning effort",
+            )?;
+        }
+
         let root = paths::root(&self.store, s(&session, "projectId"))?;
         codex::settings(rpc, &root).await?;
         let loaded = self
@@ -139,7 +174,15 @@ impl Core {
             Some(session_id),
             Some(&turn),
         )?;
-        let result=async{let response=rpc.request("turn/start",json!({"threadId":session["upstreamThreadId"],"input":[{"type":"text","text":text,"text_elements":[]}],"approvalPolicy":"on-request","approvalsReviewer":"user"})).await?;validate("v2/TurnStartResponse",&response)?;
+        let mut params = json!({"threadId":session["upstreamThreadId"],"input":[{"type":"text","text":text,"text_elements":[]}],"approvalPolicy":"on-request","approvalsReviewer":"user"});
+        if !selected_model.is_empty() {
+            params["model"] = json!(selected_model);
+        }
+        if !selected_effort.is_empty() {
+            params["effort"] = json!(selected_effort);
+        }
+        let result=async{let response=rpc.request("turn/start",params).await?;validate("v2/TurnStartResponse",&response)?;
+        self.store.exec("INSERT INTO session_options(sessionId,model,effort) VALUES(?,?,?) ON CONFLICT(sessionId) DO UPDATE SET model=excluded.model,effort=excluded.effort",rusqlite::params![session_id,selected_model,selected_effort])?;
         let current=self.store.turn(&turn)?;ensure(current["upstreamTurnId"].is_null()||current["upstreamTurnId"]==response["turn"]["id"],"UPSTREAM_PROTOCOL_ERROR","Turn identity mismatch")?;
         self.store.exec("UPDATE turns SET upstreamTurnId=? WHERE turnId=? AND upstreamTurnId IS NULL",[s(&response["turn"],"id"),&turn])?;
         if self.store.turn(&turn)?["status"]=="queued"{self.store.status(session_id,Some(&turn),"running",None)?;self.store.append("turn.started",json!({"turn":self.store.turn(&turn)?}),Some(session_id),Some(&turn))?;}self.store.turn(&turn)

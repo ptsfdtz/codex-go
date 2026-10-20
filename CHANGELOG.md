@@ -1,5 +1,12 @@
 # Changelog
 
+## Conversation management and Android API mode — 2026-10-20
+
+- Added Codex chat search, pin, rename, archive/restore and confirmed permanent deletion using generated stable contracts.
+- Added account model catalog, supported reasoning choices and validated turn parameters with persisted per-chat preferences.
+- Added independent Android HTTPS Chat Completions configuration, Keystore-encrypted local history, streamed text, stop and chat management.
+- Added deletion replay recovery, idempotency, real isolated Codex management smoke and HTTPS API fixtures. Scope and current limitations: docs/CONVERSATIONS_AND_API.md.
+
 ## Simplified desktop appearance — 2026-10-20
 
 - Matched Android's monochrome palette, compact typography, rounded controls and system light/dark appearance.

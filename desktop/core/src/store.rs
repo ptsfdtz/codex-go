@@ -83,12 +83,36 @@ impl Store {
         Ok(rows)
     }
     pub fn session(&self, id: &str) -> Result<Value> {
-        let v = self.one("SELECT * FROM sessions WHERE sessionId=?", [id])?;
+        let v = self.one("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE s.sessionId=?", [id])?;
         self.project(s(&v, "projectId"))?;
         Ok(v)
     }
     pub fn sessions(&self, id: Option<&str>) -> Result<Vec<Value>> {
-        match id{Some(id)=>{self.project(id)?;self.query("SELECT * FROM sessions WHERE projectId=? ORDER BY updatedAt DESC",[id])},None=>self.query("SELECT s.* FROM sessions s JOIN projects p ON s.projectId=p.projectId WHERE p.enabled=1 ORDER BY updatedAt DESC",[])}
+        match id{Some(id)=>{self.project(id)?;self.query("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE projectId=? ORDER BY updatedAt DESC",[id])},None=>self.query("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])}
+    }
+    pub fn delete_session(&self, id: &str) -> Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        let removed: Option<i64> = tx.query_row(
+            "SELECT MAX(eventId) FROM events WHERE sessionId=?",
+            [id],
+            |row| row.get(0),
+        )?;
+        if let Some(floor) = removed {
+            // A cursor before erased history must get a fresh authoritative snapshot.
+            tx.execute("INSERT INTO meta(key,value) VALUES('retentionFloor',?) ON CONFLICT(key) DO UPDATE SET value=CAST(MAX(CAST(meta.value AS INTEGER),CAST(excluded.value AS INTEGER)) AS TEXT)", [floor.to_string()])?;
+        }
+        for table in [
+            "approvals",
+            "turns",
+            "events",
+            "session_options",
+            "sessions",
+        ] {
+            tx.execute(&format!("DELETE FROM {table} WHERE sessionId=?"), [id])?;
+        }
+        tx.commit()?;
+        Ok(())
     }
     pub fn turns(&self, id: Option<&str>) -> Result<Vec<Value>> {
         match id{Some(id)=>self.query("SELECT * FROM turns WHERE sessionId=? ORDER BY startedAt",[id]),None=>self.query("SELECT * FROM turns WHERE status IN ('queued','running','waitingApproval','unknown') ORDER BY startedAt",[])}
@@ -383,7 +407,7 @@ impl Store {
         for p in &mut projects {
             p["enabled"] = json!(true);
         }
-        let sessions=Self::query_db(&tx,"SELECT s.* FROM sessions s JOIN projects p ON s.projectId=p.projectId WHERE p.enabled=1 ORDER BY updatedAt DESC",[])?;
+        let sessions=Self::query_db(&tx,"SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])?;
         let turns=Self::query_db(&tx,"SELECT * FROM turns WHERE status IN ('queued','running','waitingApproval','unknown') ORDER BY startedAt",[])?;
         let rows = Self::query_db(
             &tx,

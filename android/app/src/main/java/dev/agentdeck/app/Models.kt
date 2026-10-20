@@ -17,7 +17,9 @@ val wire = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     }
 }
 @Serializable data class Project(val projectId:String,val name:String,val canonicalPath:String,val enabled:Boolean=true,val createdAt:String="")
-@Serializable data class Session(val sessionId:String,val projectId:String,val upstreamThreadId:String,val title:String,val status:String,val createdAt:String="",val updatedAt:String="")
+@Serializable data class Session(val sessionId:String,val projectId:String,val upstreamThreadId:String,val title:String,val status:String,val createdAt:String="",val updatedAt:String="",val archived:Int=0,val pinned:Int=0,val model:String="",val effort:String="")
+@Serializable data class ReasoningOption(val reasoningEffort:String,val description:String="")
+@Serializable data class CodexModel(val model:String,val displayName:String,val isDefault:Boolean=false,val defaultReasoningEffort:String="",val supportedReasoningEfforts:List<ReasoningOption> = emptyList())
 @Serializable data class Turn(val turnId:String,val sessionId:String,val upstreamTurnId:String?=null,val status:String,val startedAt:String="",val endedAt:String?=null,val error:String?=null)
 @Serializable data class Approval(val approvalId:String,val sessionId:String,val turnId:String,val method:String,val status:String,val context:JsonObject=JsonObject(emptyMap()),val createdAt:String="",val expiresAt:String,val allowedDecisions:List<String> = emptyList())
 @Serializable data class HostState(val hostId:String,val status:String,val codexVersion:String)
@@ -27,7 +29,7 @@ val wire = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 @Serializable data class GitStatus(val available:Boolean=false,val files:List<GitFile> = emptyList(),val truncated:Boolean=false,val attribution:String="working-tree",val baseline:String?=null)
 @Serializable data class Diff(val path:String="",val text:String="",val binary:Boolean=false,val truncated:Boolean=false,val attribution:String="working-tree",val untracked:Boolean=false)
 @Serializable data class Retention(val days:Int=30,val maxMiB:Int=256)
-data class DeckState(val connection:String="未配对",val host:Host?=null,val snapshot:Snapshot=Snapshot(),val selectedProject:String?=null,val selectedSession:String?=null,val events:List<DeckEvent> = emptyList(),val git:GitStatus?=null,val diff:Diff?=null,val error:String?=null,val busy:Boolean=false,val stale:Boolean=true,val pairingCode:String?=null,val pairingName:String?=null,val lastSynced:String?=null,val preferences:DeckPreferences=DeckPreferences(),val retention:Retention=Retention(),val diagnostics:JsonObject?=null,val displayMask:String="")
+data class DeckState(val connection:String="未配对",val host:Host?=null,val snapshot:Snapshot=Snapshot(),val selectedProject:String?=null,val selectedSession:String?=null,val events:List<DeckEvent> = emptyList(),val git:GitStatus?=null,val diff:Diff?=null,val error:String?=null,val busy:Boolean=false,val stale:Boolean=true,val pairingCode:String?=null,val pairingName:String?=null,val lastSynced:String?=null,val preferences:DeckPreferences=DeckPreferences(),val retention:Retention=Retention(),val diagnostics:JsonObject?=null,val displayMask:String="",val models:List<CodexModel> = emptyList(),val selectedModel:String="",val selectedEffort:String="")
 class DeckException(val code:String,override val message:String):Exception(message)
 fun payload(vararg pairs:Pair<String,String>):JsonObject=buildJsonObject { pairs.forEach { (key,value)->put(key,value) } }
 fun statusLabel(status:String):String=when(status){"idle"->"就绪";"queued"->"正在提交";"running","inProgress"->"执行中";"waitingApproval"->"等待审批";"completed"->"已完成";"failed"->"失败";"interrupted"->"已中断";"unknown"->"状态未知 · 等待核对";else->status}

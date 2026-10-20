@@ -137,3 +137,28 @@ PC 窗口早期允许测试只证明审批传输；其子命令因 Desktop 缓�
 真实 Codex 只读 smoke 发现 18 个有效目录、跳过 62 个无效或临时目录，内存注册表重复同步 ID 不变。随后生产入口通过显式本机 `--sync-workspaces` 执行相同同步：原有两个测试授权保留，加导入 18 个目录共 20 个，实际保存时间；真实窗口显示 QR、无系统标题栏、原平板在线。官方 App 工具列出的六个本机项目中，两个目录实际存在并全部覆盖，另外四个已不存在，未静默创建。同步还包含有效的历史会话目录，不声称精确镜像桌面侧栏。
 
 本轮没有重新触发用户扫码核码或人工审批，不重新构建 Android，不将此前真实审批记录混作本轮验收。证据：`workspace-sync-smoke.json`、`desktop-simple-verification.json`、`windows-native.json`、`bridge-tests.xml`。此前 `desktop-final-verification.json` 属于四页设计；以本节及新报告为当前结果。发布 PARTIAL 项继续保留。
+
+## 会话管理、模型与安卓 API（2026-10-20）
+
+范围按用户澄清以 Codex 的项目、编程会话、审批、Diff 为准。新增搜索、置顶、重命名、归档/恢复、永久删除、账户真实模型和思考强度；平板新增独立的 HTTPS OpenAI 兼容文本 API 模式。能力边界见 [功能说明](CONVERSATIONS_AND_API.md)，不宣称 Codex 桌面端全功能一致。
+
+本轮实际结果：
+
+| 检查                  | 结果与证据                                                                                                                                                                        |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rust Bridge 单测/集成 | 22 PASS，另有 2 个默认忽略的显式本机测试；chat-management-rust-tests.txt                                                                                                          |
+| Rust clippy           | all-targets / -D warnings 通过；chat-management-clippy.txt                                                                                                                        |
+| 真实 Codex            | 显式运行真实测试 1 PASS：启动实际 MXC 边界检查、8 个模型、指定模型/effort 两次权威 completed、恢复及重命名/归档/恢复/删除；chat-management-real-codex.txt、native-real-codex.json |
+| 安卓 JVM              | 29 PASS（其中 8 个 API 测试），0 skipped；chat-management-android-build.txt 及 Gradle XML                                                                                         |
+| 安卓构建/lint         | debug APK、仪器测试 APK 构建成功；lint 0 errors / 28 warnings（包括旧问题及 Clipboard API 弃用）                                                                                  |
+| React / 浏览器        | 7 个 React 和 4 个 Playwright fixture 测试通过；chat-management-react-tests.txt、chat-management-browser-tests.txt                                                                |
+| 静态与 schema         | TypeScript/ESLint 和 314 个固定 schema hash 校验通过                                                                                                                              |
+| Windows 分发          | 原生 Rust 服务、Tauri release 和 NSIS 构建、便携打包通过；chat-management-desktop-build.txt、chat-management-package.txt                                                          |
+| 新增安卓真机测试      | SKIPPED：当前 adb devices 无设备，SDK 未安装 emulator；ApiUiTest 已编译，尚未执行                                                                                                 |
+| 真实外部 API          | SKIPPED：没有在平板配置真实 API 凭据；HTTPS fixtures 只证明实现与模拟协议对端互通                                                                                                 |
+
+新增测试覆盖模型/思考参数拒绝、请求实际转发、管理上游失败不改本地、持久化、活动任务防删除、请求 ID 幂等及删除后 replay gap；API 覆盖正常 TLS 流、错误和早断流、禁止重定向、模型接口、密钥换地址防护、重启未知状态、停止及记录持久化。未将 fixture 自动响应或历史人工审批当作本轮真实审批验收。
+
+请配套更新 Windows Bridge 和 APK；现有安装应用没有由构建过程自动替换。Android 版本 0.3.0（versionCode 2，开发签名），Windows 包仍为 0.3.0。实际产物哈希与本轮最终检查见 artifacts/chat-management-verification.json。旧报告、旧 APK 哈希和此前真机结果不代表本轮新增功能已经完成真机复测。
+
+补测：设备重新连接后执行 `cd android; .\gradlew.bat connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.agentdeck.app.ApiUiTest`，再通过正常应用进行两种模式的横竖屏及长对话操作。真实 API 使用设置页输入密钥，验证回复/停止/离线，不在聊天或日志中粘贴密钥。Windows 真实烟测只操作它新建的临时线程，不操作已有用户会话。

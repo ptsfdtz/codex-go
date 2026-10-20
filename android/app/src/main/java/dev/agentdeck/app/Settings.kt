@@ -35,7 +35,7 @@ private val diagnosticJson=Json{prettyPrint=true}
     var confirmRetention by remember{mutableStateOf(false)}
     val valid=days.toIntOrNull() in 1..365 && size.toIntOrNull() in 16..1024
     val notificationPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){granted->repo.setNotifications(granted);if(!granted)repo.showMessage("通知权限未授予，前台任务与审批仍可使用")}
-    val diagnosticText=remember(state.diagnostics,state.connection,state.snapshot.cursor){state.diagnostics?.let{bridge->diagnosticJson.encodeToString(JsonObject.serializer(),buildJsonObject{put("androidVersion",Build.VERSION.RELEASE);put("appVersion","0.1.0");put("connection",state.connection);put("cacheCursor",state.snapshot.cursor);put("bridge",bridge)})}}
+    val diagnosticText=remember(state.diagnostics,state.connection,state.snapshot.cursor){state.diagnostics?.let{bridge->diagnosticJson.encodeToString(JsonObject.serializer(),buildJsonObject{put("androidVersion",Build.VERSION.RELEASE);put("appVersion",BuildConfig.VERSION_NAME);put("connection",state.connection);put("cacheCursor",state.snapshot.cursor);put("bridge",bridge)})}}
     val export=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")){uri->if(uri!=null&&diagnosticText!=null)scope.launch{try{withContext(Dispatchers.IO){checkNotNull(context.contentResolver.openOutputStream(uri)).use{it.write(diagnosticText.toByteArray(Charsets.UTF_8))}};repo.showMessage("诊断已导出")}catch(_:Exception){repo.showMessage("无法导出诊断，请重新选择保存位置")}}}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
         item{Text("设置与诊断",fontSize=28.sp,fontWeight=FontWeight.SemiBold)}
@@ -65,7 +65,7 @@ private val diagnosticJson=Json{prettyPrint=true}
             OutlinedButton(onClick=repo::fetchDiagnostics,enabled=!state.stale&&!state.busy){Text("读取真实诊断")}
             if(diagnosticText!=null){SelectionContainer{Text(diagnosticText,fontFamily=FontFamily.Monospace,fontSize=11.sp)};Button(onClick={export.launch("AgentDeck-diagnostics.json")}){Text("导出诊断 JSON")}}
         }}}
-        item{Text("AgentDeck 0.1.0 · 凭据由 Keystore 保护。Codex 登录信息保留在 Windows。",fontSize=12.sp)}
+        item{Text("AgentDeck ${BuildConfig.VERSION_NAME} · 凭据由 Keystore 保护。Codex 登录信息保留在 Windows。",fontSize=12.sp)}
     }
     if(confirmRetention)AlertDialog(onDismissRequest={confirmRetention=false},title={Text("保存日志保留策略？")},text={Text("保留 $days 天，目标上限 $size MiB。后续清理可能永久移除超期或超量的 Bridge 事件，平板将显示历史缺口。")},confirmButton={Button(onClick={confirmRetention=false;repo.updateRetention(Retention(days.toInt(),size.toInt()))}){Text("确认保存")}},dismissButton={TextButton(onClick={confirmRetention=false}){Text("取消")}})
 }

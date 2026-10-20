@@ -1,6 +1,6 @@
 # Codex compatibility
 
-Windows desktop 0.3.0 uses React 19.2.0, Vite 6.4.1, Tauri 2.11.5 and a native Rust Bridge. Locally built with Rust 1.97.1/MSVC; the service declares Rust 1.88 minimum. Both Cargo.lock files pin dependencies. Android v1 is unchanged. Node 22 is required for source tooling, not the installed application. The old Node service and C# helper sources have been removed.
+Windows desktop 0.3.0 uses React 19.2.0, Vite 6.4.1, Tauri 2.11.5 and a native Rust Bridge. Locally built with Rust 1.97.1/MSVC; the service declares Rust 1.88 minimum. Both Cargo.lock files pin dependencies. Android v1 envelopes are unchanged; chat-management actions and optional model/effort fields are additive. Node 22 is required for source tooling, not the installed application. The old Node service and C# helper sources have been removed.
 
 Validated locally 2026-10-20 on Windows 11 Pro build 26300; **Codex CLI 0.159.2**. Node 22.22.3, pnpm 12.3.4, Git 2.54.0, JDK 21, Android SDK 36. Physical device detected: Xiaomi `2410CRP4CC`, Android 16/API 36, 2136×3200. Detection is not successful physical acceptance.
 
@@ -30,18 +30,22 @@ pnpm schema:verify
 
 The table describes the pinned integration contract. Real verification entries include historical Node-version checks; current Rust evidence and pending physical checks are listed separately in ACCEPTANCE.md.
 
-| Method                         | Contract / role                                                         | Verification                                |
-| ------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------- |
-| initialize / initialized       | InitializeParams/Response (JSON schema under v1), experimentalApi false | real smoke                                  |
-| config/read                    | effective workspace permissions and integration safety gate             | real startup/Bridge smoke                   |
-| windowsSandbox/readiness       | require ready                                                           | real startup                                |
-| thread/start                   | cwd, approvalPolicy on-request, approvalsReviewer user                  | real create                                 |
-| thread/resume                  | persisted thread ID, same cwd/policy, excludeTurns                      | real resume/continue                        |
-| turn/start                     | threadId and typed text input (`text_elements:[]`)                      | real concurrent tasks                       |
-| turn/completed                 | validated TurnCompletedNotification; terminal status                    | real completed and interrupted              |
-| turn/interrupt                 | exact threadId/turnId                                                   | real terminal interruption                  |
-| thread/read; thread/turns/list | persisted terminal recovery; summary pagination                         | exported stable contract + fixture recovery |
-| account/read                   | smoke-only auth availability, refreshToken false                        | real smoke; no login token read             |
+| Method                           | Contract / role                                                         | Verification                                        |
+| -------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
+| initialize / initialized         | InitializeParams/Response (JSON schema under v1), experimentalApi false | real smoke                                          |
+| config/read                      | effective workspace permissions and integration safety gate             | real startup/Bridge smoke                           |
+| windowsSandbox/readiness         | require ready                                                           | real startup                                        |
+| thread/start                     | cwd, approvalPolicy on-request, approvalsReviewer user                  | real create                                         |
+| thread/resume                    | persisted thread ID, same cwd/policy, excludeTurns                      | real resume/continue                                |
+| turn/start                       | threadId and typed text input (`text_elements:[]`)                      | real concurrent tasks                               |
+| turn/completed                   | validated TurnCompletedNotification; terminal status                    | real completed and interrupted                      |
+| turn/interrupt                   | exact threadId/turnId                                                   | real terminal interruption                          |
+| thread/read; thread/turns/list   | persisted terminal recovery; summary pagination                         | exported stable contract + fixture recovery         |
+| model/list                       | paginated visible account catalog and supportedReasoningEfforts         | current Rust real smoke                             |
+| thread/name/set                  | threadId, name; method-specific response validation                     | current Rust real smoke                             |
+| thread/archive; thread/unarchive | threadId; method-specific response validation                           | current Rust real smoke                             |
+| thread/delete                    | threadId; permanently removes thread and upstream descendants           | current Rust real smoke on its own temporary thread |
+| account/read                     | smoke-only auth availability, refreshToken false                        | real smoke; no login token read                     |
 
 Task stream additionally validates generated schemas for turn/started, plan/diff updates, item started/completed, agent message/plan/output deltas, file patches, MCP progress and error. MCP invocation is disabled by the production safety policy. Unknown notifications do not establish state; unknown server requests are rejected and interrupt their correlated turn where possible.
 
@@ -73,3 +77,9 @@ Historical Node-version physical tablet command approval and rejection were veri
 ## Local workspace discovery
 
 Simplified Windows sync uses generated stable `ThreadListParams`, `ThreadListResponse` and `ConfigReadResponse`, validated against pinned JSON schemas. It requests all providers, explicit cli/vscode/appServer sources, cursor pagination and both archived groups. Only config.projects entries explicitly marked trusted contribute config paths. Current [official app-server documentation](https://developers.openai.com/codex/app-server/) confirms the history API; newer fields absent from pinned schemas are not used. CLI 0.159.2 stable ClientRequest has no Desktop project-list method. Discovery includes config/history directories and historical projects; it cannot claim exact Desktop sidebar enumeration or current-thread takeover. No private Desktop file/API is used. Real read-only smoke verified 18 valid directories; paths are omitted from the distributable report.
+
+## Models and independent Android API (2026-10-20)
+
+Current official [App Server documentation](https://developers.openai.com/codex/app-server/) and the pinned 0.159.2 schemas confirm `model/list`, `thread/name/set`, `thread/archive`, `thread/unarchive` and `thread/delete`. Exported `TurnStartParams` uses `model` and **`effort`**, not reasoning_effort. Models and supported reasoning levels come from the current account rather than a static product list. The real isolated Rust test returned 8 visible models and completed two turns with the selected default model/effort; management methods were accepted and only its own thread was deleted. See artifacts/native-real-codex.json.
+
+Android independent mode implements the documented [Chat Completions API](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create), with `model`, text `messages`, `stream` and optional **`reasoning_effort`**. It is not a Codex App Server transport and does not implement Responses, tool calls or provider-specific extensions. OpenAI-compatible servers must support the same wire format; model/parameter availability is provider-dependent. HTTPS local-fixture tests do not prove real provider/account compatibility. No real API credentials were configured or tested for this delivery.

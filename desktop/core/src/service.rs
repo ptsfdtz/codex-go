@@ -380,6 +380,9 @@ impl Core {
                     json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":codex::VERSION,"nodeVersion":"Rust native (no Node runtime)","platform":"win32","upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
                 )
             }
+            "models.list" => Ok(json!({"models":self.models().await?})),
+            "sessions.rename" | "sessions.archive" | "sessions.restore" | "sessions.delete"
+            | "sessions.pin" => self.manage_session(&r.action, p).await,
             "settings.get" => Ok(json!({"retention":self.store.retention()})),
             "settings.update" => {
                 self.store.set_meta("retention", &p.to_string())?;
@@ -407,9 +410,9 @@ impl Core {
             "sessions.detail" => Ok(
                 json!({"session":self.store.session(s(p,"sessionId"))?,"turns":self.store.turns(Some(s(p,"sessionId")))?,"events":self.store.history(s(p,"sessionId"),p["before"].as_str(),p["limit"].as_u64().unwrap_or(100) as usize)?}),
             ),
-            "turn.start" => {
-                Ok(json!({"turn":self.start_turn(s(p,"sessionId"),s(p,"text")).await?}))
-            }
+            "turn.start" => Ok(
+                json!({"turn":self.start_turn_options(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str()).await?}),
+            ),
             "turn.interrupt" => self.interrupt(s(p, "sessionId"), s(p, "turnId")).await,
             "approvals.list" => {
                 if let Some(id) = p["sessionId"].as_str() {

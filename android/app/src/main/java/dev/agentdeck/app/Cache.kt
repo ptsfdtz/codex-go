@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
     @Insert(onConflict=OnConflictStrategy.REPLACE) suspend fun saveEvents(events:List<CachedEvent>)
     @Query("SELECT * FROM event_cache WHERE hostId=:hostId AND sessionId=:sessionId ORDER BY eventId DESC LIMIT :limit") fun events(hostId:String,sessionId:String,limit:Int=2000):Flow<List<CachedEvent>>
     @Query("DELETE FROM event_cache WHERE hostId=:hostId AND eventId < (SELECT COALESCE(MAX(eventId),0)-20000 FROM event_cache WHERE hostId=:hostId)") suspend fun trim(hostId:String)
+    @Query("DELETE FROM event_cache WHERE hostId=:hostId AND sessionId=:sessionId") suspend fun removeSession(hostId:String,sessionId:String)
     @Query("DELETE FROM host_cache WHERE hostId=:hostId") suspend fun removeHost(hostId:String)
     @Query("DELETE FROM event_cache WHERE hostId=:hostId") suspend fun removeEvents(hostId:String)
 }

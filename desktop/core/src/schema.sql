@@ -14,3 +14,6 @@ CREATE TABLE IF NOT EXISTS event_sequences(sessionKey TEXT PRIMARY KEY,seq INTEG
 INSERT OR IGNORE INTO event_sequences SELECT COALESCE(sessionId,''),MAX(seq) FROM events GROUP BY sessionId;
 INSERT OR IGNORE INTO migrations VALUES(1,datetime('now'));
 INSERT OR IGNORE INTO migrations VALUES(2,datetime('now'));
+
+CREATE TABLE IF NOT EXISTS session_options(sessionId TEXT PRIMARY KEY REFERENCES sessions(sessionId),archived INTEGER NOT NULL DEFAULT 0,pinned INTEGER NOT NULL DEFAULT 0,model TEXT NOT NULL DEFAULT '',effort TEXT NOT NULL DEFAULT '');
+INSERT OR IGNORE INTO migrations VALUES(3,datetime('now'));

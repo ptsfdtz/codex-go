@@ -7,6 +7,7 @@ pub mod protocol;
 pub mod rpc;
 pub mod security;
 pub mod service;
+pub mod sessions;
 pub mod store;
 pub mod tasks;
 pub mod transport;

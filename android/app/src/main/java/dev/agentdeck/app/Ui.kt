@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.serialization.json.*
 import java.time.Instant
 
@@ -29,6 +30,9 @@ import java.time.Instant
     MaterialTheme(colorScheme=if(dark)darkColorScheme(primary=Color(0xFFE6E6E6),onPrimary=Color(0xFF171717),primaryContainer=Color(0xFF333333),onPrimaryContainer=Color(0xFFF5F5F5),background=Color(0xFF181818),surface=Color(0xFF181818),surfaceContainerLow=Color(0xFF212121),surfaceContainer=Color(0xFF252525),surfaceContainerHighest=Color(0xFF303030),secondaryContainer=Color(0xFF303030),onSecondaryContainer=Color(0xFFF0F0F0),outlineVariant=Color(0xFF373737))else lightColorScheme(primary=Color(0xFF202020),onPrimary=Color.White,primaryContainer=Color(0xFFEAEAEA),onPrimaryContainer=Color(0xFF202020),background=Color.White,surface=Color.White,surfaceContainerLow=Color(0xFFF8F8F8),surfaceContainer=Color(0xFFF3F3F3),surfaceContainerHighest=Color(0xFFEEEEEE),secondaryContainer=Color(0xFFEAEAEA),onSecondaryContainer=Color(0xFF202020),outlineVariant=Color(0xFFE8E8E8)),typography=Typography(),content=content)
 }
 @Composable fun DeckApp(state:DeckState,repo:DeckRepository){
+    val api=(LocalContext.current.applicationContext as DeckApplication).apiRepository
+    var apiMode by rememberSaveable{mutableStateOf(false)}
+    if(apiMode){androidx.activity.compose.BackHandler{apiMode=false};ApiWorkspace(api){apiMode=false};return}
     var panel by rememberSaveable{mutableStateOf("chat")}
     var showPair by rememberSaveable{mutableStateOf(false)}
     var sidebar by rememberSaveable{mutableStateOf(false)}
@@ -47,6 +51,7 @@ import java.time.Instant
                     }
                     if(panel!="chat")TextButton(onClick={panel="chat"}){Text("返回对话")}
                     else if(state.host!=null){IconButton(onClick={panel="review";repo.refreshGit()},enabled=state.selectedProject!=null){Icon(Icons.Outlined.Difference,"审查")};IconButton(onClick={state.selectedProject?.let(repo::selectProject)},enabled=state.selectedProject!=null){Icon(Icons.Outlined.EditNote,"新对话")}}
+                    TextButton(onClick={apiMode=true}){Text("API 对话")}
                     DisplayMaskAction(state.displayMask,repo::setDisplayMask)
                     if(!wide||state.host==null)IconButton(onClick={panel="settings"}){Icon(Icons.Outlined.Settings,"设置")}
                 }
@@ -77,20 +82,26 @@ import java.time.Instant
     Text("在 Windows Bridge 中生成二维码，扫码并确认即可。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }}}
 @Composable private fun ChatSidebar(state:DeckState,repo:DeckRepository,panel:String,onChat:()->Unit,onSettings:()->Unit,onPair:()->Unit){
+    var search by rememberSaveable{mutableStateOf("")}
+    var archived by rememberSaveable{mutableStateOf(false)}
     Column(Modifier.width(260.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainerLow).padding(12.dp)){
         Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Code,null,Modifier.size(22.dp));Spacer(Modifier.width(10.dp));Text("AgentDeck",fontWeight=FontWeight.SemiBold,fontSize=17.sp)}
         TextButton(onClick={state.selectedProject?.let(repo::selectProject);onChat()},enabled=state.selectedProject!=null,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.EditNote,null,Modifier.size(18.dp));Spacer(Modifier.width(10.dp));Text("新对话",modifier=Modifier.weight(1f))}
+        OutlinedTextField(value=search,onValueChange={search=it.take(160)},label={Text("搜索会话")},singleLine=true,modifier=Modifier.fillMaxWidth())
+        Row{FilterChip(selected=!archived,onClick={archived=false},label={Text("会话")});Spacer(Modifier.width(8.dp));FilterChip(selected=archived,onClick={archived=true},label={Text("已归档")})}
         LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp),contentPadding=PaddingValues(vertical=14.dp)){
             item{Row(Modifier.fillMaxWidth().padding(start=10.dp),verticalAlignment=Alignment.CenterVertically){Text("项目",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f));IconButton(onClick=repo::addProject,enabled=!state.stale){Icon(Icons.Outlined.CreateNewFolder,"授权项目",Modifier.size(18.dp))}}}
             if(state.snapshot.projects.isEmpty())item{Text("还没有授权项目，请在 Windows 选择目录。",Modifier.padding(10.dp),fontSize=12.sp)}
             state.snapshot.projects.forEach{project->
                 item(key="p:"+project.projectId){Row(Modifier.fillMaxWidth().clickable{repo.selectProject(project.projectId);onChat()}.padding(10.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.FolderOpen,null,Modifier.size(17.dp));Spacer(Modifier.width(9.dp));Text(project.name,fontSize=13.sp,fontWeight=if(project.projectId==state.selectedProject)FontWeight.SemiBold else FontWeight.Normal,maxLines=1,overflow=TextOverflow.Ellipsis)}}
-                items(state.snapshot.sessions.filter{it.projectId==project.projectId}.sortedByDescending{it.updatedAt},key={it.sessionId}){session->
+                items(state.snapshot.sessions.filter{it.projectId==project.projectId&&it.archived==(if(archived)1 else 0)}.filter{it.title.contains(search,true)||project.name.contains(search,true)}.sortedWith(compareByDescending<Session>{it.pinned}.thenByDescending{it.updatedAt}),key={it.sessionId}){session->
                     val pending=state.snapshot.approvals.any{it.sessionId==session.sessionId&&it.status=="pending"}
                     Row(Modifier.fillMaxWidth().background(if(state.selectedSession==session.sessionId&&panel=="chat")MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent,RoundedCornerShape(8.dp)).clickable{repo.selectSession(session.sessionId);onChat()}.padding(start=35.dp,end=10.dp,top=11.dp,bottom=11.dp),verticalAlignment=Alignment.CenterVertically){
+                        if(session.pinned==1)Icon(Icons.Outlined.PushPin,null,Modifier.size(12.dp))
                         Text(session.title,fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))
                         if(pending)Icon(Icons.Outlined.Security,"等待审批",Modifier.size(14.dp),tint=MaterialTheme.colorScheme.error)
                         else if(session.status in listOf("running","queued"))CircularProgressIndicator(Modifier.size(12.dp),strokeWidth=1.5.dp)
+                        SessionActions(session,state,repo)
                     }
                 }
             }

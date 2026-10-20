@@ -78,6 +78,50 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         layers: null,
       });
       return;
+    case 'model/list':
+      respond({
+        data: [
+          {
+            id: 'fixture-model',
+            model: 'fixture-model',
+            displayName: 'Fixture Model',
+            hidden: false,
+            isDefault: true,
+            description: 'Isolated test model',
+            defaultReasoningEffort: 'medium',
+            supportedReasoningEfforts: [
+              { reasoningEffort: 'low', description: 'Low' },
+              { reasoningEffort: 'medium', description: 'Medium' },
+              { reasoningEffort: 'high', description: 'High' },
+            ],
+          },
+        ],
+        nextCursor: null,
+      });
+      return;
+    case 'thread/name/set':
+      threads.get(p.threadId).name = p.name;
+      respond({});
+      return;
+    case 'thread/archive':
+      threads.get(p.threadId).archived = true;
+      respond({});
+      return;
+    case 'thread/unarchive': {
+      const result = clone(samples.threadStart);
+      result.thread.id = p.threadId;
+      result.thread.cwd = threads.get(p.threadId).root;
+      respond({ thread: result.thread });
+      return;
+    }
+    case 'thread/delete':
+      if (threads.get(p.threadId)?.name === 'REFUSE_DELETE') {
+        send({ id: m.id, error: { code: -1, message: 'Fixture refusal' } });
+        return;
+      }
+      threads.delete(p.threadId);
+      respond({});
+      return;
     case 'thread/start': {
       const result = clone(samples.threadStart);
       const id = 'fixture_' + randomUUID();
@@ -123,6 +167,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       result.turn.completedAt = null;
       result.turn.items = [];
       const text = p.input[0].text;
+      if (text === 'CHECK_MODEL' && (p.model !== 'fixture-model' || p.effort !== 'high')) {
+        send({ id: m.id, error: { code: -1, message: 'Model/effort not forwarded' } });
+        return;
+      }
       send({ method: 'turn/started', params: { threadId: p.threadId, turn: result.turn } });
       send({
         method: 'item/agentMessage/delta',

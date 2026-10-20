@@ -143,6 +143,147 @@ fn pinned_contract_rejects_guessed_fields() {
     assert!(rpc::schema("ClientRequest").is_some());
 }
 #[tokio::test]
+async fn model_catalog_and_effort_are_validated_and_forwarded() {
+    let h = Harness::fixture().await;
+    let session = h.session("model-choice").await;
+    let id = s(&session, "sessionId");
+    assert_eq!(h.core.models().await.unwrap()[0]["model"], "fixture-model");
+    assert!(h
+        .core
+        .start_turn_options(id, "hello", Some("invented"), Some("high"))
+        .await
+        .is_err());
+    assert!(h
+        .core
+        .start_turn_options(id, "hello", Some("fixture-model"), Some("ultra"))
+        .await
+        .is_err());
+    assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+    let turn = h
+        .core
+        .start_turn_options(id, "CHECK_MODEL", Some("fixture-model"), Some("high"))
+        .await
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    assert_eq!(h.core.store.session(id).unwrap()["model"], "fixture-model");
+    assert_eq!(
+        h.core.store.snapshot(true).unwrap()["sessions"][0]["effort"],
+        "high"
+    );
+}
+#[tokio::test]
+async fn session_management_waits_for_upstream_and_survives_reopen() {
+    let h = Harness::fixture().await;
+    let session = h.session("manage").await;
+    let id = s(&session, "sessionId");
+    let turn = h.core.start_turn(id, "hello").await.unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    h.core
+        .manage_session(
+            "sessions.rename",
+            &json!({"sessionId":id,"title":"REFUSE_DELETE"}),
+        )
+        .await
+        .unwrap();
+    assert!(h
+        .core
+        .manage_session("sessions.delete", &json!({"sessionId":id}))
+        .await
+        .is_err());
+    assert_eq!(h.core.store.session(id).unwrap()["title"], "REFUSE_DELETE");
+    h.core
+        .manage_session("sessions.archive", &json!({"sessionId":id}))
+        .await
+        .unwrap();
+    assert!(h.core.start_turn(id, "blocked").await.is_err());
+    h.core
+        .manage_session("sessions.pin", &json!({"sessionId":id,"pinned":true}))
+        .await
+        .unwrap();
+    let reopened = Store::open(&h._directory.path().join("test.db")).unwrap();
+    assert_eq!(reopened.session(id).unwrap()["archived"], 1);
+    assert_eq!(reopened.session(id).unwrap()["pinned"], 1);
+    h.core
+        .manage_session("sessions.restore", &json!({"sessionId":id}))
+        .await
+        .unwrap();
+    h.core
+        .manage_session(
+            "sessions.rename",
+            &json!({"sessionId":id,"title":"new name"}),
+        )
+        .await
+        .unwrap();
+    h.core
+        .manage_session("sessions.delete", &json!({"sessionId":id}))
+        .await
+        .unwrap();
+    assert!(h.core.store.session(id).is_err());
+    assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+    assert_eq!(
+        h.core.store.replay("0", 100).unwrap_err().code,
+        "REPLAY_GAP"
+    );
+    let floor = h.core.store.meta("retentionFloor").unwrap().unwrap();
+    let replay = h.core.store.replay(&floor, 100).unwrap();
+    assert_eq!(replay["events"][0]["action"], "session.deleted");
+    assert_eq!(
+        h.core
+            .store
+            .one(
+                "SELECT COUNT(*) AS n FROM events WHERE sessionId=? AND action!='session.deleted'",
+                [id]
+            )
+            .unwrap()["n"],
+        0
+    );
+}
+#[tokio::test]
+async fn active_turn_prevents_session_deletion() {
+    let h = Harness::fixture().await;
+    let session = h.session("active-manage").await;
+    let id = s(&session, "sessionId");
+    let turn = h.core.start_turn(id, "WAIT").await.unwrap();
+    h.wait(s(&turn, "turnId"), "running").await;
+    assert!(h
+        .core
+        .manage_session("sessions.delete", &json!({"sessionId":id}))
+        .await
+        .is_err());
+    assert!(h.core.store.session(id).is_ok());
+}
+#[tokio::test]
+async fn session_mutations_are_idempotent_per_device() {
+    let h = Harness::fixture().await;
+    let session = h.session("idempotent-management").await;
+    let id = s(&session, "sessionId");
+    h.core
+        .store
+        .replace_device("management-device", "fixture", &digest("fixture-token"))
+        .unwrap();
+    let r = request(
+        "sessions.rename",
+        json!({"sessionId":id,"title":"once"}),
+        "manage-once",
+    );
+    let first = transport::handle_request(&h.core, &r, "management-device").await;
+    assert_eq!(first["type"], "response", "{first}");
+    let cursor = h.core.store.cursor().unwrap();
+    let second = transport::handle_request(&h.core, &r, "management-device").await;
+    assert_eq!(first, second);
+    assert_eq!(cursor, h.core.store.cursor().unwrap());
+    let changed = request(
+        "sessions.rename",
+        json!({"sessionId":id,"title":"twice"}),
+        "manage-once",
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &changed, "management-device").await["code"],
+        "CONFLICT"
+    );
+    assert_eq!(h.core.store.session(id).unwrap()["title"], "once");
+}
+#[tokio::test]
 async fn framing_partial_utf8_invalid_and_oversize() {
     let line = json!({"id":"one","result":{"text":"测试😀"}}).to_string() + "\n";
     let (mut writer, reader) = tokio::io::duplex(32);

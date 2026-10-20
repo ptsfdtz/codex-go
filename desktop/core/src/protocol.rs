@@ -75,6 +75,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "system.capabilities"
         | "system.diagnostics"
         | "snapshot.get"
+        | "models.list"
         | "projects.list"
         | "projects.add"
         | "settings.get"
@@ -85,7 +86,10 @@ pub fn parse(v: Value) -> Result<Request> {
         "approvals.list" => (&[], &["sessionId"]),
         "sessions.create" => (&["projectId", "title"], &[]),
         "sessions.detail" => (&["sessionId"], &["before", "limit"]),
-        "turn.start" => (&["sessionId", "text"], &[]),
+        "turn.start" => (&["sessionId", "text"], &["model", "effort"]),
+        "sessions.rename" => (&["sessionId", "title"], &[]),
+        "sessions.archive" | "sessions.restore" | "sessions.delete" => (&["sessionId"], &[]),
+        "sessions.pin" => (&["sessionId", "pinned"], &[]),
         "turn.interrupt" => (&["sessionId", "turnId"], &[]),
         "approvals.decide" => (&["sessionId", "turnId", "approvalId", "decision"], &[]),
         "git.diff" => (&["projectId", "fileId"], &[]),
@@ -94,6 +98,18 @@ pub fn parse(v: Value) -> Result<Request> {
     };
     fields(p, required, optional)?;
     for key in ["projectId", "sessionId", "turnId", "approvalId", "fileId"] {
+        if p.get(key).is_some() {
+            text(p, key, 1, 160)?;
+        }
+    }
+    if p.get("pinned").is_some() {
+        ensure(
+            p["pinned"].is_boolean(),
+            "INVALID_REQUEST",
+            "Boolean required",
+        )?;
+    }
+    for key in ["model", "effort"] {
         if p.get(key).is_some() {
             text(p, key, 1, 160)?;
         }

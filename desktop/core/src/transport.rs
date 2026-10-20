@@ -374,6 +374,11 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
     let mutate = matches!(
         r.action.as_str(),
         "sessions.create"
+            | "sessions.rename"
+            | "sessions.archive"
+            | "sessions.restore"
+            | "sessions.delete"
+            | "sessions.pin"
             | "turn.start"
             | "turn.interrupt"
             | "approvals.decide"

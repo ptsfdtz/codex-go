@@ -58,6 +58,14 @@ async fn real_codex_completion_and_resume() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(core.ready.load(Ordering::SeqCst));
+    let models = core.models().await.unwrap();
+    let selected = models
+        .iter()
+        .find(|m| m["isDefault"] == true)
+        .or(models.first())
+        .expect("No available Codex model");
+    let model = s(selected, "model");
+    let effort = s(selected, "defaultReasoningEffort");
     let session = core
         .create_session(s(&project, "projectId"), "Native Rust real smoke")
         .await
@@ -67,7 +75,7 @@ async fn real_codex_completion_and_resume() {
         if index == 1 {
             core.loaded.lock().unwrap().clear();
         }
-        let turn=core.start_turn(s(&session,"sessionId"),"Reply exactly AGENTDECK_RUST_OK. Do not call any tools, execute commands, or change any files.").await.unwrap();
+        let turn=core.start_turn_options(s(&session,"sessionId"),"Reply exactly AGENTDECK_RUST_OK. Do not call any tools, execute commands, or change any files.",Some(model),Some(effort)).await.unwrap();
         let until = tokio::time::Instant::now() + Duration::from_secs(120);
         let final_turn = loop {
             let t = core.store.turn(s(&turn, "turnId")).unwrap();
@@ -91,7 +99,20 @@ async fn real_codex_completion_and_resume() {
         .iter()
         .any(|e| e["payload"].to_string().contains("AGENTDECK_RUST_OK")));
     assert!(core.store.approvals(None).unwrap().is_empty());
-    let report = json!({"at":now(),"result":"PASS","backend":"Rust","boundary":boundary,"actualCodexVersion":codex::VERSION,"terminalStatuses":statuses,"streamingEvents":history.iter().filter(|v|v["action"]=="turn.progress").count(),"resume":true,"humanApproval":"NOT REQUESTED: text-only task","physicalTablet":"NOT TESTED"});
+    let id = s(&session, "sessionId");
+    for (action, payload) in [
+        (
+            "sessions.rename",
+            json!({"sessionId":id,"title":"AgentDeck isolated management smoke"}),
+        ),
+        ("sessions.archive", json!({"sessionId":id})),
+        ("sessions.restore", json!({"sessionId":id})),
+        ("sessions.delete", json!({"sessionId":id})),
+    ] {
+        core.manage_session(action, &payload).await.unwrap();
+    }
+    assert!(core.store.session(id).is_err());
+    let report = json!({"at":now(),"result":"PASS","backend":"Rust","boundary":boundary,"actualCodexVersion":codex::VERSION,"terminalStatuses":statuses,"streamingEvents":history.iter().filter(|v|v["action"]=="turn.progress").count(),"resume":true,"model":model,"effort":effort,"modelCatalog":models.len(),"sessionManagement":["rename","archive","restore","delete"],"scope":"Only the isolated thread created by this test","humanApproval":"NOT REQUESTED: text-only task","physicalTablet":"NOT TESTED"});
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts");
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("native-real-codex.json"), report.to_string()).unwrap();
