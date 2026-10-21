@@ -58,3 +58,11 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 后续同配置运行保存为 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-inspection-probe.json`，passed=true，并首次观察到 desktopOpenedSeededThread=true：GUI 自己请求的 thread/read 或 thread/resume 成功响应包含原线程 ID。它只证明线程读取，不证明完整历史内容或渲染，也不区分这两个方法。报告不保存 ID 或响应原文。索引和外部重命名检查仍通过，子进程退出，无固定代理错误码。
 
 本次独立窗口的只读可访问性观察显示首次职业/个性化设置页（含 Engineering 等选项、个性化建议复选框和未启用的 Continue）；没有输入、点击、代填职业或修改个性化设置。该页面与后台读取成功可以同时存在，不能把页面解释为协议读取失败，也不能把后台读取解释为用户已看到会话。可见内容验收仍未完成；后续需核验受支持的独立测试初始化方式，不能复制生产配置/私有数据库或绕过账户与隐私选择。
+
+## 严格历史内容探测
+
+在共享索引命令后追加 `--shared-history`，使用单独报告路径。该选项要求 `--shared-index`；通过条件额外要求 GUI 自己请求所得的成功响应包含同一线程、同一轮次的完整用户输入和完整助手回复，分别记录 desktopReceivedExactSeedInput/desktopReceivedExactSeedAnswer。不注入 GUI 请求，不把直接客户端响应或 thread/list 元数据算作内容。原有检查后最多再观察 30 秒；缺少任意原文即失败，不能只凭 desktopOpenedSeededThread 通过。
+
+观察覆盖 thread/read、thread/resume 内嵌 turns，以及 GUI 请求的 thread/turns/list 和 thread/items/list 分页响应；分页通过原请求 threadId 和返回 turnId 关联。只在内存比较合成原文，持久化布尔值；不保存请求、响应、线程 ID 或内容。回归命令：`node --test scripts/lib/gui-history.test.mjs`，包括跨线程/轮次误归属、元数据、原文片段和错误回复的拒绝。此检查仍不能证明 UI 渲染、长历史全量分页、生产账户或安卓真机。
+
+真实结果保存在 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-history-probe.json`：**passed=false**，GUI 线程元数据读取、列表和外部重命名仍成功，但两项完整原文检查均 false。固定请求诊断确认观察期内 GUI 未请求 seed 的 includeTurns=true、thread/turns/list 或 thread/items/list；没有代理失败码，子进程退出。不能把上一轮 desktopOpenedSeededThread=true 解释为完整历史加载，也不能把本次未请求历史解释为上游接口拒绝历史。下一步核验首次设置/深链接导航的受支持测试路径，并先交叉核验源服务的完整合成历史，再验证 GUI 实际请求、内容及双向操作。

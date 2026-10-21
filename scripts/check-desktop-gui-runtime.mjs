@@ -20,9 +20,12 @@ import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { once } from 'node:events';
 import WebSocket, { WebSocketServer } from 'ws';
+import { inspectGuiHistory } from './lib/gui-history.mjs';
 
 const [desktop, native, proxy, destination] = process.argv.slice(2);
 const sharedIndex = process.argv.slice(6).includes('--shared-index');
+const sharedHistory = process.argv.slice(6).includes('--shared-history');
+if (sharedHistory && !sharedIndex) throw new Error('Shared history requires shared-index probe');
 const desktopPluginStartup = process.argv.slice(6).includes('--with-desktop-plugin-startup');
 const inspectionArgs = process.argv
   .slice(6)
@@ -46,7 +49,13 @@ if (
   process.argv
     .slice(6)
     .some(
-      (arg) => !['--shared-index', '--with-desktop-plugin-startup', inspectionArg].includes(arg),
+      (arg) =>
+        ![
+          '--shared-index',
+          '--shared-history',
+          '--with-desktop-plugin-startup',
+          inspectionArg,
+        ].includes(arg),
     )
 )
   throw new Error('Unknown probe option');
@@ -154,7 +163,14 @@ const report = {
   androidVerified: false,
   mainAppBootstrapVerified: false,
   desktopPluginStartup: { requested: desktopPluginStartup, hostIntegrationVerified: false },
-  checks: {},
+  historyVerificationRequested: sharedHistory,
+  checks: {
+    desktopReceivedExactSeedInput: false,
+    desktopReceivedExactSeedAnswer: false,
+    desktopRequestedSeedReadWithTurns: false,
+    desktopRequestedSeedTurns: false,
+    desktopRequestedSeedItems: false,
+  },
   passed: false,
 };
 const children = [];
@@ -168,6 +184,8 @@ let completedSeed = false;
 let requestId = 0;
 const directPending = new Map();
 const renamedTitle = 'AgentDeck isolated GUI cross-client rename';
+const seedInput = 'Isolated GUI sharing probe; do not call tools.';
+const seedAnswer = 'Isolated GUI shared history fixture.';
 async function request(method, params) {
   return new Promise((resolve, reject) => {
     const id = `probe-${++requestId}`;
@@ -215,9 +233,7 @@ try {
         type: 'message',
         role: 'assistant',
         status: 'completed',
-        content: [
-          { type: 'output_text', text: 'Isolated GUI shared history fixture.', annotations: [] },
-        ],
+        content: [{ type: 'output_text', text: seedAnswer, annotations: [] }],
       };
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       for (const event of [
@@ -350,9 +366,7 @@ try {
     seededThread = started.thread.id;
     const turn = await request('turn/start', {
       threadId: seededThread,
-      input: [
-        { type: 'text', text: 'Isolated GUI sharing probe; do not call tools.', text_elements: [] },
-      ],
+      input: [{ type: 'text', text: seedInput, text_elements: [] }],
     });
     seededTurn = turn.turn.id;
     for (let i = 0; i < 150 && !completedSeed; i++) await pause(100);
@@ -391,14 +405,29 @@ try {
       try {
         const packet = JSON.parse(data.toString());
         if (packet.method === 'initialize') report.checks.desktopInitializeSent = true;
+        if (seededThread && packet.params?.threadId === seededThread) {
+          if (packet.method === 'thread/read' && packet.params.includeTurns === true)
+            report.checks.desktopRequestedSeedReadWithTurns = true;
+          if (packet.method === 'thread/turns/list') report.checks.desktopRequestedSeedTurns = true;
+          if (packet.method === 'thread/items/list') report.checks.desktopRequestedSeedItems = true;
+        }
         if (
           packet.id != null &&
-          ['initialize', 'config/read', 'thread/list', 'thread/read', 'thread/resume'].includes(
-            packet.method,
-          ) &&
+          [
+            'initialize',
+            'config/read',
+            'thread/list',
+            'thread/read',
+            'thread/resume',
+            'thread/turns/list',
+            'thread/items/list',
+          ].includes(packet.method) &&
           pending.size < 256
         )
-          pending.set(String(packet.id), packet.method);
+          pending.set(String(packet.id), {
+            method: packet.method,
+            threadId: packet.params?.threadId,
+          });
         if (packet.method === 'initialized') report.checks.desktopInitializedNotification = true;
       } catch {
         downstream.terminate();
@@ -419,7 +448,8 @@ try {
     upstream.on('message', (data, binary) => {
       try {
         const packet = JSON.parse(data.toString());
-        const method = pending.get(String(packet.id));
+        const observedRequest = pending.get(String(packet.id));
+        const method = observedRequest?.method;
         if (method && packet.result != null) {
           if (method === 'initialize') {
             report.checks.desktopInitializeSucceeded = true;
@@ -441,6 +471,14 @@ try {
             packet.result.thread?.id === seededThread
           )
             report.checks.desktopOpenedSeededThread = true;
+          const history = inspectGuiHistory(observedRequest, packet.result, {
+            threadId: seededThread,
+            turnId: seededTurn,
+            input: seedInput,
+            answer: seedAnswer,
+          });
+          if (history.user) report.checks.desktopReceivedExactSeedInput = true;
+          if (history.assistant) report.checks.desktopReceivedExactSeedAnswer = true;
           pending.delete(String(packet.id));
         }
         if (
@@ -537,6 +575,20 @@ try {
   if (inspectionSeconds) {
     process.stdout.write('Isolated GUI inspection hold started.\n');
     await pause(inspectionSeconds * 1000);
+  }
+  if (sharedHistory) {
+    for (
+      let i = 0;
+      i < 300 &&
+      !(
+        report.checks.desktopReceivedExactSeedInput && report.checks.desktopReceivedExactSeedAnswer
+      );
+      i++
+    )
+      await pause(100);
+    report.passed &&=
+      report.checks.desktopReceivedExactSeedInput === true &&
+      report.checks.desktopReceivedExactSeedAnswer === true;
   }
 } catch {
   report.failure = 'ISOLATED_GUI_PROBE_FAILED';
