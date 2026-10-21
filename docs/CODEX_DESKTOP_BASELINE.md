@@ -101,6 +101,8 @@ node scripts/audit-codex-protocol.mjs <Codex可执行文件绝对路径> artifac
 
 ### 2026-10-21 本地认证适配增量
 
+以下按探索顺序保留证据范围；后续已补独立原版 GUI 初始化传输验证，见本节末尾，完整共享和 UI 验收仍未完成。
+
 只读检查安装包 `application-network-startup-DB1VeU3v.js` 和 `main-C4DYk222.js`：本地 URL 路由的握手 headers 默认为空；云端特殊 host 才使用账户认证握手，不能挪用账户 token。其 Node ws 构造器接受 URL userinfo 的 Basic 认证。新增默认关闭的 Rust 回环 Basic → Bearer 适配，具体配置、验证和接手限制见 [本机认证适配](CODEX_DESKTOP_ADAPTER.md)。
 
 ws 8.21.0 对应构造参数的 fixture，以及精确安装版真实隔离服务的 initialize/原 threadId 读取已验证；不是原版 GUI 运行证据。桌面 URL 日志与环境继承的凭据保护仍需审计，当前未重启、重配或启动原版 GUI；完整共享能力保持 false。
@@ -114,6 +116,8 @@ ws 8.21.0 对应构造参数的 fixture，以及精确安装版真实隔离服�
 安装代码纯参数构造函数已用合成环境执行（不是读取真实环境）：默认/空白覆盖保留 -c features.code_mode_host=true 在 app-server 前；CODEX_APP_SERVER_CHATGPT_BASE_URL 与 CODEX_APP_SERVER_OPENAI_BASE_URL 非空时，app-server 移到首项，随后为特性和 JSON 字符串地址覆盖，末尾保留 analytics 默认标志。真实安装版隔离 config/read 验证该组合及转接门槛通过，错误地址仍拒绝。可复现脚本及指纹见 desktop-ws-environment-audit.json。
 
 新增明确待验项：Windows 本地启动使用 source!==override 等条件启用 windows_sandbox_service，且不满足对应分支时移除 CODEX_WINDOWS_REGISTERED_CORE。因此 CODEX_CLI_PATH 替换还会改变原版启动语义；不能以 stdio 或地址覆盖检查通过推断沙箱等价，更不能为求启动而强行开启该特性。云端隧道代码另有原生 tcp-tunnel --help 能力探测和带 --auth-token-stdin/--auth-token-updates-stdin 的子进程；这证明存在原生辅助程序依赖，但尚未证明打包版该解析器会选中转接路径，也未运行隧道。后续应核验各解析路径、沙箱和宿主环境，再决定具体委派集合，不盲目委派所有命令或另起 app-server。
+
+后续真实独立 GUI 传输检查已通过：原版安装程序使用全新 Electron/Codex/profile 目录和凭据文件转接完成 initialize、配置门槛、initialized；修复原生 userAgent 前缀硬编码造成的误拒绝。可复现脚本、报告和限制见 [GUI 探测](CODEX_DESKTOP_GUI_PROBE.md)。这是原版 GUI 实际接通证据，取代此前仅 CLI/fixture 的传输证据；不等于生产桌面迁移、可见页面、同任务双端操作或完整共享验收。
 
 1. 可见页面、菜单、快捷键和账户/实验入口逐项盘点，不把资产文件名当作实际可用入口。
 2. 找到桌面真正支持的共享接入方式，或对每种候选路径给出可复核阻塞结论。

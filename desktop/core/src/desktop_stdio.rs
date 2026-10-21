@@ -347,7 +347,11 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                     .map_err(|_| failure("PROXY_VERSION_UNVERIFIED"))?;
                 ensure(
                     crate::s(&value["result"], "userAgent")
-                        .starts_with(&format!("Codex Desktop/{} (", protocol.version())),
+                        .split_once('/')
+                        .is_some_and(|(originator, version)| {
+                            !originator.is_empty()
+                                && version.starts_with(&format!("{} (", protocol.version()))
+                        }),
                     "PROXY_VERSION_UNVERIFIED",
                     "Shared runtime version differs from selected protocol",
                 )?;

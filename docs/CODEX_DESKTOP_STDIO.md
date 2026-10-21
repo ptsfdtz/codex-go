@@ -2,6 +2,8 @@
 
 阶段 0 开发实现；不是原版 GUI 或完整迁移验收。当前桌面与其已有 stdio 任务未重启、重配或迁移。
 
+2026-10-21 已补真实独立原版 GUI 的初始化传输验证，见 [GUI 探测](CODEX_DESKTOP_GUI_PROBE.md)。通过的是全新配置目录中 initialize、同连接配置门槛和 initialized；生产桌面、页面、共享活动任务、安卓仍未验收。userAgent 的 originator 允许原生返回的不同非空前缀，精确原生版本及分隔符仍必需；不再假定前缀必须为 Codex Desktop。
+
 ## 入口和电脑配置
 
 构建：`cargo build --locked --manifest-path desktop/core/Cargo.toml --bin agentdeck-codex-proxy`。主 Bridge 的默认 cargo run 入口仍为 agentdeck-service；此开发程序尚未加入发布包，也不自动修改桌面设置。
@@ -49,4 +51,4 @@ endpoint 沿用精确回环 IP、显式端口、根路径校验，禁止 userinf
 
 设置 AGENTDECK_DESKTOP_PROBE_EXE 为精确安装版原生程序，再执行 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_websocket real_desktop_baseline_ -- --ignored --nocapture`。三项真实隔离检查均复制实际转接可执行文件到临时目录，写相邻 manifest，以与安装版默认相同的特性/analytics 参数启动子进程，验证版本、配置不符时 stdout 为空/固定 stderr、同线程读取、EOF 后退出和原连接继续可用。源服务在隔离目录显式设置 code_mode_host=true、analytics.enabled=false；不改变生产设置，不用账户模型；历史/活动检查使用本机合成模型。它们不是启动原版 GUI 的证据。
 
-下一步：验证原版桌面的完整动态 CLI 参数、配置层与 CLI 工具调用；补必须委派的命令语义；准备相互隔离、可回退的原版 GUI 接入，再进行双端真实活动任务和全量 UI 基准验收。sharedDesktopRuntime 仍为 false，阶段 0 仍未通过。
+下一步：在已验证的独立 GUI 初始化接通基础上，验证同源会话和双端真实活动任务；继续核验完整动态 CLI 参数、配置层、CLI 工具调用与必要委派，并进行全量 UI 基准验收。sharedDesktopRuntime 仍为 false，阶段 0 仍未通过。

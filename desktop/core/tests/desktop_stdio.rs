@@ -319,7 +319,7 @@ async fn configuration_gate_never_forwards_a_queued_task_or_its_snapshot() {
         let hello: Value =
             serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
         assert_eq!(hello["method"], "initialize");
-        ws.send(Message::Text(json!({"id":hello["id"],"result":{"codexHome":"C:/fixture","platformFamily":"windows","platformOs":"windows","userAgent":"Codex Desktop/0.163.0-alpha.10.2 (fixture)"}}).to_string().into())).await.unwrap();
+        ws.send(Message::Text(json!({"id":hello["id"],"result":{"codexHome":"C:/fixture","platformFamily":"windows","platformOs":"windows","userAgent":"codex_desktop/0.163.0-alpha.10.2 (fixture)"}}).to_string().into())).await.unwrap();
         let check: Value =
             serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
         assert_eq!(check["method"], "config/read");
@@ -350,6 +350,58 @@ async fn configuration_gate_never_forwards_a_queued_task_or_its_snapshot() {
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn native_version_mismatch_never_releases_initialization_or_queued_task() {
+    for user_agent in [
+        "codex_desktop/0.159.2 (fixture)",
+        "codex_desktop/0.163.0-alpha.10.20 (fixture)",
+        "/0.163.0-alpha.10.2 (fixture)",
+        "0.163.0-alpha.10.2 (fixture)",
+    ] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let token_file = dir.path().join("token");
+        std::fs::write(&token_file, "a".repeat(43)).unwrap();
+        let target = RuntimeTarget::Attached {
+            endpoint: format!("ws://{}", listener.local_addr().unwrap()),
+            token_file,
+            protocol: ProtocolVersion::DesktopBaseline,
+        };
+        let native = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = accept_async(stream).await.unwrap();
+            let hello: Value =
+                serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+            ws.send(Message::Text(json!({"id":hello["id"],"result":{"codexHome":"C:/fixture","platformFamily":"windows","platformOs":"windows","userAgent":user_agent}}).to_string().into())).await.unwrap();
+            assert!(!matches!(ws.next().await, Some(Ok(Message::Text(_)))));
+        });
+        let input = format!(
+            "{}\n{}\n",
+            json!({"id":1,"method":"initialize","params":{}}),
+            json!({"id":2,"method":"thread/start","params":{}})
+        );
+        let mut output = Vec::new();
+        let error = tokio::time::timeout(
+            Duration::from_secs(3),
+            relay(
+                input.as_bytes(),
+                &mut output,
+                target,
+                Startup::parse(&args(&["app-server"])).unwrap(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(error.code, "PROXY_VERSION_UNVERIFIED");
+        assert!(output.is_empty());
+        tokio::time::timeout(Duration::from_secs(3), native)
+            .await
+            .unwrap()
+            .unwrap();
+    }
 }
 
 #[test]
