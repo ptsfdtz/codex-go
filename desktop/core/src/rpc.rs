@@ -238,7 +238,11 @@ impl Rpc {
         } else {
             json!({"id":id,"method":method,"params":params})
         };
-        self.validate("ClientRequest", &packet)?;
+        if self.protocol == ProtocolVersion::DesktopBaseline && method == "project/list" {
+            self.validate("experimental/ProjectListParams", &packet["params"])?;
+        } else {
+            self.validate("ClientRequest", &packet)?;
+        }
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = self.pending.lock().unwrap();

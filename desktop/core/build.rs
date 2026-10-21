@@ -85,6 +85,36 @@ fn main() {
         "\"experimental/TurnStartParams\"=>Some(include_str!({:?})),\n",
         composer_path.to_string_lossy()
     ));
+    let projects_lock_path = root.join("versions/0.163.0-alpha.10.2/projects-lock.json");
+    let projects_lock: serde_json::Value = serde_json::from_slice(
+        &fs::read(&projects_lock_path).expect("desktop project schema lock"),
+    )
+    .unwrap();
+    assert_eq!(projects_lock["codexVersion"], "0.163.0-alpha.10.2");
+    assert_eq!(projects_lock["experimental"], true);
+    let project_files = projects_lock["files"].as_array().unwrap();
+    assert_eq!(project_files.len(), 2);
+    for name in ["ProjectListParams", "ProjectListResponse"] {
+        let file = project_files
+            .iter()
+            .find(|file| file["name"] == name)
+            .expect("required project schema");
+        let source = format!("versions/0.163.0-alpha.10.2/experimental/{name}.json");
+        assert_eq!(file["source"], source);
+        let path = root.join(source);
+        let bytes = fs::read(&path).expect("desktop experimental project schema");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            file["sha256"].as_str().unwrap()
+        );
+        generated.push_str(&format!(
+            "{:?}=>Some(include_str!({:?})),\n",
+            format!("experimental/{name}"),
+            path.to_string_lossy()
+        ));
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    println!("cargo:rerun-if-changed={}", projects_lock_path.display());
     generated.push_str("_=>None}}\n");
     println!("cargo:rerun-if-changed={}", composer_path.display());
     println!("cargo:rerun-if-changed={}", composer_lock_path.display());

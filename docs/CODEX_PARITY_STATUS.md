@@ -3,6 +3,14 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：Rust 版本锁定原生项目分页读取（阶段 0 / P02）
+
+- 前一轮提交 cf8edf4。本轮将已验证的 project/list 加入 Rust 低层适配：Rpc::project_page 保留权威项目 ID/roots/metadata/排序与时间字段，只对精确 DesktopBaseline 开放，Managed 明确拒绝。限制请求条数/游标、校验完整响应、重复 ID/循环游标/返回超限与 384 KiB 内容上限，超限报错而非截断。未创建 Bridge 项目、授予目录或开放安卓入口/能力标记。
+- pin-desktop-protocol.mjs 新增 --projects，通过精确原生实验导出捕获两个列表合约及 projects-lock.json；build.rs 校验版本、文件集合、路径与 SHA-256。稳定/Managed/composer 合约独立，既有锁不可覆盖。RPC 仅为 DesktopBaseline project/list 使用专属参数 schema，其他请求沿用原 ClientRequest，项目写方法仍不开放；新增回归确认发送前拒绝。
+- 3 项分页 fixture 回归覆盖两页/空页完整保留、类型/必需字段、重复 ID、超条数、循环/空/超长游标、超大页与参数/版本/写方法拒绝。真实安装版元数据检查由独立原生连接创建两个项目，Rust limit=1 读到全部原 ID/根目录/metadata，再由另一 Rust 连接读到外部改名；测试写入仅作隔离数据准备，不进入生产 API。
+- 验证：71 项常规 Rust 测试通过；3 项真实安装版隔离检查通过（15.89 秒），包括新增项目分页与已有历史/原轮次追加/中断，模型仅为回环合成服务。严格 Clippy、fmt、脚本 ESLint/Prettier、生成文件指纹/拒绝覆盖及相关 diff 检查通过。无安卓、远程协议、数据库或默认版本变更，未使用账户模型或修改生产桌面。
+- 新增 CODEX_NATIVE_PROJECTS.md，更新架构与 P02.1 矩阵。该 API 是电脑低层读取，尚未按 Core grants 过滤，不可直接暴露给远程设备；下一步实现全部 roots 的授权匹配与原生身份映射，不能只匹配首 root/cwd 或把原生 ID 当桌面 legacy ID。宿主外部入口、导航/完整历史、可见侧栏和安卓仍未验收，阶段 0/sharedDesktopRuntime 保持未完成。本轮选择性提交有效实现、生成合约、测试和文档，不混入独立 CI/发布改动，不推送。
+
 ## 2026-10-21 实施记录：桌面项目宿主路径及写入验后约束（阶段 0 / P02）
 
 - 前一轮提交 67c955b。本轮只读定位 createAppHost 的 renderer-scoped projects 服务、前端 host.projects 操作、本机 getLocalProjects 缓存来源及原生 projectBackend 安装。它是内部宿主服务，不是已验证的外部 API；仍无可靠外部宿主 endpoint，不将内部方法名当作远程接口。

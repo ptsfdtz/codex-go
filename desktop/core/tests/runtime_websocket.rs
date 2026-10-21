@@ -210,6 +210,99 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     let drain_b = tokio::spawn(async move { while second_events.recv().await.is_some() {} });
     codex::initialize_attached(&a).await.unwrap();
     codex::initialize_attached(&b).await.unwrap();
+    if !with_history && !with_steering {
+        // Seed through an independent native protocol client. Production Rust
+        // exposes only the pinned project/list contract, never these writes.
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut request = endpoint.as_str().into_client_request().unwrap();
+        request
+            .headers_mut()
+            .insert("Authorization", format!("Bearer {token}").parse().unwrap());
+        let (mut source, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+        async fn native_request(
+            socket: &mut tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+            id: &str,
+            method: &str,
+            params: Value,
+        ) -> Value {
+            socket
+                .send(Message::Text(
+                    json!({"id":id,"method":method,"params":params})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let message = socket.next().await.unwrap().unwrap();
+                    if !message.is_text() {
+                        continue;
+                    }
+                    let packet: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+                    if packet["id"] == id {
+                        assert!(
+                            packet.get("error").is_none(),
+                            "isolated native project seed failed"
+                        );
+                        return packet["result"].clone();
+                    }
+                }
+            })
+            .await
+            .unwrap()
+        }
+        native_request(&mut source, "project-init", "initialize", json!({"clientInfo":{"name":"rust_project_seed","version":"0.3.0"},"capabilities":{"experimentalApi":true}})).await;
+        source
+            .send(Message::Text(
+                json!({"method":"initialized","params":{}})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let mut expected = std::collections::HashSet::new();
+        for key in ["one", "two"] {
+            let created = native_request(&mut source, key, "project/create", json!({"idempotencyKey":key,"name":format!("Isolated {key}"),"roots":[{"path":project}],"metadata":{"fixture":"rust"}})).await;
+            expected.insert(created["project"]["id"].as_str().unwrap().to_owned());
+        }
+        let mut cursor: Option<String> = None;
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..3 {
+            let page = a.project_page(cursor.as_deref(), 1).await.unwrap();
+            assert_eq!(page["data"].as_array().unwrap().len(), 1);
+            let entry = &page["data"][0];
+            assert_eq!(entry["metadata"]["fixture"], "rust");
+            assert_eq!(
+                entry["roots"][0]["path"],
+                project.to_string_lossy().as_ref()
+            );
+            assert!(seen.insert(entry["id"].as_str().unwrap().to_owned()));
+            cursor = page["nextCursor"].as_str().map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert!(cursor.is_none());
+        assert_eq!(seen, expected);
+        let id = expected.iter().next().unwrap();
+        native_request(
+            &mut source,
+            "rename-project",
+            "project/update",
+            json!({"projectId":id,"name":"Externally renamed"}),
+        )
+        .await;
+        let reread = b.project_page(None, 100).await.unwrap();
+        assert!(reread["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["id"] == *id && p["name"] == "Externally renamed"));
+        source.close(None).await.unwrap();
+    }
     let created = a
         .request(
             "thread/start",

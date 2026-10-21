@@ -6,6 +6,7 @@ pub mod desktop_adapter;
 pub mod desktop_stdio;
 pub mod git;
 mod history;
+mod native_projects;
 mod observation;
 pub mod pairing;
 pub mod paths;

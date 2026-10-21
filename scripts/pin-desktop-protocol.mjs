@@ -15,8 +15,10 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 const version = '0.163.0-alpha.10.2';
 const [executable, mode, ...extra] = process.argv.slice(2);
-if (extra.length || (mode && mode !== '--composer')) throw new Error('Unknown capture mode');
+if (extra.length || (mode && !['--composer', '--projects'].includes(mode)))
+  throw new Error('Unknown capture mode');
 const composer = mode === '--composer';
+const projects = mode === '--projects';
 if (!executable || !isAbsolute(executable))
   throw new Error('Expected absolute baseline CLI executable');
 const run = (args) =>
@@ -31,7 +33,15 @@ if (run(['--version']).trim() !== `codex-cli ${version}`)
   throw new Error('Desktop baseline version mismatch');
 const root = resolve('packages/codex-protocol');
 const destination = join(root, 'versions', version);
-if (existsSync(composer ? join(destination, 'composer-lock.json') : destination))
+if (
+  existsSync(
+    composer
+      ? join(destination, 'composer-lock.json')
+      : projects
+        ? join(destination, 'projects-lock.json')
+        : destination,
+  )
+)
   throw new Error('Baseline already captured; verify instead of overwriting');
 const scratch = mkdtempSync(join(tmpdir(), 'agentdeck-desktop-schema-'));
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -50,26 +60,32 @@ try {
     'generate-json-schema',
     '--out',
     scratch,
-    ...(composer ? ['--experimental'] : []),
+    ...(composer || projects ? ['--experimental'] : []),
   ]);
-  if (composer) {
-    const bytes = readFileSync(join(scratch, 'v2/TurnStartParams.json'));
-    const source = `versions/${version}/experimental/TurnStartParams.json`;
-    mkdirSync(dirname(join(root, source)), { recursive: true });
-    writeFileSync(join(root, source), bytes);
+  if (composer || projects) {
+    const files = (
+      projects ? ['ProjectListParams', 'ProjectListResponse'] : ['TurnStartParams']
+    ).map((name) => {
+      const bytes = readFileSync(join(scratch, `v2/${name}.json`));
+      const source = `versions/${version}/experimental/${name}.json`;
+      if (existsSync(join(root, source))) throw new Error('Experimental schema already exists');
+      mkdirSync(dirname(join(root, source)), { recursive: true });
+      writeFileSync(join(root, source), bytes);
+      return { name, source, sha256: hash(bytes) };
+    });
     writeFileSync(
-      join(destination, 'composer-lock.json'),
+      join(destination, projects ? 'projects-lock.json' : 'composer-lock.json'),
       `${JSON.stringify(
         {
           codexVersion: version,
           experimental: true,
-          files: [{ name: 'TurnStartParams', source, sha256: hash(bytes) }],
+          files,
         },
         null,
         2,
       )}\n`,
     );
-    console.log(JSON.stringify({ version, experimental: true, count: 1 }));
+    console.log(JSON.stringify({ version, experimental: true, count: files.length }));
   } else {
     const files = walk(scratch)
       .sort()
