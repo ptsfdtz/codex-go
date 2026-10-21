@@ -6,7 +6,7 @@
 
 `DeckNotifications.publish` 接受事件来源电脑 ID，不从点击时的当前电脑推断来源。显式 `MainActivity` Intent 只携带电脑/会话标识；data URI 包含独立编码的电脑、会话、事件 ID。URI 同时区分 PendingIntent 与通知 tag，同一 eventId 在不同电脑不会互相覆盖。正文不含任务文本、路径、输出或凭据。
 
-事件没有 sessionId 时不创建任务导航通知。现有通知动作仍为 approval.requested 与 Bridge turn.completed/failed/interrupted；原生 upstream.* 动作及审批过期通知清理需另行实现。旧版本已生成的无目标通知只会打开应用，不自动猜测目标。
+事件没有 sessionId 时不创建任务导航通知。通知动作包含 approval.requested、Bridge turn.completed/failed/interrupted，以及原生 upstream.turn.completed。原生事件根据顶层 status 区分成功/失败/中断，要求非空原生 turn ID；未知/非终态/格式错误不提示成功。审批仅在身份与事件一致、pending 且 expiresAt 晚于当前时间时提示，使用系统 timeoutAfter 到期移除；approval.resolved 即使在前台或通知偏好关闭时仍清理匹配电脑/审批通知。每次应用权威快照会清理该电脑已缺失、sending、已处理或过期审批的通知，保持其他电脑通知。系统 extras 只添加审批与电脑标识。旧版本没有审批标识的通知不能可靠识别清理。旧版本已生成的无目标通知只会打开应用，不自动猜测目标。
 
 ## 点击流程
 
@@ -18,7 +18,7 @@
 
 ## 验证与接手
 
-`NotificationTargetTest` 是 JVM 身份/旧缓存/缺失会话/输入检查。`NotificationIntentTest` 是设备 instrumentation，检查真实 Intent.filterEquals、PendingIntent 隔离与仅有标识字段；不发送 PendingIntent、不启动任务。编译测试 APK 不代表执行过设备测试。
+`TaskNotificationsTest` 是 JVM 原生终态、未知/错误结构、审批身份/状态/时效回归；不执行 NotificationManager 或系统定时移除。`NotificationTargetTest` 是 JVM 身份/旧缓存/缺失会话/输入检查。`NotificationIntentTest` 是设备 instrumentation，检查真实 Intent.filterEquals、PendingIntent 隔离与仅有标识字段；不发送 PendingIntent、不启动任务。编译测试 APK 不代表执行过设备测试。
 
 ```powershell
 cd android

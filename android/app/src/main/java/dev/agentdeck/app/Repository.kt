@@ -179,6 +179,7 @@ class DeckRepository(context:Context){
         }
         if(!isCurrent())throw CancellationException("Snapshot connection replaced")
         if(resetCursor)eventCheckpoint.reset(snapshot.cursor)
+        notifications.reconcileApprovals(host.hostId,snapshot)
         val selected=mutable.value.selectedSession
         if(selected!=null&&snapshot.sessions.none{it.sessionId==selected})selectionJob?.cancel()
         mutable.update{old->val vanished=old.selectedSession!=null&&snapshot.sessions.none{it.sessionId==old.selectedSession};old.copy(snapshot=snapshot,lastSynced=at,selectedSession=if(vanished)null else old.selectedSession,timelineHistory=if(vanished)TimelineHistory() else old.timelineHistory,events=if(vanished)emptyList() else old.events,selectedProject=old.selectedProject?.takeIf{id->snapshot.projects.any{it.projectId==id}}?:snapshot.projects.firstOrNull()?.projectId)}
