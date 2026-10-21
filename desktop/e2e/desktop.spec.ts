@@ -121,6 +121,7 @@ test('connected tablet replaces pairing and service loss removes live status', a
         codexReady: false,
         devices: [{ ...v.state.devices[0], connected: false }],
       },
+      errorCode: 'SERVICE_DISCONNECTED',
       error: '连接中断 · 测试替身',
     },
   );
