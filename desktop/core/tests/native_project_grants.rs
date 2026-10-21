@@ -46,6 +46,9 @@ impl Harness {
         paths::canonical(&path).unwrap()
     }
     async fn source(&self, response: Value) -> Source {
+        self.source_pages(vec![response]).await
+    }
+    async fn source_pages(&self, responses: Vec<Value>) -> Source {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("ws://{}", listener.local_addr().unwrap());
         let (requested_tx, requested) = oneshot::channel();
@@ -60,14 +63,26 @@ impl Harness {
             assert_eq!(packet["method"], "project/list");
             requested_tx.send(packet.clone()).unwrap();
             released.await.unwrap();
-            socket
-                .send(Message::Text(
-                    json!({"id":packet["id"],"result":response})
-                        .to_string()
-                        .into(),
-                ))
-                .await
-                .unwrap();
+            let mut packet = packet;
+            for (index, response) in responses.iter().enumerate() {
+                if index > 0 {
+                    let message = socket.next().await.unwrap().unwrap();
+                    packet = serde_json::from_str(message.to_text().unwrap()).unwrap();
+                    assert_eq!(packet["method"], "project/list");
+                    assert_eq!(
+                        packet["params"]["cursor"],
+                        responses[index - 1]["nextCursor"]
+                    );
+                }
+                socket
+                    .send(Message::Text(
+                        json!({"id":packet["id"],"result":response})
+                            .to_string()
+                            .into(),
+                    ))
+                    .await
+                    .unwrap();
+            }
             while let Some(Ok(message)) = socket.next().await {
                 if message.is_close() {
                     break;
@@ -113,6 +128,164 @@ impl Source {
 }
 fn project(id: &str, roots: &[PathBuf]) -> Value {
     json!({"id":id,"name":format!("project-{id}"),"roots":roots.iter().map(|p|json!({"path":p})).collect::<Vec<_>>(),"metadata":{"original":"preserved"},"position":2,"createdAt":1,"updatedAt":3})
+}
+
+#[tokio::test]
+async fn device_view_hides_source_cursors_replays_and_rejects_other_devices_or_limits() {
+    let h = Harness::new();
+    let a = h.folder("a");
+    paths::add_local(&h.core.store, &a).unwrap();
+    h.core
+        .store
+        .replace_device("device-a", "test", "not-a-real-credential")
+        .unwrap();
+    let mut source = h.source_pages(vec![
+        json!({"data":[project("one",std::slice::from_ref(&a))],"nextCursor":"private-source-cursor"}),
+        json!({"data":[project("two",std::slice::from_ref(&a))]})
+    ]).await;
+    source.release();
+    let first = h
+        .core
+        .native_project_device_page("device-a", None, 1)
+        .await
+        .unwrap();
+    assert_eq!(first["data"][0]["project"]["id"], "one");
+    assert!(!first.to_string().contains("private-source-cursor"));
+    let cursor = first["nextCursor"].as_str().unwrap();
+    assert!(agentdeck_service::security::valid_token(cursor));
+    let second = h
+        .core
+        .native_project_device_page("device-a", Some(cursor), 1)
+        .await
+        .unwrap();
+    assert_eq!(second["data"][0]["project"]["id"], "two");
+    assert!(second["nextCursor"].is_null());
+    assert_eq!(
+        second,
+        h.core
+            .native_project_device_page("device-a", Some(cursor), 1)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        h.core
+            .native_project_device_page("device-a", Some(cursor), 2)
+            .await
+            .unwrap_err()
+            .code,
+        "INVALID_CURSOR"
+    );
+    h.core
+        .store
+        .query(
+            "INSERT INTO devices VALUES('device-b','test','fake-hash','fixture',NULL)",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        h.core
+            .native_project_device_page("device-b", Some(cursor), 1)
+            .await
+            .unwrap_err()
+            .code,
+        "INVALID_CURSOR"
+    );
+    h.core
+        .store
+        .query("UPDATE projects SET enabled=0", [])
+        .unwrap();
+    assert_eq!(
+        h.core
+            .native_project_device_page("device-a", Some(cursor), 1)
+            .await
+            .unwrap_err()
+            .code,
+        "SYNC_CONFLICT"
+    );
+    h.core
+        .store
+        .replace_device("device-c", "test", "new-fake-hash")
+        .unwrap();
+    assert_eq!(
+        h.core
+            .native_project_device_page("device-a", Some(cursor), 1)
+            .await
+            .unwrap_err()
+            .code,
+        "UNAUTHORIZED"
+    );
+    source.stop().await;
+}
+
+#[tokio::test]
+async fn device_view_rejects_cross_page_identity_duplicates_and_cursor_cycles() {
+    for cycle in [false, true] {
+        let h = Harness::new();
+        let a = h.folder("a");
+        paths::add_local(&h.core.store, &a).unwrap();
+        h.core
+            .store
+            .replace_device("device", "test", "fake-hash")
+            .unwrap();
+        let pages = if cycle {
+            vec![
+                json!({"data":[],"nextCursor":"a"}),
+                json!({"data":[],"nextCursor":"b"}),
+                json!({"data":[],"nextCursor":"a"}),
+            ]
+        } else {
+            vec![
+                json!({"data":[project("same",std::slice::from_ref(&a))],"nextCursor":"a"}),
+                json!({"data":[project("same",std::slice::from_ref(&a))]}),
+            ]
+        };
+        let mut source = h.source_pages(pages).await;
+        source.release();
+        assert_eq!(
+            h.core
+                .native_project_device_page("device", None, 1)
+                .await
+                .unwrap_err()
+                .code,
+            if cycle {
+                "UPSTREAM_PROTOCOL_ERROR"
+            } else {
+                "SYNC_CONFLICT"
+            }
+        );
+        source.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn device_revoked_while_building_view_gets_no_page() {
+    let h = Harness::new();
+    let a = h.folder("a");
+    paths::add_local(&h.core.store, &a).unwrap();
+    h.core
+        .store
+        .replace_device("device", "test", "fake-hash")
+        .unwrap();
+    let mut source = h.source(json!({"data":[project("one",&[a])]})).await;
+    let core = h.core.clone();
+    let reading =
+        tokio::spawn(async move { core.native_project_device_page("device", None, 1).await });
+    source.wait().await;
+    assert_eq!(
+        h.core
+            .native_project_device_page("device", None, 1)
+            .await
+            .unwrap_err()
+            .code,
+        "BUSY"
+    );
+    h.core
+        .store
+        .replace_device("replacement", "test", "other-fake-hash")
+        .unwrap();
+    source.release();
+    assert_eq!(reading.await.unwrap().unwrap_err().code, "UNAUTHORIZED");
+    source.stop().await;
 }
 
 #[tokio::test]

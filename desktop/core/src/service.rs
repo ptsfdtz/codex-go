@@ -52,6 +52,8 @@ pub struct Core {
     pub ws_slots: Arc<Semaphore>,
     pub device_slots: Mutex<HashMap<String, Arc<Semaphore>>>,
     pub rates: Mutex<crate::transport::Buckets>,
+    pub(crate) project_views: Mutex<Vec<crate::native_project_views::ProjectView>>,
+    pub(crate) project_view_build: tokio::sync::Mutex<()>,
     pub git_hashes: tokio::sync::Mutex<HashMap<String, String>>,
 }
 impl Core {
@@ -90,6 +92,8 @@ impl Core {
             ws_slots: Arc::new(Semaphore::new(8)),
             device_slots: Mutex::new(HashMap::new()),
             rates: Mutex::new(crate::transport::Buckets::default()),
+            project_views: Mutex::new(Vec::new()),
+            project_view_build: tokio::sync::Mutex::new(()),
             git_hashes: tokio::sync::Mutex::new(HashMap::new()),
         })
     }

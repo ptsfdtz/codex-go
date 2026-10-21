@@ -329,6 +329,37 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             })
             .collect();
         assert_eq!(ids, expected);
+        core.store
+            .replace_device("project-reader", "isolated test", "synthetic-hash")
+            .unwrap();
+        let first = core
+            .native_project_device_page("project-reader", None, 1)
+            .await
+            .unwrap();
+        let cursor = first["nextCursor"].as_str().unwrap();
+        assert!(agentdeck_service::security::valid_token(cursor));
+        let second = core
+            .native_project_device_page("project-reader", Some(cursor), 1)
+            .await
+            .unwrap();
+        assert_eq!(first["viewId"], second["viewId"]);
+        let device_ids: std::collections::HashSet<_> = [&first, &second]
+            .iter()
+            .map(|page| {
+                page["data"][0]["project"]["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(device_ids, expected);
+        assert!(second["nextCursor"].is_null());
+        assert_eq!(
+            second,
+            core.native_project_device_page("project-reader", Some(cursor), 1)
+                .await
+                .unwrap()
+        );
         assert_eq!(core.store.projects().unwrap().len(), 1);
         assert!(core.store.sessions(None).unwrap().is_empty());
         source.close(None).await.unwrap();

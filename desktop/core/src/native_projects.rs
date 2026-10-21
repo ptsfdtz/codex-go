@@ -71,11 +71,14 @@ impl Rpc {
 }
 
 impl Core {
-    fn project_grant_snapshot(&self) -> Result<Vec<Value>> {
+    pub(crate) fn project_grant_snapshot(&self) -> Result<Vec<Value>> {
         self.store.query("SELECT projectId,canonicalPath,identity FROM projects WHERE enabled=1 ORDER BY projectId", [])
     }
 
-    fn verified_project_grants(&self, snapshot: &[Value]) -> Result<Vec<(String, PathBuf)>> {
+    pub(crate) fn verified_project_grants(
+        &self,
+        snapshot: &[Value],
+    ) -> Result<Vec<(String, PathBuf)>> {
         snapshot
             .iter()
             .map(|grant| {
@@ -91,19 +94,11 @@ impl Core {
             .collect()
     }
 
-    /// Projects are visible only when every source root exactly matches a live
-    /// local grant. Native identity and Bridge root grants remain separate.
-    /// This internal page still carries the upstream cursor; it is not a remote
-    /// action or a replacement for a future device-bound pagination envelope.
-    pub async fn native_project_page(&self, cursor: Option<&str>, limit: usize) -> Result<Value> {
-        let rpc = self.upstream()?;
-        page_parameters(&rpc, cursor, limit)?;
-        let before = self.project_grant_snapshot()?;
-        let grants = self.verified_project_grants(&before)?;
-        if grants.is_empty() {
-            return Ok(json!({"source":"upstream-native-projects","data":[],"nextCursor":null}));
-        }
-        let source = rpc.project_page(cursor, limit).await?;
+    pub(crate) fn authorized_project_data(
+        &self,
+        source: &Value,
+        grants: &[(String, PathBuf)],
+    ) -> Result<Vec<Value>> {
         let mut data = Vec::new();
         for project in source["data"].as_array().unwrap() {
             let roots = project["roots"].as_array().unwrap();
@@ -140,6 +135,23 @@ impl Core {
                 data.push(json!({"project":project,"rootGrants":mappings}));
             }
         }
+        Ok(data)
+    }
+
+    /// Projects are visible only when every source root exactly matches a live
+    /// local grant. Native identity and Bridge root grants remain separate.
+    /// This internal page still carries the upstream cursor; it is not a remote
+    /// action or a replacement for a future device-bound pagination envelope.
+    pub async fn native_project_page(&self, cursor: Option<&str>, limit: usize) -> Result<Value> {
+        let rpc = self.upstream()?;
+        page_parameters(&rpc, cursor, limit)?;
+        let before = self.project_grant_snapshot()?;
+        let grants = self.verified_project_grants(&before)?;
+        if grants.is_empty() {
+            return Ok(json!({"source":"upstream-native-projects","data":[],"nextCursor":null}));
+        }
+        let source = rpc.project_page(cursor, limit).await?;
+        let data = self.authorized_project_data(&source, &grants)?;
         ensure(
             before == self.project_grant_snapshot()?,
             "SYNC_CONFLICT",
