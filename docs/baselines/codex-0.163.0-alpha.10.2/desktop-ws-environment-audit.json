@@ -1,0 +1,25 @@
+{
+  "kind": "installed-static-code-and-pure-function",
+  "bundles": [
+    {
+      "name": "main-C4DYk222.js",
+      "sha256": "c8a2af504b21314fa6a64ad1b4ec83dbad80033ede902caf9978fd9c74a2c175"
+    },
+    {
+      "name": "application-network-startup-DB1VeU3v.js",
+      "sha256": "c338bbdde151467554d63beea59206848ca38a68abe16b0477d983a172c67578"
+    }
+  ],
+  "offsets": {
+    "localRoute": 225649,
+    "terminal": 3414264,
+    "sanitizer": 24721
+  },
+  "localUrlEnvironmentRead": true,
+  "terminalCopiesDesktopEnvironment": true,
+  "terminalRetainsLocalUrl": true,
+  "sanitizerControlRemoved": true,
+  "originalGuiExecuted": false,
+  "scope": "local-websocket-url-userinfo-in-environment",
+  "productionRouteApproved": false
+}

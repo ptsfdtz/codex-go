@@ -25,7 +25,9 @@ async fn desktop_style_node_constructor_sends_url_basic_auth() {
     let module =
         std::env::var_os("AGENTDECK_DESKTOP_WS_MODULE").expect("set absolute Node ws module path");
     let (_dir, target, _, task) = fixture().await;
-    let adapter = DesktopAdapter::listen(target, 0).await.unwrap();
+    let adapter = DesktopAdapter::listen(target, 0, _dir.path().join("adapter-token"))
+        .await
+        .unwrap();
     let mut child = tokio::process::Command::new("node")
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -38,7 +40,7 @@ async fn desktop_style_node_constructor_sends_url_basic_auth() {
         .kill_on_drop(true)
         .spawn()
         .unwrap();
-    let input = serde_json::json!({"endpoint":format!("ws://127.0.0.1:{}/",adapter.port),"token":"a".repeat(43)});
+    let input = serde_json::json!({"endpoint":format!("ws://127.0.0.1:{}/",adapter.port),"token":"d".repeat(43)});
     child
         .stdin
         .take()
@@ -72,6 +74,7 @@ async fn fixture() -> (
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("token");
     std::fs::write(&file, "a".repeat(43)).unwrap();
+    std::fs::write(dir.path().join("adapter-token"), "d".repeat(43)).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let count = Arc::new(AtomicUsize::new(0));
     let accepted = count.clone();
@@ -133,12 +136,16 @@ fn request(port: u16, token: &str) -> tokio_tungstenite::tungstenite::http::Requ
 #[tokio::test]
 async fn rejects_untrusted_handshakes_without_contacting_native() {
     let (_dir, target, count, task) = fixture().await;
-    assert!(DesktopAdapter::listen(RuntimeTarget::Managed, 0)
+    assert!(
+        DesktopAdapter::listen(RuntimeTarget::Managed, 0, _dir.path().join("adapter-token"))
+            .await
+            .is_err()
+    );
+    let adapter = DesktopAdapter::listen(target, 0, _dir.path().join("adapter-token"))
         .await
-        .is_err());
-    let adapter = DesktopAdapter::listen(target, 0).await.unwrap();
-    for case in 0..7 {
-        let mut req = request(adapter.port, &"a".repeat(43));
+        .unwrap();
+    for case in 0..8 {
+        let mut req = request(adapter.port, &"d".repeat(43));
         match case {
             0 => {
                 req.headers_mut().remove("authorization");
@@ -166,9 +173,12 @@ async fn rejects_untrusted_handshakes_without_contacting_native() {
                     HeaderValue::from_static("unexpected"),
                 );
             }
-            _ => {
+            6 => {
                 req.headers_mut()
                     .append("authorization", HeaderValue::from_static("Basic duplicate"));
+            }
+            _ => {
+                req = request(adapter.port, &"a".repeat(43));
             }
         }
         let Err(tokio_tungstenite::tungstenite::Error::Http(response)) = connect_async(req).await
@@ -182,10 +192,52 @@ async fn rejects_untrusted_handshakes_without_contacting_native() {
 }
 
 #[tokio::test]
-async fn relays_original_frames_rotates_credentials_and_shutdown_closes_only_adapter() {
+async fn independent_credentials_are_required_at_start_and_each_handshake() {
     let (dir, target, count, task) = fixture().await;
-    let adapter = DesktopAdapter::listen(target, 0).await.unwrap();
-    let (mut desktop, _) = connect_async(request(adapter.port, &"a".repeat(43)))
+    assert!(DesktopAdapter::from_options(&target, None, None)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(
+        DesktopAdapter::from_options(&target, Some("0".into()), None)
+            .await
+            .is_err()
+    );
+    assert!(DesktopAdapter::from_options(
+        &target,
+        None,
+        Some(dir.path().join("adapter-token").into_os_string())
+    )
+    .await
+    .is_err());
+    assert!(DesktopAdapter::listen(target.clone(), 0, "relative".into())
+        .await
+        .is_err());
+    assert!(
+        DesktopAdapter::listen(target.clone(), 0, dir.path().join("token"))
+            .await
+            .is_err()
+    );
+    let adapter = DesktopAdapter::listen(target, 0, dir.path().join("adapter-token"))
+        .await
+        .unwrap();
+    // A later native rotation must never silently make the ingress credential
+    // usable directly against native, or let new adapter connections through.
+    std::fs::write(dir.path().join("token"), "d".repeat(43)).unwrap();
+    assert!(connect_async(request(adapter.port, &"d".repeat(43)))
+        .await
+        .is_err());
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+    task.abort();
+}
+
+#[tokio::test]
+async fn relays_original_frames_rotates_credentials_and_shutdown_closes_only_adapter() {
+    let (_dir, target, count, task) = fixture().await;
+    let adapter = DesktopAdapter::listen(target, 0, _dir.path().join("adapter-token"))
+        .await
+        .unwrap();
+    let (mut desktop, _) = connect_async(request(adapter.port, &"d".repeat(43)))
         .await
         .unwrap();
     assert_eq!(
@@ -210,8 +262,8 @@ async fn relays_original_frames_rotates_credentials_and_shutdown_closes_only_ada
             .unwrap(),
         Message::Pong(vec![1, 2, 3].into())
     );
-    std::fs::write(dir.path().join("token"), "b".repeat(43)).unwrap();
-    assert!(connect_async(request(adapter.port, &"a".repeat(43)))
+    std::fs::write(_dir.path().join("adapter-token"), "b".repeat(43)).unwrap();
+    assert!(connect_async(request(adapter.port, &"d".repeat(43)))
         .await
         .is_err());
     assert_eq!(count.load(Ordering::SeqCst), 1);
@@ -246,9 +298,11 @@ async fn unavailable_native_returns_generic_error() {
         *endpoint = format!("ws://{}", listener.local_addr().unwrap());
     }
     drop(listener);
-    let adapter = DesktopAdapter::listen(target, 0).await.unwrap();
+    let adapter = DesktopAdapter::listen(target, 0, _dir.path().join("adapter-token"))
+        .await
+        .unwrap();
     let Err(tokio_tungstenite::tungstenite::Error::Http(response)) =
-        connect_async(request(adapter.port, &"a".repeat(43))).await
+        connect_async(request(adapter.port, &"d".repeat(43))).await
     else {
         panic!("unavailable native accepted")
     };

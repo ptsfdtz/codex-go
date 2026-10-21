@@ -223,17 +223,24 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             token_file: token_file.clone(),
             protocol: ProtocolVersion::DesktopBaseline,
         };
-        let adapter = agentdeck_service::desktop_adapter::DesktopAdapter::listen(target, 0)
-            .await
-            .unwrap();
+        let adapter_file = directory.path().join("desktop-adapter-token");
+        let adapter_token = "d".repeat(43);
+        std::fs::write(&adapter_file, &adapter_token).unwrap();
+        let adapter =
+            agentdeck_service::desktop_adapter::DesktopAdapter::listen(target, 0, adapter_file)
+                .await
+                .unwrap();
         let mut request = format!("ws://127.0.0.1:{}/", adapter.port)
             .into_client_request()
             .unwrap();
         request.headers_mut().insert(
             "authorization",
-            format!("Basic {}", STANDARD.encode(format!("agentdeck:{token}")))
-                .parse()
-                .unwrap(),
+            format!(
+                "Basic {}",
+                STANDARD.encode(format!("agentdeck:{adapter_token}"))
+            )
+            .parse()
+            .unwrap(),
         );
         let (mut client, _) = tokio_tungstenite::connect_async(request).await.unwrap();
         client.send(Message::Text(json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"adapter_probe","version":"0.1"},"capabilities":{"experimentalApi":true}}}).to_string().into())).await.unwrap();

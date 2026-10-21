@@ -80,23 +80,33 @@ impl RuntimeTarget {
         let Self::Attached { token_file, .. } = self else {
             return Err(Error::new("CONFIG_ERROR", "No attached runtime credential"));
         };
-        let mut bytes = Vec::new();
-        std::fs::File::open(token_file)
-            .map_err(|_| Error::new("CONFIG_ERROR", "Cannot open local runtime credential"))?
-            .take(4097)
-            .read_to_end(&mut bytes)
-            .map_err(|_| Error::new("CONFIG_ERROR", "Cannot read local runtime credential"))?;
-        ensure(
-            bytes.len() <= 4096,
-            "CONFIG_ERROR",
-            "Invalid runtime credential length",
-        )?;
-        let value = String::from_utf8(bytes)
-            .map_err(|_| Error::new("CONFIG_ERROR", "Invalid runtime credential encoding"))?;
-        let value = value.trim_end_matches(['\r', '\n']);
-        crate::rpc::validate_local_credential(value)?;
-        Ok(value.to_owned())
+        read_local_credential(token_file)
     }
+}
+
+/// Shared bounded reader; callers never include file contents in diagnostics.
+pub(crate) fn read_local_credential(token_file: &std::path::Path) -> Result<String> {
+    ensure(
+        token_file.is_absolute(),
+        "CONFIG_ERROR",
+        "Credential file must be absolute",
+    )?;
+    let mut bytes = Vec::new();
+    std::fs::File::open(token_file)
+        .map_err(|_| Error::new("CONFIG_ERROR", "Cannot open local runtime credential"))?
+        .take(4097)
+        .read_to_end(&mut bytes)
+        .map_err(|_| Error::new("CONFIG_ERROR", "Cannot read local runtime credential"))?;
+    ensure(
+        bytes.len() <= 4096,
+        "CONFIG_ERROR",
+        "Invalid runtime credential length",
+    )?;
+    let value = String::from_utf8(bytes)
+        .map_err(|_| Error::new("CONFIG_ERROR", "Invalid runtime credential encoding"))?;
+    let value = value.trim_end_matches(['\r', '\n']);
+    crate::rpc::validate_local_credential(value)?;
+    Ok(value.to_owned())
 }
 
 #[cfg(test)]

@@ -30,6 +30,7 @@ const LIMIT: usize = 8 * 1024 * 1024;
 #[derive(Clone)]
 struct AdapterState {
     target: RuntimeTarget,
+    credential_file: std::path::PathBuf,
     host: String,
     slots: Arc<Semaphore>,
     shutdown: CancellationToken,
@@ -48,16 +49,39 @@ impl Drop for DesktopAdapter {
 }
 impl DesktopAdapter {
     pub async fn from_environment(target: &RuntimeTarget) -> Result<Option<Self>> {
-        let Some(port) = std::env::var_os("AGENTDECK_DESKTOP_ADAPTER_PORT") else {
-            return Ok(None);
+        Self::from_options(
+            target,
+            std::env::var_os("AGENTDECK_DESKTOP_ADAPTER_PORT"),
+            std::env::var_os("AGENTDECK_DESKTOP_ADAPTER_TOKEN_FILE"),
+        )
+        .await
+    }
+    pub async fn from_options(
+        target: &RuntimeTarget,
+        port: Option<std::ffi::OsString>,
+        credential_file: Option<std::ffi::OsString>,
+    ) -> Result<Option<Self>> {
+        let (port, credential_file) = match (port, credential_file) {
+            (None, None) => return Ok(None),
+            (Some(port), Some(file)) => (port, std::path::PathBuf::from(file)),
+            _ => return Err(Error::new(
+                "CONFIG_ERROR",
+                "Desktop adapter port and independent credential file must be configured together",
+            )),
         };
         let port = port
             .to_str()
             .and_then(|p| p.parse::<u16>().ok())
             .ok_or_else(|| Error::new("CONFIG_ERROR", "Invalid desktop adapter port"))?;
-        Ok(Some(Self::listen(target.clone(), port).await?))
+        Ok(Some(
+            Self::listen(target.clone(), port, credential_file).await?,
+        ))
     }
-    pub async fn listen(target: RuntimeTarget, port: u16) -> Result<Self> {
+    pub async fn listen(
+        target: RuntimeTarget,
+        port: u16,
+        credential_file: std::path::PathBuf,
+    ) -> Result<Self> {
         ensure(
             port == 0 || port > 1024,
             "CONFIG_ERROR",
@@ -70,7 +94,7 @@ impl DesktopAdapter {
             ));
         };
         crate::rpc::validate_local_endpoint(endpoint)?;
-        target.credential()?;
+        adapter_credential(&target, &credential_file)?;
         let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port))
             .await
             .map_err(|_| Error::new("PORT_UNAVAILABLE", "Desktop adapter listener unavailable"))?;
@@ -78,6 +102,7 @@ impl DesktopAdapter {
         let shutdown = CancellationToken::new();
         let state = AdapterState {
             target,
+            credential_file,
             host: format!("127.0.0.1:{port}"),
             slots: Arc::new(Semaphore::new(16)),
             shutdown: shutdown.clone(),
@@ -117,10 +142,14 @@ async fn upgrade(
     {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let Ok(token) = state.target.credential() else {
+    let Ok((adapter_token, token)) = adapter_credential(&state.target, &state.credential_file)
+    else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    let expected = format!("Basic {}", STANDARD.encode(format!("agentdeck:{token}")));
+    let expected = format!(
+        "Basic {}",
+        STANDARD.encode(format!("agentdeck:{adapter_token}"))
+    );
     let supplied = headers
         .get("authorization")
         .and_then(|h| h.to_str().ok())
@@ -159,6 +188,17 @@ async fn upgrade(
             forward(desktop, native, state.shutdown).await;
         })
         .into_response()
+}
+
+fn adapter_credential(target: &RuntimeTarget, file: &std::path::Path) -> Result<(String, String)> {
+    let native = target.credential()?;
+    let adapter = crate::runtime::read_local_credential(file)?;
+    ensure(
+        !security::equal(&native, &adapter),
+        "CONFIG_ERROR",
+        "Desktop adapter requires a credential different from the native service",
+    )?;
+    Ok((adapter, native))
 }
 
 async fn forward(
