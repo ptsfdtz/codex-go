@@ -3,6 +3,14 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：原生项目 TLS/WSS 回归与安卓 UI 测试准备（阶段 0 / P02）
+
+- 前一轮提交 730946b。本轮新增真实 TLS/WSS 传输回归，使用临时证书、受信任根/127.0.0.1 主机名校验与合成有效设备凭据，连接生产监听/协议/分派链路；控制源提供原生项目。验证 hello 前拒绝、旧 projects.list 仍返回本机授权、错误合约拒绝、原生项目授权过滤、两页/同页重试、已观察通知后旧游标 SYNC_CONFLICT，以及读请求不进入变更幂等日志。
+- 安卓查看器分离读取依赖，生产仍使用原 Repository；新增两项 Compose instrumentation：完整 metadata 展开、分页过期清除旧页/刷新省略旧游标、错误 viewId 不显示下一页。仅为可执行测试代码，不是设备执行证据。adb devices 本轮为空，无可用安卓设备，未安装/运行或进行截图验收。
+- 验证：87 项常规 Rust 测试通过，严格 Clippy/fmt 通过；安卓 54 项单元测试零失败，assembleDebug/assembleDebugAndroidTest 和 lintDebug 成功。首次组合任务的 Lint 因并发 KAPT 测试桩文件不存在而内部失败；确认进程退出后先单独构建、再以 --max-workers=1 顺序重跑 Lint 成功，未关闭任何规则。该故障处理与执行命令已记录，未把首轮失败隐藏为通过。
+- 证据范围：TLS/WSS 实现真实，上游项目是控制源，凭据在测试中生成，未执行人类配对；未新增真实安装版源或安卓端到端验证。既有安装版结果沿用上一轮，不重复无关真实模型检查。开发文档新增 WSS 及 UI 定向测试命令和无设备说明。
+- 下一步继续原生项目关联会话导航，并在可用测试设备上执行查看器错误恢复/截图与真实源链路；阶段 0/sharedDesktopRuntime 不升级。宿主 legacy ID、GUI 导航/完整历史和全量迁移仍未完成。本轮仅选择性提交有效回归、最小 UI 可测性重构及文档，保留独立 CI/发布改动，不推送。
+
 ## 2026-10-21 实施记录：版本化项目读取与安卓只读入口（阶段 0 / P02 增量）
 
 - 前一轮提交 0d9d70d。本轮开放独立只读 projects.nativePage，必需 contractVersion=1，默认 limit=50（1..100），只接受设备绑定 43 字符游标；认证连接提供设备身份，不接受透传 deviceId/本机 projectId。响应附 contractVersion/一致性声明/有效期，沿用既有全根目录授权、失效与缓存限制。DesktopBaseline 的 nativeProjectReadViews 能力标记仅表示读取入口，Managed/旧服务器不显示入口；sharedDesktopRuntime 仍 false。

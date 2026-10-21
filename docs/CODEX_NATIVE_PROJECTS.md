@@ -73,3 +73,18 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_webso
 独立查看器按页展示原生项目名称、全部 roots 及可展开原生 JSON 详情，保留 metadata/未来字段。响应校验版本/来源/视图 ID/本页重复 ID/全部 roots 授权映射与游标形状；续页还核验 viewId 和游标循环。失败清空内容并要求刷新。切换电脑或连接后拒绝旧请求结果，不写入 Room，也不替换现有 Project 授权模型。
 
 这是原生项目内容的首个读取入口，尚不支持选择项目、打开关联会话、桌面侧栏偏好、修改/删除项目或实时刷新；不冒充完整项目迁移。协议/分派与 Kotlin 解码回归已加入，物理安卓/WSS 到真实安装版的完整链路尚未验收。
+
+## TLS/WSS 与 UI 验证入口
+
+`cargo test --locked --manifest-path desktop/core/Cargo.toml --test native_project_grants authenticated_wss -- --nocapture` 启动真实本机 TLS/WSS，客户端信任本次临时证书并验证 127.0.0.1 主机名，使用合成有效设备凭据。控制源返回原生项目；检查 hello 前拒绝、旧 projects.list 保持本机授权语义、错误合约拒绝、过滤与分页/重试、观察变更后 SYNC_CONFLICT，且读请求不进入变更幂等日志。测试不代表人类配对、真实源或安卓链路。
+
+`NativeProjectsUiTest` 直接加载控制源 Compose 查看器，覆盖分页过期清空旧内容/刷新不携带旧游标、展开完整 metadata，以及错误 viewId 不展示下一页。构建测试 APK 不等于设备执行。接设备后运行：
+
+```powershell
+cd android
+.\gradlew.bat connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.agentdeck.app.NativeProjectsUiTest
+```
+
+运行前确认设备是授权的测试安装；不能用这组本地内容测试替代配对安卓到真实 Codex 的最终场景。2026-10-21 本轮 adb devices 列表为空，尚无该 UI 测试的设备通过记录。
+
+本轮组合运行 lintDebug 与 assembleDebugAndroidTest 时，Lint 在测试 KAPT 桩文件生成期间报 FileNotFoundException 内部错误。已确认失败后顺序运行 assembleDebugAndroidTest/assembleDebug/testDebugUnitTest --max-workers=1，再单独 lintDebug --max-workers=1，全部通过；没有禁用规则或忽略失败。两项新增 UI 测试已编译进测试 APK，但因无设备尚未执行。

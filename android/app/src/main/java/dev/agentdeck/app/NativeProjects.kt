@@ -36,6 +36,10 @@ internal fun decodeNativeProjectPage(value:JsonObject):NativeProjectPage {
 }
 
 @Composable internal fun NativeProjectsDialog(repo:DeckRepository,hostId:String?,onClose:()->Unit){
+    NativeProjectsViewer(hostId,repo::readNativeProjects,onClose)
+}
+
+@Composable internal fun NativeProjectsViewer(hostId:String?,readPage:suspend (String?)->NativeProjectPage,onClose:()->Unit){
     val scope=rememberCoroutineScope()
     var page by remember(hostId){mutableStateOf<NativeProjectPage?>(null)}
     var busy by remember(hostId){mutableStateOf(false)}
@@ -44,7 +48,7 @@ internal fun decodeNativeProjectPage(value:JsonObject):NativeProjectPage {
     suspend fun load(cursor:String?){
         busy=true;error=null
         try{
-            val next=repo.readNativeProjects(cursor)
+            val next=readPage(cursor)
             if(cursor!=null)require(next.viewId==page?.viewId&&next.nextCursor!=cursor&&next.nextCursor !in seen){"项目分页已变化，请刷新"}
             if(cursor==null)seen=emptySet() else seen=seen+cursor
             page=next

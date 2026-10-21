@@ -18,6 +18,7 @@ use tokio_tungstenite::tungstenite::Message;
 struct Harness {
     directory: tempfile::TempDir,
     core: Arc<Core>,
+    _local: mpsc::Receiver<Value>,
 }
 struct Source {
     rpc: Arc<Rpc>,
@@ -29,17 +30,34 @@ struct Source {
 }
 impl Harness {
     fn new() -> Self {
+        Self::configured(false)
+    }
+    fn configured(network: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let store = Arc::new(Store::open(&directory.path().join("bridge.sqlite")).unwrap());
-        let tls = Certificate {
-            cert: String::new(),
-            key: String::new(),
-            fingerprint: "fixture".into(),
-            ips: vec![],
+        let tls = if network {
+            Certificate::load(directory.path()).unwrap()
+        } else {
+            Certificate {
+                cert: String::new(),
+                key: String::new(),
+                fingerprint: "fixture".into(),
+                ips: vec![],
+            }
         };
-        let (tx, _rx) = mpsc::channel(1);
-        let core = Core::new(store, tls, "127.0.0.1".into(), 0, tx);
-        Self { directory, core }
+        let port = if network {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        } else {
+            0
+        };
+        let (tx, rx) = mpsc::channel(1024);
+        let core = Core::new(store, tls, "127.0.0.1".into(), port, tx);
+        Self {
+            directory,
+            core,
+            _local: rx,
+        }
     }
     fn folder(&self, name: &str) -> PathBuf {
         let path = self.directory.path().join(name);
@@ -142,6 +160,165 @@ impl Source {
 }
 fn project(id: &str, roots: &[PathBuf]) -> Value {
     json!({"id":id,"name":format!("project-{id}"),"roots":roots.iter().map(|p|json!({"path":p})).collect::<Vec<_>>(),"metadata":{"original":"preserved"},"position":2,"createdAt":1,"updatedAt":3})
+}
+
+#[tokio::test]
+async fn authenticated_wss_reads_native_pages_and_refuses_invalidated_continuation() {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let h = Harness::configured(true);
+    let root = h.folder("authorized");
+    let outside = h.folder("outside");
+    paths::add_local(&h.core.store, &root).unwrap();
+    let mut source=h.source(json!({"data":[project("one",std::slice::from_ref(&root)),project("two",&[root]),project("hidden",&[outside])]})).await;
+    source.release();
+    let credential = agentdeck_service::security::token();
+    h.core
+        .store
+        .replace_device(
+            "device",
+            "WSS fixture",
+            &agentdeck_service::digest(&credential),
+        )
+        .unwrap();
+    h.core.listen("127.0.0.1").await.unwrap();
+    let (_, pem) = x509_parser::pem::parse_x509_pem(h.core.tls.cert.as_bytes()).unwrap();
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(rustls::pki_types::CertificateDer::from(pem.contents))
+        .unwrap();
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let mut request = format!("wss://127.0.0.1:{}/api/v1/ws", h.core.port)
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {credential}").parse().unwrap(),
+    );
+    let (mut socket, _) = tokio_tungstenite::connect_async_tls_with_config(
+        request,
+        None,
+        false,
+        Some(tokio_tungstenite::Connector::Rustls(Arc::new(config))),
+    )
+    .await
+    .unwrap();
+    async fn call(
+        socket: &mut tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        id: &str,
+        action: &str,
+        payload: Value,
+    ) -> Value {
+        socket
+            .send(Message::Text(
+                json!({"v":1,"type":"request","id":id,"action":action,"payload":payload})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let message = socket.next().await.unwrap().unwrap();
+                if let Message::Text(text) = message {
+                    let packet: Value = serde_json::from_str(&text).unwrap();
+                    if packet["id"] == id || packet["type"] == "error" && packet.get("id").is_none()
+                    {
+                        return packet;
+                    }
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+    assert_eq!(
+        call(
+            &mut socket,
+            "pre",
+            "projects.nativePage",
+            json!({"contractVersion":1})
+        )
+        .await["code"],
+        "VERSION_REQUIRED"
+    );
+    assert_eq!(
+        call(
+            &mut socket,
+            "hello",
+            "system.hello",
+            json!({"client":"wss-fixture","version":1})
+        )
+        .await["type"],
+        "response"
+    );
+    let legacy = call(&mut socket, "legacy", "projects.list", json!({})).await;
+    assert_eq!(legacy["payload"]["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        call(
+            &mut socket,
+            "bad",
+            "projects.nativePage",
+            json!({"contractVersion":2})
+        )
+        .await["code"],
+        "INVALID_REQUEST"
+    );
+    let first = call(
+        &mut socket,
+        "first",
+        "projects.nativePage",
+        json!({"contractVersion":1,"limit":1}),
+    )
+    .await;
+    assert_eq!(first["type"], "response");
+    assert_eq!(first["payload"]["data"][0]["project"]["id"], "one");
+    assert!(!first.to_string().contains("hidden"));
+    let cursor = first["payload"]["nextCursor"].clone();
+    let second = call(
+        &mut socket,
+        "second",
+        "projects.nativePage",
+        json!({"contractVersion":1,"limit":1,"cursor":cursor}),
+    )
+    .await;
+    assert_eq!(second["payload"]["data"][0]["project"]["id"], "two");
+    let replay = call(
+        &mut socket,
+        "replay",
+        "projects.nativePage",
+        json!({"contractVersion":1,"limit":1,"cursor":cursor}),
+    )
+    .await;
+    assert_eq!(second["payload"], replay["payload"]);
+    source
+        .notifications
+        .send(json!({"method":"project/changed","params":{"kind":"updated"}}))
+        .await
+        .unwrap();
+    source._events.recv().await.unwrap();
+    assert_eq!(
+        call(
+            &mut socket,
+            "stale",
+            "projects.nativePage",
+            json!({"contractVersion":1,"limit":1,"cursor":cursor})
+        )
+        .await["code"],
+        "SYNC_CONFLICT"
+    );
+    assert!(h
+        .core
+        .store
+        .query("SELECT * FROM requests WHERE deviceId='device'", [])
+        .unwrap()
+        .is_empty());
+    socket.close(None).await.unwrap();
+    h.core.shutdown().await;
+    source.stop().await;
 }
 
 #[tokio::test]
