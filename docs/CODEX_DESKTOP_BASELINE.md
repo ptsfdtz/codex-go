@@ -109,7 +109,11 @@ ws 8.21.0 对应构造参数的 fixture，以及精确安装版真实隔离服�
 
 继续核验：CODEX_CLI_PATH 可覆盖 CLI，但桌面会附加配置及 analytics 启动参数，不能直接替换成任意代理。原生 Unix listener 与原生 app-server proxy 在隔离 Windows 上实测握手不兼容：listener 要求 WebSocket，proxy 转发原始 stdio；不兼容报告和复现参数见本机适配文档。这不代表 Windows 不支持 AF_UNIX，也不等于所有 daemon 路径不可用。下一步实现受控 stdio→认证 WS 转接时必须完整核验启动配置，不丢弃 `-c` 或偷偷另起服务；原版桌面与共享运行时仍未验收。
 
-新增 stdio 开发转接程序已通过精确安装版真实子进程验证：凭据只从电脑文件读取，真实原生版本、同连接 config/read 校验、默认特性/analytics 启动参数、同一线程读取、配置不符拒绝和 EOF 连接隔离。配置与限制见 [stdio 转接](CODEX_DESKTOP_STDIO.md)。重叠覆盖和其他 CLI 命令当前显式拒绝，未运行原版 GUI，sharedDesktopRuntime 仍 false，不能作为阶段 0 完成依据。
+新增 stdio 开发转接程序已通过精确安装版真实子进程验证：凭据只从电脑文件读取，真实原生版本、同连接 config/read 校验、默认特性/analytics 启动参数、同一线程读取、配置不符拒绝和 EOF 连接隔离。配置与限制见 [stdio 转接](CODEX_DESKTOP_STDIO.md)。重复/重叠覆盖已按真实安装版合并实验实现；其他 CLI 命令当前显式拒绝，未运行原版 GUI，sharedDesktopRuntime 仍 false，不能作为阶段 0 完成依据。
+
+安装代码纯参数构造函数已用合成环境执行（不是读取真实环境）：默认/空白覆盖保留 -c features.code_mode_host=true 在 app-server 前；CODEX_APP_SERVER_CHATGPT_BASE_URL 与 CODEX_APP_SERVER_OPENAI_BASE_URL 非空时，app-server 移到首项，随后为特性和 JSON 字符串地址覆盖，末尾保留 analytics 默认标志。真实安装版隔离 config/read 验证该组合及转接门槛通过，错误地址仍拒绝。可复现脚本及指纹见 desktop-ws-environment-audit.json。
+
+新增明确待验项：Windows 本地启动使用 source!==override 等条件启用 windows_sandbox_service，且不满足对应分支时移除 CODEX_WINDOWS_REGISTERED_CORE。因此 CODEX_CLI_PATH 替换还会改变原版启动语义；不能以 stdio 或地址覆盖检查通过推断沙箱等价，更不能为求启动而强行开启该特性。云端隧道代码另有原生 tcp-tunnel --help 能力探测和带 --auth-token-stdin/--auth-token-updates-stdin 的子进程；这证明存在原生辅助程序依赖，但尚未证明打包版该解析器会选中转接路径，也未运行隧道。后续应核验各解析路径、沙箱和宿主环境，再决定具体委派集合，不盲目委派所有命令或另起 app-server。
 
 1. 可见页面、菜单、快捷键和账户/实验入口逐项盘点，不把资产文件名当作实际可用入口。
 2. 找到桌面真正支持的共享接入方式，或对每种候选路径给出可复核阻塞结论。

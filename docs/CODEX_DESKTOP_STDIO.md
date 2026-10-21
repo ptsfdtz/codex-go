@@ -45,6 +45,8 @@ endpoint 沿用精确回环 IP、显式端口、根路径校验，禁止 userinf
 
 设置 AGENTDECK_DESKTOP_PROBE_EXE 后，显式运行同测试文件的 real_desktop_baseline_startup_override_semantics（--ignored）。14 组隔离 HOME 实验只读取配置，以合成 desktop.agentdeck_probe 字段核验原生结果和转接门槛：重复、父子先后、空表、标量/表冲突、特性优先级、跨根/子命令与原始字符串空白。不输出完整配置，不调用账户模型；其他版本需重新核验。
 
+该实验现增加第 15 组：按安装代码纯函数生成顺序使用合成 chatgpt_base_url/openai_base_url，真实 config/read 与转接检查通过，地址不符仍失败。参数构造纯函数的默认、空白和双地址输入已由 audit-desktop-ws-environment.mjs 核对；仅传入合成环境，不使用真实 process.env。安装代码另显示 CLI override 会改变 Windows 注册核心/沙箱服务分支；辅助 tcp-tunnel 有独立解析器，不能假定一定调用本转接程序。具体风险与后续验证见 CODEX_DESKTOP_BASELINE.md，尚不支持直接替换生产桌面。
+
 设置 AGENTDECK_DESKTOP_PROBE_EXE 为精确安装版原生程序，再执行 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_websocket real_desktop_baseline_ -- --ignored --nocapture`。三项真实隔离检查均复制实际转接可执行文件到临时目录，写相邻 manifest，以与安装版默认相同的特性/analytics 参数启动子进程，验证版本、配置不符时 stdout 为空/固定 stderr、同线程读取、EOF 后退出和原连接继续可用。源服务在隔离目录显式设置 code_mode_host=true、analytics.enabled=false；不改变生产设置，不用账户模型；历史/活动检查使用本机合成模型。它们不是启动原版 GUI 的证据。
 
 下一步：验证原版桌面的完整动态 CLI 参数、配置层与 CLI 工具调用；补必须委派的命令语义；准备相互隔离、可回退的原版 GUI 接入，再进行双端真实活动任务和全量 UI 基准验收。sharedDesktopRuntime 仍为 false，阶段 0 仍未通过。

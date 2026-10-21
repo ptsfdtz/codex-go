@@ -113,6 +113,19 @@ async fn real_desktop_baseline_startup_override_semantics() {
             args(&["-c", "desktop.agentdeck_probe.word=  unknown label  "]),
         ),
         (
+            "desktop_dynamic_endpoints",
+            args(&[
+                "app-server",
+                "-c",
+                "features.code_mode_host=true",
+                "-c",
+                "chatgpt_base_url=\"https://chatgpt.invalid/a\"",
+                "-c",
+                "openai_base_url=\"https://openai.invalid/b\"",
+                "--analytics-default-enabled",
+            ]),
+        ),
+        (
             "root_enable_subcommand_disable",
             args(&[
                 "--enable",
@@ -229,6 +242,26 @@ async fn real_desktop_baseline_startup_override_semantics() {
             assert_eq!(checked.unwrap_err().code, "PROXY_CONFIG_MISMATCH");
         } else {
             checked.unwrap();
+        }
+        if name == "desktop_dynamic_endpoints" {
+            assert_eq!(
+                config["result"]["config"]["chatgpt_base_url"],
+                "https://chatgpt.invalid/a"
+            );
+            assert_eq!(
+                config["result"]["config"]["openai_base_url"],
+                "https://openai.invalid/b"
+            );
+            let mut changed = config["result"].clone();
+            changed["config"]["openai_base_url"] = json!("https://different.invalid/");
+            assert_eq!(
+                Startup::parse(&proxy_args)
+                    .unwrap()
+                    .check(&changed)
+                    .unwrap_err()
+                    .code,
+                "PROXY_CONFIG_MISMATCH"
+            );
         }
         drop(input);
         child.kill().await.unwrap();

@@ -72,10 +72,80 @@ try {
   const defaultDesktopArguments =
     network.text.includes('Os=[`-c`,`features.code_mode_host=true`]') &&
     network.text.includes('[...Os,`app-server`,`--analytics-default-enabled`]');
+  // Only execute the exact, reviewed pure argv builder with synthetic inputs.
+  // Never evaluate a bundle or pass the real process/environment into the VM.
+  const argvBuilder =
+    /function rc\(\)\{let e=ks\.flatMap\(\(\{configKey:e,envVar:t\}\)=>\{let n=process\.env\[t\]\?\.trim\(\);return n==null\|\|n===``\?\[\]:\[`-c`,\x60\$\{e\}=\$\{JSON\.stringify\(n\)\}\x60\]\}\);return e\.length===0\?\[\.\.\.Os,`app-server`,`--analytics-default-enabled`\]:\[`app-server`,\.\.\.Os,\.\.\.e,`--analytics-default-enabled`\]\}/.exec(
+      network.text,
+    );
+  const knownMappings =
+    'ks=[{configKey:`chatgpt_base_url`,envVar:`CODEX_APP_SERVER_CHATGPT_BASE_URL`},{configKey:`openai_base_url`,envVar:`CODEX_APP_SERVER_OPENAI_BASE_URL`}]';
+  if (!defaultDesktopArguments || !argvBuilder || !network.text.includes(knownMappings))
+    throw new Error('Unknown desktop argument builder; manual audit required');
+  const argvCases = [
+    {
+      name: 'default',
+      env: {},
+      expected: ['-c', 'features.code_mode_host=true', 'app-server', '--analytics-default-enabled'],
+    },
+    {
+      name: 'blank',
+      env: { CODEX_APP_SERVER_CHATGPT_BASE_URL: '  ' },
+      expected: ['-c', 'features.code_mode_host=true', 'app-server', '--analytics-default-enabled'],
+    },
+    {
+      name: 'both-synthetic-overrides',
+      env: {
+        CODEX_APP_SERVER_CHATGPT_BASE_URL: ' https://chatgpt.invalid/a ',
+        CODEX_APP_SERVER_OPENAI_BASE_URL: ' https://openai.invalid/b ',
+      },
+      expected: [
+        'app-server',
+        '-c',
+        'features.code_mode_host=true',
+        '-c',
+        'chatgpt_base_url="https://chatgpt.invalid/a"',
+        '-c',
+        'openai_base_url="https://openai.invalid/b"',
+        '--analytics-default-enabled',
+      ],
+    },
+  ].map(({ name, env, expected }) => {
+    const actual = runInNewContext(
+      `${argvBuilder[0]}; rc()`,
+      {
+        process: { env },
+        Os: ['-c', 'features.code_mode_host=true'],
+        ks: [
+          { configKey: 'chatgpt_base_url', envVar: 'CODEX_APP_SERVER_CHATGPT_BASE_URL' },
+          { configKey: 'openai_base_url', envVar: 'CODEX_APP_SERVER_OPENAI_BASE_URL' },
+        ],
+      },
+      { timeout: 1000 },
+    );
+    if (JSON.stringify(actual) !== JSON.stringify(expected))
+      throw new Error('Desktop synthetic startup arguments changed');
+    return { name, syntheticArguments: actual };
+  });
+  const overrideChangesWindowsSandbox =
+    network.text.includes('r.source!==`override`&&i!=null&&r.executablePath===') &&
+    network.text.includes('...a?[`-c`,`features.windows_sandbox_service=true`]:[]') &&
+    network.text.includes('a||delete o.CODEX_WINDOWS_REGISTERED_CORE');
+  const tunnelCliProbe = main.text.includes('[`tcp-tunnel`,`--help`]');
+  const tunnelCliStart = main.text.includes(
+    '[`tcp-tunnel`,`--proxy-origins-file`,this.proxyOriginsFile,`--proxy-url`,o.origin,`--target`,i,`--auth-token-stdin`,`--auth-token-updates-stdin`]',
+  );
+  if (!overrideChangesWindowsSandbox || !tunnelCliProbe || !tunnelCliStart)
+    throw new Error('Unknown native auxiliary or sandbox path; manual audit required');
   const report = {
     kind: 'installed-static-code-and-pure-function',
     bundles: [main, network].map(({ name, sha256 }) => ({ name, sha256 })),
-    offsets: { localRoute: routeOffset, terminal: terminal.index, sanitizer: pure.index },
+    offsets: {
+      localRoute: routeOffset,
+      terminal: terminal.index,
+      sanitizer: pure.index,
+      startupArgumentBuilder: argvBuilder.index,
+    },
     localUrlEnvironmentRead: true,
     terminalCopiesDesktopEnvironment: true,
     terminalRetainsLocalUrl: sanitized.CODEX_APP_SERVER_WS_URL === marker,
@@ -83,7 +153,14 @@ try {
     originalGuiExecuted: false,
     cliExecutablePathOverride: cliOverride,
     desktopAddsConfigAndAnalyticsStartupArguments: defaultDesktopArguments,
-    scope: 'local-websocket-url-userinfo-in-environment',
+    startupArgumentCases: argvCases,
+    cliOverrideChangesWindowsSandboxServiceBranch: overrideChangesWindowsSandbox,
+    cloudTunnelUsesNativeCli: {
+      helpProbe: tunnelCliProbe,
+      start: tunnelCliStart,
+      originalTunnelExecuted: false,
+    },
+    scope: 'local-transport-environment-and-native-cli-startup',
     productionRouteApproved: false,
   };
   const output = JSON.stringify(report, null, 2) + '\n';

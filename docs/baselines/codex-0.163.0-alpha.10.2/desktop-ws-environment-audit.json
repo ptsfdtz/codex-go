@@ -13,7 +13,8 @@
   "offsets": {
     "localRoute": 225649,
     "terminal": 3414264,
-    "sanitizer": 24721
+    "sanitizer": 24721,
+    "startupArgumentBuilder": 268733
   },
   "localUrlEnvironmentRead": true,
   "terminalCopiesDesktopEnvironment": true,
@@ -22,6 +23,45 @@
   "originalGuiExecuted": false,
   "cliExecutablePathOverride": true,
   "desktopAddsConfigAndAnalyticsStartupArguments": true,
-  "scope": "local-websocket-url-userinfo-in-environment",
+  "startupArgumentCases": [
+    {
+      "name": "default",
+      "syntheticArguments": [
+        "-c",
+        "features.code_mode_host=true",
+        "app-server",
+        "--analytics-default-enabled"
+      ]
+    },
+    {
+      "name": "blank",
+      "syntheticArguments": [
+        "-c",
+        "features.code_mode_host=true",
+        "app-server",
+        "--analytics-default-enabled"
+      ]
+    },
+    {
+      "name": "both-synthetic-overrides",
+      "syntheticArguments": [
+        "app-server",
+        "-c",
+        "features.code_mode_host=true",
+        "-c",
+        "chatgpt_base_url=\"https://chatgpt.invalid/a\"",
+        "-c",
+        "openai_base_url=\"https://openai.invalid/b\"",
+        "--analytics-default-enabled"
+      ]
+    }
+  ],
+  "cliOverrideChangesWindowsSandboxServiceBranch": true,
+  "cloudTunnelUsesNativeCli": {
+    "helpProbe": true,
+    "start": true,
+    "originalTunnelExecuted": false
+  },
+  "scope": "local-transport-environment-and-native-cli-startup",
   "productionRouteApproved": false
 }
