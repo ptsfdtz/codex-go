@@ -20,6 +20,233 @@ struct Harness {
     worker: Option<tokio::task::JoinHandle<()>>,
 }
 #[tokio::test]
+async fn upstream_history_is_complete_paged_and_large_content_is_verified() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let h = Harness::fixture().await;
+    let session = h.session("history").await;
+    let id = s(&session, "sessionId");
+    let page = h.core.upstream_history(id, None, 1).await.unwrap();
+    assert_eq!(page["data"][0]["item"]["content"][0]["text"], "原始问题");
+    assert_eq!(page["nextCursor"], "1");
+    assert_eq!(h.core.store.history(id, None, 500).unwrap().len(), 1);
+    h.core
+        .upstream()
+        .unwrap()
+        .request(
+            "thread/name/set",
+            json!({"threadId":session["upstreamThreadId"],"name":"HISTORY_LARGE"}),
+        )
+        .await
+        .unwrap();
+    let page = h.core.upstream_history(id, Some("1"), 20).await.unwrap();
+    assert!(page["data"].as_array().unwrap().is_empty());
+    let resource = &page["resource"];
+    assert!(resource["bytes"].as_u64().unwrap() > 1024 * 1024);
+    let hash = s(resource, "sha256");
+    assert_eq!(
+        h.core
+            .upstream_history_content(id, Some("1"), &"0".repeat(64), 0)
+            .await
+            .unwrap_err()
+            .code,
+        "CONTENT_CHANGED"
+    );
+    let mut offset = 0;
+    let mut bytes = Vec::new();
+    loop {
+        let chunk = h
+            .core
+            .upstream_history_content(id, Some("1"), hash, offset)
+            .await
+            .unwrap();
+        let part = STANDARD.decode(s(&chunk, "data")).unwrap();
+        assert!(part.len() <= 48 * 1024);
+        bytes.extend(part);
+        if let Some(next) = chunk["nextOffset"].as_u64() {
+            offset = next as usize;
+        } else {
+            break;
+        }
+    }
+    let entry: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(entry["item"]["text"], "完整历史😀".repeat(90000));
+    assert_eq!(
+        h.core
+            .upstream_history_content(id, Some("1"), hash, bytes.len())
+            .await
+            .unwrap_err()
+            .code,
+        "INVALID_REQUEST"
+    );
+    h.core
+        .upstream()
+        .unwrap()
+        .request(
+            "thread/name/set",
+            json!({"threadId":session["upstreamThreadId"],"name":"changed"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        h.core
+            .upstream_history_content(id, Some("1"), hash, 0)
+            .await
+            .unwrap_err()
+            .code,
+        "CONTENT_CHANGED"
+    );
+    paths::remove_local(&h.core.store, s(&session, "projectId")).unwrap();
+    assert_eq!(
+        h.core
+            .upstream_history(id, None, 20)
+            .await
+            .unwrap_err()
+            .code,
+        "WORKSPACE_FORBIDDEN"
+    );
+}
+#[tokio::test]
+async fn imports_existing_thread_ids_with_archives_provenance_and_atomic_pagination() {
+    async fn external(rpc: &Rpc, root: &Path, name: &str) -> String {
+        let response = rpc
+            .request(
+                "thread/start",
+                json!({"cwd":root,"sandbox":"read-only","approvalPolicy":"on-request"}),
+            )
+            .await
+            .unwrap();
+        let id = s(&response["thread"], "id").to_owned();
+        rpc.request("thread/name/set", json!({"threadId":id,"name":name}))
+            .await
+            .unwrap();
+        id
+    }
+    let h = Harness::fixture().await;
+    let (project, root) = h.project("indexed");
+    let own = h
+        .core
+        .create_session(s(&project, "projectId"), "Bridge original")
+        .await
+        .unwrap();
+    let rpc = h.core.upstream().unwrap();
+    let child = external(&rpc, &root, "INDEX_CHILD").await;
+    let archived = external(&rpc, &root, "Archive original").await;
+    rpc.request("thread/archive", json!({"threadId":archived}))
+        .await
+        .unwrap();
+    let active = external(&rpc, &root, "INDEX_ACTIVE").await;
+    let outside = h._directory.path().join("not-granted");
+    std::fs::create_dir(&outside).unwrap();
+    external(&rpc, &outside, "INDEX_OUTSIDE").await;
+    assert_eq!(h.core.sync_thread_index().await.unwrap(), 4);
+    let sessions = h.core.store.sessions(None).unwrap();
+    assert_eq!(sessions.len(), 4);
+    let imported = sessions
+        .iter()
+        .find(|v| v["upstreamThreadId"] == child)
+        .unwrap();
+    let local_id = s(imported, "sessionId").to_owned();
+    assert_eq!(
+        imported["upstream"]["parentThreadId"],
+        own["upstreamThreadId"]
+    );
+    assert_eq!(
+        imported["upstream"]["forkedFromId"],
+        own["upstreamThreadId"]
+    );
+    assert_eq!(imported["upstream"]["source"], "appServer");
+    assert_eq!(
+        sessions
+            .iter()
+            .find(|v| v["upstreamThreadId"] == archived)
+            .unwrap()["archived"],
+        1
+    );
+    assert_eq!(
+        sessions
+            .iter()
+            .find(|v| v["upstreamThreadId"] == own["upstreamThreadId"])
+            .unwrap()["sessionId"],
+        own["sessionId"]
+    );
+    let active_session = sessions
+        .iter()
+        .find(|v| v["upstreamThreadId"] == active)
+        .unwrap();
+    assert_eq!(active_session["status"], "unknown");
+    assert_eq!(
+        h.core
+            .start_turn(s(active_session, "sessionId"), "do not start")
+            .await
+            .unwrap_err()
+            .code,
+        "CONFLICT"
+    );
+    assert_eq!(
+        h.core
+            .manage_session(
+                "sessions.delete",
+                &json!({"sessionId":active_session["sessionId"]})
+            )
+            .await
+            .unwrap_err()
+            .code,
+        "CONFLICT"
+    );
+    h.core
+        .manage_session("sessions.pin", &json!({"sessionId":local_id,"pinned":true}))
+        .await
+        .unwrap();
+    rpc.request(
+        "thread/name/set",
+        json!({"threadId":child,"name":"Renamed externally"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(h.core.sync_thread_index().await.unwrap(), 4);
+    let refreshed = h.core.store.session(&local_id).unwrap();
+    assert_eq!(refreshed["upstreamThreadId"], child);
+    assert_eq!(refreshed["title"], "Renamed externally");
+    assert_eq!(refreshed["pinned"], 1);
+    let snapshot = h.core.snapshot().unwrap();
+    assert!(snapshot["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|v| v.get("upstreamJson").is_none() && v["upstream"].is_object()));
+    // Even a valid first page must not partially publish a broken listing.
+    external(&rpc, &root, "INDEX_REPEAT_CURSOR").await;
+    let before = h.core.store.cursor().unwrap();
+    assert_eq!(
+        h.core.sync_thread_index().await.unwrap_err().code,
+        "UPSTREAM_PROTOCOL_ERROR"
+    );
+    assert_eq!(h.core.store.sessions(None).unwrap().len(), 4);
+    assert_eq!(h.core.store.cursor().unwrap(), before);
+    let reopened = Store::open(&h._directory.path().join("test.db")).unwrap();
+    assert_eq!(
+        reopened.session(&local_id).unwrap()["upstream"],
+        refreshed["upstream"]
+    );
+}
+#[tokio::test]
+async fn capabilities_reports_live_readiness_without_claiming_desktop_parity() {
+    let h = Harness::new();
+    let request = protocol::parse(json!({
+        "v":1,"type":"request","id":"caps","action":"system.capabilities","payload":{}
+    }))
+    .unwrap();
+    for ready in [false, true] {
+        h.core.ready.store(ready, Ordering::SeqCst);
+        let value = h.core.dispatch(&request, "fixture").await.unwrap();
+        assert_eq!(value["upstreamReady"], ready);
+        assert_eq!(value["protocolVersion"], 1);
+        assert_eq!(value["capabilitiesVersion"], 1);
+        assert_eq!(value["runtime"]["sharedDesktopRuntime"], false);
+        assert_eq!(value["features"]["gitWrite"], false);
+    }
+}
+#[tokio::test]
 async fn composer_forwards_files_and_resets_plan_and_goal() {
     use base64::{engine::general_purpose::STANDARD, Engine};
     let h = Harness::fixture().await;
@@ -214,6 +441,31 @@ fn request(action: &str, payload: Value, id: &str) -> protocol::Request {
 }
 #[test]
 fn strict_android_protocol() {
+    for (action, payload) in [
+        ("sessions.history", json!({"sessionId":"s","limit":51})),
+        ("sessions.history", json!({"sessionId":"s","cursor":false})),
+        (
+            "sessions.history",
+            json!({"sessionId":"s","cursor":"x".repeat(32769)}),
+        ),
+        (
+            "sessions.historyContent",
+            json!({"sessionId":"s","sha256":"G".repeat(64),"offset":0}),
+        ),
+        (
+            "sessions.historyContent",
+            json!({"sessionId":"s","sha256":"a".repeat(64),"offset":-1}),
+        ),
+        (
+            "sessions.historyContent",
+            json!({"sessionId":"s","sha256":"a".repeat(64),"offset":0,"path":"C:/"}),
+        ),
+    ] {
+        assert!(protocol::parse(
+            json!({"v":1,"type":"request","id":"history","action":action,"payload":payload})
+        )
+        .is_err());
+    }
     for v in [
         json!({"v":1,"type":"request","id":"1","action":"shell","payload":{"command":"whoami"}}),
         json!({"v":1,"type":"request","id":"1","action":"projects.add","payload":{"path":"C:/"}}),
@@ -284,7 +536,24 @@ async fn model_catalog_and_effort_are_validated_and_forwarded() {
     );
 }
 #[tokio::test]
-async fn idle_writer_conflict_continues_history_without_stealing_lock() {
+async fn missing_rollout_never_replaces_the_original_thread() {
+    for title in ["MISSING_ROLLOUT", "MISSING_LINEAGE"] {
+        let h = Harness::fixture().await;
+        let session = h.session(title).await;
+        let id = s(&session, "sessionId");
+        h.core.loaded.lock().unwrap().clear();
+        let error = h.core.start_turn(id, "hello").await.unwrap_err();
+        assert_eq!(error.code, "THREAD_NOT_FOUND");
+        assert_eq!(
+            h.core.store.session(id).unwrap()["upstreamThreadId"],
+            session["upstreamThreadId"]
+        );
+        assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+        assert_eq!(h.core.store.sessions(None).unwrap().len(), 1);
+    }
+}
+#[tokio::test]
+async fn writer_conflict_preserves_identity_with_and_without_history() {
     let h = Harness::fixture().await;
     let session = h.session("writer conflict").await;
     let id = s(&session, "sessionId");
@@ -309,17 +578,17 @@ async fn idle_writer_conflict_continues_history_without_stealing_lock() {
     let turn = h.core.start_turn(id, "hello").await.unwrap();
     h.wait(s(&turn, "turnId"), "completed").await;
     h.core.loaded.lock().unwrap().clear();
-    let turn = h
+    let error = h
         .core
         .start_turn_permissions(id, "CHECK_PERMISSION_FULL", None, None, "full")
         .await
-        .unwrap();
-    h.wait(s(&turn, "turnId"), "completed").await;
-    assert_ne!(
+        .unwrap_err();
+    assert_eq!(error.code, "THREAD_IN_USE");
+    assert_eq!(
         h.core.store.session(id).unwrap()["upstreamThreadId"],
         session["upstreamThreadId"]
     );
-    assert_eq!(h.core.store.turns(Some(id)).unwrap().len(), 2);
+    assert_eq!(h.core.store.turns(Some(id)).unwrap().len(), 1);
 }
 #[tokio::test]
 async fn permission_modes_switch_without_inheriting_full_access() {

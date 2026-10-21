@@ -31,6 +31,64 @@ fn main() {
         ));
     }
     generated.push_str("_=>None}}\n");
+    let desktop_lock_path = root.join("versions/0.163.0-alpha.10.2/schema-lock.json");
+    let desktop_lock: serde_json::Value = serde_json::from_slice(
+        &fs::read(&desktop_lock_path).expect("desktop baseline schema lock"),
+    )
+    .unwrap();
+    assert_eq!(desktop_lock["codexVersion"], "0.163.0-alpha.10.2");
+    assert_eq!(desktop_lock["baseCodexVersion"], "0.159.2");
+    assert_eq!(desktop_lock["experimental"], false);
+    generated.push_str("pub fn desktop_schema(name:&str)->Option<&'static str>{match name {\n");
+    for file in desktop_lock["files"].as_array().unwrap() {
+        let name = file["name"].as_str().unwrap();
+        let source = file["source"].as_str().unwrap();
+        assert!(!source.contains("..") && !source.contains('\\'));
+        assert!(
+            source.starts_with("schema/")
+                || source.starts_with("versions/0.163.0-alpha.10.2/schema/")
+        );
+        let path = root.join(source);
+        let bytes = fs::read(&path).expect("desktop schema source");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            file["sha256"].as_str().unwrap(),
+            "desktop schema changed: {name}"
+        );
+        println!("cargo:rerun-if-changed={}", path.display());
+        generated.push_str(&format!(
+            "{:?}=>Some(include_str!({:?})),\n",
+            name,
+            path.to_string_lossy()
+        ));
+    }
+    let composer_lock_path = root.join("versions/0.163.0-alpha.10.2/composer-lock.json");
+    let composer_lock: serde_json::Value = serde_json::from_slice(
+        &fs::read(&composer_lock_path).expect("desktop experimental composer lock"),
+    )
+    .unwrap();
+    assert_eq!(composer_lock["codexVersion"], "0.163.0-alpha.10.2");
+    assert_eq!(composer_lock["experimental"], true);
+    assert_eq!(composer_lock["files"].as_array().unwrap().len(), 1);
+    let composer = &composer_lock["files"][0];
+    assert_eq!(
+        composer["source"],
+        "versions/0.163.0-alpha.10.2/experimental/TurnStartParams.json"
+    );
+    let composer_path = root.join(composer["source"].as_str().unwrap());
+    let bytes = fs::read(&composer_path).expect("desktop experimental composer schema");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        composer["sha256"].as_str().unwrap()
+    );
+    generated.push_str(&format!(
+        "\"experimental/TurnStartParams\"=>Some(include_str!({:?})),\n",
+        composer_path.to_string_lossy()
+    ));
+    generated.push_str("_=>None}}\n");
+    println!("cargo:rerun-if-changed={}", composer_path.display());
+    println!("cargo:rerun-if-changed={}", composer_lock_path.display());
+    println!("cargo:rerun-if-changed={}", desktop_lock_path.display());
     let composer_schema = root.join("experimental/TurnStartParams.json");
     let composer_bytes = fs::read(&composer_schema).expect("pinned composer schema");
     assert_eq!(

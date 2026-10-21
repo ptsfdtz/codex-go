@@ -1,8 +1,4 @@
-use crate::{
-    ensure, paths,
-    rpc::{validate, Rpc},
-    s, Error, Result,
-};
+use crate::{ensure, paths, rpc::Rpc, s, Error, Result};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
@@ -99,8 +95,12 @@ pub fn find() -> Result<PathBuf> {
     ))
 }
 pub fn verify(exe: &Path) -> Result<()> {
+    verify_for(exe, crate::rpc::ProtocolVersion::Managed)
+}
+pub fn verify_for(exe: &Path, protocol: crate::rpc::ProtocolVersion) -> Result<()> {
     let output = sync_command(&exe.to_string_lossy(), &["--version"], None)?;
-    let expected = format!("codex-cli {VERSION}");
+    let version = protocol.version();
+    let expected = format!("codex-cli {version}");
     let actual = output.trim();
     if actual == expected {
         return Ok(());
@@ -108,7 +108,7 @@ pub fn verify(exe: &Path) -> Result<()> {
     Err(Error::new(
         "UPSTREAM_VERSION_UNSUPPORTED",
         &format!(
-            "检测到 {actual}；AgentDeck 当前使用 codex-cli {VERSION} 的稳定 App Server 协议 schema，并仅验证过该版本的 Windows 沙箱与审批行为。可以安装 AgentDeck 管理的兼容版本；不会替换你的全局 Codex CLI。"
+            "检测到 {actual}；所选运行时要求 codex-cli {version}。请指定匹配的本机可执行文件；不会替换全局 Codex，也不会自动切换协议版本。"
         ),
     ))
 }
@@ -129,8 +129,29 @@ pub fn args() -> Vec<String> {
     ["app-server","--listen","stdio://","-c","windows.sandbox=\"mxc\"","-c","approval_policy=\"on-request\"","-c","approvals_reviewer=\"user\"","-c","default_permissions=\"agentdeck\"","-c","permissions={agentdeck={extends=\":workspace\",filesystem={\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\"},network={enabled=false}}}","-c","web_search=\"disabled\"","-c","mcp_servers={}","-c","hooks={}","-c","shell_environment_policy.inherit=\"core\""].iter().map(|s|s.to_string()).collect()
 }
 pub async fn initialize(rpc: &Arc<Rpc>) -> Result<()> {
+    initialize_checked(rpc, false).await
+}
+pub async fn initialize_attached(rpc: &Arc<Rpc>) -> Result<()> {
+    initialize_checked(rpc, true).await
+}
+pub fn check_runtime_identity(user_agent: &str) -> Result<()> {
+    ensure(
+        user_agent.starts_with(&format!("Codex Desktop/{VERSION} (")),
+        "UPSTREAM_VERSION_UNSUPPORTED",
+        "Attached runtime does not match the pinned protocol version",
+    )
+}
+async fn initialize_checked(rpc: &Arc<Rpc>, attached: bool) -> Result<()> {
     let v=rpc.request("initialize",json!({"clientInfo":{"name":"agentdeck","title":"AgentDeck","version":"0.3.0"},"capabilities":{"experimentalApi":true,"requestAttestation":false}})).await?;
-    validate("v1/InitializeResponse", &v)?;
+    rpc.validate("v1/InitializeResponse", &v)?;
+    if attached {
+        ensure(
+            crate::s(&v, "userAgent")
+                .starts_with(&format!("Codex Desktop/{} (", rpc.protocol().version())),
+            "UPSTREAM_VERSION_UNSUPPORTED",
+            "Attached runtime does not match its selected protocol version",
+        )?;
+    }
     rpc.send(json!({"method":"initialized","params":{}}))
 }
 pub fn check_policy(v: &Value) -> Result<()> {
@@ -182,7 +203,7 @@ pub async fn settings(rpc: &Rpc, root: &Path) -> Result<()> {
     let v = rpc
         .request("config/read", json!({"includeLayers":false,"cwd":root}))
         .await?;
-    validate("v2/ConfigReadResponse", &v)?;
+    rpc.validate("v2/ConfigReadResponse", &v)?;
     check_policy(&v)
 }
 pub fn checked_thread(v: &Value, root: &Path, verified: bool) -> Result<()> {

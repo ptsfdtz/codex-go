@@ -1,6 +1,6 @@
 use crate::{
     ensure, future, now, paths,
-    rpc::{validate, Rpc},
+    rpc::{validate_for, ProtocolVersion, Rpc},
     s,
     service::Core,
     tasks, uid, Error, Result,
@@ -20,6 +20,13 @@ pub fn contract(method: &str) -> Result<&'static str> {
     }
 }
 pub fn choices(method: &str, context: &Value) -> Result<Vec<&'static str>> {
+    choices_for(ProtocolVersion::Managed, method, context)
+}
+pub fn choices_for(
+    version: ProtocolVersion,
+    method: &str,
+    context: &Value,
+) -> Result<Vec<&'static str>> {
     if method == "item/tool/requestUserInput" {
         return Ok(vec!["approve", "reject", "cancel"]);
     }
@@ -36,7 +43,11 @@ pub fn choices(method: &str, context: &Value) -> Result<Vec<&'static str>> {
         "Invalid available decisions",
     )?;
     for value in values {
-        validate(&format!("{base}Response"), &json!({"decision":value}))?;
+        validate_for(
+            version,
+            &format!("{base}Response"),
+            &json!({"decision":value}),
+        )?;
     }
     ensure(
         values.contains(&json!("decline")) || values.contains(&json!("cancel")),
@@ -54,8 +65,16 @@ pub fn choices(method: &str, context: &Value) -> Result<Vec<&'static str>> {
     Ok(choices)
 }
 pub fn response(method: &str, decision: &str, context: &Value) -> Result<Value> {
+    response_for(ProtocolVersion::Managed, method, decision, context)
+}
+pub fn response_for(
+    version: ProtocolVersion,
+    method: &str,
+    decision: &str,
+    context: &Value,
+) -> Result<Value> {
     ensure(
-        choices(method, context)?.contains(&decision),
+        choices_for(version, method, context)?.contains(&decision),
         "UPSTREAM_UNSUPPORTED_REQUEST",
         "Decision unavailable",
     )?;
@@ -83,7 +102,7 @@ pub fn response(method: &str, decision: &str, context: &Value) -> Result<Value> 
         };
         json!({"decision":match decision{"approve"=>"accept","cancel"=>"cancel",_=>reject}})
     };
-    validate(&format!("{}Response", contract(method)?), &v)?;
+    validate_for(version, &format!("{}Response", contract(method)?), &v)?;
     Ok(v)
 }
 impl Core {
@@ -97,8 +116,8 @@ impl Core {
                 "UPSTREAM_PROTOCOL_ERROR",
                 "Approval context exceeds review limit",
             )?;
-            validate(&format!("{base}Params"), p)?;
-            choices(method, p)?;
+            rpc.validate(&format!("{base}Params"), p)?;
+            choices_for(rpc.protocol(), method, p)?;
             ensure(
                 self.ready.load(Ordering::SeqCst),
                 "UPSTREAM_UNAVAILABLE",
@@ -250,7 +269,7 @@ impl Core {
             let answers =
                 answers.ok_or_else(|| Error::new("INVALID_REQUEST", "Answers required"))?;
             let response = json!({"answers":answers});
-            validate("ToolRequestUserInputResponse", &response)?;
+            rpc.validate("ToolRequestUserInputResponse", &response)?;
             let questions = context["questions"].as_array().unwrap();
             let map = answers.as_object().unwrap();
             ensure(
@@ -272,7 +291,7 @@ impl Core {
             )?;
             response
         } else {
-            response(s(&row, "method"), decision, &context)?
+            response_for(rpc.protocol(), s(&row, "method"), decision, &context)?
         };
         ensure(
             self.store.exec(
@@ -328,7 +347,7 @@ impl Core {
                                 })?;
                             let id: Value = serde_json::from_str(s(row, "upstreamRequestJson"))
                                 .map_err(|_| Error::new("DATABASE_ERROR", "Invalid request id"))?;
-                            rpc.send(json!({"id":id,"result":response(s(row,"method"),"reject",&context)?}))
+                            rpc.send(json!({"id":id,"result":response_for(rpc.protocol(),s(row,"method"),"reject",&context)?}))
                         })();
                         if result.is_err() {
                             rpc.stop();

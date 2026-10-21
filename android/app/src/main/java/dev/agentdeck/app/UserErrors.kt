@@ -66,10 +66,15 @@ internal fun userFacingError(code: String? = null, raw: String? = null): String 
             "AgentDeck 无法访问当前工作区，路径可能已移动、删除或撤销授权。",
             "在 Windows 管理窗重新同步工作区；若路径已变化，请重新选择并授权正确的项目目录。",
         )
+        normalizedCode == "THREAD_NOT_FOUND" -> ErrorCopy(
+            "原会话暂不可恢复",
+            "Codex 无法找到原会话的历史，当前会话绑定保持不变。",
+            "在电脑端检查该会话是否仍存在；需要新任务时请手动新建对话。",
+        )
         normalizedCode == "THREAD_IN_USE" || "already has an active writer" in lower -> ErrorCopy(
             "会话正在其他客户端使用",
-            "电脑端 Codex 持有此会话的写入锁，当前无法安全恢复。",
-            "等待电脑端任务完成后重试，或使用新对话。",
+            "电脑端 Codex 仍在管理此会话，当前连接无法同时操作，原有会话保持不变。",
+            "在电脑端继续此会话，或手动新建独立对话；不会自动创建副本。",
         )
         normalizedCode == "CONFLICT" -> ErrorCopy(
             "状态已发生变化",

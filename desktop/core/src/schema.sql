@@ -17,3 +17,6 @@ INSERT OR IGNORE INTO migrations VALUES(2,datetime('now'));
 
 CREATE TABLE IF NOT EXISTS session_options(sessionId TEXT PRIMARY KEY REFERENCES sessions(sessionId),archived INTEGER NOT NULL DEFAULT 0,pinned INTEGER NOT NULL DEFAULT 0,model TEXT NOT NULL DEFAULT '',effort TEXT NOT NULL DEFAULT '');
 INSERT OR IGNORE INTO migrations VALUES(3,datetime('now'));
+
+CREATE TABLE IF NOT EXISTS session_metadata(sessionId TEXT PRIMARY KEY REFERENCES sessions(sessionId) ON DELETE CASCADE,upstreamJson TEXT NOT NULL,syncedAt TEXT NOT NULL);
+INSERT OR IGNORE INTO migrations VALUES(4,datetime('now'));

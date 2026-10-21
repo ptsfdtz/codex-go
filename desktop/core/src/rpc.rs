@@ -1,4 +1,5 @@
 use crate::{ensure, Error, Result};
+mod websocket;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -13,18 +14,39 @@ use tokio::{
     process::Command,
     sync::{mpsc, oneshot},
 };
+pub use websocket::{validate_local_credential, validate_local_endpoint};
 include!(concat!(env!("OUT_DIR"), "/schemas.rs"));
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ProtocolVersion {
+    Managed,
+    DesktopBaseline,
+}
+impl ProtocolVersion {
+    pub fn version(self) -> &'static str {
+        match self {
+            Self::Managed => crate::codex::VERSION,
+            Self::DesktopBaseline => "0.163.0-alpha.10.2",
+        }
+    }
+}
 pub fn validate(name: &str, value: &Value) -> Result<()> {
+    validate_for(ProtocolVersion::Managed, name, value)
+}
+pub fn validate_for(version: ProtocolVersion, name: &str, value: &Value) -> Result<()> {
     use std::sync::LazyLock;
-    static CACHE: LazyLock<Mutex<HashMap<String, Arc<jsonschema::Validator>>>> =
-        LazyLock::new(|| Mutex::new(HashMap::new()));
+    type ValidatorCache = HashMap<(ProtocolVersion, String), Arc<jsonschema::Validator>>;
+    static CACHE: LazyLock<Mutex<ValidatorCache>> = LazyLock::new(|| Mutex::new(HashMap::new()));
     let validator = {
         let mut cache = CACHE.lock().unwrap();
-        if let Some(v) = cache.get(name) {
+        let key = (version, name.to_owned());
+        if let Some(v) = cache.get(&key) {
             v.clone()
         } else {
-            let source = schema(name)
-                .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Pinned schema missing"))?;
+            let source = match version {
+                ProtocolVersion::Managed => schema(name),
+                ProtocolVersion::DesktopBaseline => desktop_schema(name),
+            }
+            .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Pinned schema missing"))?;
             let value: Value = serde_json::from_str(source)
                 .map_err(|_| Error::new("UPSTREAM_PROTOCOL_ERROR", "Invalid pinned schema"))?;
             let v = Arc::new(
@@ -35,7 +57,7 @@ pub fn validate(name: &str, value: &Value) -> Result<()> {
                         Error::new("UPSTREAM_PROTOCOL_ERROR", "Cannot compile pinned schema")
                     })?,
             );
-            cache.insert(name.into(), v.clone());
+            cache.insert(key, v.clone());
             v
         }
     };
@@ -64,6 +86,10 @@ pub async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
     )?;
     let v: Value = serde_json::from_slice(&bytes)
         .map_err(|_| Error::new("UPSTREAM_PROTOCOL_ERROR", "Invalid JSON frame"))?;
+    checked_packet(&v)?;
+    Ok(Some(v))
+}
+fn checked_packet(v: &Value) -> Result<()> {
     ensure(v.is_object(), "UPSTREAM_PROTOCOL_ERROR", "Object required")?;
     if let Some(id) = v.get("id") {
         ensure(
@@ -84,9 +110,10 @@ pub async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
             "Invalid response",
         )?;
     }
-    Ok(Some(v))
+    Ok(())
 }
 pub struct Rpc {
+    protocol: ProtocolVersion,
     output: mpsc::Sender<Value>,
     pending: Mutex<HashMap<String, oneshot::Sender<Result<Value>>>>,
     next: AtomicU64,
@@ -129,6 +156,7 @@ impl Rpc {
         let (output, mut writes) = mpsc::channel::<Value>(2);
         let (events, event_rx) = mpsc::channel(128);
         let rpc = Arc::new(Self {
+            protocol: ProtocolVersion::Managed,
             output,
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
@@ -209,7 +237,7 @@ impl Rpc {
         } else {
             json!({"id":id,"method":method,"params":params})
         };
-        validate("ClientRequest", &packet)?;
+        self.validate("ClientRequest", &packet)?;
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = self.pending.lock().unwrap();
@@ -248,6 +276,12 @@ impl Rpc {
         self.output
             .try_send(v)
             .map_err(|_| Error::new("RATE_LIMITED", "Upstream write buffer full"))
+    }
+    pub fn protocol(&self) -> ProtocolVersion {
+        self.protocol
+    }
+    pub fn validate(&self, name: &str, value: &Value) -> Result<()> {
+        validate_for(self.protocol, name, value)
     }
     pub fn reject(&self, id: Value) -> Result<()> {
         self.send(json!({"id":id,"error":{"code":-32601,"message":"Request unsupported or no longer authorized"}}))

@@ -17,6 +17,7 @@ axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 futures-util = "0.3"
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
@@ -41,7 +42,6 @@ tempfile = "3"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [dev-dependencies]
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [profile.release]

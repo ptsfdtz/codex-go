@@ -86,6 +86,8 @@ pub fn parse(v: Value) -> Result<Request> {
         "approvals.list" => (&[], &["sessionId"]),
         "sessions.create" => (&["projectId", "title"], &[]),
         "sessions.detail" => (&["sessionId"], &["before", "limit"]),
+        "sessions.history" => (&["sessionId"], &["cursor", "limit"]),
+        "sessions.historyContent" => (&["sessionId", "sha256", "offset"], &["cursor"]),
         "turn.start" => (
             &["sessionId", "text"],
             &["model", "effort", "permissionMode", "mode", "attachments"],
@@ -169,7 +171,16 @@ pub fn parse(v: Value) -> Result<Request> {
     }
     for key in ["cursor", "before"] {
         if p.get(key).is_some() {
-            text(p, key, 0, 160)?;
+            text(
+                p,
+                key,
+                0,
+                if r.action.starts_with("sessions.history") {
+                    32768
+                } else {
+                    160
+                },
+            )?;
         }
     }
     if matches!(r.action.as_str(), "events.replay" | "sessions.detail") {
@@ -177,6 +188,25 @@ pub fn parse(v: Value) -> Result<Request> {
             p["limit"] = json!(100);
         }
         integer(p, "limit", 1, 500)?;
+    }
+    if r.action == "sessions.history" {
+        if p.get("limit").is_none() {
+            p["limit"] = json!(20);
+        }
+        integer(p, "limit", 1, 50)?;
+    }
+    if r.action == "sessions.historyContent" {
+        integer(p, "offset", 0, 8 * 1024 * 1024)?;
+        text(p, "sha256", 64, 64)?;
+        ensure(
+            p["sha256"]
+                .as_str()
+                .unwrap()
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "INVALID_REQUEST",
+            "Invalid content hash",
+        )?;
     }
     Ok(r)
 }

@@ -1,0 +1,58 @@
+{
+  "generatedAt": "2026-10-21T08:39:02.412Z",
+  "cliVersion": "codex-cli 0.159.2",
+  "evidenceLevel": "real-native-runtime-with-synthetic-model",
+  "desktopClientVerified": false,
+  "checks": {
+    "missingCredentialRejected": true,
+    "wrongCredentialRejected": true,
+    "secondClientReadsSameThread": true,
+    "renameVisibleToSecondClient": true,
+    "secondClientResumesSameThread": true,
+    "secondClientMutationVisibleToFirst": true,
+    "secondClientSteersSameActiveTurn": true,
+    "bothObserveAuthoritativeInterruption": true,
+    "reconnectPreservesThreadIdentity": true,
+    "bothObserveNameNotifications": true
+  },
+  "modelConfiguration": {
+    "model": "agentdeck-shared-probe",
+    "modelProvider": "agentdeck_probe"
+  },
+  "notifications": {
+    "first": [
+      "account/rateLimits/updated",
+      "item/completed",
+      "item/started",
+      "remoteControl/status/changed",
+      "thread/goal/cleared",
+      "thread/name/updated",
+      "thread/started",
+      "thread/status/changed",
+      "turn/completed",
+      "turn/started",
+      "warning"
+    ],
+    "second": [
+      "account/rateLimits/updated",
+      "remoteControl/status/changed",
+      "thread/goal/cleared",
+      "thread/name/updated",
+      "thread/started",
+      "thread/status/changed",
+      "turn/completed"
+    ]
+  },
+  "passed": true,
+  "serverExitCode": null,
+  "serverExitSignal": "SIGTERM",
+  "syntheticModelRequests": 1,
+  "primedTurnBeforeResume": true,
+  "syntheticModelRoutes": [
+    {
+      "method": "POST",
+      "path": "/v1/responses"
+    }
+  ],
+  "stderrBytes": 2699
+}

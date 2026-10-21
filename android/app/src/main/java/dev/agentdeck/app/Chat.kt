@@ -37,6 +37,8 @@ import androidx.compose.ui.platform.LocalContext
     val entries=remember(state.events){conversationEntries(state.events)}
     val approvals=state.snapshot.approvals.filter{it.sessionId==state.selectedSession&&it.status=="pending"}
     val active=session?.status in listOf("running","queued","waitingApproval","unknown")
+    var showUpstreamHistory by remember(state.host?.hostId,state.selectedSession){mutableStateOf(false)}
+    if(showUpstreamHistory&&session!=null)key(state.host?.hostId,session.sessionId){UpstreamHistoryDialog(repo,session.sessionId){showUpstreamHistory=false}}
     var drafts by rememberSaveable{mutableStateOf(mapOf<String,String>())}
     LaunchedEffect(state.hosts){if(state.hosts.isNotEmpty())drafts=drafts.filterKeys{key->state.hosts.any{key.startsWith("${it.hostId}:")}}}
     val draftKey="${state.host?.hostId}:"+(state.selectedSession?:"new:${state.selectedProject}")
@@ -67,7 +69,7 @@ import androidx.compose.ui.platform.LocalContext
     LaunchedEffect(list){snapshotFlow{list.isScrollInProgress to list.canScrollForward}.collect{(moving,away)->if(moving)follow=!away}}
     LaunchedEffect(state.host?.hostId,state.selectedSession,entries.lastOrNull(),approvals.size){if(follow){withFrameNanos{};if(list.layoutInfo.totalItemsCount>0)list.scrollToItem(list.layoutInfo.totalItemsCount-1)}}
     Column(Modifier.fillMaxSize()){
-        if(session!=null)Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text(session.title,fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f));if(session.archived==1)TextButton(onClick={repo.manageSession(session,"restore")},enabled=!state.stale&&!state.busy){Text("恢复会话")};SessionActions(session,state,repo);if(state.busy)CircularProgressIndicator(Modifier.size(14.dp),strokeWidth=1.5.dp)}
+        if(session!=null)Row(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Text(session.title,fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f));if(session.archived==1)TextButton(onClick={repo.manageSession(session,"restore")},enabled=!state.stale&&!state.busy){Text("恢复会话")};if(state.capabilities?.supports("upstreamHistoryPages")==true)TextButton(onClick={showUpstreamHistory=true},enabled=!state.stale){Text("历史")};SessionActions(session,state,repo);if(state.busy)CircularProgressIndicator(Modifier.size(14.dp),strokeWidth=1.5.dp)}
         Box(Modifier.weight(1f).fillMaxWidth()){
             if(session==null)Column(Modifier.align(Alignment.Center).padding(32.dp).widthIn(max=640.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(14.dp)){
                 Icon(Icons.Outlined.Code,null,Modifier.size(38.dp))

@@ -22,3 +22,56 @@ if (JSON.stringify(actual) !== JSON.stringify(lock.files))
 console.log(
   `Verified ${actual.length} schemas; manifest SHA256 ${createHash('sha256').update(bytes).digest('hex')}`,
 );
+const desktopRoot = resolve(root, 'versions/0.163.0-alpha.10.2');
+const desktopLock = JSON.parse(readFileSync(resolve(desktopRoot, 'schema-lock.json')));
+if (
+  desktopLock.codexVersion !== '0.163.0-alpha.10.2' ||
+  desktopLock.baseCodexVersion !== lock.codexVersion ||
+  desktopLock.experimental !== false
+)
+  throw new Error('Unexpected desktop baseline manifest');
+const names = new Set();
+const overlays = [];
+for (const file of desktopLock.files) {
+  if (
+    names.has(file.name) ||
+    file.source.includes('..') ||
+    file.source.includes('\\') ||
+    ![
+      `schema/${file.name}.json`,
+      `versions/${desktopLock.codexVersion}/schema/${file.name}.json`,
+    ].includes(file.source)
+  ) {
+    throw new Error('Invalid desktop schema source');
+  }
+  names.add(file.name);
+  if (
+    createHash('sha256')
+      .update(readFileSync(resolve(root, file.source)))
+      .digest('hex') !== file.sha256
+  )
+    throw new Error(`Desktop baseline schema differs: ${file.name}`);
+  if (file.source.startsWith('versions/')) overlays.push(file.source);
+}
+const actualOverlays = walk(resolve(desktopRoot, 'schema'))
+  .map((file) => relative(root, file).replaceAll('\\', '/'))
+  .sort();
+if (JSON.stringify(actualOverlays) !== JSON.stringify(overlays.sort()))
+  throw new Error('Unindexed desktop schema overlay');
+console.log(
+  `Verified desktop ${desktopLock.codexVersion}: ${names.size} effective schemas, ${overlays.length} overlays`,
+);
+const composerLock = JSON.parse(readFileSync(resolve(desktopRoot, 'composer-lock.json')));
+const expectedComposer = `versions/${desktopLock.codexVersion}/experimental/TurnStartParams.json`;
+if (
+  composerLock.codexVersion !== desktopLock.codexVersion ||
+  composerLock.experimental !== true ||
+  composerLock.files.length !== 1 ||
+  composerLock.files[0].source !== expectedComposer ||
+  createHash('sha256')
+    .update(readFileSync(resolve(root, expectedComposer)))
+    .digest('hex') !== composerLock.files[0].sha256
+) {
+  throw new Error('Desktop experimental composer schema differs');
+}
+console.log('Verified desktop experimental TurnStartParams');

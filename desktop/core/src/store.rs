@@ -83,12 +83,20 @@ impl Store {
         Ok(rows)
     }
     pub fn session(&self, id: &str) -> Result<Value> {
-        let v = self.one("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE s.sessionId=?", [id])?;
+        let v = self.one("SELECT s.*,(SELECT upstreamJson FROM session_metadata WHERE sessionId=s.sessionId) AS upstreamJson,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE s.sessionId=?", [id])?;
         self.project(s(&v, "projectId"))?;
-        Ok(v)
+        Self::indexed_session(v)
+    }
+    fn indexed_session(mut value: Value) -> Result<Value> {
+        if let Some(Value::String(text)) = value.as_object_mut().unwrap().remove("upstreamJson") {
+            value["upstream"] = serde_json::from_str(&text)
+                .map_err(|_| Error::new("DATABASE_ERROR", "Invalid thread index metadata"))?;
+        }
+        Ok(value)
     }
     pub fn sessions(&self, id: Option<&str>) -> Result<Vec<Value>> {
-        match id{Some(id)=>{self.project(id)?;self.query("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE projectId=? ORDER BY updatedAt DESC",[id])},None=>self.query("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])}
+        let rows = match id{Some(id)=>{self.project(id)?;self.query("SELECT s.*,(SELECT upstreamJson FROM session_metadata WHERE sessionId=s.sessionId) AS upstreamJson,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE projectId=? ORDER BY updatedAt DESC",[id])},None=>self.query("SELECT s.*,(SELECT upstreamJson FROM session_metadata WHERE sessionId=s.sessionId) AS upstreamJson,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])}?;
+        rows.into_iter().map(Self::indexed_session).collect()
     }
     pub fn delete_session(&self, id: &str) -> Result<()> {
         let mut db = self.db.lock().unwrap();
@@ -113,6 +121,91 @@ impl Store {
         }
         tx.commit()?;
         Ok(())
+    }
+    pub(crate) fn apply_thread_index(
+        &self,
+        entries: &[crate::thread_index::ThreadIndexEntry],
+    ) -> Result<usize> {
+        if entries.is_empty() {
+            return Ok(0);
+        }
+        let event = {
+            let mut db = self.db.lock().unwrap();
+            let tx = db.transaction()?;
+            for entry in entries {
+                let project = Self::query_db(
+                    &tx,
+                    "SELECT projectId FROM projects WHERE projectId=? AND enabled=1",
+                    [&entry.project_id],
+                )?;
+                ensure(
+                    !project.is_empty(),
+                    "WORKSPACE_FORBIDDEN",
+                    "Project grant changed during sync",
+                )?;
+                let rows = Self::query_db(
+                    &tx,
+                    "SELECT s.*,COALESCE((SELECT seq FROM event_sequences WHERE sessionKey=s.sessionId),0) AS eventSeq FROM sessions s WHERE upstreamThreadId=?",
+                    [&entry.thread_id],
+                )?;
+                let external_status = s(&entry.metadata["status"], "type");
+                let unknown = !["idle", "notLoaded"].contains(&external_status);
+                let id = if let Some(existing) = rows.first() {
+                    ensure(
+                        existing["projectId"] == entry.project_id
+                            && entry.expected_event_seq == existing["eventSeq"].as_i64()
+                            && entry.expected_updated_at.as_deref()
+                                == existing["updatedAt"].as_str(),
+                        "SYNC_CONFLICT",
+                        "Conversation changed during sync; index unchanged",
+                    )?;
+                    let id = s(existing, "sessionId").to_owned();
+                    let active = Self::query_db(&tx, "SELECT turnId FROM turns WHERE sessionId=? AND status IN ('queued','running','waitingApproval','unknown') LIMIT 1", [&id])?;
+                    let status = if !active.is_empty() {
+                        s(existing, "status")
+                    } else if unknown {
+                        "unknown"
+                    } else if crate::tasks::terminal(s(existing, "status")) {
+                        s(existing, "status")
+                    } else {
+                        "idle"
+                    };
+                    tx.execute("UPDATE sessions SET title=?,status=?,updatedAt=MAX(updatedAt,?) WHERE sessionId=?", params![entry.title,status,entry.updated_at,id])?;
+                    id
+                } else {
+                    ensure(
+                        entry.expected_updated_at.is_none(),
+                        "SYNC_CONFLICT",
+                        "Conversation removed during sync; index unchanged",
+                    )?;
+                    let id = uid("session");
+                    tx.execute(
+                        "INSERT INTO sessions VALUES(?,?,?,?,?,?,?)",
+                        params![
+                            id,
+                            entry.project_id,
+                            entry.thread_id,
+                            entry.title,
+                            if unknown { "unknown" } else { "idle" },
+                            entry.created_at,
+                            entry.updated_at
+                        ],
+                    )?;
+                    id
+                };
+                tx.execute("INSERT INTO session_options(sessionId,archived,model,effort) VALUES(?1,?2,COALESCE(?3,''),?4) ON CONFLICT(sessionId) DO UPDATE SET archived=excluded.archived,model=CASE WHEN ?3 IS NOT NULL THEN excluded.model ELSE session_options.model END,effort=CASE WHEN ?5 THEN excluded.effort ELSE session_options.effort END", params![id,entry.archived,entry.metadata["model"].as_str(),entry.metadata["reasoningEffort"].as_str().unwrap_or(""),entry.metadata.get("reasoningEffort").is_some()])?;
+                tx.execute("INSERT INTO session_metadata VALUES(?,?,?) ON CONFLICT(sessionId) DO UPDATE SET upstreamJson=excluded.upstreamJson,syncedAt=excluded.syncedAt", params![id,entry.metadata.to_string(),now()])?;
+            }
+            let seq:i64 = tx.query_row("INSERT INTO event_sequences(sessionKey,seq) VALUES('',1) ON CONFLICT(sessionKey) DO UPDATE SET seq=seq+1 RETURNING seq", [], |r| r.get(0))?;
+            let ts = now();
+            let payload = json!({"indexed":entries.len()});
+            tx.execute("INSERT INTO events(sessionId,turnId,seq,action,payloadJson,ts) VALUES(NULL,NULL,?,'sessions.synced',?,?)",params![seq,payload.to_string(),ts])?;
+            let event_id = tx.last_insert_rowid().to_string();
+            tx.commit()?;
+            json!({"v":1,"type":"event","eventId":event_id,"seq":seq,"sessionId":null,"turnId":null,"action":"sessions.synced","payload":payload,"ts":ts})
+        };
+        let _ = self.events.send(event);
+        Ok(entries.len())
     }
     pub fn turns(&self, id: Option<&str>) -> Result<Vec<Value>> {
         match id{Some(id)=>self.query("SELECT * FROM turns WHERE sessionId=? ORDER BY startedAt",[id]),None=>self.query("SELECT * FROM turns WHERE status IN ('queued','running','waitingApproval','unknown') ORDER BY startedAt",[])}
@@ -407,7 +500,11 @@ impl Store {
         for p in &mut projects {
             p["enabled"] = json!(true);
         }
-        let sessions=Self::query_db(&tx,"SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])?;
+        let sessions=Self::query_db(&tx,"SELECT s.*,(SELECT upstreamJson FROM session_metadata WHERE sessionId=s.sessionId) AS upstreamJson,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])?;
+        let sessions = sessions
+            .into_iter()
+            .map(Self::indexed_session)
+            .collect::<Result<Vec<_>>>()?;
         let turns=Self::query_db(&tx,"SELECT * FROM turns WHERE status IN ('queued','running','waitingApproval','unknown') ORDER BY startedAt",[])?;
         let rows = Self::query_db(
             &tx,

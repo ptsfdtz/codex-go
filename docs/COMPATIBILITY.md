@@ -28,6 +28,8 @@ pnpm schema:verify
 
 ## Methods actually used
 
+Migration development also pins the installed desktop baseline `0.163.0-alpha.10.2` under `packages/codex-protocol/versions/`: 318 effective stable schemas, with 39 changed/new files and 279 byte-identical sources reused from the old export, plus a separately locked experimental TurnStartParams. `schema:verify` and the Rust build check every effective source hash. `Rpc::connect_local_websocket_profile` selects an explicit connection-local schema profile; validator caches and business validation use that version. Plan parameters and explicit Goal mutation origins are version-aware. An isolated real two-Rust-client metadata check and native Windows boundary check passed against that version, including same-thread resume and a newly added method. Explicit local WS attachment can now select that baseline with AGENTDECK_RUNTIME_PROTOCOL_VERSION and a matching AGENTDECK_CODEX_EXE. A real isolated binary-entrypoint check verifies version/boundary reporting; Core supervision and reconnect preserve the same profile and thread identity. Actual model/approval lifecycle, original desktop attachment and Android acceptance remain unverified. Default managed startup remains pinned to 0.159.2; neither a successful handshake nor this opt-in adapter establishes full desktop compatibility. Detailed evidence is in CODEX_PARITY_STATUS.md.
+
 The table describes the pinned integration contract. Real verification entries include historical Node-version checks; current Rust evidence and pending physical checks are listed separately in ACCEPTANCE.md.
 
 | Method                           | Contract / role                                                         | Verification                                        |

@@ -132,8 +132,42 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       respond(result);
       return;
     }
+    case 'thread/list': {
+      const repeated = [...threads.values()].some((t) => t.name === 'INDEX_REPEAT_CURSOR');
+      let data = [...threads.entries()].filter(([,t]) => Boolean(t.archived) === Boolean(p.archived))
+        .filter(([,t]) => t.name === 'INDEX_OUTSIDE' || !p.cwd || (Array.isArray(p.cwd) ? p.cwd : [p.cwd]).includes(t.root))
+        .map(([id,t]) => {
+          const thread = clone(samples.threadStart.thread);
+          Object.assign(thread, { id, cwd:t.root, name:t.name ?? null, source:'appServer' });
+          if (t.name === 'INDEX_ACTIVE') thread.status = {type:'active',activeFlags:[]};
+          if (t.name === 'INDEX_CHILD') {
+            thread.parentThreadId = [...threads.keys()].find((key) => key !== id) ?? null;
+            thread.forkedFromId = thread.parentThreadId;
+          }
+          return thread;
+        });
+      if (repeated) { respond({data:p.cursor ? [] : data,nextCursor:'repeat'}); return; }
+      const offset = p.cursor ? Number(p.cursor) : 0;
+      const next = offset + 1;
+      data = data.slice(offset,next);
+      const total = [...threads.values()].filter((t) => Boolean(t.archived) === Boolean(p.archived))
+        .filter((t) => t.name === 'INDEX_OUTSIDE' || !p.cwd || (Array.isArray(p.cwd) ? p.cwd : [p.cwd]).includes(t.root)).length;
+      respond({data,nextCursor:next < total ? String(next) : null});
+      return;
+    }
+    case 'thread/loaded/list':
+      respond({data:[],nextCursor:null});
+      return;
     case 'thread/resume': {
       const thread = threads.get(p.threadId);
+      if (thread?.name === 'MISSING_ROLLOUT') {
+        send({ id: m.id, error: { code: -32600, message: `no rollout found for thread id ${p.threadId}` } });
+        return;
+      }
+      if (thread?.name === 'MISSING_LINEAGE') {
+        send({ id: m.id, error: { code: -32600, message: `invalid paginated history lineage for ${p.threadId}: missing source rollout` } });
+        return;
+      }
       if (thread?.name === 'WRITER_CONFLICT') {
         send({id:m.id,error:{code:-32600,message:`thread ${p.threadId} already has an active writer`}});
         return;
@@ -162,8 +196,23 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     case 'thread/read': {
       const result = clone(samples.threadStart);
       result.thread.id = p.threadId;
+      result.thread.cwd = threads.get(p.threadId)?.root ?? result.thread.cwd;
       result.thread.turns = [];
       respond({ thread: result.thread });
+      return;
+    }
+    case 'thread/items/list': {
+      const thread = threads.get(p.threadId);
+      const large = thread?.name === 'HISTORY_LARGE';
+      const text = large ? '完整历史😀'.repeat(90000) : '完整历史消息';
+      const entries = [
+        {turnId:'persisted-turn',item:{type:'userMessage',id:'user-history',content:[{type:'text',text:'原始问题',text_elements:[]}]}},
+        {turnId:'persisted-turn',item:{type:'agentMessage',id:'answer-history',text}},
+      ];
+      const offset = p.cursor ? Number(p.cursor) : 0;
+      const data = entries.slice(offset,offset+(p.limit ?? 20));
+      const next = offset+data.length;
+      respond({data,nextCursor:next<entries.length?String(next):null});
       return;
     }
     case 'thread/turns/list':

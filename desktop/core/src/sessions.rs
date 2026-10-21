@@ -1,4 +1,4 @@
-use crate::{ensure, now, rpc::validate, s, service::Core, Error, Result};
+use crate::{ensure, now, s, service::Core, Error, Result};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
@@ -15,7 +15,7 @@ impl Core {
                     json!({"limit":100,"cursor":cursor,"includeHidden":false}),
                 )
                 .await?;
-            validate("v2/ModelListResponse", &result)?;
+            rpc.validate("v2/ModelListResponse", &result)?;
             for model in result["data"].as_array().unwrap() {
                 if model["hidden"] == false {
                     models.push(json!({"model":model["model"],"displayName":model["displayName"],"isDefault":model["isDefault"],"defaultReasoningEffort":model["defaultReasoningEffort"],"supportedReasoningEfforts":model["supportedReasoningEfforts"]}));
@@ -57,6 +57,13 @@ impl Core {
         let session = self.store.session(id)?;
         {
             let mut busy = self.busy.lock().unwrap();
+            let current = self.store.session(id)?;
+            ensure(
+                !["queued", "running", "waitingApproval", "unknown"]
+                    .contains(&s(&current, "status")),
+                "CONFLICT",
+                "Conversation has active or unreconciled upstream work",
+            )?;
             ensure(
                 !busy.contains(id)
                     && !self.store.turns(Some(id))?.iter().any(|v| {
@@ -90,7 +97,7 @@ impl Core {
                 params["name"] = p["title"].clone();
             }
             let result = rpc.request(method, params).await?;
-            validate(schema, &result)?;
+            rpc.validate(schema, &result)?;
         }
         self.loaded.lock().unwrap().remove(thread);
         if action == "sessions.delete" {

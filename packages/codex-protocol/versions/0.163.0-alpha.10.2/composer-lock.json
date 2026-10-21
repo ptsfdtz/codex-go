@@ -1,0 +1,11 @@
+{
+  "codexVersion": "0.163.0-alpha.10.2",
+  "experimental": true,
+  "files": [
+    {
+      "name": "TurnStartParams",
+      "source": "versions/0.163.0-alpha.10.2/experimental/TurnStartParams.json",
+      "sha256": "abf0d6d29d223b38c650ff1155cb9c9f9b4211e6d0e20c57d750a9e1babfdb41"
+    }
+  ]
+}

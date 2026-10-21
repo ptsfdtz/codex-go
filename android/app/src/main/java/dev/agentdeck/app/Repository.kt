@@ -75,6 +75,9 @@ class DeckRepository(context:Context){
             try{
                 mutable.update{it.copy(connection=if(attempt==0)"正在连接" else "重新连接中",stale=true)}
                 current.connect();current.request("system.hello",buildJsonObject{put("client","AgentDeck Android/${BuildConfig.VERSION_NAME}");put("version",1)})
+                val capabilities=wire.decodeFromJsonElement(BridgeCapabilities.serializer(),current.request("system.capabilities"))
+                if(capabilities.protocolVersion!=1)throw DeckException("PROTOCOL_VERSION","电脑端协议不兼容，请更新客户端")
+                mutable.update{it.copy(capabilities=capabilities)}
                 val cache=dao.host(host.hostId)
                 if(cache==null){val snap=current.request("snapshot.get");val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),snap);cursor=snapshot.cursor;updateSnapshot(snapshot)}
                 else {cursor=cache.cursor;try{replay(current)}catch(e:DeckException){if(e.code!="REPLAY_GAP")throw e;val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),current.request("snapshot.get"));cursor=snapshot.cursor;updateSnapshot(snapshot);mutable.update{it.copy(error="部分历史已过保留期，已恢复可信快照")}};refreshSnapshot(current)}
@@ -148,6 +151,44 @@ class DeckRepository(context:Context){
     fun selectProject(id:String){restoreNavigation=false;selectionJob?.cancel();navigation.edit().remove("${mutable.value.host?.hostId}:session").apply();mutable.update{it.copy(selectedProject=id,selectedSession=null,events=emptyList(),git=null,diff=null)}}
     fun selectSession(id:String){val host=mutable.value.host?:return;restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();val session=mutable.value.snapshot.sessions.find{it.sessionId==id}?:return;mutable.update{it.copy(selectedSession=id,selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(events=events)else it}}}}
     private suspend fun refreshSession(id:String,before:String?=null){val host=mutable.value.host?:return;val result=rpc().request("sessions.detail",buildJsonObject{put("sessionId",id);put("limit",500);if(before!=null)put("before",before)});val events=result["events"]?.jsonArray?.map{wire.decodeFromJsonElement(DeckEvent.serializer(),it)}?:emptyList();dao.saveEvents(events.map{CachedEvent(host.hostId,it.eventId.toLong(),it.sessionId,wire.encodeToString(DeckEvent.serializer(),it))})}
+    internal suspend fun readUpstreamHistory(id:String,cursor:String?):UpstreamHistoryPage {
+        val epoch=hostEpoch
+        require(mutable.value.capabilities?.supports("upstreamHistoryPages")==true){"电脑端需要升级才能读取已保存历史"}
+        val connection=rpc()
+        fun params()=buildJsonObject{put("sessionId",id);cursor?.let{put("cursor",it)}}
+        val result=connection.request("sessions.history",params())
+        require(result["sessionId"]?.jsonPrimitive?.content==id){"会话身份不匹配"}
+        val entries=result["data"]?.jsonArray.orEmpty().map{it.jsonObject}.toMutableList()
+        val resource=result["resource"] as? JsonObject
+        if(resource!=null){
+            require(entries.isEmpty()&&(resource["cursor"] as? JsonPrimitive)?.contentOrNull==cursor){"历史资源游标无效"}
+            require(mutable.value.capabilities?.supports("upstreamHistoryContent")==true){"电脑端不支持完整内容读取"}
+            val total=resource.getValue("bytes").jsonPrimitive.int
+            require(total in 1..8*1024*1024){"历史资源大小超出支持范围"}
+            val hash=resource.getValue("sha256").jsonPrimitive.content
+            val output=java.io.ByteArrayOutputStream(total)
+            var offset=0
+            while(offset<total){
+                currentCoroutineContext().ensureActive()
+                require(epoch==hostEpoch){"电脑连接已切换"}
+                val chunk=connection.request("sessions.historyContent",buildJsonObject{put("sessionId",id);cursor?.let{put("cursor",it)};put("sha256",hash);put("offset",offset)})
+                require(chunk["sessionId"]?.jsonPrimitive?.content==id&&chunk["sha256"]?.jsonPrimitive?.content==hash&&chunk["offset"]?.jsonPrimitive?.int==offset&&chunk["totalBytes"]?.jsonPrimitive?.int==total){"历史内容身份不匹配"}
+                val bytes=Base64.decode(chunk.getValue("data").jsonPrimitive.content,Base64.DEFAULT)
+                require(bytes.isNotEmpty()&&bytes.size<=48*1024&&offset+bytes.size<=total){"历史分块大小无效"}
+                output.write(bytes);offset+=bytes.size
+                val next=(chunk["nextOffset"] as? JsonPrimitive)?.intOrNull
+                require(next==if(offset<total)offset else null){"历史分块游标无效"}
+            }
+            val bytes=output.toByteArray()
+            val actual=java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it.toInt() and 255)}
+            require(actual==hash){"历史内容校验失败，请重新加载"}
+            val entry=wire.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
+            require(entry["turnId"]==resource["turnId"]&&entry["item"]?.jsonObject?.get("id")==resource["itemId"]){"历史条目身份不匹配"}
+            entries.add(entry)
+        }
+        require(epoch==hostEpoch){"电脑连接已切换"}
+        return UpstreamHistoryPage(entries,(result["nextCursor"] as? JsonPrimitive)?.contentOrNull)
+    }
     private fun turnPayload(id:String,text:String,mode:String,attachments:List<ChatAttachment>)=buildJsonObject{put("mode",mode);put("attachments",buildJsonArray{attachments.forEach{file->add(buildJsonObject{put("name",file.name);put("data",file.data)})}});put("sessionId",id);put("text",text);put("permissionMode",if(mutable.value.fullAccess)"full" else "workspace");mutable.value.selectedModel.takeIf{it.isNotBlank()}?.let{put("model",it);mutable.value.selectedEffort.takeIf{it.isNotBlank()}?.let{effort->put("effort",effort)}}}
     private suspend fun loadModels(){try{val list=rpc().request("models.list")["models"]?.jsonArray?.map{wire.decodeFromJsonElement(CodexModel.serializer(),it)}?:emptyList();mutable.update{it.copy(models=list)}}catch(_:Exception){mutable.update{it.copy(models=emptyList())}}}
     fun refreshModels(){action{loadModels();if(mutable.value.models.isEmpty())error("模型列表暂不可用，请更新并连接 Windows Bridge")}}

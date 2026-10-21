@@ -1,16 +1,17 @@
-use crate::{
-    codex, ensure, now, paths,
-    rpc::{validate, Rpc},
-    s,
-    service::Core,
-    uid, Error, Result,
-};
+use crate::{codex, ensure, now, paths, rpc::Rpc, s, service::Core, uid, Error, Result};
 use serde_json::{json, Value};
 use std::{
     path::Path,
     sync::{atomic::Ordering, Arc},
     time::Duration,
 };
+struct ComposerOptions<'a> {
+    model: Option<&'a str>,
+    effort: Option<&'a str>,
+    permission_mode: &'a str,
+    mode: &'a str,
+    attachments: Option<&'a Value>,
+}
 impl Core {
     pub fn upstream(&self) -> Result<Arc<Rpc>> {
         ensure(
@@ -29,8 +30,18 @@ impl Core {
         let root = paths::root(&self.store, project)?;
         codex::settings(&rpc, &root).await?;
         let response=rpc.request("thread/start",json!({"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"}})).await?;
-        validate("v2/ThreadStartResponse", &response)?;
+        rpc.validate("v2/ThreadStartResponse", &response)?;
         codex::checked_thread(&response, &root, self.verified.load(Ordering::SeqCst))?;
+        // Publish the initial title to the authoritative thread, not only our index.
+        // Empty-history resume still depends on the upstream version and must not
+        // be repaired by silently replacing this thread's identity.
+        let named = rpc
+            .request(
+                "thread/name/set",
+                json!({"threadId":response["thread"]["id"],"name":title}),
+            )
+            .await?;
+        rpc.validate("v2/ThreadSetNameResponse", &named)?;
         let id = uid("session");
         let ts = now();
         self.store.exec(
@@ -86,6 +97,8 @@ impl Core {
         )
         .await
     }
+    // Preserve the existing public entry point used by service and acceptance clients.
+    #[allow(clippy::too_many_arguments)]
     pub async fn start_turn_composer(
         &self,
         session_id: &str,
@@ -116,6 +129,13 @@ impl Core {
             .map_err(|_| Error::new("RATE_LIMITED", "Two task starts are active"))?;
         {
             let mut busy = self.busy.lock().unwrap();
+            let current = self.store.session(session_id)?;
+            ensure(
+                !["queued", "running", "waitingApproval", "unknown"]
+                    .contains(&s(&current, "status")),
+                "CONFLICT",
+                "Conversation has active or unreconciled upstream work",
+            )?;
             ensure(!busy.contains(session_id), "CONFLICT", "Session is busy")?;
             let turns = self.store.turns(Some(session_id))?;
             ensure(
@@ -143,11 +163,13 @@ impl Core {
                 &rpc,
                 session_id,
                 text,
-                model,
-                effort,
-                permission_mode,
-                mode,
-                attachments,
+                ComposerOptions {
+                    model,
+                    effort,
+                    permission_mode,
+                    mode,
+                    attachments,
+                },
             )
             .await;
         self.busy.lock().unwrap().remove(session_id);
@@ -158,13 +180,16 @@ impl Core {
         rpc: &Rpc,
         session_id: &str,
         text: &str,
-        model: Option<&str>,
-        effort: Option<&str>,
-        permission_mode: &str,
-        mode: &str,
-        attachments: Option<&Value>,
+        options: ComposerOptions<'_>,
     ) -> Result<Value> {
-        let mut session = self.store.session(session_id)?;
+        let ComposerOptions {
+            model,
+            effort,
+            permission_mode,
+            mode,
+            attachments,
+        } = options;
+        let session = self.store.session(session_id)?;
         ensure(
             session["archived"] != 1,
             "CONFLICT",
@@ -193,45 +218,32 @@ impl Core {
             let result=rpc.request("thread/resume",json!({"threadId":session["upstreamThreadId"],"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"},"excludeTurns":true})).await;
             let response = match result {
                 Ok(v) => {
-                    validate("v2/ThreadResumeResponse", &v)?;
+                    rpc.validate("v2/ThreadResumeResponse", &v)?;
                     v
                 }
                 Err(e)
                     if e.code == "UPSTREAM_ERROR"
-                        && e.message.starts_with("no rollout found for thread id ")
-                        && self.store.turns(Some(session_id))?.is_empty() =>
+                        && (e.message.starts_with("no rollout found for thread id ")
+                            || (e
+                                .message
+                                .starts_with("invalid paginated history lineage for ")
+                                && e.message.ends_with(": missing source rollout"))) =>
                 {
-                    let v=rpc.request("thread/start",json!({"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"}})).await?;
-                    validate("v2/ThreadStartResponse", &v)?;
-                    codex::checked_thread(&v, &root, self.verified.load(Ordering::SeqCst))?;
-                    self.store.exec(
-                        "UPDATE sessions SET upstreamThreadId=? WHERE sessionId=?",
-                        [s(&v["thread"], "id"), session_id],
-                    )?;
-                    session["upstreamThreadId"] = v["thread"]["id"].clone();
-                    v
+                    return Err(Error::new(
+                        "THREAD_NOT_FOUND",
+                        "The original Codex thread is unavailable; no replacement was created",
+                    ));
                 }
                 Err(e)
                     if e.code == "UPSTREAM_ERROR"
                         && e.message.contains("already has an active writer") =>
                 {
-                    // Another Codex client can keep an idle thread loaded indefinitely.
-                    // Continue from its latest completed turn without stealing its writer.
-                    let history = rpc.request("thread/turns/list", json!({"threadId":session["upstreamThreadId"],"limit":1,"sortDirection":"desc","itemsView":"summary"})).await?;
-                    validate("v2/ThreadTurnsListResponse", &history)?;
-                    let last = history["data"].as_array().and_then(|v| v.first());
-                    ensure(last.is_some_and(|v| terminal(s(v,"status"))), "THREAD_IN_USE", "Conversation is open in another Codex client and has no confirmed terminal turn")?;
-                    let previous = session["upstreamThreadId"].clone();
-                    let v = rpc.request("thread/fork", json!({"threadId":previous,"lastTurnId":last.unwrap()["id"],"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"},"excludeTurns":true})).await?;
-                    validate("v2/ThreadForkResponse", &v)?;
-                    codex::checked_thread(&v, &root, self.verified.load(Ordering::SeqCst))?;
-                    self.store.exec(
-                        "UPDATE sessions SET upstreamThreadId=? WHERE sessionId=?",
-                        [s(&v["thread"], "id"), session_id],
-                    )?;
-                    session["upstreamThreadId"] = v["thread"]["id"].clone();
-                    self.store.append("session.updated", json!({"session":self.store.session(session_id)?,"continuedFrom":previous,"reason":"writer-conflict"}),Some(session_id),None)?;
-                    v
+                    // A writer conflict must never silently replace the conversation.
+                    // Shared-runtime support is required to operate the same loaded thread.
+                    return Err(Error::new(
+                        "THREAD_IN_USE",
+                        "Conversation is open in another Codex client; its thread identity has been preserved",
+                    ));
                 }
                 Err(e) => return Err(e),
             };
@@ -256,7 +268,7 @@ impl Core {
             selected_model.clone()
         } else {
             let models = rpc.request("model/list", json!({})).await?;
-            validate("v2/ModelListResponse", &models)?;
+            rpc.validate("v2/ModelListResponse", &models)?;
             models["data"]
                 .as_array()
                 .and_then(|rows| rows.iter().find(|m| m["isDefault"] == true))
@@ -277,8 +289,14 @@ impl Core {
             } else {
                 json!({"threadId":session["upstreamThreadId"],"status":"paused"})
             };
+            // Both enabling Goal and leaving it here follow an explicit composer send.
+            let goal_params = crate::composer::goal_params(
+                rpc.protocol(),
+                goal_params,
+                crate::composer::GoalOrigin::User,
+            );
             let response = rpc.request("thread/goal/set", goal_params).await?;
-            validate("v2/ThreadGoalSetResponse", &response)?;
+            rpc.validate("v2/ThreadGoalSetResponse", &response)?;
             self.store.set_meta(
                 &format!("goalMode:{session_id}"),
                 if mode == "goal" { "active" } else { "paused" },
@@ -314,8 +332,8 @@ impl Core {
             .set_meta(&format!("composerMode:{session_id}"), mode)?;
         self.store
             .set_meta(&format!("permissionMode:{session_id}"), permission_mode)?;
-        crate::composer::validate_turn(&params)?;
-        let result=async{let response=rpc.request("turn/start",params).await?;validate("v2/TurnStartResponse",&response)?;
+        crate::composer::validate_turn_for(rpc.protocol(), &params)?;
+        let result=async{let response=rpc.request("turn/start",params).await?;rpc.validate("v2/TurnStartResponse",&response)?;
         self.store.exec("INSERT INTO session_options(sessionId,model,effort) VALUES(?,?,?) ON CONFLICT(sessionId) DO UPDATE SET model=excluded.model,effort=excluded.effort",rusqlite::params![session_id,selected_model,selected_effort])?;
         let current=self.store.turn(&turn)?;ensure(current["upstreamTurnId"].is_null()||current["upstreamTurnId"]==response["turn"]["id"],"UPSTREAM_PROTOCOL_ERROR","Turn identity mismatch")?;
         self.store.exec("UPDATE turns SET upstreamTurnId=? WHERE turnId=? AND upstreamTurnId IS NULL",[s(&response["turn"],"id"),&turn])?;
@@ -356,10 +374,14 @@ impl Core {
             let response = rpc
                 .request(
                     "thread/goal/set",
-                    json!({"threadId":session["upstreamThreadId"],"status":"paused"}),
+                    crate::composer::goal_params(
+                        rpc.protocol(),
+                        json!({"threadId":session["upstreamThreadId"],"status":"paused"}),
+                        crate::composer::GoalOrigin::User,
+                    ),
                 )
                 .await?;
-            validate("v2/ThreadGoalSetResponse", &response)?;
+            rpc.validate("v2/ThreadGoalSetResponse", &response)?;
             self.store
                 .set_meta(&format!("goalMode:{session_id}"), "paused")?;
         }
@@ -382,7 +404,7 @@ impl Core {
                 .await
             {
                 Ok(v) => {
-                    validate("v2/TurnInterruptResponse", &v)?;
+                    rpc.validate("v2/TurnInterruptResponse", &v)?;
                     return Ok(
                         json!({"requested":true,"status":self.store.turn(turn_id)?["status"]}),
                     );
@@ -435,22 +457,23 @@ impl Core {
         }
         if bind
             && found.is_none()
-            && turn.is_some()
             && self.store.meta(&format!("goalMode:{id}"))?.as_deref() == Some("active")
         {
-            let local = uid("turn");
-            self.store.exec(
-                "INSERT INTO turns VALUES(?,?,?,?,?,NULL,NULL)",
-                rusqlite::params![local, id, turn.unwrap(), "running", now()],
-            )?;
-            self.store.status(id, Some(&local), "running", None)?;
-            found = Some(self.store.turn(&local)?);
-            self.store.append(
-                "turn.started",
-                json!({"turn":found,"source":"goal"}),
-                Some(id),
-                Some(&local),
-            )?;
+            if let Some(turn) = turn {
+                let local = uid("turn");
+                self.store.exec(
+                    "INSERT INTO turns VALUES(?,?,?,?,?,NULL,NULL)",
+                    rusqlite::params![local, id, turn, "running", now()],
+                )?;
+                self.store.status(id, Some(&local), "running", None)?;
+                found = Some(self.store.turn(&local)?);
+                self.store.append(
+                    "turn.started",
+                    json!({"turn":found,"source":"goal"}),
+                    Some(id),
+                    Some(&local),
+                )?;
+            }
         }
         Ok(Some((session, found)))
     }
@@ -458,7 +481,7 @@ impl Core {
         let method = s(v, "method");
         let p = &v["params"];
         if method == "thread/goal/updated" || method == "thread/goal/cleared" {
-            validate(
+            rpc.validate(
                 if method.ends_with("updated") {
                     "v2/ThreadGoalUpdatedNotification"
                 } else {
@@ -485,7 +508,7 @@ impl Core {
             return Ok(());
         }
         if method == "serverRequest/resolved" {
-            validate("v2/ServerRequestResolvedNotification", p)?;
+            rpc.validate("v2/ServerRequestResolvedNotification", p)?;
             let rows=self.store.query("SELECT * FROM approvals WHERE generation=? AND upstreamRequestJson=? AND status IN ('pending','sending')",[rpc.generation.clone(),p["requestId"].to_string()])?;
             for row in rows {
                 if let Some((session, _)) = self.route(s(p, "threadId"), None, false)? {
@@ -512,7 +535,7 @@ impl Core {
             "error" => "Error",
             _ => return Ok(()),
         };
-        validate(&format!("v2/{name}Notification"), p)?;
+        rpc.validate(&format!("v2/{name}Notification"), p)?;
         let tid = p["turnId"].as_str().or(p["turn"]["id"].as_str());
         let Some((session, turn)) = self.route(s(p, "threadId"), tid, true)? else {
             return Ok(());
@@ -602,7 +625,7 @@ impl Core {
             .into_iter()
             .filter(|v| v["status"] == "unknown" && !s(v, "upstreamTurnId").is_empty())
         {
-            let result:Result<()>=async{let session=self.store.session(s(&turn,"sessionId"))?;paths::root(&self.store,s(&session,"projectId"))?;let response=rpc.request("thread/read",json!({"threadId":session["upstreamThreadId"],"includeTurns":false})).await?;validate("v2/ThreadReadResponse",&response)?;let mut cursor=Value::Null;let mut seen=std::collections::HashSet::new();for _ in 0..100{let response=rpc.request("thread/turns/list",json!({"threadId":session["upstreamThreadId"],"cursor":cursor,"limit":100,"itemsView":"summary"})).await?;validate("v2/ThreadTurnsListResponse",&response)?;if let Some(found)=response["data"].as_array().unwrap().iter().find(|v|v["id"]==turn["upstreamTurnId"]){if terminal(s(found,"status")){self.notification(rpc,&json!({"method":"turn/completed","params":{"threadId":session["upstreamThreadId"],"turn":found}}))?;}break;}cursor=response["nextCursor"].clone();if cursor.is_null(){break;}ensure(seen.insert(cursor.to_string()),"UPSTREAM_PROTOCOL_ERROR","Repeated history cursor")?;}Ok(())}.await;
+            let result:Result<()>=async{let session=self.store.session(s(&turn,"sessionId"))?;paths::root(&self.store,s(&session,"projectId"))?;let response=rpc.request("thread/read",json!({"threadId":session["upstreamThreadId"],"includeTurns":false})).await?;rpc.validate("v2/ThreadReadResponse",&response)?;let mut cursor=Value::Null;let mut seen=std::collections::HashSet::new();for _ in 0..100{let response=rpc.request("thread/turns/list",json!({"threadId":session["upstreamThreadId"],"cursor":cursor,"limit":100,"itemsView":"summary"})).await?;rpc.validate("v2/ThreadTurnsListResponse",&response)?;if let Some(found)=response["data"].as_array().unwrap().iter().find(|v|v["id"]==turn["upstreamTurnId"]){if terminal(s(found,"status")){self.notification(rpc,&json!({"method":"turn/completed","params":{"threadId":session["upstreamThreadId"],"turn":found}}))?;}break;}cursor=response["nextCursor"].clone();if cursor.is_null(){break;}ensure(seen.insert(cursor.to_string()),"UPSTREAM_PROTOCOL_ERROR","Repeated history cursor")?;}Ok(())}.await;
             let _ = result;
         }
         Ok(())
@@ -612,7 +635,7 @@ impl Core {
         let config = rpc
             .request("config/read", json!({"includeLayers":false}))
             .await?;
-        validate("v2/ConfigReadResponse", &config)?;
+        rpc.validate("v2/ConfigReadResponse", &config)?;
         let mut paths = std::collections::HashSet::new();
         if let Some(projects) = config["config"]["projects"].as_object() {
             for (path, p) in projects {
@@ -633,7 +656,7 @@ impl Core {
                     "Workspace sync timed out; grants unchanged",
                 )?;
                 let response=rpc.request_timeout("thread/list",json!({"cursor":cursor,"limit":100,"modelProviders":[],"sourceKinds":["cli","vscode","appServer"],"archived":archived}),Duration::from_secs(15)).await?;
-                validate("v2/ThreadListResponse", &response)?;
+                rpc.validate("v2/ThreadListResponse", &response)?;
                 for thread in response["data"].as_array().unwrap() {
                     paths.insert(s(thread, "cwd").to_owned());
                 }
@@ -694,8 +717,9 @@ impl Core {
             "NO_WORKSPACES",
             "未找到可同步项目，请在 Codex 建立会话，或从更多菜单添加目录",
         )?;
+        let indexed = self.sync_thread_index().await?;
         self.store.set_meta("lastWorkspaceSync", &now())?;
-        Ok(json!({"synced":synced,"skipped":skipped,"at":now()}))
+        Ok(json!({"synced":synced,"skipped":skipped,"indexed":indexed,"at":now()}))
     }
 }
 pub fn terminal(status: &str) -> bool {

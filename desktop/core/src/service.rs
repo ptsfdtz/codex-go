@@ -2,7 +2,7 @@ use crate::{
     codex, ensure, now,
     pairing::Pairing,
     paths, protocol,
-    rpc::{validate, Rpc},
+    rpc::Rpc,
     s,
     security::{self, Certificate},
     store::Store,
@@ -25,9 +25,12 @@ pub struct Core {
     pub tls: Certificate,
     pub rpc: RwLock<Option<Arc<Rpc>>>,
     pub ready: AtomicBool,
+    pub attached_runtime: AtomicBool,
+    runtime_protocol: RwLock<crate::rpc::ProtocolVersion>,
     pub verified: AtomicBool,
     pub loaded: Mutex<HashSet<String>>,
     pub busy: Mutex<HashSet<String>>,
+    pub(crate) thread_sync: tokio::sync::Mutex<()>,
     pub task_limit: Semaphore,
     pub connected: Mutex<HashMap<String, usize>>,
     pub address: RwLock<String>,
@@ -61,9 +64,12 @@ impl Core {
             tls,
             rpc: RwLock::new(None),
             ready: AtomicBool::new(false),
+            attached_runtime: AtomicBool::new(false),
+            runtime_protocol: RwLock::new(crate::rpc::ProtocolVersion::Managed),
             verified: AtomicBool::new(false),
             loaded: Mutex::new(HashSet::new()),
             busy: Mutex::new(HashSet::new()),
+            thread_sync: tokio::sync::Mutex::new(()),
             task_limit: Semaphore::new(2),
             connected: Mutex::new(HashMap::new()),
             address: RwLock::new(address),
@@ -96,7 +102,9 @@ impl Core {
         format!("https://{}:{}", self.address.read().unwrap(), self.port)
     }
     pub fn snapshot(&self) -> Result<Value> {
-        self.store.snapshot(self.ready.load(Ordering::SeqCst))
+        let mut snapshot = self.store.snapshot(self.ready.load(Ordering::SeqCst))?;
+        snapshot["host"]["codexVersion"] = json!(self.runtime_protocol.read().unwrap().version());
+        Ok(snapshot)
     }
     pub fn state(&self) -> Result<Value> {
         let mut devices = self.store.query(
@@ -236,12 +244,29 @@ impl Core {
         Ok(true)
     }
     pub async fn supervise(self: &Arc<Self>, exe: PathBuf) {
+        self.supervise_runtime(exe, crate::runtime::RuntimeTarget::Managed)
+            .await;
+    }
+    pub async fn supervise_runtime(
+        self: &Arc<Self>,
+        exe: PathBuf,
+        target: crate::runtime::RuntimeTarget,
+    ) {
+        self.attached_runtime
+            .store(target.attached(), Ordering::SeqCst);
+        *self.runtime_protocol.write().unwrap() = target.protocol();
         let mut failures = 0u32;
         let mut args = codex::args();
         let mut discovered = false;
         while !self.stopping.load(Ordering::SeqCst) {
             let result: Result<()> = async {
-                let (rpc, mut events) = Rpc::start(&exe, &args)?;
+                let (rpc, mut events) = match &target {
+                    crate::runtime::RuntimeTarget::Managed => Rpc::start(&exe, &args)?,
+                    crate::runtime::RuntimeTarget::Attached { endpoint, .. } => {
+                        let credential = target.credential()?;
+                        Rpc::connect_local_websocket_profile(endpoint, &credential, target.protocol()).await?
+                    },
+                };
                 *self.rpc.write().unwrap() = Some(rpc.clone());
                 let owner = self.clone();
                 let event_rpc = rpc.clone();
@@ -268,12 +293,13 @@ impl Core {
                     let _ = owner.lost();
                 });
                 let initialized: Result<()> = async {
-                    codex::initialize(&rpc).await?;
-                    if !discovered {
+                    if target.attached() { codex::initialize_attached(&rpc).await?; }
+                    else { codex::initialize(&rpc).await?; }
+                    if !discovered && !target.attached() {
                         let config = rpc
                             .request("config/read", json!({"includeLayers":false}))
                             .await?;
-                        validate("v2/ConfigReadResponse", &config)?;
+                        rpc.validate("v2/ConfigReadResponse", &config)?;
                         let names: Vec<_> = config["config"]["mcp_servers"]
                             .as_object()
                             .map(|o| {
@@ -306,7 +332,7 @@ impl Core {
                         }
                     }
                     let readiness = rpc.request("windowsSandbox/readiness", Value::Null).await?;
-                    validate("v2/WindowsSandboxReadinessResponse", &readiness)?;
+                    rpc.validate("v2/WindowsSandboxReadinessResponse", &readiness)?;
                     ensure(
                         readiness["status"] == "ready",
                         "SANDBOX_UNAVAILABLE",
@@ -315,7 +341,7 @@ impl Core {
                     let config = rpc
                         .request("config/read", json!({"includeLayers":false}))
                         .await?;
-                    validate("v2/ConfigReadResponse", &config)?;
+                    rpc.validate("v2/ConfigReadResponse", &config)?;
                     codex::check_policy(&config)?;
                     self.ready.store(true, Ordering::SeqCst);
                     self.reconcile(&rpc).await?;
@@ -359,9 +385,12 @@ impl Core {
             "system.hello" => Ok(
                 json!({"v":1,"hostId":self.store.meta("hostId")?,"serverVersion":"0.3.0","heartbeatSeconds":15}),
             ),
-            "system.capabilities" => Ok(
-                json!({"protocolVersion":1,"codexVersion":codex::VERSION,"concurrency":2,"approvals":["command","fileChange","permissions"],"sandboxVerified":self.verified.load(Ordering::SeqCst)}),
-            ),
+            "system.capabilities" => Ok(crate::capabilities::describe_profile(
+                self.ready.load(Ordering::SeqCst),
+                self.verified.load(Ordering::SeqCst),
+                self.attached_runtime.load(Ordering::SeqCst),
+                *self.runtime_protocol.read().unwrap(),
+            )),
             "system.diagnostics" => {
                 let mut counts = json!({});
                 for table in ["projects", "sessions", "turns", "events", "devices"] {
@@ -377,7 +406,7 @@ impl Core {
                 )?["n"]
                     .clone();
                 Ok(
-                    json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":codex::VERSION,"nodeVersion":"Rust native (no Node runtime)","platform":"win32","upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
+                    json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":self.runtime_protocol.read().unwrap().version(),"nodeVersion":"Rust native (no Node runtime)","platform":"win32","upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
                 )
             }
             "models.list" => Ok(json!({"models":self.models().await?})),
@@ -403,6 +432,23 @@ impl Core {
             }
             "sessions.list" => {
                 Ok(json!({"sessions":self.store.sessions(p["projectId"].as_str())?}))
+            }
+            "sessions.history" => {
+                self.upstream_history(
+                    s(p, "sessionId"),
+                    p["cursor"].as_str(),
+                    p["limit"].as_u64().unwrap_or(20) as usize,
+                )
+                .await
+            }
+            "sessions.historyContent" => {
+                self.upstream_history_content(
+                    s(p, "sessionId"),
+                    p["cursor"].as_str(),
+                    s(p, "sha256"),
+                    p["offset"].as_u64().unwrap() as usize,
+                )
+                .await
             }
             "sessions.create" => {
                 Ok(json!({"session":self.create_session(s(p,"projectId"),s(p,"title")).await?}))

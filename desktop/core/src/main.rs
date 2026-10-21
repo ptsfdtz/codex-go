@@ -30,6 +30,7 @@ async fn main() {
     }
 }
 async fn run() -> Result<()> {
+    let runtime_target = agentdeck_service::runtime::RuntimeTarget::from_environment()?;
     ensure(
         cfg!(windows),
         "UNSUPPORTED_PLATFORM",
@@ -133,7 +134,7 @@ async fn run() -> Result<()> {
         }
     });
     let exe = codex::find()?;
-    codex::verify(&exe)?;
+    codex::verify_for(&exe, runtime_target.protocol())?;
     let report = boundary(&exe).await?;
     std::fs::write(
         directory.join("sandbox-verification.json"),
@@ -145,11 +146,13 @@ async fn run() -> Result<()> {
         "Native Windows isolation probe failed; inspect sandbox-verification.json",
     )?;
     core.verified.store(true, Ordering::SeqCst);
-    core.store
-        .set_meta("sandboxVerifiedVersion", codex::VERSION)?;
+    core.store.set_meta(
+        "sandboxVerifiedVersion",
+        runtime_target.protocol().version(),
+    )?;
     let owner = core.clone();
     let supervisor = tokio::spawn(async move {
-        owner.supervise(exe).await;
+        owner.supervise_runtime(exe, runtime_target).await;
     });
     let owner = core.clone();
     let git_poll = tokio::spawn(async move {
@@ -164,7 +167,7 @@ async fn run() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         let passed = core.ready.load(Ordering::SeqCst);
-        std::fs::write(directory.join("startup-check.json"),json!({"at":now(),"result":if passed{"PASS"}else{"FAIL"},"backend":"Rust","codexReady":passed,"sandboxVerified":true,"dpapiCertificate":true,"address":address}).to_string())?;
+        std::fs::write(directory.join("startup-check.json"),json!({"at":now(),"result":if passed{"PASS"}else{"FAIL"},"backend":"Rust","codexVersion":core.snapshot()?["host"]["codexVersion"],"runtimeMode":if core.attached_runtime.load(Ordering::SeqCst){"attached-local-ws"}else{"managed-stdio"},"codexReady":passed,"sandboxVerified":true,"dpapiCertificate":true,"address":address}).to_string())?;
         core.shutdown().await;
         ensure(
             passed,

@@ -6,6 +6,12 @@ use std::{io::Write, path::Path};
 
 pub const MAX_ATTACHMENT_BYTES: usize = 512 * 1024;
 pub fn validate_turn(params: &Value) -> Result<()> {
+    validate_turn_for(crate::rpc::ProtocolVersion::Managed, params)
+}
+pub fn validate_turn_for(version: crate::rpc::ProtocolVersion, params: &Value) -> Result<()> {
+    if version == crate::rpc::ProtocolVersion::DesktopBaseline {
+        return crate::rpc::validate_for(version, "experimental/TurnStartParams", params);
+    }
     static SCHEMA: std::sync::LazyLock<jsonschema::Validator> = std::sync::LazyLock::new(|| {
         let schema: Value = serde_json::from_str(include_str!(
             "../../../packages/codex-protocol/experimental/TurnStartParams.json"
@@ -21,6 +27,24 @@ pub fn validate_turn(params: &Value) -> Result<()> {
         "UPSTREAM_PROTOCOL_ERROR",
         "Invalid composer turn parameters",
     )
+}
+#[derive(Clone, Copy)]
+pub enum GoalOrigin {
+    User,
+    Automatic,
+}
+pub fn goal_params(
+    version: crate::rpc::ProtocolVersion,
+    mut params: Value,
+    origin: GoalOrigin,
+) -> Value {
+    if version == crate::rpc::ProtocolVersion::DesktopBaseline {
+        params["origin"] = json!(match origin {
+            GoalOrigin::User => "user",
+            GoalOrigin::Automatic => "automatic",
+        });
+    }
+    params
 }
 pub fn decode_attachments(files: &Value) -> Result<Vec<(String, Vec<u8>)>> {
     let files = files
@@ -45,7 +69,7 @@ pub fn decode_attachments(files: &Value) -> Result<Vec<(String, Vec<u8>)>> {
             .as_str()
             .ok_or_else(|| Error::new("INVALID_REQUEST", "Base64 data required"))?;
         ensure(
-            encoded.len() <= (MAX_ATTACHMENT_BYTES + 2) / 3 * 4,
+            encoded.len() <= MAX_ATTACHMENT_BYTES.div_ceil(3) * 4,
             "INVALID_REQUEST",
             "附件总大小不能超过 512 KB",
         )?;
