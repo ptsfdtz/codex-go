@@ -1,12 +1,20 @@
 # 安卓任务通知与导航
 
-当前实现为应用进程与 Bridge 在线时的系统通知，不是推送或常驻后台服务。断线期间的事件重放不会补发通知，安卓被系统终止时也不能接收通知。完整后台恢复仍是迁移待办。
+当前实现为应用进程与 Bridge 在线时的系统通知，不是推送或常驻后台服务。重连及在线事件缺口重放可有条件补发 Bridge 任务与有效审批；原生任务补发仍待最新原生轮次核验接口。安卓被系统终止时不能接收通知。完整后台恢复仍是迁移待办。
 
 ## 目标身份
 
 `DeckNotifications.publish` 接受事件来源电脑 ID，不从点击时的当前电脑推断来源。显式 `MainActivity` Intent 只携带电脑/会话标识；data URI 包含独立编码的电脑、会话、事件 ID。URI 同时区分 PendingIntent 与通知 tag，同一 eventId 在不同电脑不会互相覆盖。正文不含任务文本、路径、输出或凭据。
 
 事件没有 sessionId 时不创建任务导航通知。通知动作包含 approval.requested、Bridge turn.completed/failed/interrupted，以及原生 upstream.turn.completed。原生事件根据顶层 status 区分成功/失败/中断，要求非空原生 turn ID；未知/非终态/格式错误不提示成功。审批仅在身份与事件一致、pending 且 expiresAt 晚于当前时间时提示，使用系统 timeoutAfter 到期移除；approval.resolved 即使在前台或通知偏好关闭时仍清理匹配电脑/审批通知。每次应用权威快照会清理该电脑已缺失、sending、已处理或过期审批的通知，保持其他电脑通知。系统 extras 只添加审批与电脑标识。旧版本没有审批标识的通知不能可靠识别清理。旧版本已生成的无目标通知只会打开应用，不自动猜测目标。
+
+## 重放补发边界
+
+每次连接保留一个 NotificationReplay：最多 128 个候选，每个去除输出/审批 context 后的序列化事件最多 4096 字符，超限丢弃，按插入顺序淘汰。只在事件已成功写入本机缓存后观察候选；每会话最多一个 Bridge 终态、每审批一个请求。后续任务开始/原生完成撤销该会话的旧 Bridge 终态，审批已处理撤销候选。
+
+重放完成后先读取权威快照，确认当前 transport/电脑与连接状态，再一次性 drain 并发布。Bridge 终态需同时匹配 session.status 和快照中的具体 turn ID/status；审批需仍在该电脑的 pending 列表、身份匹配且未过期，通知使用最新审批的到期时间。无授权/删除/状态不一致/未知身份均不补发。REPLAY_GAP 清空候选，再恢复快照；首次无缓存连接不广播旧历史。
+
+前台、通知关闭或权限未授予仍不显示。已持久化游标及候选 drain 防止通常重连重复提交，但这不是“恰好一次”投递：缓存提交后进程退出/读取快照失败/系统拒绝通知可能漏发；候选不持久化，不重置事件游标来重试通知。超过容量也可能漏发。原生终态虽然在线已支持，快照没有最新原生 turn 身份，不能用 idle 或 Bridge turn 表猜测；其补发仍未实现。这里不承诺系统推送、离线期间即时通知或完整通知恢复。
 
 ## 点击流程
 
@@ -18,7 +26,7 @@
 
 ## 验证与接手
 
-`TaskNotificationsTest` 是 JVM 原生终态、未知/错误结构、审批身份/状态/时效回归；不执行 NotificationManager 或系统定时移除。`NotificationTargetTest` 是 JVM 身份/旧缓存/缺失会话/输入检查。`NotificationIntentTest` 是设备 instrumentation，检查真实 Intent.filterEquals、PendingIntent 隔离与仅有标识字段；不发送 PendingIntent、不启动任务。编译测试 APK 不代表执行过设备测试。
+`NotificationReplayTest` 是 JVM 有界候选、顺序/一次 drain、失效/换电脑/删除/后续任务筛选和最新审批到期时间测试，未执行 Repository 网络或 Room 链路。`TaskNotificationsTest` 是 JVM 原生终态、未知/错误结构、审批身份/状态/时效回归；不执行 NotificationManager 或系统定时移除。`NotificationTargetTest` 是 JVM 身份/旧缓存/缺失会话/输入检查。`NotificationIntentTest` 是设备 instrumentation，检查真实 Intent.filterEquals、PendingIntent 隔离与仅有标识字段；不发送 PendingIntent、不启动任务。编译测试 APK 不代表执行过设备测试。
 
 ```powershell
 cd android

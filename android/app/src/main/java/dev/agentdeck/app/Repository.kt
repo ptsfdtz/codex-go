@@ -79,6 +79,7 @@ class DeckRepository(context:Context){
         var attempt=0
         while(isActive){
             val current=DeckTransport(host);transport=current
+            val replayNotifications=NotificationReplay()
             try{
                 mutable.update{it.copy(connection=if(attempt==0)"正在连接" else "重新连接中",stale=true)}
                 current.connect();current.request("system.hello",buildJsonObject{put("client","AgentDeck Android/${BuildConfig.VERSION_NAME}");put("version",1)})
@@ -87,13 +88,14 @@ class DeckRepository(context:Context){
                 mutable.update{it.copy(capabilities=capabilities)}
                 val cache=cacheMutex.withLock{dao.host(host.hostId)?.also{eventCheckpoint.reset(it.cursor)}}
                 if(cache==null){refreshSnapshot(current,resetCursor=true)}
-                else {try{replay(current)}catch(e:DeckException){if(e.code!="REPLAY_GAP")throw e;refreshSnapshot(current,resetCursor=true);mutable.update{it.copy(error="部分历史已过保留期，已恢复可信快照")}};refreshSnapshot(current)}
+                else {try{replay(current,replayNotifications)}catch(e:DeckException){if(e.code!="REPLAY_GAP")throw e;replayNotifications.clear();refreshSnapshot(current,resetCursor=true);mutable.update{it.copy(error="部分历史已过保留期，已恢复可信快照")}};refreshSnapshot(current)}
                 val retention=wire.decodeFromJsonElement(Retention.serializer(),current.request("settings.get").getValue("retention"))
                 mutable.update{it.copy(connection="已连接",stale=false,retention=retention)};attempt=0
+                publishReplayNotifications(current,host,replayNotifications)
                 loadModels()
                 restoreLastSession(mutable.value.snapshot)
                 mutable.value.selectedSession?.let{refreshSession(it)}
-                for(packet in current.events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),packet);val id=event.eventId.toLong();if(id<=cursor.toLong())continue;if(id>cursor.toLong()+1)replay(current);if(id>cursor.toLong()){applyEvent(event);notifications.publish(host.hostId,event,mutable.value.preferences.notifications)};scheduleSnapshot(current)}
+                for(packet in current.events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),packet);val id=event.eventId.toLong();if(id<=cursor.toLong())continue;if(id>cursor.toLong()+1){replay(current,replayNotifications);refreshSnapshot(current);publishReplayNotifications(current,host,replayNotifications)};if(id>cursor.toLong()){applyEvent(event);notifications.publish(host.hostId,event,mutable.value.preferences.notifications)};scheduleSnapshot(current)}
                 throw java.io.IOException("Bridge 连接已结束")
             }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(connection="重新连接中",stale=true,error=errorMessage(e))};attempt++;delay(min(30000L,500L*(1L shl min(attempt,6)))+Random.nextLong(250))}
             finally{current.close()}
@@ -149,7 +151,23 @@ class DeckRepository(context:Context){
     fun selectHost(id:String){action{val book=vault.readBook();if(book.active?.hostId!=id){val next=book.selected(id);vault.saveBook(next);activateBook(next)}}}
     fun renameHost(id:String,name:String){action{val book=vault.readBook().renamed(id,name);vault.saveBook(book);mutable.update{it.copy(hosts=book.hosts,host=book.active)}}}
     private fun errorMessage(e:Throwable):String=when(e){is DeckException->userFacingError(e.code,e.message);is java.security.cert.CertificateException,is javax.net.ssl.SSLPeerUnverifiedException,is javax.net.ssl.SSLHandshakeException->userFacingError("TLS",e.message);is TimeoutCancellationException->userFacingError("TIMEOUT",e.message);is java.io.IOException->userFacingError("NETWORK",e.message);else->userFacingError(null,e.message)}
-    private suspend fun replay(current:DeckTransport){do{val result=current.request("events.replay",buildJsonObject{put("cursor",cursor);put("limit",500)});val events=result["events"]?.jsonArray?:JsonArray(emptyList());for(element in events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),element);if(event.eventId.toLong()>cursor.toLong())applyEvent(event)};val more=result["more"]?.jsonPrimitive?.boolean==true}while(more)}
+    private suspend fun replay(current:DeckTransport,notifications:NotificationReplay){
+        do{
+            val before=cursor
+            val result=current.request("events.replay",buildJsonObject{put("cursor",before);put("limit",500)})
+            val events=result["events"]?.jsonArray?:JsonArray(emptyList())
+            for(element in events){
+                val event=wire.decodeFromJsonElement(DeckEvent.serializer(),element)
+                if(event.eventId.toLong()>cursor.toLong()){applyEvent(event);notifications.observe(event)}
+            }
+            val more=result["more"]?.jsonPrimitive?.boolean==true
+            check(!more||cursor.toLong()>before.toLong()){"事件重放没有推进，请重新连接"}
+        }while(more)
+    }
+    private fun publishReplayNotifications(current:DeckTransport,host:Host,replay:NotificationReplay){
+        if(current!==transport||mutable.value.stale||mutable.value.host?.hostId!=host.hostId){replay.clear();return}
+        replay.drain(host.hostId,mutable.value.snapshot).forEach{notifications.publish(host.hostId,it,mutable.value.preferences.notifications)}
+    }
     private suspend fun applyEvent(event:DeckEvent){
         val committed=cacheMutex.withLock{
             val host=mutable.value.host?:return
