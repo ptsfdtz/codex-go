@@ -442,6 +442,18 @@ fn request(action: &str, payload: Value, id: &str) -> protocol::Request {
 #[test]
 fn strict_android_protocol() {
     for (action, payload) in [
+        (
+            "turn.steer",
+            json!({"sessionId":"s","expectedTurnId":"","text":"hello"}),
+        ),
+        (
+            "turn.steer",
+            json!({"sessionId":"s","expectedTurnId":"t","text":" "}),
+        ),
+        (
+            "turn.steer",
+            json!({"sessionId":"s","expectedTurnId":"t","text":"hello","permissionMode":"full"}),
+        ),
         ("sessions.history", json!({"sessionId":"s","limit":51})),
         ("sessions.history", json!({"sessionId":"s","cursor":false})),
         (
@@ -727,6 +739,82 @@ async fn session_mutations_are_idempotent_per_device() {
         "CONFLICT"
     );
     assert_eq!(h.core.store.session(id).unwrap()["title"], "once");
+}
+#[tokio::test]
+async fn steer_preserves_turn_identity_and_request_replay_never_duplicates_input() {
+    let h = Harness::fixture().await;
+    let session = h.session("steer").await;
+    let id = s(&session, "sessionId");
+    let turn = h.core.start_turn(id, "WAIT").await.unwrap();
+    h.wait(s(&turn, "turnId"), "running").await;
+    let active = h.core.active_upstream_turn(id).await.unwrap();
+    let expected = s(&active, "upstreamTurnId");
+    assert!(!expected.is_empty());
+    assert_eq!(
+        h.core
+            .steer_turn(id, "stale-turn", "no send", "bad")
+            .await
+            .unwrap_err()
+            .code,
+        "TURN_CHANGED"
+    );
+    assert!(!h.core.busy.lock().unwrap().contains(id));
+    h.core
+        .store
+        .replace_device("steer-device", "fixture", &digest("fixture-token"))
+        .unwrap();
+    let r = request(
+        "turn.steer",
+        json!({"sessionId":id,"expectedTurnId":expected,"text":"Additional instruction"}),
+        "steer-once",
+    );
+    let first = transport::handle_request(&h.core, &r, "steer-device").await;
+    assert_eq!(first["type"], "response", "{first}");
+    let cursor = h.core.store.cursor().unwrap();
+    assert_eq!(
+        transport::handle_request(&h.core, &r, "steer-device").await,
+        first
+    );
+    assert_eq!(h.core.store.cursor().unwrap(), cursor);
+    let events = h.core.store.history(id, None, 100).unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["action"] == "turn.steered")
+            .count(),
+        1
+    );
+    assert_eq!(h.core.store.turns(Some(id)).unwrap().len(), 1);
+    let uncertain = request(
+        "turn.steer",
+        json!({"sessionId":id,"expectedTurnId":expected,"text":"STEER_BAD_ACK"}),
+        "steer-unknown",
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &uncertain, "steer-device").await["code"],
+        "OUTCOME_UNKNOWN"
+    );
+    let cursor = h.core.store.cursor().unwrap();
+    assert_eq!(
+        transport::handle_request(&h.core, &uncertain, "steer-device").await["code"],
+        "OUTCOME_UNKNOWN"
+    );
+    assert_eq!(h.core.store.cursor().unwrap(), cursor);
+    assert_eq!(
+        h.core.store.turn(s(&turn, "turnId")).unwrap()["upstreamTurnId"],
+        expected
+    );
+    h.core.interrupt(id, s(&turn, "turnId")).await.unwrap();
+    h.wait(s(&turn, "turnId"), "interrupted").await;
+    paths::remove_local(&h.core.store, s(&session, "projectId")).unwrap();
+    assert_eq!(
+        h.core
+            .steer_turn(id, expected, "no access", "denied")
+            .await
+            .unwrap_err()
+            .code,
+        "WORKSPACE_FORBIDDEN"
+    );
 }
 #[tokio::test]
 async fn framing_partial_utf8_invalid_and_oversize() {

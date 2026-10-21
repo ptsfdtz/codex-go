@@ -308,6 +308,16 @@ try {
   let persistedEntries;
   if (syntheticTurn) {
     const turnId = activeProbe ?? (await startProbeTurn());
+    const active = await b.request('thread/turns/list', {
+      threadId: id,
+      limit: 1,
+      itemsView: 'notLoaded',
+      sortDirection: 'desc',
+    });
+    report.checks.activeTurnDiscoverableWithoutHistory =
+      active.data.length === 1 &&
+      active.data[0].id === turnId &&
+      active.data[0].status === 'inProgress';
     const steered = await b.request('turn/steer', {
       threadId: id,
       expectedTurnId: turnId,

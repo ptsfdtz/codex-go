@@ -258,6 +258,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         send({ id: m.id, error: { code: -1, message: 'Model/effort not forwarded' } });
         return;
       }
+      threads.get(p.threadId).turns.set(turnId, clone(result.turn));
       send({ method: 'turn/started', params: { threadId: p.threadId, turn: result.turn } });
       send({
         method: 'item/agentMessage/delta',
@@ -307,6 +308,15 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
           () => terminal(p.threadId, turnId, text.includes('FAIL') ? 'failed' : 'completed'),
           20,
         );
+      return;
+    }
+    case 'turn/steer': {
+      const turn = threads.get(p.threadId)?.turns.get(p.expectedTurnId);
+      if (!turn || turn.status !== 'inProgress' || !p.clientUserMessageId || p.input?.[0]?.type !== 'text') {
+        send({id:m.id,error:{code:-32600,message:'Active turn changed'}});
+        return;
+      }
+      respond({turnId:p.input[0].text === 'STEER_BAD_ACK' ? 'mismatched-ack' : p.expectedTurnId});
       return;
     }
     case 'turn/interrupt':

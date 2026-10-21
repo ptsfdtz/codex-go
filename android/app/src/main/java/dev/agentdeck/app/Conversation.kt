@@ -20,6 +20,10 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
             if(text.isNotBlank())rows[prefix+"user"]=ChatEntry(prefix+"user","user",text)
             continue
         }
+        if(e.action=="turn.steered"){
+            rows[prefix+"steer:"+e.eventId]=ChatEntry(prefix+"steer:"+e.eventId,"user",p.string("text"),title="已追加")
+            continue
+        }
         if(e.action in listOf("turn.completed","turn.failed","turn.interrupted")){
             val turn=p["turn"] as? JsonObject
             val status=turn?.string("status")?.ifBlank{null}?:e.action.substringAfter('.')

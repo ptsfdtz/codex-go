@@ -470,6 +470,16 @@ impl Core {
                 json!({"turn":self.start_turn_composer(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str(),p["permissionMode"].as_str().unwrap_or("workspace"),p["mode"].as_str().unwrap_or("default"),p.get("attachments")).await?}),
             ),
             "turn.interrupt" => self.interrupt(s(p, "sessionId"), s(p, "turnId")).await,
+            "turn.active" => self.active_upstream_turn(s(p, "sessionId")).await,
+            "turn.steer" => {
+                self.steer_turn(
+                    s(p, "sessionId"),
+                    s(p, "expectedTurnId"),
+                    s(p, "text"),
+                    &crate::digest(format!("{device}:{}", r.id)),
+                )
+                .await
+            }
             "approvals.list" => {
                 if let Some(id) = p["sessionId"].as_str() {
                     self.store.session(id)?;

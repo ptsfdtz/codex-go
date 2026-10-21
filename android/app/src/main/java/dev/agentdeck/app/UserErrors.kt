@@ -81,6 +81,11 @@ internal fun userFacingError(code: String? = null, raw: String? = null): String 
             "电脑上的会话或审批状态已更新。",
             "刷新后确认最新状态，再重新操作。",
         )
+        normalizedCode == "TURN_CHANGED" || normalizedCode == "TURN_STATE_UNAVAILABLE" -> ErrorCopy(
+            "当前任务需要刷新",
+            "原轮次已变化，或正在启动，暂时无法确认追加目标。",
+            "草稿已保留，刷新并确认当前任务后再发送。",
+        )
         normalizedCode == "API_REQUEST" && ("http 401" in lower || "http 403" in lower) -> ErrorCopy(
             "API 鉴权失败",
             "服务商未接受当前 API 密钥或账户权限。",

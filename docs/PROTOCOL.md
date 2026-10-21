@@ -91,6 +91,14 @@ Approvals bind session, turn, upstream ID, exact method and process generation. 
 
 ## Conversation options and independent API mode
 
+### Additional instructions for the exact active turn
+
+`activeTurnSteering:true` enables `turn.active` (`sessionId`) and `turn.steer` (`sessionId`, `expectedTurnId`, `text`). The read endpoint checks the original thread/cwd against the current project grant and uses `thread/turns/list` with one descending `notLoaded` entry; it returns `sessionId` and nullable `upstreamTurnId`. A source reporting active without a visible turn identity returns `TURN_STATE_UNAVAILABLE`, not an inferred terminal result.
+
+The write endpoint rechecks authorization and the active identity, requires the normal verified boundary, and sends the native `turn/steer` precondition. It never starts, resumes, forks or switches models/permissions. A changed target returns `TURN_CHANGED`. It participates in per-device durable request reservation; the native clientUserMessageId is derived from the device/request pair. Accepted instructions append `turn.steered` with text and native turn identity, linked to a local turn only when one already exists. An acknowledgement means accepted, not completed. Transport loss, invalid acknowledgements or failed post-acceptance persistence return `OUTCOME_UNKNOWN`; no automatic resubmission occurs. A cancellation-safe busy guard releases contention on every exit.
+
+Android keeps Stop available and adds a text-send action while the selected session is active and the capability is present. It fetches the current identity before steering, preserves the draft on failure, and projects accepted additions as separate user rows without overwriting the initial input or duplicating replay. This first endpoint accepts text only; attachments, queued instruction management, external live-message projection and external approval/stop ownership remain separate pending work.
+
 ### Persisted upstream history (incremental v1 capability)
 
 `upstreamHistoryPages` enables `sessions.history` with `sessionId`, optional opaque `cursor` (up to 32768 characters) and `limit` (1–50, default 20). Returns `sessionId`, `source: upstream-persisted`, native `ThreadItemEntry[]` in `data`, `nextCursor` and nullable `resource`. Reads schema-validated `thread/items/list` in ascending order after checking upstream thread identity and exact granted cwd. This is separate from `sessions.detail` / the bounded live event journal; it does not insert fabricated events or change thread IDs.

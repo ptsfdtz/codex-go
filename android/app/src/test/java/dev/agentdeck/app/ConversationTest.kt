@@ -5,6 +5,13 @@ import org.junit.Test
 import kotlinx.serialization.json.*
 
 class ConversationTest {
+    @Test fun appendedInstructionsPreserveOriginalMessageAndReplayDoesNotDuplicate(){
+        val original=event(1,"""{"text":"Original"}""",action="turn.queued")
+        val appended=event(2,"""{"text":"Additional","upstreamTurnId":"native-turn"}""",action="turn.steered")
+        val rows=conversationEntries(listOf(original,appended,appended))
+        assertEquals(listOf("Original","Additional"),rows.map{it.text})
+        assertEquals(listOf("user","user"),rows.map{it.kind})
+    }
     private fun event(id:Int,payload:String,turn:String="t",action:String="turn.progress")=DeckEvent(eventId="$id",seq=id.toLong(),sessionId="s",turnId=turn,action=action,payload=wire.parseToJsonElement(payload),ts="now")
     @Test fun streamIsReplacedByCompleteMessageAndReplayIsDeduplicated(){
         val a=event(1,"""{"method":"item/agentMessage/delta","itemId":"a","delta":"Hello"}""")

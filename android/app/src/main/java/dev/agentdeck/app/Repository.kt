@@ -199,6 +199,17 @@ class DeckRepository(context:Context){
     fun olderEvents(){action{val id=mutable.value.selectedSession?:return@action;refreshSession(id,mutable.value.events.firstOrNull()?.eventId)}}
     fun newTask(text:String,mode:String="default",attachments:List<ChatAttachment> = emptyList(),onAccepted:()->Unit={}){action{val project=mutable.value.selectedProject?:error("请先选择本机授权项目");val options=turnPayload("",text,mode,attachments);val created=rpc().request("sessions.create",payload("projectId" to project,"title" to text.take(100)));val session=wire.decodeFromJsonElement(Session.serializer(),created.getValue("session"));refreshSnapshot();rpc().request("turn.start",JsonObject(options+mapOf("sessionId" to JsonPrimitive(session.sessionId))));refreshSnapshot();selectSession(session.sessionId);withContext(Dispatchers.Main){onAccepted()};refreshSnapshot()}}
     fun continueTask(text:String,mode:String="default",attachments:List<ChatAttachment> = emptyList(),onAccepted:()->Unit={}){action{val id=mutable.value.selectedSession?:error("请选择会话");rpc().request("turn.start",turnPayload(id,text,mode,attachments));withContext(Dispatchers.Main){onAccepted()};refreshSnapshot()}}
+    fun steerTask(text:String,onAccepted:()->Unit={}){action{
+        require(mutable.value.capabilities?.supports("activeTurnSteering")==true){"电脑端需要升级才能追加指令"}
+        val id=mutable.value.selectedSession?:error("请选择会话")
+        val connection=rpc()
+        val active=connection.request("turn.active",payload("sessionId" to id))
+        require(active["sessionId"]?.jsonPrimitive?.content==id){"会话身份不匹配"}
+        val expected=(active["upstreamTurnId"] as? JsonPrimitive)?.contentOrNull?:error("当前任务已经结束，请刷新后发送新消息")
+        val result=connection.request("turn.steer",payload("sessionId" to id,"expectedTurnId" to expected,"text" to text))
+        require(result["sessionId"]?.jsonPrimitive?.content==id&&result["upstreamTurnId"]?.jsonPrimitive?.content==expected&&result["accepted"]?.jsonPrimitive?.booleanOrNull==true){"追加结果需要核实，请勿重复发送"}
+        withContext(Dispatchers.Main){onAccepted()};refreshSnapshot()
+    }}
     fun interrupt(){action{val id=mutable.value.selectedSession?:return@action;val turn=mutable.value.snapshot.turns.lastOrNull{it.sessionId==id&&it.status in listOf("running","waitingApproval","unknown")}?:error("没有活动回合");rpc().request("turn.interrupt",payload("sessionId" to id,"turnId" to turn.turnId));refreshSnapshot()}}
     fun decide(approval:Approval,decision:String){action{require(Instant.parse(approval.expiresAt).isAfter(Instant.now())){"审批已过期"};rpc().request("approvals.decide",payload("sessionId" to approval.sessionId,"turnId" to approval.turnId,"approvalId" to approval.approvalId,"decision" to decision));refreshSnapshot()}}
     fun answerQuestions(approval:Approval,answers:Map<String,String>){action{rpc().request("approvals.decide",buildJsonObject{

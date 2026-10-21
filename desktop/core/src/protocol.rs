@@ -96,6 +96,8 @@ pub fn parse(v: Value) -> Result<Request> {
         "sessions.archive" | "sessions.restore" | "sessions.delete" => (&["sessionId"], &[]),
         "sessions.pin" => (&["sessionId", "pinned"], &[]),
         "turn.interrupt" => (&["sessionId", "turnId"], &[]),
+        "turn.active" => (&["sessionId"], &[]),
+        "turn.steer" => (&["sessionId", "expectedTurnId", "text"], &[]),
         "approvals.decide" => (
             &["sessionId", "turnId", "approvalId", "decision"],
             &["answers"],
@@ -122,7 +124,14 @@ pub fn parse(v: Value) -> Result<Request> {
             "Invalid permission mode",
         )?;
     }
-    for key in ["projectId", "sessionId", "turnId", "approvalId", "fileId"] {
+    for key in [
+        "projectId",
+        "sessionId",
+        "turnId",
+        "approvalId",
+        "fileId",
+        "expectedTurnId",
+    ] {
         if p.get(key).is_some() {
             text(p, key, 1, 160)?;
         }

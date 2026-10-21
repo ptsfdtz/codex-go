@@ -6,6 +6,16 @@
 
 用户最新要求每轮完成后提交一次有用且经过验证的改动，替代此前“仅阶段验收后提交”的规则。本聊天 active goal 保持完整迁移目标。当前阶段 0 未完成；轮次提交不能用作阶段完成证据，不自动推送。提交只包含迁移代码、测试、必要依赖与文档，不混入独立 CI/Pre-release 任务。下方旧记录中的“不创建阶段完成提交”是当时执行记录，不限制今后的轮次提交。
 
+## 2026-10-21 实施记录：向原活动轮次追加文字指令
+
+- 前一轮提交 `c25cc5a`。本轮新增 steering.rs 和增量能力 activeTurnSteering：turn.active 校验原线程/精确工作区授权，通过公开 thread/turns/list 的 limit=1、desc、notLoaded 查询当前轮次；turn.steer 必须携带 expectedTurnId，再核验目标后调用原生 turn/steer。不新建/分叉/恢复线程、不改变模型或权限、不制造外部本地轮次。
+- 写操作接入现有 per-device/requestId 持久化去重，clientUserMessageId 由该操作身份派生。响应必须匹配原 turnId；网络中断、错误确认或接受后本地记账失败返回 OUTCOME_UNKNOWN，不自动重发。取消安全 busy guard 在退出/取消时释放。成功追加 turn.steered 保留文字与原轮次，只有既有本地轮次才关联本地 turnId。
+- 安卓输入框在活动状态下保留停止按钮并显示追加入口；先取得权威轮次身份，再发带前置条件的请求，成功确认才清除对应草稿。新增投影保留原始问题、独立显示追加文字且重放不重复。初版追加仅支持文字；已有附件草稿会明确提示先移除，不静默丢弃。未知旧 Bridge 不展示不支持的追加入口。
+- 真实核验发现任务刚启动时原生轮次摘要短暂不可见；源线程 active 但无轮次 ID 时返回 TURN_STATE_UNAVAILABLE，避免误判任务结束。真实新旧版脚本均验证无全量历史读取也能发现原活动轮次，成功报告分别保存在两版基准目录的 shared-runtime-active-turn-check.json；旧版仍使用 --prime-turn 规避既知空历史恢复限制。
+- 新增 real_desktop_baseline_steers_original_turn_through_core：隔离真实服务启动外部原轮次 → 实际 Core 发现 ID → 错误目标被拒绝 → 原目标追加获确认 → 本机合成模型的后续请求确实收到追加文字 → 完成仍是同一个原 turnId；不生成本地假轮次。新版三项显式真实检查通过（13.15 秒）。这不是原版桌面/真实账户模型/安卓真机证据。
+- 常规 9 单元 + 32 native + 5 版本 + 6 WS fixture 通过，真实检查默认 4 项 ignored；严格 Clippy、脚本 ESLint/Prettier 通过。native 新回归覆盖请求重放只记一次、原身份不变、错误目标与授权撤销、结果未知不重发；Kotlin 新回归覆盖原问题/追加不覆盖和重放。Android testDebugUnitTest/lintDebug 最终 BUILD SUCCESSFUL（54 秒）。
+- 限制：尚未实现完整排队、追加附件、外部活动消息投影和外部停止/审批接管；账户/权限来源及跨端并发归因仍待完整验收。当前追加只确认原生接受并在隔离提供者验证消费，不宣称完整活动任务迁移。下一步继续活动任务身份和实时投影，原版桌面认证及阶段 0 基准仍未完成。
+
 ## 2026-10-21 实施记录：权威删除事件与持久化清理
 
 - 前一轮提交 `d508cf9` 是实际进展。本轮确认两版稳定 schema 均定义 thread/deleted，并在精确新版真实隔离服务中观察外部 thread/delete 成功后的权威通知。attached 模式校验该通知后持久化 threadId 删除标记，能力新增 externalThreadDeletionEvents；managed 模式不声明外部删除订阅能力，完整 externalThreadSync/sharedDesktopRuntime 仍 false。

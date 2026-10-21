@@ -18,16 +18,22 @@ fn credential() -> String {
 #[tokio::test]
 #[ignore = "explicit desktop baseline binary; isolated HOME, no model or user history"]
 async fn real_desktop_baseline_uses_versioned_rust_contracts() {
-    desktop_baseline_contracts(false).await;
+    desktop_baseline_contracts(false, false).await;
 }
 
 #[tokio::test]
 #[ignore = "explicit desktop baseline binary; isolated HOME and synthetic loopback model"]
 async fn real_desktop_baseline_persisted_history_through_core() {
-    desktop_baseline_contracts(true).await;
+    desktop_baseline_contracts(true, false).await;
 }
 
-async fn desktop_baseline_contracts(with_history: bool) {
+#[tokio::test]
+#[ignore = "explicit desktop baseline binary; isolated HOME and held synthetic model"]
+async fn real_desktop_baseline_steers_original_turn_through_core() {
+    desktop_baseline_contracts(false, true).await;
+}
+
+async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     use agentdeck_service::{codex, rpc::ProtocolVersion};
     let executable =
         std::env::var_os("AGENTDECK_DESKTOP_PROBE_EXE").expect("set desktop baseline executable");
@@ -52,7 +58,13 @@ async fn desktop_baseline_contracts(with_history: bool) {
     std::fs::create_dir(&home).unwrap();
     std::fs::create_dir(&project).unwrap();
     let answer = "Persisted synthetic answer: 中文 😀\n```text\noriginal content\n```";
-    let provider = if with_history {
+    let response_gate = std::sync::Arc::new(tokio::sync::Notify::new());
+    let provider_gate = response_gate.clone();
+    let provider_requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let provider_count = provider_requests.clone();
+    let instruction_consumed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let provider_consumed = instruction_consumed.clone();
+    let provider = if with_history || with_steering {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         std::fs::write(home.join("config.toml"), format!(
@@ -60,6 +72,9 @@ async fn desktop_baseline_contracts(with_history: bool) {
             listener.local_addr().unwrap())).unwrap();
         Some(tokio::spawn(async move {
             while let Ok((mut stream, _)) = listener.accept().await {
+                let response_gate = provider_gate.clone();
+                let request_count = provider_count.clone();
+                let consumed = provider_consumed.clone();
                 tokio::spawn(async move {
                     let mut request = Vec::new();
                     let mut buffer = [0u8; 8192];
@@ -86,6 +101,12 @@ async fn desktop_baseline_contracts(with_history: bool) {
                         }
                     }
                     assert!(request.starts_with(b"POST /v1/responses "));
+                    let request_number = request_count.fetch_add(1, Ordering::SeqCst);
+                    if String::from_utf8_lossy(&request)
+                        .contains("Continue the exact original task.")
+                    {
+                        consumed.store(true, Ordering::SeqCst);
+                    }
                     let item = json!({"id":"history-answer","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":answer,"annotations":[]}]});
                     let mut body = String::new();
                     for event in [
@@ -101,8 +122,22 @@ async fn desktop_baseline_contracts(with_history: bool) {
                         ));
                     }
                     let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len());
-                    stream.write_all(response.as_bytes()).await.unwrap();
-                    stream.shutdown().await.unwrap();
+                    if with_steering && request_number == 0 {
+                        let split =
+                            response.find("\r\n\r\n").unwrap() + 4 + body.find("\n\n").unwrap() + 2;
+                        if stream
+                            .write_all(&response.as_bytes()[..split])
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                        response_gate.notified().await;
+                        let _ = stream.write_all(&response.as_bytes()[split..]).await;
+                    } else {
+                        let _ = stream.write_all(response.as_bytes()).await;
+                    }
+                    let _ = stream.shutdown().await;
                 });
             }
         }))
@@ -408,6 +443,77 @@ async fn desktop_baseline_contracts(with_history: bool) {
     assert!(history["nextCursor"].is_null());
     assert_eq!(imported["title"], "Versioned desktop baseline");
     assert_eq!(imported["upstream"]["source"], created["thread"]["source"]);
+    if with_steering {
+        let started = b.request("turn/start",json!({"threadId":id,"input":[{"type":"text","text":"Hold for additional instruction.","text_elements":[]}]})).await.unwrap();
+        let turn_id = started["turn"]["id"].as_str().unwrap();
+        let active = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Ok(active) = core.active_upstream_turn(&imported_id).await {
+                    if active["upstreamTurnId"] == turn_id {
+                        break active;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("active original turn identity did not become visible");
+        assert_eq!(active["upstreamTurnId"], turn_id);
+        assert_eq!(
+            core.steer_turn(
+                &imported_id,
+                "wrong-turn",
+                "must not send",
+                "negative-probe"
+            )
+            .await
+            .unwrap_err()
+            .code,
+            "TURN_CHANGED"
+        );
+        let accepted = core
+            .steer_turn(
+                &imported_id,
+                turn_id,
+                "Continue the exact original task.",
+                "positive-probe",
+            )
+            .await
+            .unwrap();
+        assert_eq!(accepted["accepted"], true);
+        assert_eq!(accepted["upstreamTurnId"], turn_id);
+        assert!(core.store.turns(Some(&imported_id)).unwrap().is_empty());
+        let events = core.store.history(&imported_id, None, 100).unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["action"] == "turn.steered")
+                .count(),
+            1
+        );
+        response_gate.notify_one();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !core.active_upstream_turn(&imported_id).await.unwrap()["upstreamTurnId"]
+                .is_null()
+            {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("steered original turn did not finish");
+        assert!(provider_requests.load(Ordering::SeqCst) >= 2);
+        assert!(instruction_consumed.load(Ordering::SeqCst));
+        let finished = b
+            .request(
+                "thread/turns/list",
+                json!({"threadId":id,"limit":1,"sortDirection":"desc","itemsView":"notLoaded"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(finished["data"][0]["id"], turn_id);
+        assert_eq!(finished["data"][0]["status"], "completed");
+        history = core.upstream_history(&imported_id, None, 20).await.unwrap();
+    }
     if with_history {
         let generation = core.upstream().unwrap().generation.clone();
         let started = b.request("turn/start", json!({"threadId":id,"input":[{"type":"text","text":"External turn after index import.","text_elements":[]}]})).await.unwrap();
