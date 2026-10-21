@@ -55,7 +55,8 @@ class DeckRepository(context:Context){
     private var timelineJob:Job?=null
     private var timelineRefreshJob:Job?=null
     private val timelineRevision=java.util.concurrent.atomic.AtomicLong()
-    private var transport:DeckTransport?=null
+    @Volatile private var transport:DeckTransport?=null
+    private val snapshotReads=SnapshotReads()
     private var cursor="0"
     private val cacheMutex=Mutex()
     private val actionMutex=Mutex()
@@ -82,8 +83,8 @@ class DeckRepository(context:Context){
                 if(capabilities.protocolVersion!=1)throw DeckException("PROTOCOL_VERSION","电脑端协议不兼容，请更新客户端")
                 mutable.update{it.copy(capabilities=capabilities)}
                 val cache=dao.host(host.hostId)
-                if(cache==null){val snap=current.request("snapshot.get");val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),snap);cursor=snapshot.cursor;updateSnapshot(snapshot)}
-                else {cursor=cache.cursor;try{replay(current)}catch(e:DeckException){if(e.code!="REPLAY_GAP")throw e;val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),current.request("snapshot.get"));cursor=snapshot.cursor;updateSnapshot(snapshot);mutable.update{it.copy(error="部分历史已过保留期，已恢复可信快照")}};refreshSnapshot(current)}
+                if(cache==null){refreshSnapshot(current,resetCursor=true)}
+                else {cursor=cache.cursor;try{replay(current)}catch(e:DeckException){if(e.code!="REPLAY_GAP")throw e;refreshSnapshot(current,resetCursor=true);mutable.update{it.copy(error="部分历史已过保留期，已恢复可信快照")}};refreshSnapshot(current)}
                 val retention=wire.decodeFromJsonElement(Retention.serializer(),current.request("settings.get").getValue("retention"))
                 mutable.update{it.copy(connection="已连接",stale=false,retention=retention)};attempt=0
                 loadModels()
@@ -117,15 +118,18 @@ class DeckRepository(context:Context){
     private fun errorMessage(e:Throwable):String=when(e){is DeckException->userFacingError(e.code,e.message);is java.security.cert.CertificateException,is javax.net.ssl.SSLPeerUnverifiedException,is javax.net.ssl.SSLHandshakeException->userFacingError("TLS",e.message);is TimeoutCancellationException->userFacingError("TIMEOUT",e.message);is java.io.IOException->userFacingError("NETWORK",e.message);else->userFacingError(null,e.message)}
     private suspend fun replay(current:DeckTransport){do{val result=current.request("events.replay",buildJsonObject{put("cursor",cursor);put("limit",500)});val events=result["events"]?.jsonArray?:JsonArray(emptyList());for(element in events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),element);if(event.eventId.toLong()>cursor.toLong())applyEvent(event)};val more=result["more"]?.jsonPrimitive?.boolean==true}while(more)}
     private suspend fun applyEvent(event:DeckEvent){cacheMutex.withLock{val host=mutable.value.host?:return;val id=event.eventId.toLong();if(id<=cursor.toLong())return;db.withTransaction{dao.saveEvents(listOf(CachedEvent(host.hostId,id,event.sessionId,wire.encodeToString(DeckEvent.serializer(),event))));cursor=event.eventId;dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),mutable.value.snapshot),cursor,Instant.now().toString()))};if(id%100L==0L)dao.trim(host.hostId)};if(event.action=="session.observed")mutable.update{if(it.observationPendingSession==event.sessionId)it.copy(observationPendingSession=null)else it};if(event.action in listOf("upstream.turn.completed","turn.completed","turn.failed","turn.interrupted","session.observed","host.status")&&(event.sessionId==null||event.sessionId==mutable.value.selectedSession))scheduleTimelineHistory();if(event.action=="git.changed"&&mutable.value.git!=null)refreshGit()}
-    private suspend fun updateSnapshot(snapshot:Snapshot){cacheMutex.withLock{
+    private suspend fun updateSnapshot(snapshot:Snapshot,isCurrent:()->Boolean,resetCursor:Boolean=false){cacheMutex.withLock{
+        if(!isCurrent())throw CancellationException("Snapshot connection replaced")
         val host=mutable.value.host?:return
         require(snapshot.host?.hostId==host.hostId){"Bridge identity mismatch"}
         val removed=mutable.value.snapshot.sessions.filter{old->snapshot.sessions.none{it.sessionId==old.sessionId}}
         val at=Instant.now().toString()
         db.withTransaction{
             removed.forEach{dao.removeSession(host.hostId,it.sessionId)}
-            dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),snapshot),cursor,at))
+            dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),snapshot),if(resetCursor)snapshot.cursor else cursor,at))
         }
+        if(!isCurrent())throw CancellationException("Snapshot connection replaced")
+        if(resetCursor)cursor=snapshot.cursor
         val selected=mutable.value.selectedSession
         if(selected!=null&&snapshot.sessions.none{it.sessionId==selected})selectionJob?.cancel()
         mutable.update{old->val vanished=old.selectedSession!=null&&snapshot.sessions.none{it.sessionId==old.selectedSession};old.copy(snapshot=snapshot,lastSynced=at,selectedSession=if(vanished)null else old.selectedSession,timelineHistory=if(vanished)TimelineHistory() else old.timelineHistory,events=if(vanished)emptyList() else old.events,selectedProject=old.selectedProject?.takeIf{id->snapshot.projects.any{it.projectId==id}}?:snapshot.projects.firstOrNull()?.projectId)}
@@ -137,8 +141,16 @@ class DeckRepository(context:Context){
         val latest=snapshot.sessions.find{it.sessionId==remembered&&it.archived==0}?:snapshot.sessions.filter{it.archived==0}.maxByOrNull{it.updatedAt}
         latest?.let{selectSession(it.sessionId)}
     }
-    private suspend fun refreshSnapshot(current:DeckTransport?=transport){val connection=current?:return;updateSnapshot(wire.decodeFromJsonElement(Snapshot.serializer(),connection.request("snapshot.get")));restoreLastSession(mutable.value.snapshot)}
-    private fun scheduleSnapshot(current:DeckTransport){if(snapshotJob?.isActive==true)return;snapshotJob=scope.launch{delay(250);try{refreshSnapshot(current)}catch(_:Exception){}}}
+    private suspend fun refreshSnapshot(current:DeckTransport?=transport,resetCursor:Boolean=false){
+        val connection=current?:return
+        val epoch=hostEpoch
+        val hostId=mutable.value.host?.hostId
+        val isCurrent={epoch==hostEpoch&&connection===transport&&!switchingHost&&mutable.value.host?.hostId==hostId}
+        snapshotReads.refresh(isCurrent,
+            read={wire.decodeFromJsonElement(Snapshot.serializer(),connection.request("snapshot.get"))},
+            apply={snapshot->updateSnapshot(snapshot,isCurrent,resetCursor);restoreLastSession(mutable.value.snapshot)})
+    }
+    private fun scheduleSnapshot(current:DeckTransport){if(snapshotJob?.isActive==true)return;snapshotJob=scope.launch{delay(250);try{refreshSnapshot(current)}catch(e:CancellationException){throw e}catch(_:Exception){}}}
     private fun rpc():DeckTransport {check(mutable.value.connection=="已连接"&&!mutable.value.stale){"离线时不能执行操作"};return transport?:error("Bridge 未连接")}
     private fun action(block:suspend()->Unit){val epoch=hostEpoch;scope.launch{if(!actionMutex.tryLock())return@launch;if(epoch!=hostEpoch){actionMutex.unlock();return@launch};mutable.update{it.copy(busy=true,error=null)};try{block()}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}finally{mutable.update{it.copy(busy=false)};actionMutex.unlock()}}}
     fun beginPair(raw:String){val generation=++pairGeneration;pairingJob?.cancel();pairingJob=scope.launch{mutable.update{it.copy(busy=true,error=null)};var client:okhttp3.OkHttpClient?=null;try{
@@ -182,9 +194,7 @@ class DeckRepository(context:Context){
         val result=connection.request("sessions.refreshIndex",buildJsonObject{put("contractVersion",1)})
         require(result["contractVersion"]?.jsonPrimitive?.intOrNull==1){"不支持的会话同步版本"}
         require(epoch==hostEpoch&&connection===transport&&!mutable.value.stale){"连接已变更，请重试同步"}
-        val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),connection.request("snapshot.get"))
-        require(epoch==hostEpoch&&connection===transport&&!mutable.value.stale){"连接已变更，请重试同步"}
-        updateSnapshot(snapshot)
+        refreshSnapshot(connection)
     }
     internal fun openNativeProjectSession(expectedHost:String?,entry:JsonObject,id:String):Boolean {
         val current=mutable.value
