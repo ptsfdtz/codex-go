@@ -139,6 +139,8 @@ internal fun userFacingError(code: String? = null, raw: String? = null): String 
         message == "请配置有效的 API 密钥" || message == "请填写 API 密钥" -> ErrorCopy("缺少 API 密钥", "尚未配置可用的 API 密钥。", "在 API 设置中填写密钥后重试。")
         message == "请填写或选择 API 模型" || message == "请先配置 API 地址、密钥和模型" -> ErrorCopy("API 配置不完整", "发送请求前还需要有效的 API 地址、密钥和模型。", "完成 API 设置后重试。")
         message == "API 地址必须是 HTTPS" -> ErrorCopy("API 地址无效", "API 连接必须使用 HTTPS。", "检查服务商提供的 API 地址。")
+        message == "通知对应的电脑已移除，请重新配对" -> ErrorCopy("无法打开任务通知", "通知对应的电脑已不在配对列表中。", "重新配对该电脑后查看任务。")
+        message == "通知对应的会话已删除或当前无权访问" -> ErrorCopy("无法打开任务通知", "电脑最新状态中没有可访问的对应会话。", "检查电脑上的会话和项目授权。")
         message == "通知权限未授予，前台任务与审批仍可使用" -> ErrorCopy("通知权限未授予", "系统通知未启用，应用前台功能仍可使用。", "可在 Android 系统设置中允许通知。")
         message == "诊断已导出" -> ErrorCopy("诊断已导出", "诊断文件已保存。", "")
         message == "无法导出诊断，请重新选择保存位置" -> ErrorCopy("诊断导出失败", "Android 未能写入所选位置。", "重新选择一个可写入的保存位置。")

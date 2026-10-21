@@ -34,12 +34,14 @@ import java.time.Instant
 @Composable fun DeckApp(state:DeckState,repo:DeckRepository){
     val api=(LocalContext.current.applicationContext as DeckApplication).apiRepository
     var apiMode by rememberSaveable{mutableStateOf(false)}
-    if(apiMode){androidx.activity.compose.BackHandler{apiMode=false};ApiWorkspace(api){apiMode=false};return}
     var panel by rememberSaveable{mutableStateOf("chat")}
     var showPair by rememberSaveable{mutableStateOf(false)}
     var showComputers by rememberSaveable{mutableStateOf(false)}
     var sidebar by rememberSaveable{mutableStateOf(false)}
     var sidebarExpanded by rememberSaveable{mutableStateOf(true)}
+    var notificationSeen by rememberSaveable{mutableStateOf("")}
+    LaunchedEffect(state.notificationNavigation){if(state.notificationNavigation.isNotEmpty()&&state.notificationNavigation!=notificationSeen){notificationSeen=state.notificationNavigation;apiMode=false;panel="chat";sidebar=false;showPair=false;showComputers=false}}
+    if(apiMode){androidx.activity.compose.BackHandler{apiMode=false};ApiWorkspace(api){apiMode=false};return}
     var confirmInterrupt by remember(state.host?.hostId){mutableStateOf(false)}
     var confirmForget by remember(state.host?.hostId){mutableStateOf(false)}
     androidx.compose.runtime.CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface){BoxWithConstraints(Modifier.fillMaxSize()){

@@ -12,5 +12,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.core.view.WindowCompat
 
 class MainActivity:ComponentActivity(){
-    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);enableEdgeToEdge();setContent{val model:DeckViewModel=viewModel();val state by model.state.collectAsStateWithLifecycle();val dark=state.preferences.theme=="dark"||state.preferences.theme=="system"&&isSystemInDarkTheme();SideEffect{WindowCompat.getInsetsController(window,window.decorView).apply{isAppearanceLightStatusBars=!dark;isAppearanceLightNavigationBars=!dark}};DeckTheme(theme=state.preferences.theme){DeckApp(state,model.repository)}}}
+    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);openNotification(intent);enableEdgeToEdge();setContent{val model:DeckViewModel=viewModel();val state by model.state.collectAsStateWithLifecycle();val dark=state.preferences.theme=="dark"||state.preferences.theme=="system"&&isSystemInDarkTheme();SideEffect{WindowCompat.getInsetsController(window,window.decorView).apply{isAppearanceLightStatusBars=!dark;isAppearanceLightNavigationBars=!dark}};DeckTheme(theme=state.preferences.theme){DeckApp(state,model.repository)}}}
+    override fun onNewIntent(intent:android.content.Intent){super.onNewIntent(intent);setIntent(intent);openNotification(intent)}
+    private fun openNotification(intent:android.content.Intent?){
+        if(intent?.action!="dev.agentdeck.app.OPEN_TASK")return
+        val target=NotificationTarget.parse(intent.getStringExtra("notificationHost"),intent.getStringExtra("notificationSession"))?:return
+        intent.action=null
+        (application as DeckApplication).repository.openNotification(target)
+    }
 }

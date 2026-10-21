@@ -46,6 +46,8 @@ class DeckRepository(context:Context){
     private val notifications=DeckNotifications(context.applicationContext as DeckApplication)
     private val mutable=MutableStateFlow(DeckState(preferences=preferences.read(),fullAccess=navigation.getBoolean("fullAccess",true)))
     val state:StateFlow<DeckState> = mutable.asStateFlow()
+    private val initialized=CompletableDeferred<Unit>()
+    private var notificationJob:Job?=null
     private var connectionJob:Job?=null
     private var selectionJob:Job?=null
     private var pairingJob:Job?=null
@@ -68,10 +70,10 @@ class DeckRepository(context:Context){
     private val callback=object:ConnectivityManager.NetworkCallback(){override fun onAvailable(network:Network){val host=mutable.value.host;if(host!=null&&mutable.value.connection!="已连接")startConnection(host)}}
     init {
         connectivity.registerDefaultNetworkCallback(callback)
-        scope.launch{actionMutex.withLock{
+        scope.launch{try{actionMutex.withLock{
             val book=try{vault.readBook()}catch(e:CancellationException){throw e}catch(_:Exception){credentialsUnreadable=true;mutable.update{it.copy(error="已保存的电脑凭据无法读取，请重新配对所需电脑",connection="需要重新配对")};return@withLock}
             try{activateBook(book)}catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}
-        }}
+        }}finally{initialized.complete(Unit)}}
     }
     private fun startConnection(host:Host){synchronized(this){if(switchingHost||mutable.value.host!=host)return;connectionJob?.cancel();transport?.close();connectionJob=scope.launch{connectionMutex.withLock{
         var attempt=0
@@ -91,7 +93,7 @@ class DeckRepository(context:Context){
                 loadModels()
                 restoreLastSession(mutable.value.snapshot)
                 mutable.value.selectedSession?.let{refreshSession(it)}
-                for(packet in current.events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),packet);val id=event.eventId.toLong();if(id<=cursor.toLong())continue;if(id>cursor.toLong()+1)replay(current);if(id>cursor.toLong()){applyEvent(event);notifications.publish(event,mutable.value.preferences.notifications)};scheduleSnapshot(current)}
+                for(packet in current.events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),packet);val id=event.eventId.toLong();if(id<=cursor.toLong())continue;if(id>cursor.toLong()+1)replay(current);if(id>cursor.toLong()){applyEvent(event);notifications.publish(host.hostId,event,mutable.value.preferences.notifications)};scheduleSnapshot(current)}
                 throw java.io.IOException("Bridge 连接已结束")
             }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(connection="重新连接中",stale=true,error=errorMessage(e))};attempt++;delay(min(30000L,500L*(1L shl min(attempt,6)))+Random.nextLong(250))}
             finally{current.close()}
@@ -113,6 +115,36 @@ class DeckRepository(context:Context){
             }
         }finally{synchronized(this){switchingHost=false}}
         book.active?.let{startConnection(it)}
+    }
+    internal fun openNotification(target:NotificationTarget){
+        notificationJob?.cancel()
+        notificationJob=scope.launch{
+            initialized.await()
+            var epoch=hostEpoch
+            try{
+                actionMutex.withLock{
+                    val book=vault.readBook()
+                    require(book.hosts.any{it.hostId==target.hostId}){"通知对应的电脑已移除，请重新配对"}
+                    if(book.active?.hostId!=target.hostId){
+                        val next=book.selected(target.hostId)
+                        withContext(NonCancellable){vault.saveBook(next);activateBook(next)}
+                    }
+                    epoch=hostEpoch
+                }
+                val ready=withTimeout(60000){state.first{hostEpoch!=epoch||it.host?.hostId!=target.hostId||!it.stale&&it.connection=="已连接"}}
+                if(epoch!=hostEpoch||ready.host?.hostId!=target.hostId)return@launch
+                actionMutex.withLock{
+                    if(epoch!=hostEpoch||mutable.value.host?.hostId!=target.hostId)return@withLock
+                    refreshSnapshot(rpc())
+                    requireNotNull(target.session(mutable.value)){"通知对应的会话已删除或当前无权访问"}
+                    selectSession(target.sessionId)
+                    mutable.update{it.copy(notificationNavigation=java.util.UUID.randomUUID().toString())}
+                }
+            }catch(e:CancellationException){
+                if(e is TimeoutCancellationException&&epoch==hostEpoch)mutable.update{it.copy(error="无法连接通知对应的电脑，请连接后重试通知")}
+                throw e
+            }catch(e:Exception){if(epoch==hostEpoch)mutable.update{it.copy(error=errorMessage(e))}}
+        }
     }
     fun selectHost(id:String){action{val book=vault.readBook();if(book.active?.hostId!=id){val next=book.selected(id);vault.saveBook(next);activateBook(next)}}}
     fun renameHost(id:String,name:String){action{val book=vault.readBook().renamed(id,name);vault.saveBook(book);mutable.update{it.copy(hosts=book.hosts,host=book.active)}}}
