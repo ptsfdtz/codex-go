@@ -33,6 +33,7 @@ pub fn describe_profile(
             "externalThreadSync": false
         },
         "features": {
+            "nativeProjectReadViews": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
             "sessionManagement": true,
             "activeTurnSteering": true,
             "activeTurnInterruption": true,
@@ -74,6 +75,7 @@ mod tests {
                 "bridge-created-and-imported"
             );
             assert_eq!(value["features"]["fullHistoryRead"], false);
+            assert_eq!(value["features"]["nativeProjectReadViews"], false);
             assert_eq!(value["features"]["externalThreadMetadataSync"], false);
             assert_eq!(value["features"]["externalThreadDeletionEvents"], false);
         }
@@ -90,5 +92,6 @@ mod tests {
         );
         assert_eq!(desktop["codexVersion"], "0.163.0-alpha.10.2");
         assert_eq!(desktop["runtime"]["sharedDesktopRuntime"], false);
+        assert_eq!(desktop["features"]["nativeProjectReadViews"], true);
     }
 }

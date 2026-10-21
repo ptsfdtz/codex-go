@@ -1,5 +1,5 @@
 //! Bounded read views for future device-facing project pagination.
-//! Not an atomic upstream snapshot or a remotely exposed action.
+//! Remote contract v1 is read-only and does not promise an atomic upstream snapshot.
 use crate::{ensure, rpc::ProtocolVersion, security, service::Core, Error, Result};
 use serde_json::{json, Value};
 use std::{
@@ -94,7 +94,7 @@ impl Core {
         Ok(())
     }
 
-    /// Internal preparation for a future versioned remote contract. Continuations
+    /// Read-only remote contract. Continuations
     /// are opaque, device-bound, replayable and expire after 120 seconds. This
     /// bounded read view does not promise atomicity across upstream source pages.
     pub async fn native_project_device_page(
@@ -252,6 +252,7 @@ impl Core {
             .enumerate()
             .map(|(index, data)| {
                 json!({
+                    "contractVersion":1, "expiresInSeconds":120,
                     "source":"upstream-native-projects", "consistency":"bounded-read-view",
                     "viewId":view_id, "data":data, "nextCursor":tokens.get(index + 1)
                 })

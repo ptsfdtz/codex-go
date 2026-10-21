@@ -80,6 +80,7 @@ pub fn parse(v: Value) -> Result<Request> {
         | "projects.add"
         | "settings.get"
         | "devices.revokeSelf" => (&[], &[]),
+        "projects.nativePage" => (&["contractVersion"], &["cursor", "limit"]),
         "settings.update" => (&["days", "maxMiB"], &[]),
         "projects.remove" | "git.status" => (&["projectId"], &[]),
         "sessions.list" => (&[], &["projectId"]),
@@ -209,6 +210,20 @@ pub fn parse(v: Value) -> Result<Request> {
             p["limit"] = json!(100);
         }
         integer(p, "limit", 1, 500)?;
+    }
+    if r.action == "projects.nativePage" {
+        integer(p, "contractVersion", 1, 1)?;
+        if p.get("limit").is_none() {
+            p["limit"] = json!(50);
+        }
+        integer(p, "limit", 1, 100)?;
+        if let Some(cursor) = p.get("cursor") {
+            ensure(
+                cursor.as_str().is_some_and(crate::security::valid_token),
+                "INVALID_REQUEST",
+                "Invalid project cursor",
+            )?;
+        }
     }
     if r.action == "sessions.history" {
         if p.get("limit").is_none() {

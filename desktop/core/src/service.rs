@@ -438,6 +438,14 @@ impl Core {
                 Ok(json!({"retention":p}))
             }
             "snapshot.get" => self.snapshot(),
+            "projects.nativePage" => {
+                self.native_project_device_page(
+                    device,
+                    p["cursor"].as_str(),
+                    p["limit"].as_u64().unwrap_or(50) as usize,
+                )
+                .await
+            }
             "projects.list" => Ok(json!({"projects":self.store.projects()?})),
             "projects.add" => {
                 self.emit("project.addRequest", json!({}));

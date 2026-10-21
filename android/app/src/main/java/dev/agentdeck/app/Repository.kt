@@ -175,6 +175,14 @@ class DeckRepository(context:Context){
         dao.saveEvents(events.map{CachedEvent(host.hostId,it.eventId.toLong(),it.sessionId,wire.encodeToString(DeckEvent.serializer(),it))})
         if(before==null&&mutable.value.selectedSession==id)loadTimelineHistory()
     }
+    internal suspend fun readNativeProjects(cursor:String?):NativeProjectPage {
+        val host=mutable.value.host?.hostId
+        val current=rpc()
+        check(!mutable.value.stale&&mutable.value.capabilities?.supports("nativeProjectReadViews")==true){"此电脑尚不支持 Codex 项目读取"}
+        val result=current.request("projects.nativePage",buildJsonObject{put("contractVersion",1);put("limit",50);cursor?.let{put("cursor",it)}})
+        check(current===transport&&host==mutable.value.host?.hostId&&!mutable.value.stale){"连接已变更，请重新读取"}
+        return decodeNativeProjectPage(result)
+    }
     internal suspend fun readUpstreamHistory(id:String,cursor:String?,sortDirection:String="asc"):UpstreamHistoryPage {
         val epoch=hostEpoch
         require(sortDirection in listOf("asc","desc")){"无效历史顺序"}

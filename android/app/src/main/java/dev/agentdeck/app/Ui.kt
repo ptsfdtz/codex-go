@@ -87,11 +87,15 @@ import java.time.Instant
     Text("在 Windows Bridge 中生成二维码，扫码并确认即可。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }}}
 @Composable private fun ChatSidebar(state:DeckState,repo:DeckRepository,panel:String,onChat:()->Unit,onSettings:()->Unit,onPair:()->Unit,onCollapse:()->Unit){
+    var showNativeProjects by remember(state.host?.hostId){mutableStateOf(false)}
+    if(showNativeProjects)NativeProjectsDialog(repo,state.host?.hostId,onClose={showNativeProjects=false})
+
     var search by rememberSaveable{mutableStateOf("")}
     Column(Modifier.width(260.dp).fillMaxHeight().testTag("chat-sidebar").background(MaterialTheme.colorScheme.surfaceContainerLow).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical+WindowInsetsSides.Start)).padding(12.dp)){
         Row(Modifier.fillMaxWidth().height(48.dp).padding(start=8.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Code,null,Modifier.size(22.dp));Spacer(Modifier.width(10.dp));Text("AgentDeck",modifier=Modifier.weight(1f),fontWeight=FontWeight.SemiBold,fontSize=17.sp);IconButton(onClick=onCollapse){Icon(Icons.Outlined.MenuOpen,"收起会话列表")}}
         TextButton(onClick={state.selectedProject?.let(repo::selectProject);onChat()},enabled=state.selectedProject!=null,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.EditNote,null,Modifier.size(18.dp));Spacer(Modifier.width(10.dp));Text("新对话",modifier=Modifier.weight(1f))}
         ConversationSearch(search,{search=it},"搜索会话")
+        if(state.capabilities?.supports("nativeProjectReadViews")==true)TextButton(onClick={showNativeProjects=true},enabled=!state.stale){Text("Codex 项目")}
         LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp),contentPadding=PaddingValues(vertical=14.dp)){
             item{Row(Modifier.fillMaxWidth().padding(start=10.dp),verticalAlignment=Alignment.CenterVertically){Text("项目",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f));IconButton(onClick=repo::addProject,enabled=!state.stale){Icon(Icons.Outlined.CreateNewFolder,"授权项目",Modifier.size(18.dp))}}}
             if(state.snapshot.projects.isEmpty())item{Text("还没有授权项目，请在 Windows 选择目录。",Modifier.padding(10.dp),fontSize=12.sp)}

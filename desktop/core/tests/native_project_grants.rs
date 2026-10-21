@@ -145,6 +145,38 @@ fn project(id: &str, roots: &[PathBuf]) -> Value {
 }
 
 #[tokio::test]
+async fn remote_project_contract_validates_version_cursor_and_dispatches_device_scope() {
+    use agentdeck_service::protocol;
+    let request = |payload: Value| json!({"v":1,"type":"request","id":"native-project-test","action":"projects.nativePage","payload":payload});
+    for payload in [
+        json!({}),
+        json!({"contractVersion":2}),
+        json!({"contractVersion":1,"limit":101}),
+        json!({"contractVersion":1,"cursor":"source-cursor"}),
+        json!({"contractVersion":1,"deviceId":"other"}),
+    ] {
+        assert!(protocol::parse(request(payload)).is_err());
+    }
+    let parsed = protocol::parse(request(json!({"contractVersion":1}))).unwrap();
+    assert_eq!(parsed.payload["limit"], 50);
+    let h = Harness::new();
+    h.core
+        .store
+        .replace_device("device", "test", "synthetic-hash")
+        .unwrap();
+    let source = h.source(json!({"data":[]})).await;
+    let page = h.core.dispatch(&parsed, "device").await.unwrap();
+    assert_eq!(page["contractVersion"], 1);
+    assert_eq!(page["consistency"], "bounded-read-view");
+    assert!(page["data"].as_array().unwrap().is_empty());
+    assert_eq!(
+        h.core.dispatch(&parsed, "other").await.unwrap_err().code,
+        "UNAUTHORIZED"
+    );
+    source.stop().await;
+}
+
+#[tokio::test]
 async fn full_view_cache_rejects_before_source_read_and_revocation_reclaims_capacity() {
     let h = Harness::new();
     // Multiple devices are a server-side fixture, not a claim about pairing UI.
