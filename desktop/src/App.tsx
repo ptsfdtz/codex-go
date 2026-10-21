@@ -132,7 +132,12 @@ export function App() {
         accept(await host.snapshot());
       } catch {
         if (!disposed)
-          setNotice(informationNotice('本机服务不可用', '请从 Windows 的 AgentDeck 桌面应用打开。浏览器预览未连接本机服务。'));
+          setNotice(
+            informationNotice(
+              '本机服务不可用',
+              '请从 Windows 的 AgentDeck 桌面应用打开。浏览器预览未连接本机服务。',
+            ),
+          );
       }
     })();
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -167,7 +172,8 @@ export function App() {
     (a) => a.status === 'pending' && remaining(a.expiresAt, now) > 0,
   );
   const approval = approvals.find((a) => a.approvalId === selectedApproval) ?? approvals[0];
-  const visibleHelp = notice ?? (view.error ? presentDesktopError(view.errorCode, view.error) : null);
+  const visibleHelp =
+    notice ?? (view.error ? presentDesktopError(view.errorCode, view.error) : null);
   const visibleError = visibleHelp ? errorText(visibleHelp) : null;
   const startupHelp = view.error && !notice ? visibleHelp : null;
   const effectiveAddress = state.addresses.includes(address)
@@ -209,7 +215,9 @@ export function App() {
   };
   const installSupportedCodex = async () => {
     setInstallingCodex(true);
-    setNotice(informationNotice('正在安装兼容版', '正在从 npm 官方仓库下载并校验 Codex CLI 0.159.2。'));
+    setNotice(
+      informationNotice('正在安装兼容版', '正在从 npm 官方仓库下载并校验 Codex CLI 0.159.2。'),
+    );
     try {
       await host.installSupportedCodex();
       setNotice(null);
@@ -243,7 +251,9 @@ export function App() {
   const nativeWindow = (action: 'minimize' | 'hide') => {
     try {
       const window = getCurrentWindow();
-      void window[action]().catch(() => setNotice(informationNotice('无法执行此操作', '此操作仅适用于 Windows 桌面窗口。')));
+      void window[action]().catch(() =>
+        setNotice(informationNotice('无法执行此操作', '此操作仅适用于 Windows 桌面窗口。')),
+      );
     } catch {
       setNotice(informationNotice('无法执行此操作', '此操作仅适用于 Windows 桌面窗口。'));
     }

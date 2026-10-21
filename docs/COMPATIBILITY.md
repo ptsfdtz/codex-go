@@ -30,22 +30,22 @@ pnpm schema:verify
 
 The table describes the pinned integration contract. Real verification entries include historical Node-version checks; current Rust evidence and pending physical checks are listed separately in ACCEPTANCE.md.
 
-| Method                           | Contract / role                                                         | Verification                                        |
-| -------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
+| Method                           | Contract / role                                                                                                       | Verification                                        |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | initialize / initialized         | InitializeParams/Response (JSON schema under v1), experimentalApi true (Plan composer; separately pinned turn schema) | real smoke                                          |
-| config/read                      | effective workspace permissions and integration safety gate             | real startup/Bridge smoke                           |
-| windowsSandbox/readiness         | require ready                                                           | real startup                                        |
-| thread/start                     | cwd, approvalPolicy on-request, approvalsReviewer user                  | real create                                         |
-| thread/resume                    | persisted thread ID, same cwd/policy, excludeTurns                      | real resume/continue                                |
-| turn/start                       | threadId and typed text input (`text_elements:[]`)                      | real concurrent tasks                               |
-| turn/completed                   | validated TurnCompletedNotification; terminal status                    | real completed and interrupted                      |
-| turn/interrupt                   | exact threadId/turnId                                                   | real terminal interruption                          |
-| thread/read; thread/turns/list   | persisted terminal recovery; summary pagination                         | exported stable contract + fixture recovery         |
-| model/list                       | paginated visible account catalog and supportedReasoningEfforts         | current Rust real smoke                             |
-| thread/name/set                  | threadId, name; method-specific response validation                     | current Rust real smoke                             |
-| thread/archive; thread/unarchive | threadId; method-specific response validation                           | current Rust real smoke                             |
-| thread/delete                    | threadId; permanently removes thread and upstream descendants           | current Rust real smoke on its own temporary thread |
-| account/read                     | smoke-only auth availability, refreshToken false                        | real smoke; no login token read                     |
+| config/read                      | effective workspace permissions and integration safety gate                                                           | real startup/Bridge smoke                           |
+| windowsSandbox/readiness         | require ready                                                                                                         | real startup                                        |
+| thread/start                     | cwd, approvalPolicy on-request, approvalsReviewer user                                                                | real create                                         |
+| thread/resume                    | persisted thread ID, same cwd/policy, excludeTurns                                                                    | real resume/continue                                |
+| turn/start                       | threadId and typed text input (`text_elements:[]`)                                                                    | real concurrent tasks                               |
+| turn/completed                   | validated TurnCompletedNotification; terminal status                                                                  | real completed and interrupted                      |
+| turn/interrupt                   | exact threadId/turnId                                                                                                 | real terminal interruption                          |
+| thread/read; thread/turns/list   | persisted terminal recovery; summary pagination                                                                       | exported stable contract + fixture recovery         |
+| model/list                       | paginated visible account catalog and supportedReasoningEfforts                                                       | current Rust real smoke                             |
+| thread/name/set                  | threadId, name; method-specific response validation                                                                   | current Rust real smoke                             |
+| thread/archive; thread/unarchive | threadId; method-specific response validation                                                                         | current Rust real smoke                             |
+| thread/delete                    | threadId; permanently removes thread and upstream descendants                                                         | current Rust real smoke on its own temporary thread |
+| account/read                     | smoke-only auth availability, refreshToken false                                                                      | real smoke; no login token read                     |
 
 Task stream additionally validates generated schemas for turn/started, plan/diff updates, item started/completed, agent message/plan/output deltas, file patches, MCP progress and error. MCP invocation is disabled by the production safety policy. Unknown notifications do not establish state; unknown server requests are rejected and interrupt their correlated turn where possible.
 

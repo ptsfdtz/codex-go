@@ -37,33 +37,33 @@ Responses include the same ID/action, `payload` and ISO `ts`. Errors contain `ty
 
 First send `system.hello` with `{client,version:1}`. A socket receives events only after hello. Heartbeats ping every 15 seconds; unresponsive sockets terminate. Authenticated request limit: 60 burst / 20 per second per device. No raw RPC passthrough exists.
 
-| Action                              | Payload                                              | Result                                                                                   |
-| ----------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| system.hello                        | client, version                                      | hostId, serverVersion, heartbeatSeconds                                                  |
-| system.capabilities                 | empty                                                | supported approvals, concurrency, sandboxVerified                                        |
-| system.diagnostics                  | empty                                                | versions, platform, upstream/sandbox readiness, cursor, retention, structural counts     |
-| settings.get                        | empty                                                | retention: days and maxMiB                                                               |
-| settings.update                     | days 1–365, maxMiB 16–1024                           | persisted retention; authenticated, journaled mutation                                   |
-| snapshot.get                        | empty                                                | host/projects/sessions/active turns/pending approvals/cursor                             |
-| projects.list                       | empty                                                | authorized projects                                                                      |
-| projects.add                        | empty                                                | awaitingLocalConfirmation; Windows folder dialog                                         |
-| projects.remove                     | projectId                                            | awaitingLocalConfirmation; Windows confirmation                                          |
-| sessions.list                       | optional projectId                                   | sessions                                                                                 |
-| models.list                         | empty                                                | models: model, displayName, isDefault, defaultReasoningEffort, supportedReasoningEfforts |
-| sessions.rename                     | sessionId, title ≤160                                | upstream-confirmed session                                                               |
-| sessions.archive / sessions.restore | sessionId                                            | upstream-confirmed session                                                               |
-| sessions.delete                     | sessionId                                            | deleted, sessionId; permanent upstream deletion including descendants                    |
-| sessions.pin                        | sessionId, pinned boolean                            | session; local ordering preference                                                       |
-| sessions.create                     | projectId, title ≤160                                | session                                                                                  |
-| sessions.detail                     | sessionId, optional before, limit 1–500              | session, turns, events                                                                   |
+| Action                              | Payload                                                                                 | Result                                                                                   |
+| ----------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| system.hello                        | client, version                                                                         | hostId, serverVersion, heartbeatSeconds                                                  |
+| system.capabilities                 | empty                                                                                   | supported approvals, concurrency, sandboxVerified                                        |
+| system.diagnostics                  | empty                                                                                   | versions, platform, upstream/sandbox readiness, cursor, retention, structural counts     |
+| settings.get                        | empty                                                                                   | retention: days and maxMiB                                                               |
+| settings.update                     | days 1–365, maxMiB 16–1024                                                              | persisted retention; authenticated, journaled mutation                                   |
+| snapshot.get                        | empty                                                                                   | host/projects/sessions/active turns/pending approvals/cursor                             |
+| projects.list                       | empty                                                                                   | authorized projects                                                                      |
+| projects.add                        | empty                                                                                   | awaitingLocalConfirmation; Windows folder dialog                                         |
+| projects.remove                     | projectId                                                                               | awaitingLocalConfirmation; Windows confirmation                                          |
+| sessions.list                       | optional projectId                                                                      | sessions                                                                                 |
+| models.list                         | empty                                                                                   | models: model, displayName, isDefault, defaultReasoningEffort, supportedReasoningEfforts |
+| sessions.rename                     | sessionId, title ≤160                                                                   | upstream-confirmed session                                                               |
+| sessions.archive / sessions.restore | sessionId                                                                               | upstream-confirmed session                                                               |
+| sessions.delete                     | sessionId                                                                               | deleted, sessionId; permanent upstream deletion including descendants                    |
+| sessions.pin                        | sessionId, pinned boolean                                                               | session; local ordering preference                                                       |
+| sessions.create                     | projectId, title ≤160                                                                   | session                                                                                  |
+| sessions.detail                     | sessionId, optional before, limit 1–500                                                 | session, turns, events                                                                   |
 | turn.start                          | sessionId, text ≤64000, optional model / effort ≤160, permissionMode: full or workspace | submitted turn; not terminal success                                                     |
-| turn.interrupt                      | sessionId, turnId                                    | requested and currently confirmed state                                                  |
-| approvals.list                      | optional sessionId                                   | pending approvals                                                                        |
-| approvals.decide                    | sessionId, turnId, approvalId, approve/reject/cancel | one-shot local delivery result                                                           |
-| git.status                          | projectId                                            | working-tree files, baseline, truncation                                                 |
-| git.diff                            | projectId, opaque fileId                             | read-only current preview, binary/truncated flags                                        |
-| events.replay                       | optional cursor, limit 1–500                         | ordered events, cursor, more                                                             |
-| devices.revokeSelf                  | empty                                                | revoke paired device                                                                     |
+| turn.interrupt                      | sessionId, turnId                                                                       | requested and currently confirmed state                                                  |
+| approvals.list                      | optional sessionId                                                                      | pending approvals                                                                        |
+| approvals.decide                    | sessionId, turnId, approvalId, approve/reject/cancel                                    | one-shot local delivery result                                                           |
+| git.status                          | projectId                                                                               | working-tree files, baseline, truncation                                                 |
+| git.diff                            | projectId, opaque fileId                                                                | read-only current preview, binary/truncated flags                                        |
+| events.replay                       | optional cursor, limit 1–500                                                            | ordered events, cursor, more                                                             |
+| devices.revokeSelf                  | empty                                                                                   | revoke paired device                                                                     |
 
 Mutation IDs are journaled per device with a hash of action/payload. An identical completed request returns its cached response. ID reuse with different content conflicts. A pending/unknown outcome returns `OUTCOME_UNKNOWN`; clients reconcile instead of replaying a potentially executed action under a new ID. Android does not automatically retry mutations.
 

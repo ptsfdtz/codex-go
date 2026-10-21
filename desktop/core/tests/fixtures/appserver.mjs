@@ -36,7 +36,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       terminal(
         waiting.threadId,
         waiting.turnId,
-        m.result?.decision === 'accept' || m.result?.answers?.approach?.answers?.[0] === 'A' ? 'completed' : 'interrupted',
+        m.result?.decision === 'accept' || m.result?.answers?.approach?.answers?.[0] === 'A'
+          ? 'completed'
+          : 'interrupted',
       );
     }
     return;
@@ -135,7 +137,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     case 'thread/resume': {
       const thread = threads.get(p.threadId);
       if (thread?.name === 'WRITER_CONFLICT') {
-        send({id:m.id,error:{code:-32600,message:`thread ${p.threadId} already has an active writer`}});
+        send({
+          id: m.id,
+          error: { code: -32600, message: `thread ${p.threadId} already has an active writer` },
+        });
         return;
       }
       if (!thread) {
@@ -155,7 +160,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       result.thread.id = 'fixture_' + randomUUID();
       result.thread.cwd = source.root;
       result.cwd = source.root;
-      threads.set(result.thread.id, {root:source.root, turns:new Map(source.turns)});
+      threads.set(result.thread.id, { root: source.root, turns: new Map(source.turns) });
       respond(result);
       return;
     }
@@ -168,7 +173,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     }
     case 'thread/turns/list':
       respond({
-        data: [...(threads.get(p.threadId)?.turns.values() ?? [])].reverse().slice(0,p.limit ?? 100),
+        data: [...(threads.get(p.threadId)?.turns.values() ?? [])]
+          .reverse()
+          .slice(0, p.limit ?? 100),
         nextCursor: null,
         backwardsCursor: null,
       });
@@ -176,8 +183,12 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     case 'thread/goal/set': {
       const current = threads.get(p.threadId);
       const now = Date.now();
-      current.goal = {...(current.goal ?? {createdAt:now,objective:'',tokensUsed:0,timeUsedSeconds:0}),...p,updatedAt:now};
-      respond({goal:current.goal});
+      current.goal = {
+        ...(current.goal ?? { createdAt: now, objective: '', tokensUsed: 0, timeUsedSeconds: 0 }),
+        ...p,
+        updatedAt: now,
+      };
+      respond({ goal: current.goal });
       return;
     }
     case 'turn/start': {
@@ -189,18 +200,31 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       result.turn.items = [];
       const text = p.input[0].text;
       const expectedMode = text === 'CHECK_PLAN' ? 'plan' : 'default';
-      if(text.startsWith('CHECK_COMPOSER') || text === 'CHECK_PLAN') {
-        const valid = p.collaborationMode?.mode === expectedMode && p.collaborationMode?.settings.model === 'fixture-model' &&
-          (text !== 'CHECK_COMPOSER_FILES' || (p.input[1]?.type === 'text' && p.input[1].text.includes('notes.txt') && p.input[2]?.type === 'localImage')) &&
+      if (text.startsWith('CHECK_COMPOSER') || text === 'CHECK_PLAN') {
+        const valid =
+          p.collaborationMode?.mode === expectedMode &&
+          p.collaborationMode?.settings.model === 'fixture-model' &&
+          (text !== 'CHECK_COMPOSER_FILES' ||
+            (p.input[1]?.type === 'text' &&
+              p.input[1].text.includes('notes.txt') &&
+              p.input[2]?.type === 'localImage')) &&
           (text !== 'CHECK_COMPOSER_GOAL' || threads.get(p.threadId).goal?.status === 'active') &&
           (text !== 'CHECK_COMPOSER_PAUSE' || threads.get(p.threadId).goal?.status === 'paused');
-        if(!valid){send({id:m.id,error:{code:-1,message:'Composer options not forwarded'}});return;}
+        if (!valid) {
+          send({ id: m.id, error: { code: -1, message: 'Composer options not forwarded' } });
+          return;
+        }
       }
       if (text.startsWith('CHECK_PERMISSION_')) {
         const full = text === 'CHECK_PERMISSION_FULL';
-        if (p.approvalPolicy !== (full ? 'never' : 'on-request') ||
-            p.sandboxPolicy?.type !== (full ? 'dangerFullAccess' : 'workspaceWrite') ||
-            (!full && (p.sandboxPolicy.networkAccess !== false || !p.sandboxPolicy.excludeTmpdirEnvVar || !p.sandboxPolicy.excludeSlashTmp))) {
+        if (
+          p.approvalPolicy !== (full ? 'never' : 'on-request') ||
+          p.sandboxPolicy?.type !== (full ? 'dangerFullAccess' : 'workspaceWrite') ||
+          (!full &&
+            (p.sandboxPolicy.networkAccess !== false ||
+              !p.sandboxPolicy.excludeTmpdirEnvVar ||
+              !p.sandboxPolicy.excludeSlashTmp))
+        ) {
           send({ id: m.id, error: { code: -1, message: 'Permission policy not forwarded/reset' } });
           return;
         }
@@ -222,8 +246,28 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       respond(result);
       if (text === 'QUESTION') {
         const requestId = ++nextRequest;
-        pending.set(requestId, {threadId:p.threadId,turnId});
-        send({id:requestId,method:'item/tool/requestUserInput',params:{threadId:p.threadId,turnId,itemId:'question',isBlocking:true,questions:[{id:'approach',header:'Approach',question:'Which approach?',options:[{label:'A',description:'First approach'},{label:'B',description:'Second approach'}]}]}});
+        pending.set(requestId, { threadId: p.threadId, turnId });
+        send({
+          id: requestId,
+          method: 'item/tool/requestUserInput',
+          params: {
+            threadId: p.threadId,
+            turnId,
+            itemId: 'question',
+            isBlocking: true,
+            questions: [
+              {
+                id: 'approach',
+                header: 'Approach',
+                question: 'Which approach?',
+                options: [
+                  { label: 'A', description: 'First approach' },
+                  { label: 'B', description: 'Second approach' },
+                ],
+              },
+            ],
+          },
+        });
       } else if (text.includes('APPROVAL')) {
         const requestId = ++nextRequest;
         pending.set(requestId, { threadId: p.threadId, turnId });

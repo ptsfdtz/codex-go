@@ -26,7 +26,11 @@ function workspaceAccessError(): ErrorPresentation {
 
 export function presentDesktopError(code?: string | null, raw?: unknown): ErrorPresentation {
   const message = typeof raw === 'string' ? raw : raw instanceof Error ? raw.message : '';
-  const normalizedCode = (code ?? message.match(/\b([A-Z][A-Z0-9_]{2,})\s*:/)?.[1] ?? '').toUpperCase();
+  const normalizedCode = (
+    code ??
+    message.match(/\b([A-Z][A-Z0-9_]{2,})\s*:/)?.[1] ??
+    ''
+  ).toUpperCase();
   const lower = message.toLowerCase();
 
   if (/mxc launcher|createprocessinsandbox/.test(lower)) {
@@ -45,8 +49,10 @@ export function presentDesktopError(code?: string | null, raw?: unknown): ErrorP
     case 'UPSTREAM_VERSION_UNSUPPORTED':
       return {
         title: 'Codex CLI 版本不兼容',
-        detail: '当前 Codex CLI 的 App Server 协议版本尚未通过 AgentDeck 验证，因此服务已停止，避免错误处理会话或审批。',
-        solution: '安装经验证的 AgentDeck 兼容版，或更新 AgentDeck 以支持当前 CLI。兼容版会并行安装，不会替换全局 CLI。',
+        detail:
+          '当前 Codex CLI 的 App Server 协议版本尚未通过 AgentDeck 验证，因此服务已停止，避免错误处理会话或审批。',
+        solution:
+          '安装经验证的 AgentDeck 兼容版，或更新 AgentDeck 以支持当前 CLI。兼容版会并行安装，不会替换全局 CLI。',
         install: true,
         retry: true,
       };
