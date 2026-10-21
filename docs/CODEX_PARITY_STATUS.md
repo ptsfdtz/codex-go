@@ -3,6 +3,14 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：原生项目与 GUI 同源列表验证（阶段 0 / P01）
+
+- 前一轮提交 7e68398。本轮只读安装代码定位 writeAppServerProject/listProjects/initializeProjects：桌面使用原生 project/create/list/read/update/import 并维护 legacy ID 映射；projects 最低原生版本为 0.148.0-alpha.21。不能继续把线程 cwd 或 Bridge 的目录列表等同桌面项目组织。
+- 新增 --with-native-project（要求 --shared-index）：通过隔离源服务 project/create 创建真实项目并核验源列表，在 thread/start 传入 projectId，观察 GUI 自己的项目列表。没有写入私有数据库/global-state 或首次设置标志；线程归属响应尚未核验，不凭发送参数宣称归属通过。
+- 真实 desktop-gui-native-project-probe.json：sourceListedSeedProject、desktopRequestedProjects、desktopListedSeedProject 均 true，原项目 ID 在 GUI 自身响应可见；源完整历史、同线程元数据/列表及外部重命名继续通过。GUI 仍未请求完整历史，两项原文 false，整体 passed=false，无代理错误码，子进程退出，另查隔离 GUI/runtime/proxy 剩余 0。加入原生项目没有解决历史导航，不把列表成功升级为可见 UI/工作区或共享运行时验收。
+- 验证：真实隔离原生项目/GUI 检查已完成，选项依赖在启动前拒绝检查、脚本 ESLint/Prettier、相关 diff 检查通过。无 Rust、安卓、远程协议或数据库变更，不重复不相关测试。
+- 阶段 0/sharedDesktopRuntime 仍未完成。下一步分别建模原生项目身份与桌面本机导航偏好，继续核验首次设置/深链接延续路径、线程归属与双向项目操作，再验证完整 GUI 历史和活动任务。本轮选择性提交相关实现、真实正负证据和文档，不混入独立 CI/发布修改，不推送。
+
 ## 2026-10-21 实施记录：源历史交叉核验及首次启动路由实证（阶段 0 / P01）
 
 - 前一轮提交 e224802。本轮 GUI 探测在启动桌面前调用源 thread/items/list，要求原线程/轮次的完整用户输入和助手回复均匹配；缺失即失败。真实更新报告 sourceRetainsExactSeedInput/sourceRetainsExactSeedAnswer 均 true；GUI 仍未请求含轮次读取或 turns/items 分页，原文检查 false，整体 passed=false。排除了源合成历史未保存这一原因，不把元数据读取升级为历史加载。

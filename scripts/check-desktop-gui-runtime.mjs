@@ -26,6 +26,8 @@ const [desktop, native, proxy, destination] = process.argv.slice(2);
 const sharedIndex = process.argv.slice(6).includes('--shared-index');
 const sharedHistory = process.argv.slice(6).includes('--shared-history');
 if (sharedHistory && !sharedIndex) throw new Error('Shared history requires shared-index probe');
+const nativeProject = process.argv.slice(6).includes('--with-native-project');
+if (nativeProject && !sharedIndex) throw new Error('Native project requires shared-index probe');
 const desktopPluginStartup = process.argv.slice(6).includes('--with-desktop-plugin-startup');
 const inspectionArgs = process.argv
   .slice(6)
@@ -53,6 +55,7 @@ if (
         ![
           '--shared-index',
           '--shared-history',
+          '--with-native-project',
           '--with-desktop-plugin-startup',
           inspectionArg,
         ].includes(arg),
@@ -164,6 +167,7 @@ const report = {
   mainAppBootstrapVerified: false,
   desktopPluginStartup: { requested: desktopPluginStartup, hostIntegrationVerified: false },
   historyVerificationRequested: sharedHistory,
+  nativeProjectRequested: nativeProject,
   checks: {
     desktopReceivedExactSeedInput: false,
     desktopReceivedExactSeedAnswer: false,
@@ -172,6 +176,9 @@ const report = {
     desktopRequestedSeedItems: false,
     sourceRetainsExactSeedInput: false,
     sourceRetainsExactSeedAnswer: false,
+    sourceListedSeedProject: false,
+    desktopRequestedProjects: false,
+    desktopListedSeedProject: false,
   },
   passed: false,
 };
@@ -181,6 +188,7 @@ let observer;
 let model;
 let direct;
 let seededThread;
+let seededProject;
 let seededTurn;
 let completedSeed = false;
 let requestId = 0;
@@ -359,8 +367,24 @@ try {
     direct.send(JSON.stringify({ method: 'initialized', params: {} }));
     const project = join(root, 'project');
     mkdirSync(project);
+    if (nativeProject) {
+      const created = await request('project/create', {
+        name: 'AgentDeck isolated native project',
+        roots: [{ path: project }],
+        metadata: {},
+        idempotencyKey: 'agentdeck-isolated-gui-project',
+      });
+      seededProject = created.project?.id;
+      if (typeof seededProject !== 'string' || !seededProject)
+        throw new Error('Native project identity missing');
+      const listed = await request('project/list', { limit: 100 });
+      report.checks.sourceListedSeedProject =
+        listed.data?.some((p) => p.id === seededProject) === true;
+      if (!report.checks.sourceListedSeedProject) throw new Error('Native project not indexed');
+    }
     const started = await request('thread/start', {
       cwd: project,
+      ...(nativeProject ? { projectId: seededProject } : {}),
       ephemeral: false,
       sandbox: 'read-only',
       approvalPolicy: 'on-request',
@@ -421,6 +445,7 @@ try {
       try {
         const packet = JSON.parse(data.toString());
         if (packet.method === 'initialize') report.checks.desktopInitializeSent = true;
+        if (packet.method === 'project/list') report.checks.desktopRequestedProjects = true;
         if (seededThread && packet.params?.threadId === seededThread) {
           if (packet.method === 'thread/read' && packet.params.includeTurns === true)
             report.checks.desktopRequestedSeedReadWithTurns = true;
@@ -437,6 +462,7 @@ try {
             'thread/resume',
             'thread/turns/list',
             'thread/items/list',
+            'project/list',
           ].includes(packet.method) &&
           pending.size < 256
         )
@@ -477,6 +503,12 @@ try {
               userAgent.startsWith(`Codex Desktop/${report.nativeVersion} (`);
           }
           if (method === 'config/read') report.checks.sameSocketConfigurationRead = true;
+          if (
+            method === 'project/list' &&
+            seededProject &&
+            packet.result.data?.some((p) => p.id === seededProject)
+          )
+            report.checks.desktopListedSeedProject = true;
           if (
             method === 'thread/list' &&
             packet.result.data?.some((thread) => thread.id === seededThread)
@@ -608,6 +640,10 @@ try {
       report.checks.desktopReceivedExactSeedInput === true &&
       report.checks.desktopReceivedExactSeedAnswer === true;
   }
+  if (nativeProject)
+    report.passed &&=
+      report.checks.sourceListedSeedProject === true &&
+      report.checks.desktopListedSeedProject === true;
 } catch {
   report.failure = 'ISOLATED_GUI_PROBE_FAILED';
 } finally {

@@ -74,3 +74,11 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 运行 `node scripts/audit-desktop-onboarding.mjs <app.asar绝对路径> <report.json绝对路径>`。严格匹配安装版 app-initial 中已知纯路由函数，未知布局失败；只在 VM 中以合成状态运行该函数，不执行 bundle、不访问生产配置、不调用账户或首次设置 API。`baselines/codex-0.163.0-alpha.10.2/desktop-onboarding-route-audit.json` 保存文件指纹、字符偏移和 10 组结果。
 
 本安装基准的合成 allowed/local 状态无工作区时选择 welcome，有工作区或已有完成状态时选择 app；加载状态可暂不选页。需要登录、缺少 ChatGPT token 或 gateway 要求登录时，即使已有工作区或完成标志也仍选 login。它仅说明路由条件，不证明这些合成状态就是当前 GUI 实际状态，也不证明创建原生线程的 cwd 等于桌面工作区根目录。supportedFixtureSetupVerified 仍 false；后续应查清桌面工作区的受支持设置接口和深链接延续路径，不写入伪造完成标志、复制生产 profile 或以源码分支推断 UI 已可用。
+
+## 原生项目共享索引
+
+共享索引命令可追加 `--with-native-project`（必须有 `--shared-index`），以新报告路径运行。该选项在全新隔离源服务通过 project/create 创建真实项目，参数为 name、roots（path 对象数组）、metadata 和稳定 idempotencyKey，再以源 project/list 核验创建返回的 ID。随后 thread/start 发送该 projectId，观察 GUI 自己的 project/list 响应是否包含同一 ID；新增通过门槛要求两端列表均含原项目。不写入私有数据库或桌面 global-state，不添加首次完成/职业/个性化设置标志。没有核验线程归属返回字段，不凭发送 projectId 声称归属已验收。
+
+安装代码 main-C4DYk222.js 的 writeAppServerProject/listProjects 明确使用这些原生接口；initializeProjects 读取服务项目并维护原生/legacy ID 映射，且仍使用桌面缓存/迁移状态。src-Dtwb7yKT.js 的 projects 最低版本为 0.148.0-alpha.21。代码读取只是接入定位，不能证明全部项目元数据或侧栏已经迁移。
+
+真实 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-native-project-probe.json` 中 sourceListedSeedProject、desktopRequestedProjects、desktopListedSeedProject 均 true，源完整输入/回复仍存在，同线程列表/读取和外部重命名仍通过；完整 GUI 历史检查仍 false，整体 passed=false，子进程退出、无代理失败码。因此原生项目共享列表已取得真实证据，但添加原生项目本身没有使 GUI 请求历史；尚未证明可见侧栏、桌面工作区根目录状态、首次设置完成、线程项目归属或双向项目操作。下一步应将原生项目身份及桌面本机导航偏好分别建模，继续核验实际导航阻塞，不把项目列表成功冒充 UI 或阶段 1 完成。
