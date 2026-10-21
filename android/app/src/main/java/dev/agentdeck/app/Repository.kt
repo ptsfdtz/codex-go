@@ -169,23 +169,19 @@ class DeckRepository(context:Context){
         fun valid()=epoch==hostEpoch&&current===transport&&!mutable.value.stale&&mutable.value.host?.hostId==host.hostId
         if(!valid()){replay.clear();return}
         val snapshot=mutable.value.snapshot
-        var nativeReads=0
-        replay.drain(host.hostId,snapshot,includeNative=true).forEach{event->
-            if(!valid())return
-            if(event.action=="upstream.turn.completed"){
-                if(mutable.value.capabilities?.supports("latestUpstreamTurn")!=true||nativeReads>=8)return@forEach
-                val session=snapshot.sessions.find{it.sessionId==event.sessionId}?:return@forEach
-                nativeReads++
-                try{
-                    val result=withTimeout(4000){current.request("turn.latest",buildJsonObject{put("sessionId",session.sessionId);put("contractVersion",1)})}
-                    val latest=decodeLatestTurn(result,session)
-                    if(!valid()||mutable.value.snapshot.sessions.none{it.sessionId==session.sessionId&&it.upstreamThreadId==session.upstreamThreadId})return
-                    if(!latest.confirms(event))return@forEach
-                }catch(e:TimeoutCancellationException){return@forEach}catch(e:CancellationException){throw e}catch(_:Exception){return@forEach}
-            }
-            if(valid())notifications.publish(host.hostId,event,mutable.value.preferences.notifications)
-        }
+        deliverReplayNotifications(
+            replay.drain(host.hostId,snapshot,includeNative=true),
+            isCurrent=::valid,
+            nativeSupported={mutable.value.capabilities?.supports("latestUpstreamTurn")==true},
+            session={id->mutable.value.snapshot.sessions.find{it.sessionId==id}},
+            readLatest={session->
+                val result=current.request("turn.latest",buildJsonObject{put("sessionId",session.sessionId);put("contractVersion",1)})
+                decodeLatestTurn(result,session)
+            },
+            publish={notifications.publish(host.hostId,it,mutable.value.preferences.notifications)},
+        )
     }
+
     private suspend fun applyEvent(event:DeckEvent){
         val committed=cacheMutex.withLock{
             val host=mutable.value.host?:return

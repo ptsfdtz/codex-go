@@ -14,7 +14,7 @@
 
 重放完成后先读取权威快照，确认当前 transport/电脑与连接状态，再一次性 drain 并发布。Bridge 终态需同时匹配 session.status 和快照中的具体 turn ID/status；审批需仍在该电脑的 pending 列表、身份匹配且未过期，通知使用最新审批的到期时间。无授权/删除/状态不一致/未知身份均不补发。REPLAY_GAP 清空候选，再恢复快照；首次无缓存连接不广播旧历史。
 
-前台、通知关闭或权限未授予仍不显示。已持久化游标及候选 drain 防止通常重连重复提交，但这不是“恰好一次”投递：缓存提交后进程退出/读取快照失败/系统拒绝通知可能漏发；候选不持久化，不重置事件游标来重试通知。超过容量也可能漏发。原生候选仅保留原生 turn ID/status，调用 turn.latest 严格解码合约、Bridge/原线程身份、已知状态；要求 threadStatus=idle 且最新 turn ID/终态与事件完全相同。核验前后检查 transport、hostEpoch、电脑及快照会话映射；最多 8 个候选，每次 4 秒，失败/超时/未知/无能力均丢弃，不阻止其余通知。读取后仍可能开始新任务，不能承诺原子实时状态。这里不承诺系统推送、离线期间即时通知或完整通知恢复。
+前台、通知关闭或权限未授予仍不显示。已持久化游标及候选 drain 防止通常重连重复提交，但这不是“恰好一次”投递：缓存提交后进程退出/读取快照失败/系统拒绝通知可能漏发；候选不持久化，不重置事件游标来重试通知。超过容量也可能漏发。原生候选仅保留原生 turn ID/status，调用 turn.latest 严格解码合约、Bridge/原线程身份、已知状态；要求 threadStatus=idle 且最新 turn ID/终态与事件完全相同。核验前后检查 transport、hostEpoch、电脑及快照会话/项目授权映射；最多 8 个候选，每次 4 秒，失败/超时/未知/无能力均丢弃，不阻止其余通知。读取后仍可能开始新任务，不能承诺原子实时状态。这里不承诺系统推送、离线期间即时通知或完整通知恢复。
 
 ## 点击流程
 
@@ -26,7 +26,7 @@
 
 ## 验证与接手
 
-`NotificationReplayTest` 是 JVM 有界候选、顺序/一次 drain、失效/换电脑/删除/后续任务筛选和最新审批到期时间测试，未执行 Repository 网络或 Room 链路。`TaskNotificationsTest` 是 JVM 原生终态、未知/错误结构、审批身份/状态/时效回归；不执行 NotificationManager 或系统定时移除。`NotificationTargetTest` 是 JVM 身份/旧缓存/缺失会话/输入检查。`NotificationIntentTest` 是设备 instrumentation，检查真实 Intent.filterEquals、PendingIntent 隔离与仅有标识字段；不发送 PendingIntent、不启动任务。编译测试 APK 不代表执行过设备测试。
+`ReplayDeliveryTest` 使用生产异步核验器和虚拟时间，覆盖连接切换、项目/线程映射变化、单项超时/失败、父取消、能力与八次上限；不替代真实 WSS/Room/设备。`NotificationReplayTest` 是 JVM 有界候选、顺序/一次 drain、失效/换电脑/删除/后续任务筛选和最新审批到期时间测试，未执行 Repository 网络或 Room 链路。`TaskNotificationsTest` 是 JVM 原生终态、未知/错误结构、审批身份/状态/时效回归；不执行 NotificationManager 或系统定时移除。`NotificationTargetTest` 是 JVM 身份/旧缓存/缺失会话/输入检查。`NotificationIntentTest` 是设备 instrumentation，检查真实 Intent.filterEquals、PendingIntent 隔离与仅有标识字段；不发送 PendingIntent、不启动任务。编译测试 APK 不代表执行过设备测试。
 
 ```powershell
 cd android
