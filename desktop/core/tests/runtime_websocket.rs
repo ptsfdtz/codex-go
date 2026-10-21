@@ -33,6 +33,42 @@ async fn real_desktop_baseline_steers_original_turn_through_core() {
     desktop_baseline_contracts(false, true).await;
 }
 
+async fn native_request(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    id: &str,
+    method: &str,
+    params: Value,
+) -> Value {
+    socket
+        .send(Message::Text(
+            json!({"id":id,"method":method,"params":params})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let message = socket.next().await.unwrap().unwrap();
+            if !message.is_text() {
+                continue;
+            }
+            let packet: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            if packet["id"] == id {
+                assert!(
+                    packet.get("error").is_none(),
+                    "isolated native project seed failed"
+                );
+                return packet["result"].clone();
+            }
+        }
+    })
+    .await
+    .unwrap()
+}
+
 async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     use agentdeck_service::{codex, rpc::ProtocolVersion};
     let executable =
@@ -219,41 +255,6 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             .headers_mut()
             .insert("Authorization", format!("Bearer {token}").parse().unwrap());
         let (mut source, _) = tokio_tungstenite::connect_async(request).await.unwrap();
-        async fn native_request(
-            socket: &mut tokio_tungstenite::WebSocketStream<
-                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-            >,
-            id: &str,
-            method: &str,
-            params: Value,
-        ) -> Value {
-            socket
-                .send(Message::Text(
-                    json!({"id":id,"method":method,"params":params})
-                        .to_string()
-                        .into(),
-                ))
-                .await
-                .unwrap();
-            tokio::time::timeout(Duration::from_secs(10), async {
-                loop {
-                    let message = socket.next().await.unwrap().unwrap();
-                    if !message.is_text() {
-                        continue;
-                    }
-                    let packet: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
-                    if packet["id"] == id {
-                        assert!(
-                            packet.get("error").is_none(),
-                            "isolated native project seed failed"
-                        );
-                        return packet["result"].clone();
-                    }
-                }
-            })
-            .await
-            .unwrap()
-        }
         native_request(&mut source, "project-init", "initialize", json!({"clientInfo":{"name":"rust_project_seed","version":"0.3.0"},"capabilities":{"experimentalApi":true}})).await;
         source
             .send(Message::Text(
@@ -422,13 +423,37 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         assert_eq!(imported["projectId"], grant["projectId"]);
         source.close(None).await.unwrap();
     }
-    let created = a
-        .request(
-            "thread/start",
-            json!({"cwd":project,"sandbox":"read-only","approvalPolicy":"on-request"}),
-        )
-        .await
-        .unwrap();
+    let (created, history_project_id) = if with_history {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let mut request = endpoint.as_str().into_client_request().unwrap();
+        request
+            .headers_mut()
+            .insert("Authorization", format!("Bearer {token}").parse().unwrap());
+        let (mut source, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+        native_request(&mut source,"history-project-init","initialize",json!({"clientInfo":{"name":"history_project_seed","version":"0.3.0"},"capabilities":{"experimentalApi":true}})).await;
+        source
+            .send(Message::Text(
+                json!({"method":"initialized","params":{}})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let project_seed=native_request(&mut source,"history-project","project/create",json!({"idempotencyKey":"history-project","name":"Persisted project","roots":[{"path":project}]})).await;
+        let native_id = project_seed["project"]["id"].as_str().unwrap().to_owned();
+        let thread=native_request(&mut source,"history-thread","thread/start",json!({"cwd":project,"projectId":native_id,"sandbox":"read-only","approvalPolicy":"on-request"})).await;
+        source.close(None).await.unwrap();
+        (thread, Some(native_id))
+    } else {
+        let created = a
+            .request(
+                "thread/start",
+                json!({"cwd":project,"sandbox":"read-only","approvalPolicy":"on-request"}),
+            )
+            .await
+            .unwrap();
+        (created, None)
+    };
     a.validate("v2/ThreadStartResponse", &created).unwrap();
     let id = created["thread"]["id"].clone();
     {
@@ -665,6 +690,9 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         .unwrap();
     b.validate("v2/ThreadReadResponse", &read).unwrap();
     assert_eq!(read["thread"]["id"], id);
+    if let Some(native_id) = &history_project_id {
+        assert_eq!(read["thread"]["projectId"], *native_id);
+    }
     assert!(child.try_wait().unwrap().is_none());
     // Verify the real binary entrypoint, not only the Rust library supervisor.
     let startup_directory = directory.path().join("startup");
@@ -747,7 +775,11 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             }
         }
     });
-    let core = agentdeck_service::service::Core::new(store, tls, "127.0.0.1".into(), 49321, tx);
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let bridge_port = reserved.local_addr().unwrap().port();
+    drop(reserved);
+    let core =
+        agentdeck_service::service::Core::new(store, tls, "127.0.0.1".into(), bridge_port, tx);
     // Only the real successful boundary above authorizes the isolated Core.
     core.verified.store(true, Ordering::SeqCst);
     let target = agentdeck_service::runtime::RuntimeTarget::Attached {
@@ -812,6 +844,167 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         .find(|v| v["upstreamThreadId"] == id)
         .unwrap();
     let imported_id = imported["sessionId"].as_str().unwrap().to_owned();
+    if let Some(native_id) = &history_project_id {
+        assert_eq!(imported["upstream"]["projectId"], *native_id);
+    }
+    if let Some(native_id) = &history_project_id {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let credential = agentdeck_service::security::token();
+        core.store
+            .replace_device(
+                "persisted-project-reader",
+                "isolated WSS test",
+                &agentdeck_service::digest(&credential),
+            )
+            .unwrap();
+        core.listen("127.0.0.1").await.unwrap();
+        let (_, pem) = x509_parser::pem::parse_x509_pem(core.tls.cert.as_bytes()).unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        roots
+            .add(rustls::pki_types::CertificateDer::from(pem.contents))
+            .unwrap();
+        let config = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let mut request = format!("wss://127.0.0.1:{}/api/v1/ws", core.port)
+            .into_client_request()
+            .unwrap();
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {credential}").parse().unwrap(),
+        );
+        let (mut socket, _) = tokio_tungstenite::connect_async_tls_with_config(
+            request,
+            None,
+            false,
+            Some(tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(
+                config,
+            ))),
+        )
+        .await
+        .unwrap();
+        async fn bridge_call(
+            socket: &mut tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+            request_id: &str,
+            action: &str,
+            payload: Value,
+        ) -> Value {
+            socket.send(Message::Text(json!({"v":1,"type":"request","id":request_id,"action":action,"payload":payload}).to_string().into())).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(35), async {
+                loop {
+                    let message = socket.next().await.unwrap().unwrap();
+                    if let Message::Text(text) = message {
+                        let packet: Value = serde_json::from_str(&text).unwrap();
+                        if packet["id"] == request_id {
+                            return packet;
+                        }
+                    }
+                }
+            })
+            .await
+            .unwrap()
+        }
+        assert_eq!(
+            bridge_call(
+                &mut socket,
+                "hello-project-reader",
+                "system.hello",
+                json!({"client":"isolated-project-reader","version":1})
+            )
+            .await["type"],
+            "response"
+        );
+        let capabilities = bridge_call(
+            &mut socket,
+            "project-capabilities",
+            "system.capabilities",
+            json!({}),
+        )
+        .await;
+        assert_eq!(
+            capabilities["payload"]["features"]["nativeProjectReadViews"],
+            true
+        );
+        assert_eq!(
+            capabilities["payload"]["features"]["threadIndexRefresh"],
+            true
+        );
+        assert_eq!(
+            capabilities["payload"]["runtime"]["sharedDesktopRuntime"],
+            false
+        );
+        let projects = bridge_call(
+            &mut socket,
+            "original-native-project",
+            "projects.nativePage",
+            json!({"contractVersion":1}),
+        )
+        .await;
+        let entries = projects["payload"]["data"].as_array().unwrap();
+        let native_project = entries
+            .iter()
+            .find(|entry| entry["project"]["id"] == *native_id)
+            .unwrap();
+        assert_eq!(
+            native_project["rootGrants"][0]["projectId"],
+            granted["projectId"]
+        );
+        tokio::time::timeout(Duration::from_secs(15), async {
+            for attempt in 0..30 {
+                let result = bridge_call(
+                    &mut socket,
+                    &format!("refresh-persisted-{attempt}"),
+                    "sessions.refreshIndex",
+                    json!({"contractVersion":1}),
+                )
+                .await;
+                if result["type"] == "response" {
+                    assert_eq!(result["payload"]["contractVersion"], 1);
+                    return;
+                }
+                assert_eq!(result["code"], "CONFLICT");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            panic!("project refresh remained busy");
+        })
+        .await
+        .unwrap();
+        let snapshot = bridge_call(
+            &mut socket,
+            "project-session-snapshot",
+            "snapshot.get",
+            json!({}),
+        )
+        .await;
+        let remote = snapshot["payload"]["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|session| session["sessionId"] == imported_id)
+            .unwrap();
+        assert_eq!(remote["upstreamThreadId"], id);
+        assert_eq!(remote["upstream"]["projectId"], *native_id);
+        assert_eq!(remote["projectId"], granted["projectId"]);
+        let remote_history = bridge_call(
+            &mut socket,
+            "project-session-history",
+            "sessions.history",
+            json!({"sessionId":imported_id,"limit":20}),
+        )
+        .await;
+        let content = remote_history["payload"]["data"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert!(content.iter().any(|entry| entry["item"]["text"] == answer
+            && entry["turnId"] == *history_turn.as_ref().unwrap()));
+        assert!(content
+            .iter()
+            .any(|entry| entry["item"]["content"][0]["text"]
+                == "Complete the persisted history probe."));
+        socket.close(None).await.unwrap();
+    }
+
     let mut history = core.upstream_history(&imported_id, None, 20).await.unwrap();
     if let Some(turn_id) = &history_turn {
         assert_eq!(history["data"].as_array().unwrap().len(), 2);
@@ -1091,6 +1284,9 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     assert_eq!(imported["upstreamThreadId"], id);
     assert_eq!(imported["title"], "External title after import");
     assert_eq!(imported["archived"], 1);
+    if let Some(native_id) = &history_project_id {
+        assert_eq!(imported["upstream"]["projectId"], *native_id);
+    }
     b.request("thread/unarchive", json!({"threadId":id}))
         .await
         .unwrap();

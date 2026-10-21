@@ -72,7 +72,7 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_webso
 
 独立查看器按页展示原生项目名称、全部 roots 及可展开原生 JSON 详情，保留 metadata/未来字段。响应校验版本/来源/视图 ID/本页重复 ID/全部 roots 授权映射与游标形状；续页还核验 viewId 和游标循环。失败清空内容并要求刷新。切换电脑或连接后拒绝旧请求结果，不写入 Room，也不替换现有 Project 授权模型。
 
-这是原生项目内容的首个读取入口，尚不支持选择项目、打开关联会话、桌面侧栏偏好、修改/删除项目或实时刷新；不冒充完整项目迁移。协议/分派与 Kotlin 解码回归已加入，物理安卓/WSS 到真实安装版的完整链路尚未验收。
+这是原生项目内容的首个读取入口，尚不支持选择项目、打开关联会话、桌面侧栏偏好、修改/删除项目或实时刷新；不冒充完整项目迁移。协议/分派与 Kotlin 解码回归已加入，物理安卓到真实安装版完整链路尚未验收；Rust WSS 客户端到真实隔离源的验证见后续记录。
 
 ## TLS/WSS 与 UI 验证入口
 
@@ -102,3 +102,13 @@ cd android
 真实安装版无模型实验先通过独立原生连接启动线程，再经新 Core 分派刷新，确认以原 upstreamThreadId 导入并保留本机授权映射。首次断言错误地要求新建但无持久历史的线程返回请求时的 projectId，实际为 null；随后独立 thread/read 也返回 null，修正测试为与权威响应相同并保留未知。此前已有持久历史的原生项目归属实验不受此结论覆盖。不得按 cwd 或请求参数填入项目归属，使不属于权威索引的关联虚假通过。
 
 因此同步可发现更多授权线程，但新建未持久线程不一定出现在原生项目关联列表；它可在本机授权会话索引中可见。仍需验证持久线程归属刷新和真实安卓完整链路。未同步线程没有“全部发现”验收声明。
+
+## 持久归属与真实源 WSS 链路（2026-10-21）
+
+扩展 real_desktop_baseline_persisted_history_through_core：独立原生实验连接创建真实项目并以 projectId 启动线程，使用既有本机合成 Responses 服务完成轮次；随后普通 Rust thread/read 与自动导入索引都必须保留该原生 projectId，外部归档后仍须保留。同目录匹配或请求参数不作为成功依据。
+
+在同一测试中启动真实 Bridge TLS/WSS（临时受信任证书及主机名验证、合成设备凭据、随机空闲端口），依次完成 hello、capabilities、projects.nativePage、sessions.refreshIndex、snapshot.get、sessions.history。要求项目 ID、rootGrants、本机会话 ID、原 upstreamThreadId 与 upstream.projectId 全部一致，完整合成用户原文/助手原文和原轮次 ID 可通过 WSS 读取。刷新只对明确 CONFLICT 有界重试，不忽略其他错误。
+
+最终三项真实安装版隔离检查全部通过（15.49 秒），新增持久项目归属与真实源 WSS 证据；常规 transport 回归六项、严格 Clippy/fmt 通过。没有生产 Rust/安卓/协议/数据库改动，未使用账户模型。这里的客户端是 Rust 测试客户端，不是已配对安卓，凭据也未经过人类配对；GUI/宿主/真机/跨网络最终场景仍未验收。
+
+这与上轮未持久线程的 null 归属结果并存：持久历史后的归属已通过，尚无历史时仍保留未知。同步不能通过伪造项目字段让所有新线程提前出现在项目关联列表。
