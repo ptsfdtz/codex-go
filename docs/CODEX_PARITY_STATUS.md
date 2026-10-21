@@ -3,6 +3,14 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：限时 GUI 检查与同线程读取证据（阶段 0 / P01）
+
+- 前一轮提交 9dee0d9。本轮增加 --inspection-seconds=5..300 的有界独立实例保留选项，默认无等待；严格拒绝重复、额外等号、空值、小数、科学计数法和范围外值，结束后仍执行原有清理，不自动操作 UI。
+- 真实安装版隔离运行保存 desktop-gui-inspection-probe.json：passed=true，首次 desktopOpenedSeededThread=true，即 GUI 自身 thread/read 或 thread/resume 成功响应包含另一原生客户端创建的同一线程 ID；源索引、GUI 列表及外部重命名事件仍通过，固定代理诊断为空，子进程退出。另查未见本次临时路径进程残留。合成模型不使用账户，生产桌面未修改。
+- 只读窗口观察显示首次职业/个性化设置页，未点击、输入或代填选择。该可见页面没有阻止后台读取成功；不应将它解释为协议读取失败，也不能将后台响应解释为内容已展示。完整历史内容、渲染、双向活动任务、宿主集成与安卓真机仍未验收，mainAppBootstrapVerified/visualAcceptance/hostIntegrationVerified 仍 false。
+- 验证：真实 GUI 探测正常结束并清理；10 项参数边界/拒绝检查通过且未启动 GUI；脚本 ESLint、Prettier 与相关 diff 检查通过。无 Rust、安卓、协议或数据库变更，不重复不相关测试。
+- 阶段 0/sharedDesktopRuntime 仍未完成。下一步核验受支持的独立首次启动测试路径、完整内容及双向操作，不复制生产配置/私有数据库或代替用户作隐私选择。本轮只选择性提交探测实现、真实报告与接手文档，不混入 CI/发布修改，不推送。
+
 ## 2026-10-21 实施记录：插件启动配置诊断与 GUI 同源索引通过（阶段 0 / P01）
 
 - 前一轮 `b6d484d` 为实际进展。本轮增加固定启动诊断，保留 PROXY_CONFIG_MISMATCH 拒绝语义，只输出 MCP/PLUGINS/FEATURES/OTHER 与 MISSING/TYPE/VALUE 的固定分类，不输出键、值、路径或任意 message；首项不一致不是全量差异。回归覆盖分类、父路径类型、陌生错误消息不回显、缺失仍拒绝及原有配置失败不放行排队任务。

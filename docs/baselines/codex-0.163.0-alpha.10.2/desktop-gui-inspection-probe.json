@@ -1,0 +1,38 @@
+{
+  "evidenceLevel": "original-packaged-gui-shared-index-with-synthetic-model",
+  "bootstrap": {
+    "name": "bootstrap-cdWF4rWM.js",
+    "sha256": "a8fdd0feea4448d66037df9f264aade773f1405299bbccf2418544e4b619b41b"
+  },
+  "originalProductionDesktopModified": false,
+  "accountCredentialsUsed": false,
+  "modelTurnExecuted": true,
+  "visualAcceptance": false,
+  "androidVerified": false,
+  "mainAppBootstrapVerified": false,
+  "desktopPluginStartup": {
+    "requested": true,
+    "hostIntegrationVerified": false
+  },
+  "checks": {
+    "nativeAuthenticatedListener": true,
+    "seedVisibleToDirectClient": true,
+    "proxyVersionWithDesktopOverride": true,
+    "proxySocketConnected": true,
+    "desktopInitializeSent": true,
+    "desktopInitializeSucceeded": true,
+    "initializeUserAgentVersionMatched": true,
+    "initializeUserAgentLegacyPrefixMatched": false,
+    "sameSocketConfigurationRead": true,
+    "desktopInitializedNotification": true,
+    "guiStayedRunning": true,
+    "desktopListedSeededThread": true,
+    "desktopReceivedExternalRename": true,
+    "desktopOpenedSeededThread": true,
+    "probeChildrenExited": true
+  },
+  "passed": true,
+  "nativeVersion": "0.163.0-alpha.10.2",
+  "observedProxyFailureCodes": [],
+  "observedProxyStartupDiagnostics": []
+}

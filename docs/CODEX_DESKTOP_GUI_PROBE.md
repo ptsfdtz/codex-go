@@ -50,3 +50,11 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 最终 `desktop-gui-shared-index-plugin-startup-probe.json` **passed=true**：合成线程在源索引可见，真实 GUI 自身发起的 thread/list 响应含同一原生线程 ID，GUI 的原生连接上观察到该线程的外部重命名事件；没有代理失败码，测试子进程全部退出，另查没有对应临时路径的进程残留。原来的不带启动配置报告仍为失败，保留作对照，不能用新报告覆盖或删除该证据。
 
 本轮没有观察到 GUI 打开该线程的 read/resume 成功；不声称线程内容渲染或通知后的 UI 名称刷新。`mainAppBootstrapVerified` 和 `desktopPluginStartup.hostIntegrationVerified` 保持 false；通过的是明确的索引/连接事件检查，不是完整主应用、插件工具调用或双向活动任务验收。测试模型只是回环合成服务，另一客户端也只是原生协议探测客户端，不冒充安卓或已配对 Bridge。下一步验证实际打开/内容、双向操作与活动任务，以及 GUI 宿主 pipe/环境对共享服务的真实集成方式。
+
+## 限时检查与后续线程读取证据
+
+命令可追加 `--inspection-seconds=120`，在协议检查后保留本次独立实例，随后沿用原有 finally 清理。只接受一次该参数及 5..300 的十进制整数秒；额外等号、重复参数、空值、浮点及范围外值均拒绝。默认不等待。等待期继续观察协议，因此最终报告可包含检查期间到达的结果；该选项不自动点击、修改首次设置或完成 UI 验收。
+
+后续同配置运行保存为 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-inspection-probe.json`，passed=true，并首次观察到 desktopOpenedSeededThread=true：GUI 自己请求的 thread/read 或 thread/resume 成功响应包含原线程 ID。它只证明线程读取，不证明完整历史内容或渲染，也不区分这两个方法。报告不保存 ID 或响应原文。索引和外部重命名检查仍通过，子进程退出，无固定代理错误码。
+
+本次独立窗口的只读可访问性观察显示首次职业/个性化设置页（含 Engineering 等选项、个性化建议复选框和未启用的 Continue）；没有输入、点击、代填职业或修改个性化设置。该页面与后台读取成功可以同时存在，不能把页面解释为协议读取失败，也不能把后台读取解释为用户已看到会话。可见内容验收仍未完成；后续需核验受支持的独立测试初始化方式，不能复制生产配置/私有数据库或绕过账户与隐私选择。

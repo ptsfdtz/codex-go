@@ -24,12 +24,30 @@ import WebSocket, { WebSocketServer } from 'ws';
 const [desktop, native, proxy, destination] = process.argv.slice(2);
 const sharedIndex = process.argv.slice(6).includes('--shared-index');
 const desktopPluginStartup = process.argv.slice(6).includes('--with-desktop-plugin-startup');
+const inspectionArgs = process.argv
+  .slice(6)
+  .filter((arg) => arg.startsWith('--inspection-seconds='));
+const inspectionArg = inspectionArgs[0];
+const inspectionSeconds = inspectionArg
+  ? Number(inspectionArg.slice('--inspection-seconds='.length))
+  : 0;
+if (
+  inspectionArg &&
+  (inspectionArgs.length !== 1 ||
+    !/^--inspection-seconds=\d+$/.test(inspectionArg) ||
+    !Number.isInteger(inspectionSeconds) ||
+    inspectionSeconds < 5 ||
+    inspectionSeconds > 300)
+)
+  throw new Error('Inspection duration must be 5..300 seconds');
 if (desktopPluginStartup && !sharedIndex)
   throw new Error('Desktop plugin startup requires shared-index probe');
 if (
   process.argv
     .slice(6)
-    .some((arg) => !['--shared-index', '--with-desktop-plugin-startup'].includes(arg))
+    .some(
+      (arg) => !['--shared-index', '--with-desktop-plugin-startup', inspectionArg].includes(arg),
+    )
 )
   throw new Error('Unknown probe option');
 if (
@@ -516,6 +534,10 @@ try {
       report.checks.seedVisibleToDirectClient === true &&
       report.checks.desktopListedSeededThread === true &&
       report.checks.desktopReceivedExternalRename === true;
+  if (inspectionSeconds) {
+    process.stdout.write('Isolated GUI inspection hold started.\n');
+    await pause(inspectionSeconds * 1000);
+  }
 } catch {
   report.failure = 'ISOLATED_GUI_PROBE_FAILED';
 } finally {
