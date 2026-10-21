@@ -101,6 +101,7 @@ impl Core {
         }
         self.loaded.lock().unwrap().remove(thread);
         if action == "sessions.delete" {
+            self.store.record_thread_deletion(thread)?;
             self.store.delete_session(id)?;
             self.store
                 .append("session.deleted", json!({"sessionId":id}), Some(id), None)?;

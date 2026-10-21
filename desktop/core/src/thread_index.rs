@@ -89,6 +89,17 @@ impl Core {
             .try_lock()
             .map_err(|_| Error::new("CONFLICT", "Thread index sync already in progress"))?;
         let rpc = self.upstream()?;
+        {
+            let busy = self.busy.lock().unwrap();
+            ensure(
+                busy.is_empty(),
+                "CONFLICT",
+                "Local conversation operation in progress; retry sync after it finishes",
+            )?;
+            for thread in self.store.purge_deleted_threads()? {
+                self.loaded.lock().unwrap().remove(&thread);
+            }
+        }
         let pending = self.thread_index_pending.lock().unwrap().clone();
         let projects = self.store.projects()?;
         let mut authorized = Vec::new();
@@ -165,6 +176,9 @@ impl Core {
         // Persisted archive membership takes precedence over this fallback.
         let mut loaded_threads = Vec::new();
         for id in loaded {
+            if self.store.thread_deleted(id.as_str().unwrap())? {
+                continue;
+            }
             ensure(
                 started.elapsed() < Duration::from_secs(60),
                 "SYNC_LIMIT",
@@ -176,7 +190,12 @@ impl Core {
                     json!({"threadId":id,"includeTurns":false}),
                     Duration::from_secs(15),
                 )
-                .await?;
+                .await;
+            let response = match response {
+                Ok(response) => response,
+                Err(_) if self.store.thread_deleted(id.as_str().unwrap())? => continue,
+                Err(error) => return Err(error),
+            };
             rpc.validate("v2/ThreadReadResponse", &response)?;
             ensure(
                 response["thread"]["id"] == id,
@@ -218,6 +237,9 @@ impl Core {
                     );
                 }
                 for thread in &page {
+                    if self.store.thread_deleted(s(thread, "id"))? {
+                        continue;
+                    }
                     let Ok(root) = paths::canonical(Path::new(s(thread, "cwd"))) else {
                         continue;
                     };
@@ -339,6 +361,73 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn authoritative_deletion_survives_restart_is_atomic_and_prevents_resurrection() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("test.db");
+        let store = crate::store::Store::open(&database).unwrap();
+        let project = paths::add_local(&store, directory.path()).unwrap();
+        let stale = || ThreadIndexEntry {
+            project_id: s(&project, "projectId").to_owned(),
+            thread_id: "deleted-thread".into(),
+            title: "original".into(),
+            created_at: "2026-10-01T00:00:00.000Z".into(),
+            updated_at: "2026-10-01T00:00:00.000Z".into(),
+            archived: false,
+            metadata: json!({"status":{"type":"idle"}}),
+            expected_updated_at: None,
+            expected_event_seq: None,
+        };
+        store.apply_thread_index(&[stale()]).unwrap();
+        let session = store.sessions(None).unwrap().remove(0);
+        let id = s(&session, "sessionId");
+        let old = store
+            .append(
+                "turn.progress",
+                json!({"text":"retained before deletion"}),
+                Some(id),
+                None,
+            )
+            .unwrap();
+        store.exec("DROP TABLE thread_deletions", []).unwrap();
+        store
+            .exec("DELETE FROM migrations WHERE version=5", [])
+            .unwrap();
+        drop(store);
+        let store = crate::store::Store::open(&database).unwrap();
+        assert_eq!(
+            store.session(id).unwrap()["upstreamThreadId"],
+            "deleted-thread"
+        );
+        assert_eq!(store.cursor().unwrap(), s(&old, "eventId"));
+        store.record_thread_deletion("deleted-thread").unwrap();
+        drop(store);
+        let store = crate::store::Store::open(&database).unwrap();
+        assert!(store.thread_deleted("deleted-thread").unwrap());
+        store.exec("CREATE TRIGGER reject_delete_event BEFORE INSERT ON events WHEN NEW.action='session.deleted' BEGIN SELECT RAISE(ABORT,'test rollback'); END",[]).unwrap();
+        assert!(store.purge_deleted_threads().is_err());
+        assert!(store.session(id).is_ok());
+        assert_eq!(store.cursor().unwrap(), s(&old, "eventId"));
+        store.exec("DROP TRIGGER reject_delete_event", []).unwrap();
+        assert_eq!(
+            store.purge_deleted_threads().unwrap(),
+            vec!["deleted-thread"]
+        );
+        assert!(store.session(id).is_err());
+        assert_eq!(store.replay("0", 100).unwrap_err().code, "REPLAY_GAP");
+        let replay = store.replay(s(&old, "eventId"), 100).unwrap();
+        assert_eq!(replay["events"][0]["action"], "session.deleted");
+        assert_eq!(replay["events"][0]["sessionId"], id);
+        let cursor = store.cursor().unwrap();
+        assert!(store.purge_deleted_threads().unwrap().is_empty());
+        assert_eq!(store.apply_thread_index(&[stale()]).unwrap(), 0);
+        assert_eq!(store.cursor().unwrap(), cursor);
+        assert_eq!(store.projects().unwrap().len(), 1);
+        assert!(store
+            .query("SELECT * FROM session_metadata", [])
+            .unwrap()
+            .is_empty());
+    }
     #[test]
     fn stale_local_revision_rolls_back_the_entire_index_and_journal() {
         let directory = tempfile::tempdir().unwrap();

@@ -36,6 +36,7 @@ pub fn describe_profile(
             "sessionManagement": true,
             "threadIndexImport": true,
             "externalThreadMetadataSync": attached,
+            "externalThreadDeletionEvents": attached,
             "upstreamHistoryPages": true,
             "upstreamHistoryContent": true,
             "modelSelection": true,
@@ -70,11 +71,13 @@ mod tests {
             );
             assert_eq!(value["features"]["fullHistoryRead"], false);
             assert_eq!(value["features"]["externalThreadMetadataSync"], false);
+            assert_eq!(value["features"]["externalThreadDeletionEvents"], false);
         }
         let attached = super::describe_runtime(true, false, true);
         assert_eq!(attached["runtime"]["mode"], "attached-local-ws");
         assert_eq!(attached["runtime"]["sharedDesktopRuntime"], false);
         assert_eq!(attached["features"]["externalThreadMetadataSync"], true);
+        assert_eq!(attached["features"]["externalThreadDeletionEvents"], true);
         let desktop = super::describe_profile(
             true,
             true,

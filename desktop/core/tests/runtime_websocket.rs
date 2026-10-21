@@ -498,6 +498,54 @@ async fn desktop_baseline_contracts(with_history: bool) {
     })
     .await
     .expect("externally created original thread was not imported by notification");
+    let external_session = core
+        .store
+        .sessions(None)
+        .unwrap()
+        .into_iter()
+        .find(|v| v["upstreamThreadId"] == external_id)
+        .unwrap();
+    let external_session_id = external_session["sessionId"].as_str().unwrap();
+    core.busy
+        .lock()
+        .unwrap()
+        .insert(external_session_id.to_owned());
+    b.request("thread/delete", json!({"threadId":external_id}))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(core.store.session(external_session_id).is_ok());
+    core.busy.lock().unwrap().remove(external_session_id);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while core.store.session(external_session_id).is_ok() {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("authoritative external deletion did not remove cached session");
+    assert_eq!(
+        core.store
+            .query(
+                "SELECT * FROM events WHERE sessionId=? AND action='session.deleted'",
+                [external_session_id]
+            )
+            .unwrap()
+            .len(),
+        1
+    );
+    b.request(
+        "thread/name/set",
+        json!({"threadId":id,"name":"Survivor after deletion"}),
+    )
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while core.store.session(&imported_id).unwrap()["title"] != "Survivor after deletion" {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("a deleted source thread blocked subsequent index updates");
     assert_eq!(
         core.store
             .session(session["sessionId"].as_str().unwrap())

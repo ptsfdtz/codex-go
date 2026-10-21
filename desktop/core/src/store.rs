@@ -101,6 +101,11 @@ impl Store {
     pub fn delete_session(&self, id: &str) -> Result<()> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction()?;
+        Self::erase_session(&tx, id)?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn erase_session(tx: &rusqlite::Transaction<'_>, id: &str) -> Result<()> {
         let removed: Option<i64> = tx.query_row(
             "SELECT MAX(eventId) FROM events WHERE sessionId=?",
             [id],
@@ -119,8 +124,47 @@ impl Store {
         ] {
             tx.execute(&format!("DELETE FROM {table} WHERE sessionId=?"), [id])?;
         }
-        tx.commit()?;
         Ok(())
+    }
+    pub(crate) fn record_thread_deletion(&self, thread: &str) -> Result<()> {
+        self.exec(
+            "INSERT OR IGNORE INTO thread_deletions VALUES(?,?)",
+            params![thread, now()],
+        )?;
+        Ok(())
+    }
+    pub(crate) fn thread_deleted(&self, thread: &str) -> Result<bool> {
+        Ok(!self
+            .query(
+                "SELECT threadId FROM thread_deletions WHERE threadId=?",
+                [thread],
+            )?
+            .is_empty())
+    }
+    /// The authority already deleted these threads. Persist cache removal and
+    /// replay-safe announcements together, even after Bridge process restart.
+    pub(crate) fn purge_deleted_threads(&self) -> Result<Vec<String>> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        let rows = Self::query_db(&tx, "SELECT s.sessionId,s.upstreamThreadId FROM sessions s JOIN thread_deletions d ON d.threadId=s.upstreamThreadId", [])?;
+        let mut events = Vec::new();
+        let mut threads = Vec::new();
+        for row in rows {
+            let id = s(&row, "sessionId");
+            Self::erase_session(&tx, id)?;
+            let seq:i64=tx.query_row("INSERT INTO event_sequences(sessionKey,seq) VALUES(?,1) ON CONFLICT(sessionKey) DO UPDATE SET seq=seq+1 RETURNING seq",[id],|r|r.get(0))?;
+            let ts = now();
+            let payload = json!({"sessionId":id,"source":"upstream"});
+            tx.execute("INSERT INTO events(sessionId,turnId,seq,action,payloadJson,ts) VALUES(?,NULL,?,'session.deleted',?,?)",params![id,seq,payload.to_string(),ts])?;
+            events.push(json!({"v":1,"type":"event","eventId":tx.last_insert_rowid().to_string(),"seq":seq,"sessionId":id,"turnId":null,"action":"session.deleted","payload":payload,"ts":ts}));
+            threads.push(s(&row, "upstreamThreadId").to_owned());
+        }
+        tx.commit()?;
+        drop(db);
+        for event in events {
+            let _ = self.events.send(event);
+        }
+        Ok(threads)
     }
     pub(crate) fn apply_thread_index(
         &self,
@@ -129,10 +173,20 @@ impl Store {
         if entries.is_empty() {
             return Ok(0);
         }
-        let event = {
+        let (event, indexed) = {
             let mut db = self.db.lock().unwrap();
             let tx = db.transaction()?;
+            let mut indexed = 0;
             for entry in entries {
+                let deleted: bool = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM thread_deletions WHERE threadId=?)",
+                    [&entry.thread_id],
+                    |r| r.get(0),
+                )?;
+                if deleted {
+                    continue;
+                }
+                indexed += 1;
                 let project = Self::query_db(
                     &tx,
                     "SELECT projectId FROM projects WHERE projectId=? AND enabled=1",
@@ -196,16 +250,22 @@ impl Store {
                 tx.execute("INSERT INTO session_options(sessionId,archived,model,effort) VALUES(?1,?2,COALESCE(?3,''),?4) ON CONFLICT(sessionId) DO UPDATE SET archived=excluded.archived,model=CASE WHEN ?3 IS NOT NULL THEN excluded.model ELSE session_options.model END,effort=CASE WHEN ?5 THEN excluded.effort ELSE session_options.effort END", params![id,entry.archived,entry.metadata["model"].as_str(),entry.metadata["reasoningEffort"].as_str().unwrap_or(""),entry.metadata.get("reasoningEffort").is_some()])?;
                 tx.execute("INSERT INTO session_metadata VALUES(?,?,?) ON CONFLICT(sessionId) DO UPDATE SET upstreamJson=excluded.upstreamJson,syncedAt=excluded.syncedAt", params![id,entry.metadata.to_string(),now()])?;
             }
+            if indexed == 0 {
+                return Ok(0);
+            }
             let seq:i64 = tx.query_row("INSERT INTO event_sequences(sessionKey,seq) VALUES('',1) ON CONFLICT(sessionKey) DO UPDATE SET seq=seq+1 RETURNING seq", [], |r| r.get(0))?;
             let ts = now();
-            let payload = json!({"indexed":entries.len()});
+            let payload = json!({"indexed":indexed});
             tx.execute("INSERT INTO events(sessionId,turnId,seq,action,payloadJson,ts) VALUES(NULL,NULL,?,'sessions.synced',?,?)",params![seq,payload.to_string(),ts])?;
             let event_id = tx.last_insert_rowid().to_string();
             tx.commit()?;
-            json!({"v":1,"type":"event","eventId":event_id,"seq":seq,"sessionId":null,"turnId":null,"action":"sessions.synced","payload":payload,"ts":ts})
+            (
+                json!({"v":1,"type":"event","eventId":event_id,"seq":seq,"sessionId":null,"turnId":null,"action":"sessions.synced","payload":payload,"ts":ts}),
+                indexed,
+            )
         };
         let _ = self.events.send(event);
-        Ok(entries.len())
+        Ok(indexed)
     }
     pub fn turns(&self, id: Option<&str>) -> Result<Vec<Value>> {
         match id{Some(id)=>self.query("SELECT * FROM turns WHERE sessionId=? ORDER BY startedAt",[id]),None=>self.query("SELECT * FROM turns WHERE status IN ('queued','running','waitingApproval','unknown') ORDER BY startedAt",[])}

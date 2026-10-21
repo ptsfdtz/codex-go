@@ -6,6 +6,15 @@
 
 用户最新要求每轮完成后提交一次有用且经过验证的改动，替代此前“仅阶段验收后提交”的规则。本聊天 active goal 保持完整迁移目标。当前阶段 0 未完成；轮次提交不能用作阶段完成证据，不自动推送。提交只包含迁移代码、测试、必要依赖与文档，不混入独立 CI/Pre-release 任务。下方旧记录中的“不创建阶段完成提交”是当时执行记录，不限制今后的轮次提交。
 
+## 2026-10-21 实施记录：权威删除事件与持久化清理
+
+- 前一轮提交 `d508cf9` 是实际进展。本轮确认两版稳定 schema 均定义 thread/deleted，并在精确新版真实隔离服务中观察外部 thread/delete 成功后的权威通知。attached 模式校验该通知后持久化 threadId 删除标记，能力新增 externalThreadDeletionEvents；managed 模式不声明外部删除订阅能力，完整 externalThreadSync/sharedDesktopRuntime 仍 false。
+- 增量 migration 5 增加 thread_deletions，不迁移或重写既有配对/线程。索引 worker 在本地 busy 释放后清理已确认删除的缓存会话、轮次、审批和保留事件；清理、retentionFloor、序号及 session.deleted 事件在同一事务完成，提交后广播。通知处理与清理之间发生进程退出，下一次启动仍可继续；重复删除不生成第二条事件。
+- 索引读取跳过已确认删除的通知 ID/已加载候选，事务提交再复核 tombstone，阻止并发旧快照复活线程。读取期间收到权威删除后，该候选读失败不会阻断其他线程更新。安卓沿用已有 session.deleted 和快照恢复处理，无新 Room 迁移。丢失于列表不等于删除，断线期间完全错过的上游删除仍未实现权威补查。
+- 新增崩溃恢复/事务注入回归：记录 tombstone 后重开数据库；强制删除事件 INSERT 失败时会话和 cursor 保留；解除故障后原子清理、旧 cursor 返回 REPLAY_GAP、删除事件可续传；重复清理及旧索引导入不会新增事件或复活数据，项目授权保留。
+- 真实隔离检查扩展：外端新建原线程自动导入 → 本地 busy 期间外端删除 → 本地缓存暂保留 → 释放后自动清理且只有一条删除事件 → 其他原线程改名仍能自动同步。最终 9 单元、31 native、5 版本、6 WS fixture 全部通过；两个显式新版真实检查通过（11.36 秒）；严格 Clippy 通过。补充模拟 migration 4 数据库升级至 5 后保留会话和 cursor，再验证删除恢复，单项复验通过。模型为本机合成提供者；不代表原版桌面、安卓真机或真实账户模型已验收。
+- 后续：断线遗漏删除的权威恢复、活动任务身份/追加/审批与竞态、原版桌面认证接入和完整基准。阶段 0 仍未完成，按用户最新规则提交本轮有效增量。
+
 ## 2026-10-21 实施记录：附着运行时的自动元数据同步
 
 - 前一轮提交 `92d47e9`。本轮新增附着 WS 运行时的索引监听任务：每次就绪/重连扫描已有授权目录，校验 thread started/name/archive/unarchive/status 通知后合并触发索引读取，250 ms 合并等待，不阻塞 RPC 事件读取。managed stdio 不启用该监听，能力新增 externalThreadMetadataSync（仅 attached 为 true）；完整 externalThreadSync/sharedDesktopRuntime 继续 false。

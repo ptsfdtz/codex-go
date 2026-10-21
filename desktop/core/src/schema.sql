@@ -20,3 +20,6 @@ INSERT OR IGNORE INTO migrations VALUES(3,datetime('now'));
 
 CREATE TABLE IF NOT EXISTS session_metadata(sessionId TEXT PRIMARY KEY REFERENCES sessions(sessionId) ON DELETE CASCADE,upstreamJson TEXT NOT NULL,syncedAt TEXT NOT NULL);
 INSERT OR IGNORE INTO migrations VALUES(4,datetime('now'));
+
+CREATE TABLE IF NOT EXISTS thread_deletions(threadId TEXT PRIMARY KEY,observedAt TEXT NOT NULL);
+INSERT OR IGNORE INTO migrations VALUES(5,datetime('now'));

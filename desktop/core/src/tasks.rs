@@ -480,6 +480,14 @@ impl Core {
     pub fn notification(&self, rpc: &Rpc, v: &Value) -> Result<()> {
         let method = s(v, "method");
         let p = &v["params"];
+        if method == "thread/deleted" {
+            rpc.validate("v2/ThreadDeletedNotification", p)?;
+            if self.attached_runtime.load(Ordering::SeqCst) {
+                self.store.record_thread_deletion(s(p, "threadId"))?;
+                self.thread_index_changed.notify_one();
+            }
+            return Ok(());
+        }
         let index_schema = match method {
             "thread/started" => Some("v2/ThreadStartedNotification"),
             "thread/name/updated" => Some("v2/ThreadNameUpdatedNotification"),
