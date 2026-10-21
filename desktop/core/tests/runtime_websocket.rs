@@ -1,4 +1,4 @@
-//! Shared-runtime transport checks: never start a model or alter user state.
+//! Shared-runtime checks use isolated homes; model probes use loopback synthetic providers.
 use agentdeck_service::rpc::Rpc;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -18,6 +18,16 @@ fn credential() -> String {
 #[tokio::test]
 #[ignore = "explicit desktop baseline binary; isolated HOME, no model or user history"]
 async fn real_desktop_baseline_uses_versioned_rust_contracts() {
+    desktop_baseline_contracts(false).await;
+}
+
+#[tokio::test]
+#[ignore = "explicit desktop baseline binary; isolated HOME and synthetic loopback model"]
+async fn real_desktop_baseline_persisted_history_through_core() {
+    desktop_baseline_contracts(true).await;
+}
+
+async fn desktop_baseline_contracts(with_history: bool) {
     use agentdeck_service::{codex, rpc::ProtocolVersion};
     let executable =
         std::env::var_os("AGENTDECK_DESKTOP_PROBE_EXE").expect("set desktop baseline executable");
@@ -41,6 +51,64 @@ async fn real_desktop_baseline_uses_versioned_rust_contracts() {
     let project = directory.path().join("project");
     std::fs::create_dir(&home).unwrap();
     std::fs::create_dir(&project).unwrap();
+    let answer = "Persisted synthetic answer: 中文 😀\n```text\noriginal content\n```";
+    let provider = if with_history {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        std::fs::write(home.join("config.toml"), format!(
+            "model = \"agentdeck-history-probe\"\nmodel_provider = \"history_probe\"\n[model_providers.history_probe]\nname = \"isolated synthetic history\"\nbase_url = \"http://{}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nsupports_websockets = false\n",
+            listener.local_addr().unwrap())).unwrap();
+        Some(tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut buffer = [0u8; 8192];
+                    loop {
+                        let n = stream.read(&mut buffer).await.unwrap();
+                        if n == 0 {
+                            return;
+                        }
+                        request.extend_from_slice(&buffer[..n]);
+                        assert!(request.len() < 1024 * 1024);
+                        if let Some(end) = request.windows(4).position(|v| v == b"\r\n\r\n") {
+                            let headers =
+                                String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                            let length = headers
+                                .lines()
+                                .find_map(|line| line.strip_prefix("content-length:"))
+                                .unwrap()
+                                .trim()
+                                .parse::<usize>()
+                                .unwrap();
+                            if request.len() >= end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
+                    assert!(request.starts_with(b"POST /v1/responses "));
+                    let item = json!({"id":"history-answer","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":answer,"annotations":[]}]});
+                    let mut body = String::new();
+                    for event in [
+                        json!({"type":"response.created","response":{"id":"history-response","status":"in_progress","output":[]}}),
+                        json!({"type":"response.output_item.added","output_index":0,"item":{"id":"history-answer","type":"message","role":"assistant","status":"in_progress","content":[]}}),
+                        json!({"type":"response.output_text.delta","item_id":"history-answer","output_index":0,"content_index":0,"delta":answer}),
+                        json!({"type":"response.output_item.done","output_index":0,"item":item}),
+                        json!({"type":"response.completed","response":{"id":"history-response","status":"completed","output":[item],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}),
+                    ] {
+                        body.push_str(&format!(
+                            "event: {}\ndata: {event}\n\n",
+                            event["type"].as_str().unwrap()
+                        ));
+                    }
+                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len());
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                    stream.shutdown().await.unwrap();
+                });
+            }
+        }))
+    } else {
+        None
+    };
     let token = agentdeck_service::security::token();
     let token_file = directory.path().join("capability-token");
     std::fs::write(&token_file, &token).unwrap();
@@ -59,6 +127,12 @@ async fn real_desktop_baseline_uses_versioned_rust_contracts() {
         .args(args)
         .arg(&token_file)
         .env("CODEX_HOME", &home)
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("HTTP_PROXY")
+        .env_remove("HTTPS_PROXY")
+        .env_remove("ALL_PROXY")
+        .env("NO_PROXY", "127.0.0.1,localhost")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -123,6 +197,33 @@ async fn real_desktop_baseline_uses_versioned_rust_contracts() {
         .unwrap();
     b.validate("v2/ThreadAttachmentOwnerListResponse", &owners)
         .unwrap();
+    let history_turn = if with_history {
+        let started = b.request("turn/start", json!({"threadId":id,"input":[{"type":"text","text":"Complete the persisted history probe.","text_elements":[]}]})).await.unwrap();
+        let turn_id = started["turn"]["id"].clone();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let read = b
+                    .request("thread/read", json!({"threadId":id,"includeTurns":true}))
+                    .await
+                    .unwrap();
+                b.validate("v2/ThreadReadResponse", &read).unwrap();
+                if read["thread"]["turns"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|turn| turn["id"] == turn_id && turn["status"] == "completed")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("synthetic history turn did not complete");
+        Some(turn_id)
+    } else {
+        None
+    };
     a.stop();
     tokio::time::timeout(Duration::from_secs(5), async {
         while a.alive.load(Ordering::SeqCst) {
@@ -280,7 +381,25 @@ async fn real_desktop_baseline_uses_versioned_rust_contracts() {
         .unwrap();
     let imported_id = imported["sessionId"].as_str().unwrap().to_owned();
     let history = core.upstream_history(&imported_id, None, 20).await.unwrap();
-    assert!(history["data"].as_array().unwrap().is_empty());
+    if let Some(turn_id) = &history_turn {
+        assert_eq!(history["data"].as_array().unwrap().len(), 2);
+        let first = core.upstream_history(&imported_id, None, 1).await.unwrap();
+        let next = first["nextCursor"]
+            .as_str()
+            .expect("real history must paginate");
+        let second = core
+            .upstream_history(&imported_id, Some(next), 1)
+            .await
+            .unwrap();
+        assert_eq!(first["data"][0], history["data"][0]);
+        assert_eq!(second["data"][0], history["data"][1]);
+        assert!(second["nextCursor"].is_null());
+        assert_eq!(second["data"][0]["turnId"], *turn_id);
+        assert_eq!(second["data"][0]["item"]["type"], "agentMessage");
+        assert_eq!(second["data"][0]["item"]["text"], answer);
+    } else {
+        assert!(history["data"].as_array().unwrap().is_empty());
+    }
     assert!(history["nextCursor"].is_null());
     assert_eq!(imported["title"], "Versioned desktop baseline");
     assert_eq!(imported["upstream"]["source"], created["thread"]["source"]);
@@ -321,6 +440,10 @@ async fn real_desktop_baseline_uses_versioned_rust_contracts() {
         ProtocolVersion::DesktopBaseline
     );
     assert_eq!(
+        core.upstream_history(&imported_id, None, 20).await.unwrap(),
+        history
+    );
+    assert_eq!(
         core.store
             .session(session["sessionId"].as_str().unwrap())
             .unwrap()["upstreamThreadId"],
@@ -347,6 +470,9 @@ async fn real_desktop_baseline_uses_versioned_rust_contracts() {
     child.wait().await.unwrap();
     drain_a.abort();
     drain_b.abort();
+    if let Some(provider) = provider {
+        provider.abort();
+    }
 }
 
 #[tokio::test]

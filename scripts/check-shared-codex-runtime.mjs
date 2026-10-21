@@ -1,6 +1,7 @@
 // Isolated native two-client probe. Never reads user history or account credentials.
 // Add --synthetic-turn to test active turns against a loopback synthetic model provider.
-// Usage: node scripts/check-shared-codex-runtime.mjs <absolute-codex.exe> <report-dir> [--synthetic-turn]
+// Add --complete-history with --synthetic-turn to verify completed assistant history and pagination.
+// Usage: node scripts/check-shared-codex-runtime.mjs <absolute-codex.exe> <report-dir> [--synthetic-turn] [--complete-history]
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,10 @@ import WebSocket from 'ws';
 const [executable, destination] = process.argv.slice(2);
 const syntheticTurn = process.argv.includes('--synthetic-turn');
 const primeTurn = process.argv.includes('--prime-turn');
+const completeHistory = process.argv.includes('--complete-history');
 if (primeTurn && !syntheticTurn) throw new Error('--prime-turn requires --synthetic-turn');
+if (completeHistory && !syntheticTurn)
+  throw new Error('--complete-history requires --synthetic-turn');
 if (!executable || !isAbsolute(executable) || !destination) {
   throw new Error('Expected absolute CLI executable and report directory');
 }
@@ -29,6 +33,8 @@ const project = join(directory, 'project');
 mkdirSync(home);
 mkdirSync(project);
 let modelRequests = 0;
+let completeNextResponse = false;
+const historyAnswer = 'Persisted synthetic answer: 中文 😀\n```text\noriginal content\n```';
 const modelRoutes = [];
 const model = syntheticTurn
   ? createHttpServer((request, response) => {
@@ -46,6 +52,41 @@ const model = syntheticTurn
       response.write(
         `event: response.created\ndata: ${JSON.stringify({ type: 'response.created', response: { id: 'probe-response', status: 'in_progress', output: [] } })}\n\n`,
       );
+      if (completeNextResponse) {
+        const item = {
+          id: `probe-message-${modelRequests}`,
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: historyAnswer, annotations: [] }],
+        };
+        for (const event of [
+          {
+            type: 'response.output_item.added',
+            output_index: 0,
+            item: { ...item, content: [], status: 'in_progress' },
+          },
+          {
+            type: 'response.output_text.delta',
+            item_id: item.id,
+            output_index: 0,
+            content_index: 0,
+            delta: historyAnswer,
+          },
+          { type: 'response.output_item.done', output_index: 0, item },
+          {
+            type: 'response.completed',
+            response: {
+              id: 'probe-response',
+              status: 'completed',
+              output: [item],
+              usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+            },
+          },
+        ])
+          response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+        response.end();
+      }
       // Deliberately keep the response open until Codex interrupts the active turn.
     })
   : null;
@@ -264,6 +305,7 @@ try {
   const updated = await a.request('thread/read', { threadId: id, includeTurns: false });
   report.checks.secondClientMutationVisibleToFirst =
     updated.thread.id === id && updated.thread.name === 'AgentDeck second client update';
+  let persistedEntries;
   if (syntheticTurn) {
     const turnId = activeProbe ?? (await startProbeTurn());
     const steered = await b.request('turn/steer', {
@@ -284,6 +326,26 @@ try {
     for (let attempt = 0; attempt < 100 && !(observed(a) && observed(b)); attempt++)
       await pause(100);
     report.checks.bothObserveAuthoritativeInterruption = observed(a) && observed(b);
+    let completedTurnId;
+    if (completeHistory) {
+      completeNextResponse = true;
+      const started = await a.request('turn/start', {
+        threadId: id,
+        input: [{ type: 'text', text: 'Complete the persisted history probe.', text_elements: [] }],
+      });
+      completedTurnId = started.turn.id;
+      const completed = (client) =>
+        client.events.some(
+          (event) =>
+            event.method === 'turn/completed' &&
+            event.params.threadId === id &&
+            event.params.turn.id === completedTurnId &&
+            event.params.turn.status === 'completed',
+        );
+      for (let attempt = 0; attempt < 150 && !(completed(a) && completed(b)); attempt++)
+        await pause(100);
+      report.checks.bothObserveAuthoritativeCompletion = completed(a) && completed(b);
+    }
     const saved = [];
     let cursor;
     const cursors = new Set();
@@ -303,7 +365,8 @@ try {
       if (saved.length > 100) throw new Error('Native history probe exceeded page budget');
     } while (cursor);
     report.checks.persistedHistoryRetainsOriginalTurn =
-      saved.length > 0 && saved.every((entry) => entry.turnId === turnId);
+      saved.length > 0 &&
+      saved.every((entry) => entry.turnId === turnId || entry.turnId === completedTurnId);
     report.checks.persistedHistoryRetainsOriginalInput = saved.some(
       (entry) =>
         entry.item.type === 'userMessage' &&
@@ -323,12 +386,33 @@ try {
       pages: cursors.size + 1,
       itemTypes: [...new Set(saved.map((entry) => entry.item.type))].sort(),
     };
+    if (completeHistory) {
+      report.checks.persistedAssistantContentIsExact = saved.some(
+        (entry) =>
+          entry.turnId === completedTurnId &&
+          entry.item.type === 'agentMessage' &&
+          entry.item.text === historyAnswer,
+      );
+      report.checks.historyTraversesMultiplePages = cursors.size >= 2;
+      report.checks.historyItemIdentitiesAreUnique =
+        new Set(saved.map((entry) => `${entry.turnId}:${entry.item.id}`)).size === saved.length;
+    }
+    persistedEntries = saved;
   }
   a.close();
   const c = await connect();
   await c.initialize('agentdeck_parity_reconnect');
   const restored = await c.request('thread/resume', { threadId: id, excludeTurns: true });
   report.checks.reconnectPreservesThreadIdentity = restored.thread.id === id;
+  if (persistedEntries) {
+    const history = await c.request('thread/items/list', {
+      threadId: id,
+      limit: 100,
+      sortDirection: 'asc',
+    });
+    report.checks.reconnectPreservesHistory =
+      JSON.stringify(persistedEntries) === JSON.stringify(history.data) && !history.nextCursor;
+  }
   await pause(250);
   report.checks.bothObserveNameNotifications = [a, b].every((client) =>
     client.events.some(
