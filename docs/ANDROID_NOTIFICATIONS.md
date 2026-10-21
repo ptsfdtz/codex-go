@@ -24,6 +24,12 @@
 4. 已连接后重新读取快照，只允许电脑身份一致、非 stale、最新快照中存在的准确 sessionId。缺失/删除/无授权、移除配对与离线均不会打开另一台电脑的同 ID 会话，也不恢复或创建原线程。
 5. 使用既有 selectSession，再发出独立导航标记，让 Codex 聊天面板取代设置、侧栏或独立 API 聊天。查看会话不执行审批或启动轮次。
 
+## JVM 真实 TLS/WSS 回归
+
+ReplayWebSocketTest 使用生产 DeckTransport、PinnedTrust、NotificationReplay、严格解码和 ReplayDelivery，连接 MockWebServer 的真实 TLS WebSocket。临时自签证书含 localhost/127.0.0.1 SAN，固定叶证书指纹和正常主机名校验均启用；合成凭据只在回环测试请求中使用。验证 hello → events.replay → turn.latest → 发布回调，以及源返回另一原线程时不发布，握手带预期认证字段且没有源写操作。
+
+这是 Android 代码在 JVM 上的真实传输 + 控制源内容，不是安卓系统、Room、Repository 连接管理、真实 Codex 源或 NotificationManager 验收。首次开发执行因证书仅含 localhost、实际 URL 为 127.0.0.1 而正确拒绝；补齐测试 SAN 后通过，未关闭主机名校验。运行 testDebugUnitTest 包含这两项测试。
+
 ## 验证与接手
 
 `ReplayDeliveryTest` 使用生产异步核验器和虚拟时间，覆盖连接切换、项目/线程映射变化、单项超时/失败、父取消、能力与八次上限；不替代真实 WSS/Room/设备。`NotificationReplayTest` 是 JVM 有界候选、顺序/一次 drain、失效/换电脑/删除/后续任务筛选和最新审批到期时间测试，未执行 Repository 网络或 Room 链路。`TaskNotificationsTest` 是 JVM 原生终态、未知/错误结构、审批身份/状态/时效回归；不执行 NotificationManager 或系统定时移除。`NotificationTargetTest` 是 JVM 身份/旧缓存/缺失会话/输入检查。`NotificationIntentTest` 是设备 instrumentation，检查真实 Intent.filterEquals、PendingIntent 隔离与仅有标识字段；不发送 PendingIntent、不启动任务。编译测试 APK 不代表执行过设备测试。

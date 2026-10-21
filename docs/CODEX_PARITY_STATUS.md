@@ -3,6 +3,13 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：安卓通知恢复的真实 TLS/WSS 回归（阶段 0 / 验证增量）
+
+- 前一轮提交 721531a。本轮新增 ReplayWebSocketTest，两项测试使用生产 DeckTransport/PinnedTrust/NotificationReplay/解码/ReplayDelivery，经真实临时证书 TLS WebSocket，完成 hello、events.replay、turn.latest、发布回调；匹配原线程身份可发布，返回其他原线程不发布。验证握手认证与只读请求序列。源内容由 MockWebServer 控制，凭据为合成测试值，不访问生产账户或桌面。
+- 首次测试正确因证书仅含 localhost、MockWebServer URL 使用 127.0.0.1 而主机名校验失败；补齐测试 SAN 后两项通过，生产 pin/主机名校验均未放宽。86 项安卓 JVM 测试零失败，lintDebug 顺序执行通过，相关 diff 检查通过。本轮只新增回归和文档，未更改生产代码，因此不重复 APK 构建或 Rust 检查。
+- 证据升级为安卓生产传输代码的真实 TLS/WSS + 控制源恢复核验，不是设备/Room/Repository/系统通知/真实 Codex 到安卓验收。实际源 TLS/WSS 的 Rust 客户端证据仍来自既有隔离测试，两者不能直接合称全链路通过。ANDROID_NOTIFICATIONS.md 持久记录命令与边界。
+- 后续继续真实端到端与后台连接方案，完整桌面共享阻塞及阶段 0/sharedDesktopRuntime 状态不变。仅提交本轮有效测试/文档，保留独立 CI/发布修改，不推送。
+
 ## 2026-10-21 实施记录：补发异步核验取消与连接竞态回归（阶段 0 / 安卓增量）
 
 - 前一轮提交 e117845。本轮将实际原生补发核验提取为 ReplayDelivery，Repository 继续提供真实 transport、连接/epoch、能力、最新快照与通知发布。新增返回后项目授权映射检查，防止核验期间项目归属变化仍发送；withTimeoutOrNull 仅消费自身超时，父协程取消明确传播，不被一般超时捕获吞掉。
