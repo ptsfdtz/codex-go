@@ -25,6 +25,7 @@ struct Source {
     requested: Option<oneshot::Receiver<Value>>,
     release: Option<oneshot::Sender<()>>,
     worker: tokio::task::JoinHandle<()>,
+    notifications: mpsc::Sender<Value>,
 }
 impl Harness {
     fn new() -> Self {
@@ -53,6 +54,7 @@ impl Harness {
         let endpoint = format!("ws://{}", listener.local_addr().unwrap());
         let (requested_tx, requested) = oneshot::channel();
         let (release, released) = oneshot::channel();
+        let (notifications, mut notification_rx) = mpsc::channel::<Value>(8);
         let worker = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
@@ -63,6 +65,12 @@ impl Harness {
             assert_eq!(packet["method"], "project/list");
             requested_tx.send(packet.clone()).unwrap();
             released.await.unwrap();
+            while let Ok(notification) = notification_rx.try_recv() {
+                socket
+                    .send(Message::Text(notification.to_string().into()))
+                    .await
+                    .unwrap();
+            }
             let mut packet = packet;
             for (index, response) in responses.iter().enumerate() {
                 if index > 0 {
@@ -83,9 +91,14 @@ impl Harness {
                     .await
                     .unwrap();
             }
-            while let Some(Ok(message)) = socket.next().await {
-                if message.is_close() {
-                    break;
+            loop {
+                tokio::select! {
+                    message = socket.next() => {
+                        if !matches!(message, Some(Ok(message)) if !message.is_close()) { break; }
+                    },
+                    Some(notification) = notification_rx.recv() => {
+                        socket.send(Message::Text(notification.to_string().into())).await.unwrap();
+                    }
                 }
             }
         });
@@ -104,6 +117,7 @@ impl Harness {
             requested: Some(requested),
             release: Some(release),
             worker,
+            notifications,
         }
     }
     fn read(&self) -> tokio::task::JoinHandle<agentdeck_service::Result<Value>> {
@@ -128,6 +142,102 @@ impl Source {
 }
 fn project(id: &str, roots: &[PathBuf]) -> Value {
     json!({"id":id,"name":format!("project-{id}"),"roots":roots.iter().map(|p|json!({"path":p})).collect::<Vec<_>>(),"metadata":{"original":"preserved"},"position":2,"createdAt":1,"updatedAt":3})
+}
+
+#[tokio::test]
+async fn project_notifications_invalidate_both_cached_and_inflight_views() {
+    for during_build in [false, true] {
+        let h = Harness::new();
+        let a = h.folder("a");
+        paths::add_local(&h.core.store, &a).unwrap();
+        h.core
+            .store
+            .replace_device("device", "test", "synthetic-hash")
+            .unwrap();
+        let mut source = h
+            .source(json!({"data":[project("one",std::slice::from_ref(&a)),project("two",&[a])]}))
+            .await;
+        let core = h.core.clone();
+        let read =
+            tokio::spawn(async move { core.native_project_device_page("device", None, 1).await });
+        source.wait().await;
+        if during_build {
+            // Even an untrusted payload must invalidate, never mutate projects.
+            source
+                .notifications
+                .send(json!({"method":"project/changed","params":{"unknown":"not applied"}}))
+                .await
+                .unwrap();
+        }
+        source.release();
+        if during_build {
+            assert_eq!(read.await.unwrap().unwrap_err().code, "SYNC_CONFLICT");
+        } else {
+            let page = read.await.unwrap().unwrap();
+            let cursor = page["nextCursor"].as_str().unwrap();
+            source
+                .notifications
+                .send(json!({"method":"unrelated/notification","params":{}}))
+                .await
+                .unwrap();
+            source._events.recv().await.unwrap();
+            assert!(h
+                .core
+                .native_project_device_page("device", Some(cursor), 1)
+                .await
+                .is_ok());
+            source.notifications.send(json!({"method":"project/changed","params":{"kind":"deleted","projectId":"one"}})).await.unwrap();
+            source._events.recv().await.unwrap();
+            assert_eq!(
+                h.core
+                    .native_project_device_page("device", Some(cursor), 1)
+                    .await
+                    .unwrap_err()
+                    .code,
+                "SYNC_CONFLICT"
+            );
+        }
+        assert_eq!(h.core.store.projects().unwrap().len(), 1);
+        source.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn dead_rpc_cannot_serve_a_cached_project_page_even_before_core_lost_handler() {
+    let h = Harness::new();
+    let a = h.folder("a");
+    paths::add_local(&h.core.store, &a).unwrap();
+    h.core
+        .store
+        .replace_device("device", "test", "synthetic-hash")
+        .unwrap();
+    let mut source = h
+        .source(json!({"data":[project("one",std::slice::from_ref(&a)),project("two",&[a])]}))
+        .await;
+    source.release();
+    let page = h
+        .core
+        .native_project_device_page("device", None, 1)
+        .await
+        .unwrap();
+    let cursor = page["nextCursor"].as_str().unwrap();
+    source.rpc.stop();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while source.rpc.alive.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        h.core
+            .native_project_device_page("device", Some(cursor), 1)
+            .await
+            .unwrap_err()
+            .code,
+        "UPSTREAM_UNAVAILABLE"
+    );
+    source.stop().await;
 }
 
 #[tokio::test]

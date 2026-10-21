@@ -95,6 +95,7 @@ impl Rpc {
             alive: AtomicBool::new(true),
             stop: tokio::sync::Notify::new(),
             generation: crate::uid("generation"),
+            project_revision: AtomicU64::new(0),
         });
         let owner = rpc.clone();
         tokio::spawn(async move {
@@ -121,6 +122,7 @@ impl Rpc {
                             _ => break,
                         };
                         if value.get("method").is_some() {
+                            owner.observe_project_notification(&value);
                             tokio::select! {
                                 _ = owner.stop.notified() => break,
                                 result = events.send(value) => if result.is_err() { break; },

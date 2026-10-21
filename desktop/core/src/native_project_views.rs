@@ -14,6 +14,7 @@ const PAGE_BYTES: usize = 384 * 1024;
 pub(crate) struct ProjectView {
     device: String,
     generation: String,
+    revision: u64,
     grants: Vec<Value>,
     created: Instant,
     limit: usize,
@@ -36,10 +37,17 @@ impl Core {
         )
     }
 
-    fn verify_project_view(&self, device: &str, generation: &str, grants: &[Value]) -> Result<()> {
+    fn verify_project_view(
+        &self,
+        device: &str,
+        generation: &str,
+        revision: u64,
+        grants: &[Value],
+    ) -> Result<()> {
         self.project_view_device(device)?;
+        let rpc = self.upstream()?;
         ensure(
-            self.upstream()?.generation == generation,
+            rpc.alive.load(std::sync::atomic::Ordering::SeqCst) && rpc.generation == generation,
             "UPSTREAM_UNAVAILABLE",
             "Runtime changed; restart project listing",
         )?;
@@ -49,6 +57,11 @@ impl Core {
             "Authorization changed; restart project listing",
         )?;
         self.verified_project_grants(grants)?;
+        ensure(
+            rpc.project_revision() == revision,
+            "SYNC_CONFLICT",
+            "Projects changed; restart project listing",
+        )?;
         Ok(())
     }
 
@@ -90,7 +103,7 @@ impl Core {
                 "INVALID_CURSOR",
                 "Project page limit changed; restart listing",
             )?;
-            self.verify_project_view(device, &view.generation, &view.grants)?;
+            self.verify_project_view(device, &view.generation, view.revision, &view.grants)?;
             return Ok(view.pages[index].clone());
         }
         let _building = self
@@ -108,7 +121,7 @@ impl Core {
                 "Project listing timed out; restart listing",
             )
         })??;
-        self.verify_project_view(device, &view.generation, &view.grants)?;
+        self.verify_project_view(device, &view.generation, view.revision, &view.grants)?;
         let first = view.pages[0].clone();
         let mut views = self.project_views.lock().unwrap();
         views.retain(|old| old.created.elapsed() < TTL && old.device != device);
@@ -128,6 +141,7 @@ impl Core {
             "UPSTREAM_VERSION_UNSUPPORTED",
             "Native projects require the desktop baseline",
         )?;
+        let revision = rpc.project_revision();
         let grants = self.project_grant_snapshot()?;
         let verified = self.verified_project_grants(&grants)?;
         let mut cursor: Option<String> = None;
@@ -152,7 +166,7 @@ impl Core {
                     )?;
                 }
                 data.extend(self.authorized_project_data(&page, &verified)?);
-                self.verify_project_view(device, &rpc.generation, &grants)?;
+                self.verify_project_view(device, &rpc.generation, revision, &grants)?;
                 cursor = page["nextCursor"].as_str().map(str::to_owned);
                 let Some(next) = &cursor else { break };
                 ensure(
@@ -207,6 +221,7 @@ impl Core {
         Ok(ProjectView {
             device: device.into(),
             generation: rpc.generation.clone(),
+            revision,
             grants,
             created: Instant::now(),
             limit,

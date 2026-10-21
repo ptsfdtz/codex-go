@@ -121,8 +121,19 @@ pub struct Rpc {
     pub alive: AtomicBool,
     stop: tokio::sync::Notify,
     pub generation: String,
+    project_revision: AtomicU64,
 }
 impl Rpc {
+    pub fn project_revision(&self) -> u64 {
+        self.project_revision.load(Ordering::SeqCst)
+    }
+    fn observe_project_notification(&self, packet: &Value) {
+        // Invalidate before queueing, even for malformed payloads. No payload is
+        // trusted or applied here; this only forces an authoritative reread.
+        if packet["method"] == "project/changed" {
+            self.project_revision.fetch_add(1, Ordering::SeqCst);
+        }
+    }
     pub fn start(
         executable: &std::path::Path,
         args: &[String],
@@ -164,6 +175,7 @@ impl Rpc {
             alive: AtomicBool::new(true),
             stop: tokio::sync::Notify::new(),
             generation: crate::uid("generation"),
+            project_revision: AtomicU64::new(0),
         });
         let read_rpc = rpc.clone();
         let read_events = events.clone();
@@ -171,6 +183,7 @@ impl Rpc {
             let mut reader = BufReader::new(stdout);
             while let Ok(Some(v)) = read_frame(&mut reader).await {
                 if v.get("method").is_some() {
+                    read_rpc.observe_project_notification(&v);
                     // Backpressure command-output bursts instead of killing Codex
                     // when the database consumer temporarily falls behind.
                     if read_events.send(v).await.is_err() {

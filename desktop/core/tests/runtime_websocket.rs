@@ -360,6 +360,39 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
                 .await
                 .unwrap()
         );
+        let revision = a.project_revision();
+        native_request(
+            &mut source,
+            "invalidate-view",
+            "project/update",
+            json!({"projectId":id,"name":"After device view"}),
+        )
+        .await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while a.project_revision() == revision {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            core.native_project_device_page("project-reader", Some(cursor), 1)
+                .await
+                .unwrap_err()
+                .code,
+            "SYNC_CONFLICT"
+        );
+        let refreshed = core
+            .native_project_device_page("project-reader", None, 100)
+            .await
+            .unwrap();
+        assert_ne!(refreshed["viewId"], first["viewId"]);
+        assert!(refreshed["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["project"]["id"] == *id
+                && entry["project"]["name"] == "After device view"));
         assert_eq!(core.store.projects().unwrap().len(), 1);
         assert!(core.store.sessions(None).unwrap().is_empty());
         source.close(None).await.unwrap();
