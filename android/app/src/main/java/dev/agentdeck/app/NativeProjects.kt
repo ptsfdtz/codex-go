@@ -35,11 +35,23 @@ internal fun decodeNativeProjectPage(value:JsonObject):NativeProjectPage {
     return NativeProjectPage(view,entries,cursor)
 }
 
-@Composable internal fun NativeProjectsDialog(repo:DeckRepository,hostId:String?,onClose:()->Unit){
-    NativeProjectsViewer(hostId,repo::readNativeProjects,onClose)
+/** Match authoritative project identity and an explicit local root grant, never cwd/name. */
+internal fun nativeProjectSessions(entry:JsonObject,sessions:List<Session>):List<Session>{
+    val id=(entry["project"] as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
+    if(id.isNullOrBlank())return emptyList()
+    val grants=(entry["rootGrants"] as? JsonArray).orEmpty().mapNotNull{(it as? JsonObject)?.get("projectId")?.jsonPrimitive?.contentOrNull}.toSet()
+    return sessions.filter{session->session.projectId in grants&&(session.upstream?.get("projectId") as? JsonPrimitive)?.contentOrNull==id}
+        .sortedWith(compareByDescending<Session>{it.pinned}.thenByDescending{it.updatedAt}.thenBy{it.sessionId})
 }
 
-@Composable internal fun NativeProjectsViewer(hostId:String?,readPage:suspend (String?)->NativeProjectPage,onClose:()->Unit){
+@Composable internal fun NativeProjectsDialog(repo:DeckRepository,hostId:String?,onClose:()->Unit,onOpenChat:()->Unit){
+    val state by repo.state.collectAsState()
+    NativeProjectsViewer(hostId,repo::readNativeProjects,onClose,sessions=if(state.host?.hostId==hostId)state.snapshot.sessions else emptyList(),navigationEnabled=state.host?.hostId==hostId&&!state.stale&&!state.busy,onOpenSession={entry,id->
+        if(repo.openNativeProjectSession(hostId,entry,id)){onClose();onOpenChat()}
+    })
+}
+
+@Composable internal fun NativeProjectsViewer(hostId:String?,readPage:suspend (String?)->NativeProjectPage,onClose:()->Unit,sessions:List<Session> = emptyList(),navigationEnabled:Boolean=true,onOpenSession:(JsonObject,String)->Unit={_,_->}){
     val scope=rememberCoroutineScope()
     var page by remember(hostId){mutableStateOf<NativeProjectPage?>(null)}
     var busy by remember(hostId){mutableStateOf(false)}
@@ -72,6 +84,12 @@ internal fun decodeNativeProjectPage(value:JsonObject):NativeProjectPage {
                         project.getValue("roots").jsonArray.forEach{root->SelectionContainer{Text(root.jsonObject.getValue("path").jsonPrimitive.content)}}
                         TextButton(onClick={expanded=!expanded}){Text(if(expanded)"收起详情" else "查看完整详情")}
                         if(expanded)SelectionContainer{Text(project.toString(),style=MaterialTheme.typography.bodySmall)}
+                        Text("已同步关联会话",style=MaterialTheme.typography.labelMedium)
+                        val linked=nativeProjectSessions(entry,sessions)
+                        if(linked.isEmpty())Text("暂无已同步关联会话",style=MaterialTheme.typography.bodySmall)
+                        linked.forEach{session->TextButton(onClick={onOpenSession(entry,session.sessionId)},enabled=!busy&&navigationEnabled){
+                            Text(session.title+(if(session.archived==1)" · 已归档" else "")+" · "+statusLabel(session.status))
+                        }}
                     }}
                 }
             }

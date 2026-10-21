@@ -10,7 +10,7 @@ Response payload: `contractVersion:1`, `source:upstream-native-projects`, `consi
 
 Read views may be stale until refreshed; expiry is measured from view creation, and retries do not extend it. Page size is fixed per view. Same continuation can be retried; matching viewId is required across pages. `SYNC_CONFLICT`, `INVALID_CURSOR`, `UPSTREAM_UNAVAILABLE` or changed connection require discarding the displayed page and restarting without cursor. `BUSY` means retry a fresh read later. `UPSTREAM_CONTENT_TOO_LARGE` does not return a partial catalog. No mutation journal entry is used for these reads.
 
-RPC-observed project changes invalidate existing/in-flight views; dead/replaced connections reject continuation. Silent missed notifications on a surviving connection remain a limitation; this contract deliberately promises only a bounded read view with explicit refresh, not automatic project synchronization. The Android initial viewer refreshes manually and clears results after an error; project selection, thread navigation and mutations are not part of this increment.
+RPC-observed project changes invalidate existing/in-flight views; dead/replaced connections reject continuation. Silent missed notifications on a surviving connection remain a limitation; this contract deliberately promises only a bounded read view with explicit refresh, not automatic project synchronization. The Android initial viewer refreshes manually and clears results after an error; The viewer can now open already-synchronized sessions only when upstream.projectId exactly matches the native project and session.projectId belongs to rootGrants. This does not enumerate all source threads, create a project-bound thread or support project mutations.
 
 ## Incremental capability discovery
 

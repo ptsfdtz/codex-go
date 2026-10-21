@@ -18,6 +18,21 @@ class NativeProjectsUiTest {
         put("project",buildJsonObject{put("id",id);put("name",name);put("roots",buildJsonArray{add(buildJsonObject{put("path","C:/fixture/$id")})});put("metadata",buildJsonObject{put("marker","complete-metadata")})})
         put("rootGrants",buildJsonArray{add(buildJsonObject{put("rootIndex",0);put("projectId","grant-$id")})})
     }
+    @Test fun opensOnlyAssociatedSessionsAndDisablesOfflineNavigation(){
+        val target=entry("one","Native project")
+        val sessions=listOf(
+            Session("matched","grant-one","native-thread","Linked task","idle",upstream=buildJsonObject{put("projectId","one")}),
+            Session("different","grant-one","other-thread","Wrong project task","idle",upstream=buildJsonObject{put("projectId","different")})
+        )
+        var opened:String?=null
+        val read:suspend(String?)->NativeProjectPage={NativeProjectPage("view",listOf(target),null)}
+        compose.runOnUiThread{compose.activity.setContent{DeckTheme{NativeProjectsViewer("fixture",read,{},sessions=sessions,onOpenSession={_,id->opened=id})}}}
+        compose.onNodeWithText("Wrong project task",substring=true).assertDoesNotExist()
+        compose.onNodeWithText("Linked task",substring=true).performClick()
+        compose.runOnIdle{assertEquals("matched",opened)}
+        compose.runOnUiThread{compose.activity.setContent{DeckTheme{NativeProjectsViewer("fixture",read,{},sessions=sessions,navigationEnabled=false)}}}
+        compose.onNodeWithText("Linked task",substring=true).assertIsNotEnabled()
+    }
     @Test fun expiredContinuationClearsOldContentAndRefreshStartsWithoutCursor(){
         val calls=mutableListOf<String?>()
         var initialReads=0

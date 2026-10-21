@@ -88,7 +88,7 @@ import java.time.Instant
 }}}
 @Composable private fun ChatSidebar(state:DeckState,repo:DeckRepository,panel:String,onChat:()->Unit,onSettings:()->Unit,onPair:()->Unit,onCollapse:()->Unit){
     var showNativeProjects by remember(state.host?.hostId){mutableStateOf(false)}
-    if(showNativeProjects)NativeProjectsDialog(repo,state.host?.hostId,onClose={showNativeProjects=false})
+    if(showNativeProjects)NativeProjectsDialog(repo,state.host?.hostId,onClose={showNativeProjects=false},onOpenChat=onChat)
 
     var search by rememberSaveable{mutableStateOf("")}
     Column(Modifier.width(260.dp).fillMaxHeight().testTag("chat-sidebar").background(MaterialTheme.colorScheme.surfaceContainerLow).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical+WindowInsetsSides.Start)).padding(12.dp)){

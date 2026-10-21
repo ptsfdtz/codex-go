@@ -175,6 +175,13 @@ class DeckRepository(context:Context){
         dao.saveEvents(events.map{CachedEvent(host.hostId,it.eventId.toLong(),it.sessionId,wire.encodeToString(DeckEvent.serializer(),it))})
         if(before==null&&mutable.value.selectedSession==id)loadTimelineHistory()
     }
+    internal fun openNativeProjectSession(expectedHost:String?,entry:JsonObject,id:String):Boolean {
+        val current=mutable.value
+        if(current.host?.hostId!=expectedHost||expectedHost==null||current.stale||current.busy||current.capabilities?.supports("nativeProjectReadViews")!=true)return false
+        if(nativeProjectSessions(entry,current.snapshot.sessions).none{it.sessionId==id})return false
+        selectSession(id)
+        return true
+    }
     internal suspend fun readNativeProjects(cursor:String?):NativeProjectPage {
         val host=mutable.value.host?.hostId
         val current=rpc()

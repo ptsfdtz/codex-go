@@ -88,3 +88,9 @@ cd android
 运行前确认设备是授权的测试安装；不能用这组本地内容测试替代配对安卓到真实 Codex 的最终场景。2026-10-21 本轮 adb devices 列表为空，尚无该 UI 测试的设备通过记录。
 
 本轮组合运行 lintDebug 与 assembleDebugAndroidTest 时，Lint 在测试 KAPT 桩文件生成期间报 FileNotFoundException 内部错误。已确认失败后顺序运行 assembleDebugAndroidTest/assembleDebug/testDebugUnitTest --max-workers=1，再单独 lintDebug --max-workers=1，全部通过；没有禁用规则或忽略失败。两项新增 UI 测试已编译进测试 APK，但因无设备尚未执行。
+
+## 已同步关联会话导航
+
+项目卡片现列出已同步快照中的关联会话，要求 `Session.upstream.projectId == project.id` 且 `Session.projectId` 属于该项目显式 `rootGrants`；不使用 cwd/项目名称/首目录猜测。置顶优先，再按更新时间与会话 ID 稳定排序，归档会话保留标记。点击前 Repository 重新检查电脑身份、能力、连接/忙碌状态和当前快照关联，使用原 selectSession 打开同一会话，不创建副本。
+
+无匹配时显示“暂无已同步关联会话”，不宣称源中没有会话。未同步线程的发现/分页、绑定原生项目的新会话、项目写入和桌面侧栏排序仍未实现。新增单元回归覆盖同目录不同原生项目、缺失归属、未获准根目录、置顶/归档；Compose 导航与离线禁用测试仅编译，尚无可用设备运行记录。
