@@ -1,3 +1,4 @@
+* text=auto eol=lf
 # Pinned protocol exports are verified byte-for-byte against schema-lock.json.
 /packages/codex-protocol/schema/** text eol=lf
 /packages/codex-protocol/experimental/** text eol=lf
