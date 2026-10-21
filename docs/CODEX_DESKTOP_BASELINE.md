@@ -109,6 +109,8 @@ ws 8.21.0 对应构造参数的 fixture，以及精确安装版真实隔离服�
 
 继续核验：CODEX_CLI_PATH 可覆盖 CLI，但桌面会附加配置及 analytics 启动参数，不能直接替换成任意代理。原生 Unix listener 与原生 app-server proxy 在隔离 Windows 上实测握手不兼容：listener 要求 WebSocket，proxy 转发原始 stdio；不兼容报告和复现参数见本机适配文档。这不代表 Windows 不支持 AF_UNIX，也不等于所有 daemon 路径不可用。下一步实现受控 stdio→认证 WS 转接时必须完整核验启动配置，不丢弃 `-c` 或偷偷另起服务；原版桌面与共享运行时仍未验收。
 
+新增 stdio 开发转接程序已通过精确安装版真实子进程验证：凭据只从电脑文件读取，真实原生版本、同连接 config/read 校验、默认特性/analytics 启动参数、同一线程读取、配置不符拒绝和 EOF 连接隔离。配置与限制见 [stdio 转接](CODEX_DESKTOP_STDIO.md)。重叠覆盖和其他 CLI 命令当前显式拒绝，未运行原版 GUI，sharedDesktopRuntime 仍 false，不能作为阶段 0 完成依据。
+
 1. 可见页面、菜单、快捷键和账户/实验入口逐项盘点，不把资产文件名当作实际可用入口。
 2. 找到桌面真正支持的共享接入方式，或对每种候选路径给出可复核阻塞结论。
 3. 同一活动任务双端操作实验（隔离线程），以及参数/响应/通知 schema 兼容评估。

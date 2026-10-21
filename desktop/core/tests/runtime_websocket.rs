@@ -154,6 +154,12 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     let endpoint = format!("ws://{}", listener.local_addr().unwrap());
     drop(listener);
     let mut args = codex::args();
+    args.extend([
+        "-c".into(),
+        "features.code_mode_host=true".into(),
+        "-c".into(),
+        "analytics.enabled=false".into(),
+    ]);
     let listen = args.iter().position(|value| value == "stdio://").unwrap();
     args[listen] = endpoint.clone();
     args.extend([
@@ -213,6 +219,118 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         .unwrap();
     a.validate("v2/ThreadStartResponse", &created).unwrap();
     let id = created["thread"]["id"].clone();
+    {
+        // Run the actual stdio executable with no credential in argv/environment.
+        use tokio::io::AsyncWriteExt;
+        let proxy_path = directory.path().join("agentdeck-codex-proxy.exe");
+        std::fs::copy(env!("CARGO_BIN_EXE_agentdeck-codex-proxy"), &proxy_path).unwrap();
+        std::fs::write(proxy_path.with_extension("json"),json!({"formatVersion":1,"nativeExecutable":std::path::PathBuf::from(&executable),"endpoint":endpoint,"tokenFile":token_file,"protocolVersion":ProtocolVersion::DesktopBaseline.version()}).to_string()).unwrap();
+        let version = tokio::process::Command::new(&proxy_path)
+            .arg("--version")
+            .env("CODEX_HOME", &home)
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            version.status.success(),
+            "proxy version failed: {}",
+            String::from_utf8_lossy(&version.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(version.stdout).unwrap().trim(),
+            "codex-cli 0.163.0-alpha.10.2"
+        );
+        let loaded_before =
+            a.request("thread/loaded/list", json!({})).await.unwrap()["data"].clone();
+        let mut mismatch = tokio::process::Command::new(&proxy_path)
+            .args(["app-server", "-c", "features.code_mode_host=false"])
+            .env("CODEX_HOME", &home)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        mismatch.stdin.take().unwrap().write_all(format!("{}\n{}\n",json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"mismatch_probe","version":"0.1"}}}),json!({"id":2,"method":"thread/start","params":{"cwd":project}})).as_bytes()).await.unwrap();
+        let rejected = tokio::time::timeout(Duration::from_secs(20), mismatch.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!rejected.status.success());
+        assert!(rejected.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(rejected.stderr).unwrap().trim(),
+            "AgentDeck desktop proxy: PROXY_CONFIG_MISMATCH"
+        );
+        assert_eq!(
+            a.request("thread/loaded/list", json!({})).await.unwrap()["data"],
+            loaded_before
+        );
+        let mut proxy = tokio::process::Command::new(&proxy_path)
+            .args([
+                "-c",
+                "features.code_mode_host=true",
+                "app-server",
+                "--analytics-default-enabled",
+            ])
+            .env_remove("CODEX_APP_SERVER_WS_URL")
+            .env("CODEX_HOME", &home)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut input = proxy.stdin.take().unwrap();
+        let mut output = tokio::io::BufReader::new(proxy.stdout.take().unwrap());
+        input.write_all(format!("{}\n",json!({"id":"desktop-init","method":"initialize","params":{"clientInfo":{"name":"codex_desktop","version":"0.3.0"},"capabilities":{"experimentalApi":true}}})).as_bytes()).await.unwrap();
+        let initialized = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let value = agentdeck_service::rpc::read_frame(&mut output)
+                    .await
+                    .unwrap()
+                    .expect("stdio proxy ended before initialize");
+                if value["id"] == "desktop-init" {
+                    break value;
+                }
+                assert_ne!(value["method"], "config/read");
+            }
+        })
+        .await
+        .unwrap();
+        assert!(initialized.get("result").is_some());
+        input.write_all(format!("{}\n{}\n",json!({"method":"initialized"}),json!({"id":"desktop-read","method":"thread/read","params":{"threadId":id,"includeTurns":false}})).as_bytes()).await.unwrap();
+        let read = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let value = agentdeck_service::rpc::read_frame(&mut output)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if value["id"] == "desktop-read" {
+                    break value;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(read["result"]["thread"]["id"], id);
+        drop(input);
+        let closed = tokio::time::timeout(Duration::from_secs(10), proxy.wait_with_output())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            closed.status.success(),
+            "proxy failed with code-only stderr: {}",
+            String::from_utf8_lossy(&closed.stderr)
+        );
+        assert_eq!(
+            a.request("thread/read", json!({"threadId":id,"includeTurns":false}))
+                .await
+                .unwrap()["thread"]["id"],
+            id
+        );
+    }
     // A desktop-compatible Basic handshake reaches this same real native server.
     // This is transport acceptance, not evidence that the original GUI is attached.
     {

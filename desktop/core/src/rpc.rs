@@ -14,6 +14,7 @@ use tokio::{
     process::Command,
     sync::{mpsc, oneshot},
 };
+pub(crate) use websocket::local_request;
 pub use websocket::{validate_local_credential, validate_local_endpoint};
 include!(concat!(env!("OUT_DIR"), "/schemas.rs"));
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -89,7 +90,7 @@ pub async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
     checked_packet(&v)?;
     Ok(Some(v))
 }
-fn checked_packet(v: &Value) -> Result<()> {
+pub(crate) fn checked_packet(v: &Value) -> Result<()> {
     ensure(v.is_object(), "UPSTREAM_PROTOCOL_ERROR", "Object required")?;
     if let Some(id) = v.get("id") {
         ensure(

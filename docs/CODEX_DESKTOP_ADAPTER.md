@@ -43,4 +43,4 @@ Node 构造参数验证：将 `AGENTDECK_DESKTOP_WS_MODULE` 指向本机已安�
 
 脚本的 stdio fixture helper 只用于上述原生命令探测，不是发布版代理。其分帧与退出回归：`node --test scripts/lib/native-stdio-socket.test.mjs`。原 WS 默认模式继续通过真实合成模型的共享/历史检查。Windows AF_UNIX 文件可表现为无法 stat 的 reparse point，启动判据使用真实 initialize，不能用文件存在替代连接成功。
 
-下一实现路径：受控 stdio → 已认证回环 WS 转接，凭据从电脑文件读取，桌面只接触不含令牌的可执行路径。必须先核验 CLI 版本及全部 startup `-c`/特性/analytics 参数如何与共享服务配置对齐；不允许丢弃参数、以第二个服务兜底、伪造版本或吞掉不支持命令。当前尚未实现该转接程序，不能将 CODEX_CLI_PATH 指向不兼容的 Bridge 主程序。另需继续验证原生控制套接字、桌面宿主功能与独立 GUI 的可回退接入。
+后续已实现受控 stdio → 已认证回环 WS 的开发转接程序，详见 [stdio 配置与接手](CODEX_DESKTOP_STDIO.md)。凭据从电脑文件读取，桌面只接触不含令牌的可执行路径；同连接核验真实 CLI/服务版本及 startup 配置。完整动态参数、CLI 委派和原版 GUI 仍未验收，不得配置当前生产桌面或将 CODEX_CLI_PATH 指向 Bridge 主程序。Basic 适配仍仅保留为默认关闭的开发路径，不能借此绕过环境继承问题。另需继续验证原生控制套接字、桌面宿主功能与独立 GUI 的可回退接入。

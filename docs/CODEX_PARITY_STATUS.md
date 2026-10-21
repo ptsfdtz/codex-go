@@ -3,6 +3,19 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：凭据文件驱动的同连接 stdio 转接（阶段 0 / P01）
+
+- 前一轮提交 `61fae7d` 为实际进展。本轮实现独立开发程序 agentdeck-codex-proxy，使用相邻同名 JSON manifest（64 KiB、严格字段、绝对本机路径、精确已知协议、拒绝自身版本委派），从电脑文件读取原生 token。没有 token URL、inline credential、凭据参数/环境变量或自动启用桌面设置；不依赖 Basic 适配。固定诊断仅输出错误代码。
+- --version 核验指定真实原生程序后返回匹配版本；app-server 首消息必须为真实 initialize，使用桌面原请求/原 ID 和同一 Bearer socket 校验响应 schema/userAgent，再以唯一内部 ID 执行只读 config/read。启动覆盖按 TOML 类型/整表检查共享配置；analytics 默认标志要求既有明确 opt-in/out，不开启 analytics。配置不符不会放行后续输入，不伪造 initialized，不另起执行服务或分叉任务。
+- 支持开发所需 stdio、普通 dotted -c/--config、enable/disable 及 analytics 参数；重复/重叠覆盖、其他命令/子命令/不支持开关明确失败，不能称为完整 CLI 替代。初始化暂存最多 256 条/16 MiB，自己的配置响应不传桌面；8 MiB 行/帧和有界握手/写入，LinesCodec 保留通知打断时的半行/UTF-8。EOF 只关闭当前连接，不结束原生服务、其他连接或任务，不重试未知结果。
+- 新增 toml 固定依赖及 core Cargo.lock；主服务 default-run 保持 agentdeck-service。无安卓协议、Room、服务数据库迁移或生产打包变更。新增 CODEX_DESKTOP_STDIO.md，更新适配和桌面基准接手说明；当前生产桌面未重配，不能将新程序直接当作已验收 CLI。
+- 验证：9 单元 + 36 native + 5 协议版本 + 6 WS fixture + 4 Basic 适配 + 4 stdio 回归通过（5 项显式检查默认 ignored）；严格 Clippy、fmt/diff 通过。新增检查包括 TOML 整表/类型、未知参数与隐式 analytics、manifest 边界、配置失败不泄露快照或转发排队任务、同连接校验及半个 UTF-8 字符时交错原生通知完整还原；这些是 fixture 证据，不冒充 GUI。
+- 精确安装版 0.163.0-alpha.10.2 三项真实隔离检查最终全部通过（23.33 秒）：临时目录运行实际复制的转接程序和相邻 manifest，核验真实版本、安装版默认特性/analytics 启动参数、配置不符的固定 stderr/空 stdout/已加载线程列表不变、读取同一 threadId、EOF 成功退出及原直接连接仍可读取。源服务只在隔离配置中显式 code_mode_host=true、analytics.enabled=false；原历史/追加/中断检查保持通过。源/转接的原生版本子进程均使用隔离 CODEX_HOME，模型仍为本机合成提供者，不使用账户模型。
+- 阶段 0/sharedDesktopRuntime 仍未完成：完整动态参数与 last-write 合并、其他 CLI 工具调用、原版 GUI 安全启动/恢复、审批归属和宿主全部能力、双端真机仍需验收。配置门槛只核对初始化快照，不是配置锁；没有重启原版桌面或改变已有任务。本轮仅提交相关代码、依赖、测试和接手文档，不混入独立 CI/发布修改，不推送。
+- 下一步核验并补齐桌面动态覆盖、CLI 委派与启动层级，准备相互隔离、可回退的原版 GUI 接入；继续完整功能基准和安卓恢复/内容工作，不将此开发传输提升为完整迁移交付。
+
+
+
 ## 2026-10-21 实施记录：原生 stdio/control 候选路径真实核验（阶段 0 / P01）
 
 - 前一轮提交 `92b09f9` 为实际进展。本轮只读检查没有定位到可可靠配置本地 websocket_url 的宿主设置入口，不改写私有数据。确认 CODEX_CLI_PATH 为可执行路径覆盖，桌面仍附加 -c features.code_mode_host=true、app-server、--analytics-default-enabled 及动态配置覆盖；扩充安装代码指纹报告，不把方法存在当作可直接替换 CLI。

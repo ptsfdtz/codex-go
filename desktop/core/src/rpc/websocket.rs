@@ -7,7 +7,7 @@ use tokio_tungstenite::tungstenite::{
     protocol::{Message, WebSocketConfig},
 };
 
-fn local_request(
+pub(crate) fn local_request(
     endpoint: &str,
     credential: &str,
 ) -> Result<tokio_tungstenite::tungstenite::http::Request<()>> {
