@@ -51,6 +51,10 @@ endpoint 沿用精确回环 IP、显式端口、根路径校验，禁止 userinf
 
 真实配置实验现共 19 组，新增插件形状 tool@vendor、Unicode、引号字面键和引号内点分段。原生不会去掉键中的引号，也不会把引号内的点保留为一个 TOML 键；转接与该行为一致。GUI 扩展探测确认：前置策略连接初始化通过后，主连接仍追加动态覆盖；修复键限制后它被 PROXY_CONFIG_MISMATCH 明确拒绝，主应用 bootstrap 失败。具体不一致字段尚未采集核验，不忽略覆盖、不写入共享配置或关闭集成兜底。详见 GUI 探测的负面报告，不能把前置连接通过当作主界面就绪。
 
+后续新增第 20 组原生实验，确认 `plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled=true` 同时出现在有效 config 和 sessionFlags 层，且同值转接校验通过。源配置未提供该项时应拒绝，不能归因为接口隐藏配置。新增固定启动诊断：仍返回 PROXY_CONFIG_MISMATCH，仅可附加 `PROXY_STARTUP_{MCP|PLUGINS|FEATURES|OTHER}_{MISSING|TYPE|VALUE}`；不输出键、值、路径或任意错误消息。诊断只描述首项不一致，不是全部配置差异清单。缺失/类型/值变化均保持拒绝，父路径类型不符单列 TYPE。
+
+真实 GUI 主连接的缺失诊断为 PROXY_STARTUP_PLUGINS_MISSING。隔离源服务显式带上安装代码中的 App Tools/Code Review 插件 MCP 开关后，共享索引和外部重命名连接探测已通过；具体参数与证据见 GUI 探测文档。此为显式测试启动配置，未自动采纳桌面参数、修改现有源服务或部署；插件工具调用、宿主管道/环境与完整共享任务仍未验收。
+
 设置 AGENTDECK_DESKTOP_PROBE_EXE 为精确安装版原生程序，再执行 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_websocket real_desktop_baseline_ -- --ignored --nocapture`。三项真实隔离检查均复制实际转接可执行文件到临时目录，写相邻 manifest，以与安装版默认相同的特性/analytics 参数启动子进程，验证版本、配置不符时 stdout 为空/固定 stderr、同线程读取、EOF 后退出和原连接继续可用。源服务在隔离目录显式设置 code_mode_host=true、analytics.enabled=false；不改变生产设置，不用账户模型；历史/活动检查使用本机合成模型。它们不是启动原版 GUI 的证据。
 
 下一步：在已验证的独立 GUI 初始化接通基础上，验证同源会话和双端真实活动任务；继续核验完整动态 CLI 参数、配置层、CLI 工具调用与必要委派，并进行全量 UI 基准验收。sharedDesktopRuntime 仍为 false，阶段 0 仍未通过。

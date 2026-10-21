@@ -40,3 +40,13 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 最终扩展报告 **passed=false**：合成轮次及源索引成功、前置 GUI 初始化成功，但没有 GUI 索引/打开/重命名通知的成功证据。新发现主连接启动仍追加配置覆盖：起初被普通键名限制拒绝，原生 19 组配置实验证明特殊字符应按字面分段后修复；随后出现 **PROXY_CONFIG_MISMATCH**，独立 GUI 日志确认主应用 bootstrap 失败。前一轮报告只证明前置策略连接，不证明主应用就绪；新报告 mainAppBootstrapVerified=false，保留该区别。
 
 下一步必须核验 GUI 主连接的实际动态覆盖如何与权威运行时/宿主集成保持一致（具体不一致字段尚未采集核验），再继续同源会话和活动任务实验。不能丢弃参数、关闭集成、伪造读到的配置或另起平行线程来获得绿色报告。当前生产桌面和账户保持原样；这只是否定当前隔离配置组合，不是否定所有共享接入路径。
+
+## 显式插件启动配置的共享索引验证
+
+后续诊断收敛为 **PROXY_STARTUP_PLUGINS_MISSING**。安装代码 main-C4DYk222.js 的 `getConfigOverrides` 调用 `yc` 和 `C$e`，分别为 `plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled` 与 `plugins.code-review@openai-bundled.mcp_servers.code-review.enabled` 生成开关。前者依赖 GUI App Tools pipe/插件定义等可用性，后者依赖本地非 WSL 和 Node 解析；不能仅凭这两个键存在认定宿主集成已可用。对应代码文件指纹已在 desktop-ws-environment-audit.json 记录。
+
+在 `--shared-index` 后再加 `--with-desktop-plugin-startup`，用新的独立报告路径运行。该选项仅供本安装基准的隔离实验：校验安装代码含两个已知启动键，向新建原生源服务显式追加这两个 enabled=true 的 -c 参数；GUI 仍独立计算自己的覆盖，转接仍严格核对，不改写或忽略 GUI 参数。不适用于直接部署生产服务，也未实现通用动态参数握手。不同宿主条件使 GUI 选择不同值时仍应失败。
+
+最终 `desktop-gui-shared-index-plugin-startup-probe.json` **passed=true**：合成线程在源索引可见，真实 GUI 自身发起的 thread/list 响应含同一原生线程 ID，GUI 的原生连接上观察到该线程的外部重命名事件；没有代理失败码，测试子进程全部退出，另查没有对应临时路径的进程残留。原来的不带启动配置报告仍为失败，保留作对照，不能用新报告覆盖或删除该证据。
+
+本轮没有观察到 GUI 打开该线程的 read/resume 成功；不声称线程内容渲染或通知后的 UI 名称刷新。`mainAppBootstrapVerified` 和 `desktopPluginStartup.hostIntegrationVerified` 保持 false；通过的是明确的索引/连接事件检查，不是完整主应用、插件工具调用或双向活动任务验收。测试模型只是回环合成服务，另一客户端也只是原生协议探测客户端，不冒充安卓或已配对 Bridge。下一步验证实际打开/内容、双向操作与活动任务，以及 GUI 宿主 pipe/环境对共享服务的真实集成方式。

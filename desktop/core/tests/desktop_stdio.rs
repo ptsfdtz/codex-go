@@ -142,6 +142,13 @@ async fn real_desktop_baseline_startup_override_semantics() {
             ]),
         ),
         (
+            "plugin_override_visibility",
+            args(&[
+                "-c",
+                "plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled=true",
+            ]),
+        ),
+        (
             "root_enable_subcommand_disable",
             args(&[
                 "--enable",
@@ -215,7 +222,7 @@ async fn real_desktop_baseline_startup_override_semantics() {
                 format!(
                     "{}\n{}\n",
                     json!({"method":"initialized"}),
-                    json!({"id":2,"method":"config/read","params":{"includeLayers":false}})
+                    json!({"id":2,"method":"config/read","params":{"includeLayers":name == "plugin_override_visibility"}})
                 )
                 .as_bytes(),
             )
@@ -258,7 +265,21 @@ async fn real_desktop_baseline_startup_override_semantics() {
         let checked = Startup::parse(&proxy_args)
             .unwrap()
             .check(&config["result"]);
-        if name == "table_then_scalar" {
+        if name == "plugin_override_visibility" {
+            let path = |value: &Value| {
+                value["plugins"]["codex-app-tools@openai-bundled"]["mcp_servers"]["codex_app"]
+                    ["enabled"]
+                    .clone()
+            };
+            let layers = config["result"]["layers"].as_array().unwrap();
+            let session_flag = layers
+                .iter()
+                .find(|layer| layer["name"]["type"] == "sessionFlags")
+                .unwrap();
+            assert_eq!(path(&session_flag["config"]), json!(true));
+            assert_eq!(path(&config["result"]["config"]), json!(true));
+            checked.unwrap();
+        } else if name == "table_then_scalar" {
             assert_eq!(checked.unwrap_err().code, "PROXY_CONFIG_MISMATCH");
         } else {
             checked.unwrap();
@@ -502,6 +523,63 @@ fn startup_overlay_preserves_siblings_and_checks_nested_types() {
         .unwrap()
         .check(&json!({"config":{"x":{"base":true}}}))
         .unwrap();
+}
+
+#[test]
+fn startup_diagnostics_classify_failures_without_disclosing_keys_or_values() {
+    use agentdeck_service::desktop_stdio::startup_diagnostic;
+    for (key, domain) in [
+        ("mcp_servers", "MCP"),
+        ("plugins", "PLUGINS"),
+        ("features", "FEATURES"),
+        ("private-secret-key", "OTHER"),
+    ] {
+        let assignment = format!("{key}={{private-secret-field='private-secret-value'}}");
+        let startup = Startup::parse(&args(&["app-server", "-c", &assignment])).unwrap();
+        for (actual, kind) in [
+            (None, "MISSING"),
+            (Some(json!(1)), "TYPE"),
+            (
+                Some(json!({"private-secret-field":"different-secret"})),
+                "VALUE",
+            ),
+        ] {
+            let mut config = json!({"config":{}});
+            if let Some(actual) = actual {
+                config["config"][key] = actual;
+            }
+            let error = startup.check(&config).unwrap_err();
+            assert_eq!(error.code, "PROXY_CONFIG_MISMATCH");
+            assert_eq!(
+                startup_diagnostic(&error),
+                Some(format!("PROXY_STARTUP_{domain}_{kind}").as_str())
+            );
+            assert!(!error.message.contains("secret"));
+        }
+    }
+    assert!(startup_diagnostic(&agentdeck_service::Error::new(
+        "PROXY_CONFIG_MISMATCH",
+        "private-secret-value"
+    ))
+    .is_none());
+    assert!(startup_diagnostic(&agentdeck_service::Error::new(
+        "OTHER",
+        "PROXY_STARTUP_MCP_MISSING"
+    ))
+    .is_none());
+    let startup = Startup::parse(&args(&[
+        "app-server",
+        "-c",
+        "features.private-secret-key=true",
+    ]))
+    .unwrap();
+    let error = startup
+        .check(&json!({"config":{"features":1}}))
+        .unwrap_err();
+    assert_eq!(
+        startup_diagnostic(&error),
+        Some("PROXY_STARTUP_FEATURES_TYPE")
+    );
 }
 
 #[test]

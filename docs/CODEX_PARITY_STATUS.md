@@ -3,6 +3,15 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：插件启动配置诊断与 GUI 同源索引通过（阶段 0 / P01）
+
+- 前一轮 `b6d484d` 为实际进展。本轮增加固定启动诊断，保留 PROXY_CONFIG_MISMATCH 拒绝语义，只输出 MCP/PLUGINS/FEATURES/OTHER 与 MISSING/TYPE/VALUE 的固定分类，不输出键、值、路径或任意 message；首项不一致不是全量差异。回归覆盖分类、父路径类型、陌生错误消息不回显、缺失仍拒绝及原有配置失败不放行排队任务。
+- 真实无插件启动配置探测确认 PROXY_STARTUP_PLUGINS_MISSING。新增第 20 组原生实验，断言 App Tools 插件 MCP 开关同时存在于有效 config 和 sessionFlags 且同值门槛通过，排除接口隐藏字段。只读安装代码定位主连接 yc/C$e 的 App Tools/Code Review 插件开关与可用性条件，不读取生产环境或账户值。
+- 新增显式 --with-desktop-plugin-startup（仅配合 --shared-index）：校验安装代码已知键，向全新隔离源服务追加两项 enabled=true；GUI 自己计算覆盖，转接继续严格核对。没有自动改写源服务配置、忽略参数或关闭集成。新的 desktop-gui-shared-index-plugin-startup-probe.json passed=true：GUI 自身列表响应含另一原生客户端创建的同一线程 ID，连接上观察到该线程外部重命名事件，代理错误码为空，子进程退出且另查无隔离路径进程残留。旧失败报告保留并增加固定诊断。
+- 证据限制：本轮没有 GUI read/resume 打开成功证据，也没有内容渲染、UI 名称刷新、反向操作、真实插件工具、宿主 pipe/环境、活动任务或安卓/已配对 Bridge 验收；mainAppBootstrapVerified 与 hostIntegrationVerified 仍 false。测试模型仅为隔离回环合成服务，不使用账户模型。该启动选项不是通用握手或生产部署方式，不能据此把完整共享标记 true。
+- 验证：stdio 8 项常规回归及含 20 组真实安装版配置的显式实验通过（9 测试、5.60 秒）；3 项真实运行时/实际代理历史及追加/中断检查继续通过（15.25 秒），包括更新后的固定诊断 stderr/空 stdout 断言。严格 Clippy、fmt、脚本 ESLint/Prettier 通过，无安卓/远程协议/数据库变更。
+- 阶段 0/sharedDesktopRuntime 仍未完成。下一步验证真实 GUI 打开/内容和双向活动任务，并核验宿主集成对共享服务的配置与生命周期；本轮只提交相关实现、回归、正负证据和文档，不混入独立 CI/发布修改，不推送。
+
 ## 2026-10-21 实施记录：GUI 主连接动态配置拒绝与字面键修复（阶段 0 / P01）
 
 - 前一轮 `3ef8ab4` 为实际进展；本轮扩展真实 GUI 探测为 --shared-index。独立原生客户端在全新目录通过回环合成模型完成一轮并核验源 thread/list 含原 ID，GUI 使用已核验的 codex://threads/<id> 初始参数打开目标，再从另一客户端重命名。额外通过条件要求 GUI 自身列表响应含相同 ID、连接收到相同 ID/名称的通知，不以原生客户端成功冒充 GUI。

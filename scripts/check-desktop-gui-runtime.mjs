@@ -23,7 +23,14 @@ import WebSocket, { WebSocketServer } from 'ws';
 
 const [desktop, native, proxy, destination] = process.argv.slice(2);
 const sharedIndex = process.argv.slice(6).includes('--shared-index');
-if (process.argv.slice(6).some((arg) => arg !== '--shared-index'))
+const desktopPluginStartup = process.argv.slice(6).includes('--with-desktop-plugin-startup');
+if (desktopPluginStartup && !sharedIndex)
+  throw new Error('Desktop plugin startup requires shared-index probe');
+if (
+  process.argv
+    .slice(6)
+    .some((arg) => !['--shared-index', '--with-desktop-plugin-startup'].includes(arg))
+)
   throw new Error('Unknown probe option');
 if (
   process.platform !== 'win32' ||
@@ -49,6 +56,20 @@ if (
 const offset = 8 + archive.readUInt32LE(4) + Number(entry.offset);
 const bytes = archive.subarray(offset, offset + entry.size);
 const source = bytes.toString();
+if (desktopPluginStartup) {
+  const mainNames = Object.keys(entries).filter(
+    (name) => name.startsWith('main-') && name.endsWith('.js'),
+  );
+  if (mainNames.length !== 1) throw new Error('Unknown desktop main bundle');
+  const mainEntry = entries[mainNames[0]];
+  const start = 8 + archive.readUInt32LE(4) + Number(mainEntry.offset);
+  const main = archive.subarray(start, start + mainEntry.size).toString();
+  if (
+    !main.includes('plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled=') ||
+    !main.includes('plugins.code-review@openai-bundled.mcp_servers.code-review.enabled=')
+  )
+    throw new Error('Unknown desktop plugin startup configuration');
+}
 if (
   !source.includes(
     'function kD({appDataPath:e,buildFlavor:t,env:n}){let r=n.CODEX_ELECTRON_USER_DATA_PATH?.trim();if(r)return(0,g.resolve)(r);',
@@ -114,6 +135,7 @@ const report = {
   visualAcceptance: false,
   androidVerified: false,
   mainAppBootstrapVerified: false,
+  desktopPluginStartup: { requested: desktopPluginStartup, hostIntegrationVerified: false },
   checks: {},
   passed: false,
 };
@@ -231,6 +253,14 @@ try {
   const endpoint = `ws://127.0.0.1:${await freePort()}`;
   const server = launch(native, [
     'app-server',
+    ...(desktopPluginStartup
+      ? [
+          '-c',
+          'plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled=true',
+          '-c',
+          'plugins.code-review@openai-bundled.mcp_servers.code-review.enabled=true',
+        ]
+      : []),
     '--listen',
     endpoint,
     '--ws-auth',
@@ -535,6 +565,10 @@ try {
     'PROXY_IO_TIMEOUT',
   ];
   const failureCodes = new Set();
+  const startupCodes = ['MCP', 'PLUGINS', 'FEATURES', 'OTHER'].flatMap((domain) =>
+    ['MISSING', 'TYPE', 'VALUE'].map((kind) => `PROXY_STARTUP_${domain}_${kind}`),
+  );
+  const startupDiagnostics = new Set();
   let inspectedEntries = 0;
   let inspectedBytes = 0;
   while (logRoots.length && inspectedEntries < 100 && inspectedBytes < 8 * 1024 * 1024) {
@@ -568,12 +602,14 @@ try {
         if (count > 2 * 1024 * 1024 || inspectedBytes > 8 * 1024 * 1024) continue;
         const text = raw.subarray(0, count).toString();
         for (const code of knownCodes) if (text.includes(code)) failureCodes.add(code);
+        for (const code of startupCodes) if (text.includes(code)) startupDiagnostics.add(code);
         if (text.includes('Desktop bootstrap failed to start the main app'))
           report.checks.desktopBootstrapFailed = true;
       }
     }
   }
   report.observedProxyFailureCodes = [...failureCodes].sort();
+  report.observedProxyStartupDiagnostics = [...startupDiagnostics].sort();
   if (sharedIndex && report.checks.desktopBootstrapFailed) report.passed = false;
   for (const file of [tokenFile, manifest]) {
     try {

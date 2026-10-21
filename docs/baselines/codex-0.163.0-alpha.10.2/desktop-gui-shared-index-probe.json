@@ -27,5 +27,6 @@
   },
   "passed": false,
   "nativeVersion": "0.163.0-alpha.10.2",
-  "observedProxyFailureCodes": ["PROXY_CONFIG_MISMATCH"]
+  "observedProxyFailureCodes": ["PROXY_CONFIG_MISMATCH"],
+  "observedProxyStartupDiagnostics": ["PROXY_STARTUP_PLUGINS_MISSING"]
 }

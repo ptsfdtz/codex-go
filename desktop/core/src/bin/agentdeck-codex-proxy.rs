@@ -8,6 +8,9 @@ async fn main() {
     if let Err(error) = run().await {
         // Code only: never print arguments, paths, credentials or task text.
         eprintln!("AgentDeck desktop proxy: {}", error.code);
+        if let Some(diagnostic) = agentdeck_service::desktop_stdio::startup_diagnostic(&error) {
+            eprintln!("AgentDeck desktop startup: {diagnostic}");
+        }
         std::process::exit(1);
     }
 }

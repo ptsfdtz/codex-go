@@ -214,17 +214,31 @@ impl Startup {
     }
     pub fn check(&self, config: &Value) -> Result<()> {
         for (path, expected) in &self.overrides {
-            let mut actual = &config["config"];
+            let mut actual = Some(&config["config"]);
+            let mut ancestor_type_mismatch = false;
             for key in path {
-                actual = actual
-                    .get(key)
-                    .ok_or_else(|| failure("PROXY_CONFIG_MISMATCH"))?;
+                if actual.is_some_and(|value| !value.is_object()) {
+                    ancestor_type_mismatch = true;
+                    break;
+                }
+                actual = actual.and_then(|value| value.get(key));
             }
-            ensure(
-                matches_override(actual, expected),
-                "PROXY_CONFIG_MISMATCH",
-                "Desktop startup override differs from shared configuration",
-            )?;
+            if let Some(kind) = if ancestor_type_mismatch {
+                Some("TYPE")
+            } else {
+                override_mismatch(actual, expected)
+            } {
+                let domain = match path.first().map(String::as_str) {
+                    Some("mcp_servers") => "MCP",
+                    Some("plugins") => "PLUGINS",
+                    Some("features") => "FEATURES",
+                    _ => "OTHER",
+                };
+                return Err(Error::new(
+                    "PROXY_CONFIG_MISMATCH",
+                    &format!("PROXY_STARTUP_{domain}_{kind}"),
+                ));
+            }
         }
         // An explicit opt-in/out wins over a CLI default. Never turn analytics on.
         if self.analytics_default {
@@ -239,17 +253,48 @@ impl Startup {
 }
 // The final CLI table is merged with file/default tables by native Codex.
 // Unmentioned base fields remain authoritative; arrays/scalars replace whole values.
-fn matches_override(actual: &Value, expected: &Value) -> bool {
+fn override_mismatch(actual: Option<&Value>, expected: &Value) -> Option<&'static str> {
+    let Some(actual) = actual else {
+        return Some("MISSING");
+    };
     match expected {
-        Value::Object(table) => actual.as_object().is_some_and(|object| {
-            table.iter().all(|(key, value)| {
-                object
-                    .get(key)
-                    .is_some_and(|actual| matches_override(actual, value))
-            })
-        }),
-        _ => actual == expected,
+        Value::Object(table) => {
+            let Some(object) = actual.as_object() else {
+                return Some("TYPE");
+            };
+            for (key, value) in table {
+                let Some(actual) = object.get(key) else {
+                    return Some("MISSING");
+                };
+                if let Some(kind) = override_mismatch(Some(actual), value) {
+                    return Some(kind);
+                }
+            }
+            None
+        }
+        _ if actual == expected => None,
+        _ if std::mem::discriminant(actual) != std::mem::discriminant(expected) => Some("TYPE"),
+        _ => Some("VALUE"),
     }
+}
+const STARTUP_DIAGNOSTICS: &[&str] = &[
+    "PROXY_STARTUP_MCP_MISSING",
+    "PROXY_STARTUP_MCP_TYPE",
+    "PROXY_STARTUP_MCP_VALUE",
+    "PROXY_STARTUP_PLUGINS_MISSING",
+    "PROXY_STARTUP_PLUGINS_TYPE",
+    "PROXY_STARTUP_PLUGINS_VALUE",
+    "PROXY_STARTUP_FEATURES_MISSING",
+    "PROXY_STARTUP_FEATURES_TYPE",
+    "PROXY_STARTUP_FEATURES_VALUE",
+    "PROXY_STARTUP_OTHER_MISSING",
+    "PROXY_STARTUP_OTHER_TYPE",
+    "PROXY_STARTUP_OTHER_VALUE",
+];
+/// Only fixed classifications may leave the proxy; never keys, values or paths.
+pub fn startup_diagnostic(error: &Error) -> Option<&str> {
+    (error.code == "PROXY_CONFIG_MISMATCH" && STARTUP_DIAGNOSTICS.contains(&error.message.as_str()))
+        .then_some(error.message.as_str())
 }
 fn contains_null(value: &Value) -> bool {
     match value {

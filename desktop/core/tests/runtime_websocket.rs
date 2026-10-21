@@ -260,7 +260,7 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         assert!(rejected.stdout.is_empty());
         assert_eq!(
             String::from_utf8(rejected.stderr).unwrap().trim(),
-            "AgentDeck desktop proxy: PROXY_CONFIG_MISMATCH"
+            "AgentDeck desktop proxy: PROXY_CONFIG_MISMATCH\nAgentDeck desktop startup: PROXY_STARTUP_FEATURES_VALUE"
         );
         assert_eq!(
             a.request("thread/loaded/list", json!({})).await.unwrap()["data"],
