@@ -29,6 +29,8 @@ pub struct Core {
     runtime_protocol: RwLock<crate::rpc::ProtocolVersion>,
     pub verified: AtomicBool,
     pub loaded: Mutex<HashSet<String>>,
+    pub(crate) observed: Mutex<HashMap<String, String>>,
+    pub(crate) observation_lock: tokio::sync::Mutex<()>,
     pub busy: Mutex<HashSet<String>>,
     pub(crate) thread_sync: tokio::sync::Mutex<()>,
     pub(crate) thread_index_changed: Notify,
@@ -70,6 +72,8 @@ impl Core {
             runtime_protocol: RwLock::new(crate::rpc::ProtocolVersion::Managed),
             verified: AtomicBool::new(false),
             loaded: Mutex::new(HashSet::new()),
+            observed: Mutex::new(HashMap::new()),
+            observation_lock: tokio::sync::Mutex::new(()),
             busy: Mutex::new(HashSet::new()),
             thread_sync: tokio::sync::Mutex::new(()),
             thread_index_changed: Notify::new(),
@@ -443,6 +447,7 @@ impl Core {
             "sessions.list" => {
                 Ok(json!({"sessions":self.store.sessions(p["projectId"].as_str())?}))
             }
+            "sessions.observe" => self.observe_session(s(p, "sessionId")).await,
             "sessions.history" => {
                 self.upstream_history(
                     s(p, "sessionId"),

@@ -6,6 +6,8 @@ Windows 0.3.0 uses React in Tauri 2, a Rust desktop host and a native Rust Bridg
 
 The first production launch binds loopback. A Windows-local QR action may save an exact private interface address; production restart restores it only while assigned and certified. No remote action can change that listener grant. The Codex child environment excludes Desktop cached PowerShell and MSIX alias paths that Windows MXC cannot execute; this does not alter the parent PATH, user login/configuration, or sandbox permissions.
 
+Attached observation uses an explicit `sessions.observe` request for selected original threads. The Bridge rejoins already loaded native threads without model/approval/sandbox overrides, keeps desired subscriptions in memory across RPC generations, and defers unloaded sources instead of initializing their execution environment. Validated external notifications enter the bounded journal under native IDs, separate from Bridge-owned turn records. This does not fill offline gaps or merge full persisted history into the timeline. See PROTOCOL.md for limits and CODEX_PARITY_STATUS.md for evidence.
+
 ## Components
 
 ```mermaid

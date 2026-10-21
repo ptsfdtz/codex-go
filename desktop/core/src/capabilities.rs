@@ -39,6 +39,7 @@ pub fn describe_profile(
             "threadIndexImport": true,
             "externalThreadMetadataSync": attached,
             "externalThreadDeletionEvents": attached,
+            "externalThreadObservation": attached,
             "upstreamHistoryPages": true,
             "upstreamHistoryContent": true,
             "modelSelection": true,

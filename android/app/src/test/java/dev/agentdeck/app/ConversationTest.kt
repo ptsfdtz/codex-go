@@ -5,6 +5,16 @@ import org.junit.Test
 import kotlinx.serialization.json.*
 
 class ConversationTest {
+    @Test fun externalStreamUsesSourceTurnAndKeepsOriginalUserMessage(){
+        val input=event(1,"""{"upstreamTurnId":"native-one","method":"item/started","item":{"id":"u","type":"userMessage","content":[{"type":"text","text":"Desktop question"}]}}""",action="upstream.progress")
+        val delta=event(2,"""{"upstreamTurnId":"native-one","method":"item/agentMessage/delta","itemId":"a","delta":"partial"}""",action="upstream.progress")
+        val done=event(3,"""{"upstreamTurnId":"native-one","method":"item/completed","item":{"id":"a","type":"agentMessage","text":"Actual answer"}}""",action="upstream.progress")
+        val other=event(4,"""{"upstreamTurnId":"native-two","method":"item/agentMessage/delta","itemId":"a","delta":"Next answer"}""",action="upstream.progress")
+        val rows=conversationEntries(listOf(input,delta,done,delta,other))
+        assertEquals(listOf("Desktop question","Actual answer","Next answer"),rows.map{it.text})
+        assertEquals(listOf("user","assistant","assistant"),rows.map{it.kind})
+        assertTrue(rows[1].id.contains("native-one"));assertTrue(rows[2].id.contains("native-two"))
+    }
     @Test fun externalStopWaitsForAuthorityAndLateRequestDoesNotOverwriteTerminal(){
         val pending=event(1,"""{"upstreamTurnId":"native"}""",action="turn.interruptRequested")
         val terminal=event(2,"""{"upstreamTurnId":"native","status":"interrupted"}""",action="upstream.turn.completed")

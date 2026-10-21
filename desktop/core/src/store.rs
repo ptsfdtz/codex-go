@@ -329,14 +329,40 @@ impl Store {
         session: Option<&str>,
         turn: Option<&str>,
     ) -> Result<Value> {
+        self.append_inner(action, payload, session, turn, false)
+    }
+    pub(crate) fn append_native_terminal(&self, session: &str, payload: Value) -> Result<()> {
+        self.append_inner(
+            "upstream.turn.completed",
+            payload,
+            Some(session),
+            None,
+            true,
+        )
+        .map(|_| ())
+    }
+    fn append_inner(
+        &self,
+        action: &str,
+        payload: Value,
+        session: Option<&str>,
+        turn: Option<&str>,
+        deduplicate_terminal: bool,
+    ) -> Result<Value> {
         let mut payload = redact_value(payload);
         let text = payload.to_string();
         if text.len() > 256 * 1024 {
-            payload = json!({"truncated":true,"originalBytes":text.len(),"method":payload["method"],"delta":payload["delta"].as_str().map(|t|t.chars().take(64000).collect::<String>()),"turn":{"turnId":payload["turn"]["turnId"],"status":payload["turn"]["status"]},"note":"Event preview limit exceeded; inspect locally"});
+            payload = json!({"truncated":true,"originalBytes":text.len(),"method":payload["method"],"itemId":payload["itemId"],"upstreamTurnId":payload["upstreamTurnId"],"delta":payload["delta"].as_str().map(|t|t.chars().take(64000).collect::<String>()),"turn":{"turnId":payload["turn"]["turnId"],"status":payload["turn"]["status"]},"note":"Event preview limit exceeded; inspect locally"});
         }
         let event = {
             let mut db = self.db.lock().unwrap();
             let tx = db.transaction()?;
+            if deduplicate_terminal {
+                let seen: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM events WHERE sessionId=? AND action='upstream.turn.completed' AND json_extract(payloadJson,'$.upstreamTurnId')=?)",params![session,payload["upstreamTurnId"].as_str()], |row| row.get(0))?;
+                if seen {
+                    return Ok(Value::Null);
+                }
+            }
             let seq:i64=tx.query_row("INSERT INTO event_sequences(sessionKey,seq) VALUES(?,1) ON CONFLICT(sessionKey) DO UPDATE SET seq=seq+1 RETURNING seq",[session.unwrap_or("")],|r|r.get(0))?;
             let ts = now();
             tx.execute("INSERT INTO events(sessionId,turnId,seq,action,payloadJson,ts) VALUES(?,?,?,?,?,?)",params![session,turn,seq,action,payload.to_string(),ts])?;

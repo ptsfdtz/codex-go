@@ -447,6 +447,24 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     assert_eq!(imported["title"], "Versioned desktop baseline");
     assert_eq!(imported["upstream"]["source"], created["thread"]["source"]);
     if with_steering {
+        let observing = core.observe_session(&imported_id).await.unwrap();
+        assert_eq!(observing["upstreamThreadId"], id);
+        assert_eq!(observing["observing"], true);
+        let observed_event = core
+            .store
+            .history(&imported_id, None, 100)
+            .unwrap()
+            .into_iter()
+            .find(|e| e["action"] == "session.observed")
+            .unwrap();
+        assert_eq!(observed_event["payload"]["sandbox"], resumed["sandbox"]);
+        assert_eq!(
+            observed_event["payload"]["approvalPolicy"],
+            resumed["approvalPolicy"]
+        );
+        let cursor = core.store.cursor().unwrap();
+        core.observe_session(&imported_id).await.unwrap();
+        assert_eq!(core.store.cursor().unwrap(), cursor);
         let started = b.request("turn/start",json!({"threadId":id,"input":[{"type":"text","text":"Hold for additional instruction.","text_elements":[]}]})).await.unwrap();
         let turn_id = started["turn"]["id"].as_str().unwrap();
         let active = tokio::time::timeout(Duration::from_secs(10), async {
@@ -510,6 +528,27 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         .expect("steered original turn did not finish");
         assert!(provider_requests.load(Ordering::SeqCst) >= 2);
         assert!(instruction_consumed.load(Ordering::SeqCst));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let events = core.store.history(&imported_id, None, 100).unwrap();
+                if events.iter().any(|e| {
+                    e["action"] == "upstream.progress"
+                        && e["payload"]["upstreamTurnId"] == turn_id
+                        && e["payload"]["method"] == "item/completed"
+                        && e["payload"]["item"]["text"] == answer
+                }) && events.iter().any(|e| {
+                    e["action"] == "upstream.turn.completed"
+                        && e["payload"]["upstreamTurnId"] == turn_id
+                        && e["payload"]["status"] == "completed"
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("native observation did not deliver original output and completion");
+
         let finished = b
             .request(
                 "thread/turns/list",
@@ -711,6 +750,13 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             .unwrap()["upstreamThreadId"],
         session["upstreamThreadId"]
     );
+    let observations_before_reconnect = core
+        .store
+        .history(&imported_id, None, 100)
+        .unwrap()
+        .iter()
+        .filter(|e| e["action"] == "session.observed")
+        .count();
     let generation = core.upstream().unwrap().generation.clone();
     core.upstream().unwrap().stop();
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -737,6 +783,65 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             .unwrap()["upstreamThreadId"],
         session["upstreamThreadId"]
     );
+    if with_steering {
+        // Archive unloaded the source. Its owner explicitly reloads its own
+        // execution environment; observation must not do so on the owner's behalf.
+        b.request("thread/resume",json!({"threadId":id,"cwd":project,"sandbox":"read-only","approvalPolicy":"on-request","excludeTurns":true})).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while core
+                .store
+                .history(&imported_id, None, 100)
+                .unwrap()
+                .iter()
+                .filter(|e| e["action"] == "session.observed")
+                .count()
+                <= observations_before_reconnect
+            {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("native observation was not restored after source reload and reconnect");
+        let restored_event = core
+            .store
+            .history(&imported_id, None, 100)
+            .unwrap()
+            .into_iter()
+            .rev()
+            .find(|e| e["action"] == "session.observed")
+            .unwrap();
+        assert_eq!(
+            restored_event["payload"]["sandbox"], resumed["sandbox"],
+            "observation must not change the source sandbox"
+        );
+        assert_eq!(
+            restored_event["payload"]["approvalPolicy"],
+            resumed["approvalPolicy"]
+        );
+        let started=b.request("turn/start",json!({"threadId":id,"input":[{"type":"text","text":"After observer reconnect.","text_elements":[]}]})).await.unwrap();
+        let turn_id = &started["turn"]["id"];
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if core
+                    .store
+                    .history(&imported_id, None, 100)
+                    .unwrap()
+                    .iter()
+                    .any(|e| {
+                        e["action"] == "upstream.turn.completed"
+                            && e["payload"]["upstreamTurnId"] == *turn_id
+                            && e["payload"]["status"] == "completed"
+                    })
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("restored native observation missed the next original turn");
+        assert!(core.store.turns(Some(&imported_id)).unwrap().is_empty());
+    }
     core.shutdown().await;
     tokio::time::timeout(Duration::from_secs(5), supervisor)
         .await

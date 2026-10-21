@@ -156,10 +156,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       return;
     }
     case 'thread/loaded/list':
-      respond({data:[],nextCursor:null});
+      respond({data:[...threads.entries()].filter(([,t]) => ['OBSERVE_EXACT_ONLY','OBSERVE_WRONG_ID'].includes(t.name)).map(([id]) => id),nextCursor:null});
       return;
     case 'thread/resume': {
       const thread = threads.get(p.threadId);
+      if (thread?.name === 'OBSERVE_EXACT_ONLY' && Object.keys(p).some(key => !['threadId','cwd','excludeTurns'].includes(key))) {
+        send({id:m.id,error:{code:-32600,message:'Observation must not override execution settings'}});
+        return;
+      }
       if (thread?.name === 'MISSING_ROLLOUT') {
         send({ id: m.id, error: { code: -32600, message: `no rollout found for thread id ${p.threadId}` } });
         return;
@@ -180,6 +184,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       result.thread.id = p.threadId;
       result.thread.cwd = thread.root;
       result.cwd = thread.root;
+      if (thread.name === 'OBSERVE_WRONG_ID') result.thread.id='different-thread';
       respond(result);
       return;
     }

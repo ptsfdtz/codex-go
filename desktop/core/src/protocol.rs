@@ -86,6 +86,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "approvals.list" => (&[], &["sessionId"]),
         "sessions.create" => (&["projectId", "title"], &[]),
         "sessions.detail" => (&["sessionId"], &["before", "limit"]),
+        "sessions.observe" => (&["sessionId"], &[]),
         "sessions.history" => (&["sessionId"], &["cursor", "limit"]),
         "sessions.historyContent" => (&["sessionId", "sha256", "offset"], &["cursor"]),
         "turn.start" => (

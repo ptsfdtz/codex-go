@@ -118,10 +118,7 @@ impl Core {
                     break;
                 }
                 if crate::tasks::terminal(s(turn, "status")) {
-                    let seen=self.store.query("SELECT eventId FROM events WHERE sessionId=? AND action='upstream.turn.completed' AND json_extract(payloadJson,'$.upstreamTurnId')=? LIMIT 1",[session_id,expected]).map_err(|_| Error::new("OUTCOME_UNKNOWN", "Stop accepted but reconciliation journal is unavailable"))?;
-                    if seen.is_empty() {
-                        self.store.append("upstream.turn.completed",json!({"upstreamTurnId":expected,"status":turn["status"],"error":turn["error"]["message"]}),Some(session_id),None).map_err(|_| Error::new("OUTCOME_UNKNOWN", "Stop accepted but terminal state could not be journaled"))?;
-                    }
+                    self.store.append_native_terminal(session_id,json!({"upstreamTurnId":expected,"status":turn["status"],"error":turn["error"]["message"]})).map_err(|_| Error::new("OUTCOME_UNKNOWN", "Stop accepted but terminal state could not be journaled"))?;
                     break;
                 }
             }

@@ -4,6 +4,7 @@ pub mod codex;
 pub mod composer;
 pub mod git;
 mod history;
+mod observation;
 pub mod pairing;
 pub mod paths;
 pub mod protocol;

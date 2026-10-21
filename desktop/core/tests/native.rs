@@ -443,6 +443,10 @@ fn request(action: &str, payload: Value, id: &str) -> protocol::Request {
 fn strict_android_protocol() {
     for (action, payload) in [
         (
+            "sessions.observe",
+            json!({"sessionId":"s","permissionMode":"full"}),
+        ),
+        (
             "turn.steer",
             json!({"sessionId":"s","expectedTurnId":"","text":"hello"}),
         ),
@@ -817,6 +821,68 @@ async fn steer_preserves_turn_identity_and_request_replay_never_duplicates_input
     );
 }
 #[tokio::test]
+async fn observation_preserves_identity_and_execution_policy_and_checks_revocation() {
+    let h = Harness::fixture().await;
+    let session = h.session("OBSERVE_EXACT_ONLY").await;
+    let id = s(&session, "sessionId");
+    assert_eq!(
+        h.core.observe_session(id).await.unwrap_err().code,
+        "UNSUPPORTED"
+    );
+    h.core.attached_runtime.store(true, Ordering::SeqCst);
+    h.core.loaded.lock().unwrap().clear();
+    let result = h
+        .core
+        .dispatch(
+            &request("sessions.observe", json!({"sessionId":id}), "observe"),
+            "fixture",
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["upstreamThreadId"], session["upstreamThreadId"]);
+    assert_eq!(result["observing"], true);
+    assert!(!h
+        .core
+        .loaded
+        .lock()
+        .unwrap()
+        .contains(s(&session, "upstreamThreadId")));
+    assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+    let cursor = h.core.store.cursor().unwrap();
+    h.core.observe_session(id).await.unwrap();
+    assert_eq!(h.core.store.cursor().unwrap(), cursor);
+    let unloaded = h.session("OBSERVE_UNLOADED").await;
+    let pending = h
+        .core
+        .observe_session(s(&unloaded, "sessionId"))
+        .await
+        .unwrap();
+    assert_eq!(pending["observing"], false);
+    assert_eq!(pending["state"], "waitingForSource");
+    assert!(h
+        .core
+        .store
+        .history(s(&unloaded, "sessionId"), None, 100)
+        .unwrap()
+        .iter()
+        .all(|e| e["action"] != "session.observed"));
+    let bad = h.session("OBSERVE_WRONG_ID").await;
+    assert_eq!(
+        h.core
+            .observe_session(s(&bad, "sessionId"))
+            .await
+            .unwrap_err()
+            .code,
+        "WORKSPACE_FORBIDDEN"
+    );
+    paths::remove_local(&h.core.store, s(&session, "projectId")).unwrap();
+    assert_eq!(
+        h.core.observe_session(id).await.unwrap_err().code,
+        "WORKSPACE_FORBIDDEN"
+    );
+}
+
+#[tokio::test]
 async fn external_stop_is_idempotent_pauses_goal_and_waits_for_native_terminal() {
     let h = Harness::fixture().await;
     let session = h.session("external-stop").await;
@@ -898,6 +964,45 @@ async fn external_stop_is_idempotent_pauses_goal_and_waits_for_native_terminal()
         "TURN_CHANGED"
     );
 }
+#[tokio::test]
+async fn concurrent_external_terminals_are_journaled_once() {
+    let h = Harness::fixture().await;
+    let session = h.session("terminal-race").await;
+    h.core.attached_runtime.store(true, Ordering::SeqCst);
+    let rpc = h.core.upstream().unwrap();
+    let mut started=rpc.request("turn/start",json!({"threadId":session["upstreamThreadId"],"input":[{"type":"text","text":"WAIT","text_elements":[]}]})).await.unwrap();
+    started["turn"]["status"] = json!("interrupted");
+    let notification = json!({"method":"turn/completed","params":{"threadId":session["upstreamThreadId"],"turn":started["turn"]}});
+    std::thread::scope(|scope| {
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let core = &h.core;
+            let rpc = &rpc;
+            let notification = &notification;
+            workers.push(scope.spawn(move || core.notification(rpc, notification)));
+        }
+        for worker in workers {
+            worker.join().unwrap().unwrap();
+        }
+    });
+    assert_eq!(
+        h.core
+            .store
+            .history(s(&session, "sessionId"), None, 100)
+            .unwrap()
+            .iter()
+            .filter(|e| e["action"] == "upstream.turn.completed")
+            .count(),
+        1
+    );
+    assert!(h
+        .core
+        .store
+        .turns(Some(s(&session, "sessionId")))
+        .unwrap()
+        .is_empty());
+}
+
 #[tokio::test]
 async fn framing_partial_utf8_invalid_and_oversize() {
     let line = json!({"id":"one","result":{"text":"测试😀"}}).to_string() + "\n";

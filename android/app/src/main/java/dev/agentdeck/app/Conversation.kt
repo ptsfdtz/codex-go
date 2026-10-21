@@ -12,7 +12,8 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
         if(!seen.add(e.eventId))continue
         val p=e.payload as? JsonObject?:continue
         fun JsonObject.string(key:String)=(get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
-        val prefix="${e.sessionId}:${e.turnId}:"
+        val native=if(e.action=="upstream.progress")p.string("upstreamTurnId") else ""
+        val prefix=if(native.isNotBlank())"${e.sessionId}:upstream:$native:" else "${e.sessionId}:${e.turnId}:"
         if((p["truncated"] as? JsonPrimitive)?.booleanOrNull==true)rows[prefix+"truncated:"+e.eventId]=ChatEntry(prefix+"truncated:"+e.eventId,"status","部分执行内容超过保留上限，预览已截断。完整内容请在 Windows 工作区核对。")
         if(e.action=="turn.queued"){
             val files=(p["attachments"] as? JsonArray).orEmpty().mapNotNull{(it as? JsonPrimitive)?.contentOrNull}
@@ -60,7 +61,7 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
             when(type){
                 "agentMessage","plan"->{val text=item.string("text").ifEmpty{old?.text.orEmpty()};rows[id]=ChatEntry(id,if(type=="agentMessage")"assistant" else "plan",text.take(128000),status=status,truncated=text.length>128000||(item.string("text").isEmpty()&&old?.truncated==true))}
                 // turn.queued owns user messages, avoiding an echo from item/userMessage.
-                "userMessage"->Unit
+                "userMessage"->if(native.isNotBlank()){val text=(item["content"] as? JsonArray).orEmpty().mapNotNull{it as? JsonObject}.joinToString("\n"){part->if(part.string("type")=="text")part.string("text") else "[${part.string("type")}]"};rows[id]=ChatEntry(id,"user",text,detail=item.toString(),status=status)}
                 "reasoning"->Unit
                 else->{
                     val title=when(type){"commandExecution"->item.string("command");"fileChange"->"修改文件";"mcpToolCall"->item.string("tool");else->"执行步骤"}

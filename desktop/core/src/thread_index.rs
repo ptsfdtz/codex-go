@@ -61,7 +61,12 @@ impl Core {
             {
                 break;
             }
-            if let Err(error) = self.sync_thread_index().await {
+            let refreshed = async {
+                self.sync_thread_index().await?;
+                self.restore_observations().await
+            }
+            .await;
+            if let Err(error) = refreshed {
                 if !["CONFLICT", "SYNC_CONFLICT", "UPSTREAM_UNAVAILABLE"]
                     .contains(&error.code.as_str())
                     && last_error.as_deref() != Some(error.code.as_str())
