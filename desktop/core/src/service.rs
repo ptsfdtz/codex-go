@@ -411,7 +411,7 @@ impl Core {
                 json!({"session":self.store.session(s(p,"sessionId"))?,"turns":self.store.turns(Some(s(p,"sessionId")))?,"events":self.store.history(s(p,"sessionId"),p["before"].as_str(),p["limit"].as_u64().unwrap_or(100) as usize)?}),
             ),
             "turn.start" => Ok(
-                json!({"turn":self.start_turn_permissions(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str(),p["permissionMode"].as_str().unwrap_or("workspace")).await?}),
+                json!({"turn":self.start_turn_composer(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str(),p["permissionMode"].as_str().unwrap_or("workspace"),p["mode"].as_str().unwrap_or("default"),p.get("attachments")).await?}),
             ),
             "turn.interrupt" => self.interrupt(s(p, "sessionId"), s(p, "turnId")).await,
             "approvals.list" => {
@@ -420,11 +420,12 @@ impl Core {
                 }
                 Ok(json!({"approvals":self.store.approvals(p["sessionId"].as_str())?}))
             }
-            "approvals.decide" => self.decide(
+            "approvals.decide" => self.decide_with_answers(
                 s(p, "sessionId"),
                 s(p, "turnId"),
                 s(p, "approvalId"),
                 s(p, "decision"),
+                p.get("answers"),
             ),
             "git.status" => crate::git::status(&self.store, s(p, "projectId")).await,
             "git.diff" => crate::git::diff(&self.store, s(p, "projectId"), s(p, "fileId")).await,

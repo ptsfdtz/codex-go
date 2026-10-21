@@ -31,6 +31,14 @@ fn main() {
         ));
     }
     generated.push_str("_=>None}}\n");
+    let composer_schema = root.join("experimental/TurnStartParams.json");
+    let composer_bytes = fs::read(&composer_schema).expect("pinned composer schema");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&composer_bytes)),
+        "07771223642e1b61bd9aac0069fc0f98143a1c047724ca02c7ceb13653442738",
+        "Codex 0.159.2 experimental turn schema changed"
+    );
+    println!("cargo:rerun-if-changed={}", composer_schema.display());
     fs::write(
         PathBuf::from(env::var("OUT_DIR").unwrap()).join("schemas.rs"),
         generated,

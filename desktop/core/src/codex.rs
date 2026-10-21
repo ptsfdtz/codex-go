@@ -129,7 +129,7 @@ pub fn args() -> Vec<String> {
     ["app-server","--listen","stdio://","-c","windows.sandbox=\"mxc\"","-c","approval_policy=\"on-request\"","-c","approvals_reviewer=\"user\"","-c","default_permissions=\"agentdeck\"","-c","permissions={agentdeck={extends=\":workspace\",filesystem={\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\"},network={enabled=false}}}","-c","web_search=\"disabled\"","-c","mcp_servers={}","-c","hooks={}","-c","shell_environment_policy.inherit=\"core\""].iter().map(|s|s.to_string()).collect()
 }
 pub async fn initialize(rpc: &Arc<Rpc>) -> Result<()> {
-    let v=rpc.request("initialize",json!({"clientInfo":{"name":"agentdeck","title":"AgentDeck","version":"0.3.0"},"capabilities":{"experimentalApi":false,"requestAttestation":false}})).await?;
+    let v=rpc.request("initialize",json!({"clientInfo":{"name":"agentdeck","title":"AgentDeck","version":"0.3.0"},"capabilities":{"experimentalApi":true,"requestAttestation":false}})).await?;
     validate("v1/InitializeResponse", &v)?;
     rpc.send(json!({"method":"initialized","params":{}}))
 }

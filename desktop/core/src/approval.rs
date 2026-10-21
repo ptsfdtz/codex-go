@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use std::{path::Path, sync::atomic::Ordering};
 pub fn contract(method: &str) -> Result<&'static str> {
     match method {
+        "item/tool/requestUserInput" => Ok("ToolRequestUserInput"),
         "item/commandExecution/requestApproval" => Ok("CommandExecutionRequestApproval"),
         "item/fileChange/requestApproval" => Ok("FileChangeRequestApproval"),
         "item/permissions/requestApproval" => Ok("PermissionsRequestApproval"),
@@ -19,6 +20,9 @@ pub fn contract(method: &str) -> Result<&'static str> {
     }
 }
 pub fn choices(method: &str, context: &Value) -> Result<Vec<&'static str>> {
+    if method == "item/tool/requestUserInput" {
+        return Ok(vec!["approve", "reject", "cancel"]);
+    }
     let base = contract(method)?;
     if method == "item/permissions/requestApproval" || context.get("availableDecisions").is_none() {
         return Ok(vec!["approve", "reject", "cancel"]);
@@ -55,7 +59,9 @@ pub fn response(method: &str, decision: &str, context: &Value) -> Result<Value> 
         "UPSTREAM_UNSUPPORTED_REQUEST",
         "Decision unavailable",
     )?;
-    let v = if method == "item/permissions/requestApproval" {
+    let v = if method == "item/tool/requestUserInput" {
+        json!({"answers":{}})
+    } else if method == "item/permissions/requestApproval" {
         let mut permission = json!({});
         if decision == "approve" {
             for key in ["fileSystem", "network"] {
@@ -157,6 +163,16 @@ impl Core {
         id: &str,
         decision: &str,
     ) -> Result<Value> {
+        self.decide_with_answers(session_id, turn_id, id, decision, None)
+    }
+    pub fn decide_with_answers(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        id: &str,
+        decision: &str,
+        answers: Option<&Value>,
+    ) -> Result<Value> {
         let rpc = self.upstream()?;
         let session = self.store.session(session_id)?;
         let turn = self.store.turn(turn_id)?;
@@ -230,7 +246,34 @@ impl Core {
                 }
             }
         }
-        let response = response(s(&row, "method"), decision, &context)?;
+        let response = if row["method"] == "item/tool/requestUserInput" && decision == "approve" {
+            let answers =
+                answers.ok_or_else(|| Error::new("INVALID_REQUEST", "Answers required"))?;
+            let response = json!({"answers":answers});
+            validate("ToolRequestUserInputResponse", &response)?;
+            let questions = context["questions"].as_array().unwrap();
+            let map = answers.as_object().unwrap();
+            ensure(
+                map.len() == questions.len()
+                    && questions.iter().all(|q| {
+                        map.get(s(q, "id"))
+                            .and_then(|a| a["answers"].as_array())
+                            .is_some_and(|a| {
+                                !a.is_empty()
+                                    && a.iter().all(|v| {
+                                        v.as_str().is_some_and(|t| {
+                                            !t.trim().is_empty() && t.len() <= 16000
+                                        })
+                                    })
+                            })
+                    }),
+                "INVALID_REQUEST",
+                "Answer each question",
+            )?;
+            response
+        } else {
+            response(s(&row, "method"), decision, &context)?
+        };
         ensure(
             self.store.exec(
                 "UPDATE approvals SET status='sending' WHERE approvalId=? AND status='pending'",

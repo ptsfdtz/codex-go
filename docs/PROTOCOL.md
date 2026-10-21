@@ -17,6 +17,12 @@ Pairing requests are bounded to 4 KiB. New requests: 10 burst / 0.1 per second p
 
 ## Envelopes
 
+The Android composer extends `turn.start` with optional `mode` (`default`, `plan`, `goal`) and `attachments` (`[{name,data}]`, standard base64). There are at most four files totaling 512 KiB decoded, within the existing 1 MiB WSS frame limit. Files are written to a unique `.agentdeck-attachments_*` directory directly inside the granted project. Images use native `localImage` input; other files are passed as attachment paths for Codex to inspect. Only filenames appear in queued events, never base64 contents. Uploaded files remain in the project until the user deletes them.
+
+Plan uses the native `collaborationMode` field with built-in mode instructions, requiring `experimentalApi:true`. Its parameter schema is separately pinned to the Codex 0.159.2 experimental export at `packages/codex-protocol/experimental/TurnStartParams.json`; the stable schema lock is unchanged. Explicit `default` resets Plan. Goal uses `thread/goal/set`; selecting another mode pauses the managed goal on the next send, and interrupt pauses the goal before interrupting its turn. Automatic goal turns are tracked in the same conversation. Session snapshots include the last selected `mode`.
+
+`item/tool/requestUserInput` is handled as a pending question rather than an unsupported approval. To answer, send `approvals.decide` with `decision:"approve"` and `answers:{questionId:{answers:["answer"]}}`. Every question must have a nonblank answer. `reject`/`cancel` sends an empty answer map. Existing session/turn/generation/expiry and one-time claim checks also apply to questions.
+
 ```json
 {
   "v": 1,

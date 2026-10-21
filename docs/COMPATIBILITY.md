@@ -32,7 +32,7 @@ The table describes the pinned integration contract. Real verification entries i
 
 | Method                           | Contract / role                                                         | Verification                                        |
 | -------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
-| initialize / initialized         | InitializeParams/Response (JSON schema under v1), experimentalApi false | real smoke                                          |
+| initialize / initialized         | InitializeParams/Response (JSON schema under v1), experimentalApi true (Plan composer; separately pinned turn schema) | real smoke                                          |
 | config/read                      | effective workspace permissions and integration safety gate             | real startup/Bridge smoke                           |
 | windowsSandbox/readiness         | require ready                                                           | real startup                                        |
 | thread/start                     | cwd, approvalPolicy on-request, approvalsReviewer user                  | real create                                         |

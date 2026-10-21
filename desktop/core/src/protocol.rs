@@ -88,18 +88,31 @@ pub fn parse(v: Value) -> Result<Request> {
         "sessions.detail" => (&["sessionId"], &["before", "limit"]),
         "turn.start" => (
             &["sessionId", "text"],
-            &["model", "effort", "permissionMode"],
+            &["model", "effort", "permissionMode", "mode", "attachments"],
         ),
         "sessions.rename" => (&["sessionId", "title"], &[]),
         "sessions.archive" | "sessions.restore" | "sessions.delete" => (&["sessionId"], &[]),
         "sessions.pin" => (&["sessionId", "pinned"], &[]),
         "turn.interrupt" => (&["sessionId", "turnId"], &[]),
-        "approvals.decide" => (&["sessionId", "turnId", "approvalId", "decision"], &[]),
+        "approvals.decide" => (
+            &["sessionId", "turnId", "approvalId", "decision"],
+            &["answers"],
+        ),
         "git.diff" => (&["projectId", "fileId"], &[]),
         "events.replay" => (&[], &["cursor", "limit"]),
         _ => return Err(Error::new("INVALID_REQUEST", "Unsupported action")),
     };
     fields(p, required, optional)?;
+    if let Some(mode) = p.get("mode") {
+        ensure(
+            ["default", "plan", "goal"].iter().any(|m| mode == *m),
+            "INVALID_REQUEST",
+            "Invalid conversation mode",
+        )?;
+    }
+    if let Some(files) = p.get("attachments") {
+        crate::composer::decode_attachments(files)?;
+    }
     if let Some(mode) = p.get("permissionMode") {
         ensure(
             mode == "full" || mode == "workspace",

@@ -10,6 +10,10 @@ android {
     compileSdk = 36
     defaultConfig {
         applicationId = "dev.agentdeck.app"
+        // Opt-in separate package for physical acceptance; preserves the user's installed app and Keystore.
+        if (providers.gradleProperty("agentdeckPhysicalTest").orNull == "true") {
+            applicationId = "dev.agentdeck.composertest"
+        }
         minSdk = 28
         targetSdk = 36
         versionCode = 2

@@ -20,6 +20,75 @@ struct Harness {
     worker: Option<tokio::task::JoinHandle<()>>,
 }
 #[tokio::test]
+async fn composer_forwards_files_and_resets_plan_and_goal() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let h = Harness::fixture().await;
+    let session = h.session("composer").await;
+    let id = s(&session, "sessionId");
+    let files = json!([{"name":"notes.txt","data":STANDARD.encode(b"notes")},{"name":"photo.png","data":STANDARD.encode(b"\x89PNG\r\n\x1a\nimage")}]);
+    for (text, mode, attachments) in [
+        ("CHECK_PLAN", "plan", None),
+        ("CHECK_COMPOSER_FILES", "default", Some(&files)),
+        ("CHECK_COMPOSER_GOAL", "goal", None),
+        ("CHECK_COMPOSER_PAUSE", "default", None),
+    ] {
+        let turn = h
+            .core
+            .start_turn_composer(id, text, None, None, "workspace", mode, attachments)
+            .await
+            .unwrap();
+        h.wait(s(&turn, "turnId"), "completed").await;
+        assert_eq!(h.core.store.session(id).unwrap()["mode"], mode);
+    }
+    assert_eq!(
+        h.core
+            .store
+            .meta(&format!("goalMode:{id}"))
+            .unwrap()
+            .as_deref(),
+        Some("paused")
+    );
+}
+#[tokio::test]
+async fn plan_questions_accept_answers_once_and_keep_connection() {
+    let h = Harness::fixture().await;
+    let session = h.session("questions").await;
+    let id = s(&session, "sessionId");
+    let turn = h
+        .core
+        .start_turn_composer(id, "QUESTION", None, None, "workspace", "plan", None)
+        .await
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "waitingApproval").await;
+    let approval = h.core.store.approvals(Some(id)).unwrap().remove(0);
+    let aid = s(&approval, "approvalId");
+    assert!(h
+        .core
+        .decide_with_answers(id, s(&turn, "turnId"), aid, "approve", Some(&json!({})))
+        .is_err());
+    h.core
+        .decide_with_answers(
+            id,
+            s(&turn, "turnId"),
+            aid,
+            "approve",
+            Some(&json!({"approach":{"answers":["A"]}})),
+        )
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    assert!(h
+        .core
+        .decide_with_answers(
+            id,
+            s(&turn, "turnId"),
+            aid,
+            "approve",
+            Some(&json!({"approach":{"answers":["A"]}}))
+        )
+        .is_err());
+    assert!(h.core.ready.load(Ordering::SeqCst));
+}
+#[tokio::test]
 async fn upstream_output_burst_preserves_connection() {
     let node = codex::sync_command("where.exe", &["node.exe"], None).unwrap();
     let node = Path::new(node.lines().next().unwrap().trim());

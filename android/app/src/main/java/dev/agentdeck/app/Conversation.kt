@@ -15,7 +15,8 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
         val prefix="${e.sessionId}:${e.turnId}:"
         if((p["truncated"] as? JsonPrimitive)?.booleanOrNull==true)rows[prefix+"truncated:"+e.eventId]=ChatEntry(prefix+"truncated:"+e.eventId,"status","部分执行内容超过保留上限，预览已截断。完整内容请在 Windows 工作区核对。")
         if(e.action=="turn.queued"){
-            val text=p.string("text")
+            val files=(p["attachments"] as? JsonArray).orEmpty().mapNotNull{(it as? JsonPrimitive)?.contentOrNull}
+            val text=p.string("text")+if(files.isEmpty())"" else "\n\n附件："+files.joinToString("、")
             if(text.isNotBlank())rows[prefix+"user"]=ChatEntry(prefix+"user","user",text)
             continue
         }

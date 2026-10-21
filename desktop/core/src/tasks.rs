@@ -75,6 +75,35 @@ impl Core {
         effort: Option<&str>,
         permission_mode: &str,
     ) -> Result<Value> {
+        self.start_turn_composer(
+            session_id,
+            text,
+            model,
+            effort,
+            permission_mode,
+            "default",
+            None,
+        )
+        .await
+    }
+    pub async fn start_turn_composer(
+        &self,
+        session_id: &str,
+        text: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+        permission_mode: &str,
+        mode: &str,
+        attachments: Option<&Value>,
+    ) -> Result<Value> {
+        ensure(
+            ["default", "plan", "goal"].contains(&mode),
+            "INVALID_REQUEST",
+            "Invalid conversation mode",
+        )?;
+        if let Some(files) = attachments {
+            crate::composer::decode_attachments(files)?;
+        }
         ensure(
             ["workspace", "full"].contains(&permission_mode),
             "INVALID_REQUEST",
@@ -110,7 +139,16 @@ impl Core {
             busy.insert(session_id.into());
         }
         let result = self
-            .start_inner(&rpc, session_id, text, model, effort, permission_mode)
+            .start_inner(
+                &rpc,
+                session_id,
+                text,
+                model,
+                effort,
+                permission_mode,
+                mode,
+                attachments,
+            )
             .await;
         self.busy.lock().unwrap().remove(session_id);
         result
@@ -123,6 +161,8 @@ impl Core {
         model: Option<&str>,
         effort: Option<&str>,
         permission_mode: &str,
+        mode: &str,
+        attachments: Option<&Value>,
     ) -> Result<Value> {
         let mut session = self.store.session(session_id)?;
         ensure(
@@ -211,6 +251,39 @@ impl Core {
                 .unwrap()
                 .insert(s(&session, "upstreamThreadId").into());
         }
+        // Always send an explicit mode, so Plan cannot leak into subsequent normal turns.
+        let mode_model = if !selected_model.is_empty() {
+            selected_model.clone()
+        } else {
+            let models = rpc.request("model/list", json!({})).await?;
+            validate("v2/ModelListResponse", &models)?;
+            models["data"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|m| m["isDefault"] == true))
+                .and_then(|m| m["model"].as_str())
+                .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "No default model"))?
+                .to_owned()
+        };
+        let (input, file_names) = crate::composer::prepare_input(&root, text, attachments)?;
+        // Goal is native persistent thread state, not a prompt pretending to be Goal mode.
+        let previous_goal = self
+            .store
+            .meta(&format!("goalMode:{session_id}"))?
+            .as_deref()
+            == Some("active");
+        if mode == "goal" || previous_goal {
+            let goal_params = if mode == "goal" {
+                json!({"threadId":session["upstreamThreadId"],"objective":text,"status":"active"})
+            } else {
+                json!({"threadId":session["upstreamThreadId"],"status":"paused"})
+            };
+            let response = rpc.request("thread/goal/set", goal_params).await?;
+            validate("v2/ThreadGoalSetResponse", &response)?;
+            self.store.set_meta(
+                &format!("goalMode:{session_id}"),
+                if mode == "goal" { "active" } else { "paused" },
+            )?;
+        }
         let turn = uid("turn");
         self.store.exec(
             "INSERT INTO turns VALUES(?,?,NULL,?,?,NULL,NULL)",
@@ -219,11 +292,11 @@ impl Core {
         self.store.status(session_id, Some(&turn), "queued", None)?;
         self.store.append(
             "turn.queued",
-            json!({"turn":self.store.turn(&turn)?,"text":text,"permissionMode":permission_mode}),
+            json!({"turn":self.store.turn(&turn)?,"text":text,"permissionMode":permission_mode,"mode":mode,"attachments":file_names}),
             Some(session_id),
             Some(&turn),
         )?;
-        let mut params = json!({"threadId":session["upstreamThreadId"],"input":[{"type":"text","text":text,"text_elements":[]}],"approvalPolicy":"on-request","approvalsReviewer":"user"});
+        let mut params = json!({"threadId":session["upstreamThreadId"],"input":input,"collaborationMode":{"mode":if mode == "plan" { "plan" } else { "default" },"settings":{"model":mode_model,"reasoning_effort":if selected_effort.is_empty() { Value::Null } else { json!(selected_effort) },"developer_instructions":null}},"approvalPolicy":"on-request","approvalsReviewer":"user"});
         // Set both policies on every turn so switching back never inherits full access.
         if permission_mode == "full" {
             params["approvalPolicy"] = json!("never");
@@ -238,7 +311,10 @@ impl Core {
             params["effort"] = json!(selected_effort);
         }
         self.store
+            .set_meta(&format!("composerMode:{session_id}"), mode)?;
+        self.store
             .set_meta(&format!("permissionMode:{session_id}"), permission_mode)?;
+        crate::composer::validate_turn(&params)?;
         let result=async{let response=rpc.request("turn/start",params).await?;validate("v2/TurnStartResponse",&response)?;
         self.store.exec("INSERT INTO session_options(sessionId,model,effort) VALUES(?,?,?) ON CONFLICT(sessionId) DO UPDATE SET model=excluded.model,effort=excluded.effort",rusqlite::params![session_id,selected_model,selected_effort])?;
         let current=self.store.turn(&turn)?;ensure(current["upstreamTurnId"].is_null()||current["upstreamTurnId"]==response["turn"]["id"],"UPSTREAM_PROTOCOL_ERROR","Turn identity mismatch")?;
@@ -271,6 +347,22 @@ impl Core {
             "CONFLICT",
             "Turn is not active in this session",
         )?;
+        if self
+            .store
+            .meta(&format!("goalMode:{session_id}"))?
+            .as_deref()
+            == Some("active")
+        {
+            let response = rpc
+                .request(
+                    "thread/goal/set",
+                    json!({"threadId":session["upstreamThreadId"],"status":"paused"}),
+                )
+                .await?;
+            validate("v2/ThreadGoalSetResponse", &response)?;
+            self.store
+                .set_meta(&format!("goalMode:{session_id}"), "paused")?;
+        }
         self.store.append(
             "turn.interruptRequested",
             json!({}),
@@ -341,11 +433,57 @@ impl Core {
                 }
             }
         }
+        if bind
+            && found.is_none()
+            && turn.is_some()
+            && self.store.meta(&format!("goalMode:{id}"))?.as_deref() == Some("active")
+        {
+            let local = uid("turn");
+            self.store.exec(
+                "INSERT INTO turns VALUES(?,?,?,?,?,NULL,NULL)",
+                rusqlite::params![local, id, turn.unwrap(), "running", now()],
+            )?;
+            self.store.status(id, Some(&local), "running", None)?;
+            found = Some(self.store.turn(&local)?);
+            self.store.append(
+                "turn.started",
+                json!({"turn":found,"source":"goal"}),
+                Some(id),
+                Some(&local),
+            )?;
+        }
         Ok(Some((session, found)))
     }
     pub fn notification(&self, rpc: &Rpc, v: &Value) -> Result<()> {
         let method = s(v, "method");
         let p = &v["params"];
+        if method == "thread/goal/updated" || method == "thread/goal/cleared" {
+            validate(
+                if method.ends_with("updated") {
+                    "v2/ThreadGoalUpdatedNotification"
+                } else {
+                    "v2/ThreadGoalClearedNotification"
+                },
+                p,
+            )?;
+            if let Some((session, _)) = self.route(s(p, "threadId"), None, false)? {
+                self.store.set_meta(
+                    &format!("goalMode:{}", s(&session, "sessionId")),
+                    if method.ends_with("updated") {
+                        s(&p["goal"], "status")
+                    } else {
+                        "paused"
+                    },
+                )?;
+                self.store.append(
+                    "goal.updated",
+                    p.clone(),
+                    Some(s(&session, "sessionId")),
+                    None,
+                )?;
+            }
+            return Ok(());
+        }
         if method == "serverRequest/resolved" {
             validate("v2/ServerRequestResolvedNotification", p)?;
             let rows=self.store.query("SELECT * FROM approvals WHERE generation=? AND upstreamRequestJson=? AND status IN ('pending','sending')",[rpc.generation.clone(),p["requestId"].to_string()])?;

@@ -36,7 +36,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       terminal(
         waiting.threadId,
         waiting.turnId,
-        m.result?.decision === 'accept' ? 'completed' : 'interrupted',
+        m.result?.decision === 'accept' || m.result?.answers?.approach?.answers?.[0] === 'A' ? 'completed' : 'interrupted',
       );
     }
     return;
@@ -173,6 +173,13 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         backwardsCursor: null,
       });
       return;
+    case 'thread/goal/set': {
+      const current = threads.get(p.threadId);
+      const now = Date.now();
+      current.goal = {...(current.goal ?? {createdAt:now,objective:'',tokensUsed:0,timeUsedSeconds:0}),...p,updatedAt:now};
+      respond({goal:current.goal});
+      return;
+    }
     case 'turn/start': {
       const result = clone(samples.turnStart);
       const turnId = 'fixture_' + randomUUID();
@@ -181,6 +188,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       result.turn.completedAt = null;
       result.turn.items = [];
       const text = p.input[0].text;
+      const expectedMode = text === 'CHECK_PLAN' ? 'plan' : 'default';
+      if(text.startsWith('CHECK_COMPOSER') || text === 'CHECK_PLAN') {
+        const valid = p.collaborationMode?.mode === expectedMode && p.collaborationMode?.settings.model === 'fixture-model' &&
+          (text !== 'CHECK_COMPOSER_FILES' || (p.input[1]?.type === 'text' && p.input[1].text.includes('notes.txt') && p.input[2]?.type === 'localImage')) &&
+          (text !== 'CHECK_COMPOSER_GOAL' || threads.get(p.threadId).goal?.status === 'active') &&
+          (text !== 'CHECK_COMPOSER_PAUSE' || threads.get(p.threadId).goal?.status === 'paused');
+        if(!valid){send({id:m.id,error:{code:-1,message:'Composer options not forwarded'}});return;}
+      }
       if (text.startsWith('CHECK_PERMISSION_')) {
         const full = text === 'CHECK_PERMISSION_FULL';
         if (p.approvalPolicy !== (full ? 'never' : 'on-request') ||
@@ -205,7 +220,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         },
       });
       respond(result);
-      if (text.includes('APPROVAL')) {
+      if (text === 'QUESTION') {
+        const requestId = ++nextRequest;
+        pending.set(requestId, {threadId:p.threadId,turnId});
+        send({id:requestId,method:'item/tool/requestUserInput',params:{threadId:p.threadId,turnId,itemId:'question',isBlocking:true,questions:[{id:'approach',header:'Approach',question:'Which approach?',options:[{label:'A',description:'First approach'},{label:'B',description:'Second approach'}]}]}});
+      } else if (text.includes('APPROVAL')) {
         const requestId = ++nextRequest;
         pending.set(requestId, { threadId: p.threadId, turnId });
         const root = threads.get(p.threadId).root;

@@ -24,6 +24,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 
 @Composable internal fun ChatWorkspace(state:DeckState,repo:DeckRepository,onInterrupt:()->Unit){
     val keyboard=LocalSoftwareKeyboardController.current
@@ -36,6 +41,26 @@ import kotlinx.coroutines.launch
     LaunchedEffect(state.hosts){if(state.hosts.isNotEmpty())drafts=drafts.filterKeys{key->state.hosts.any{key.startsWith("${it.hostId}:")}}}
     val draftKey="${state.host?.hostId}:"+(state.selectedSession?:"new:${state.selectedProject}")
     val text=drafts[draftKey].orEmpty()
+    var modes by rememberSaveable{mutableStateOf(mapOf<String,String>())}
+    val mode=modes[draftKey]?:session?.mode?:"default"
+    var attachmentDrafts by remember{mutableStateOf(mapOf<String,List<ChatAttachment>>())}
+    val attachments=attachmentDrafts[draftKey].orEmpty()
+    val context=LocalContext.current
+    val attachmentScope=rememberCoroutineScope()
+    var pickingKey by remember{mutableStateOf("")}
+    var readingAttachments by remember{mutableStateOf(false)}
+    val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){uris->
+        val key=pickingKey
+        if(uris.isNotEmpty())attachmentScope.launch{
+            readingAttachments=true
+            try{
+                val existing=attachmentDrafts[key].orEmpty()
+                val added=withContext(Dispatchers.IO){readChatAttachments(context,uris,existing)}
+                attachmentDrafts=attachmentDrafts+(key to (existing+added))
+            }catch(e:Exception){repo.showMessage(e.message?:"无法读取附件")}
+            finally{readingAttachments=false}
+        }
+    }
     val list=rememberLazyListState()
     val scope=rememberCoroutineScope()
     var follow by remember(state.host?.hostId,state.selectedSession){mutableStateOf(true)}
@@ -52,7 +77,7 @@ import kotlinx.coroutines.launch
             }else LazyColumn(Modifier.fillMaxSize().testTag("execution-timeline"),state=list,contentPadding=PaddingValues(horizontal=24.dp,vertical=20.dp),verticalArrangement=Arrangement.spacedBy(24.dp)){
                 item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderEvents,enabled=!state.stale&&!state.busy){Text("加载更早的消息",fontSize=12.sp)}}}
                 items(entries,key={"${state.host?.hostId}:${it.id}"}){entry->ChatWidth{ChatMessage(entry,state.displayMask)}}
-                items(approvals,key={"${state.host?.hostId}:approval:"+it.approvalId}){approval->ChatWidth{ApprovalCard(approval,state.stale||state.busy,repo::decide)}}
+                items(approvals,key={"${state.host?.hostId}:approval:"+it.approvalId}){approval->ChatWidth{if(approval.method=="item/tool/requestUserInput")QuestionCard(approval,state.stale||state.busy,repo::answerQuestions,{repo.decide(approval,"cancel")})else ApprovalCard(approval,state.stale||state.busy,repo::decide)}}
                 item{ChatWidth{if(active&&approvals.isEmpty())Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){if(!state.stale&&session.status!="unknown")CircularProgressIndicator(Modifier.size(13.dp),strokeWidth=1.5.dp);Text(if(state.stale)"连接恢复后核对任务状态" else statusLabel(session.status),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
             }
             if(!follow&&session!=null)FilledTonalIconButton(onClick={follow=true;scope.launch{list.animateScrollToItem((list.layoutInfo.totalItemsCount-1).coerceAtLeast(0))}},modifier=Modifier.align(Alignment.BottomCenter).padding(8.dp)){Icon(Icons.Outlined.ArrowDownward,"回到最新消息")}
@@ -60,18 +85,29 @@ import kotlinx.coroutines.launch
         ChatWidth{Column(Modifier.imePadding().padding(start=20.dp,end=20.dp,bottom=12.dp)){
             Surface(shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surfaceContainerHighest){
                 Column(Modifier.padding(horizontal=8.dp,vertical=6.dp)){
+                    if(attachments.isNotEmpty())Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                        attachments.forEach{file->InputChip(selected=false,onClick={},label={Text(file.name,maxLines=1)},trailingIcon={IconButton(onClick={attachmentDrafts=attachmentDrafts+(draftKey to attachments.filterNot{it===file})},modifier=Modifier.size(22.dp),enabled=!state.busy){Icon(Icons.Outlined.Close,"移除附件",Modifier.size(14.dp))}})}
+                    }
+                    if(readingAttachments)Text("正在读取附件…",Modifier.padding(8.dp),fontSize=12.sp)
                     TextField(value=text,onValueChange={if(it.length<=64000)drafts=drafts+(draftKey to it)},placeholder={Text(if(session==null)"向 Codex 描述任务…" else "发送消息，继续对话…",fontSize=15.sp)},modifier=Modifier.fillMaxWidth().heightIn(min=64.dp,max=180.dp).testTag("chat-input"),maxLines=7,colors=TextFieldDefaults.colors(focusedContainerColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedContainerColor=androidx.compose.ui.graphics.Color.Transparent,focusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent))
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                         var addOpen by remember{mutableStateOf(false)}
                         var permissionOpen by remember{mutableStateOf(false)}
                         val controlsEnabled=!active&&!state.busy&&!state.stale&&session?.archived!=1
                         Box{
-                            IconButton(onClick={addOpen=true},modifier=Modifier.size(40.dp),enabled=!state.busy){Icon(Icons.Outlined.Add,"更多操作",Modifier.size(20.dp))}
+                            IconButton(onClick={addOpen=true},modifier=Modifier.size(40.dp),enabled=!state.busy&&!active&&!state.stale&&!readingAttachments){Icon(Icons.Outlined.Add,"更多操作",Modifier.size(20.dp))}
                             DropdownMenu(expanded=addOpen,onDismissRequest={addOpen=false}){
+                                DropdownMenuItem(text={Column{Text("上传文件或图片");Text("最多 4 个 · 总计 512 KB",style=MaterialTheme.typography.bodySmall)}},leadingIcon={Icon(Icons.Outlined.AttachFile,null)},onClick={addOpen=false;pickingKey=draftKey;picker.launch(arrayOf("*/*"))},enabled=attachments.size<4)
+                                HorizontalDivider()
+                                listOf("default" to "默认 · 直接执行","plan" to "Plan · 先制定计划","goal" to "Goal · 持续完成目标").forEach{(value,label)->
+                                    DropdownMenuItem(text={Text(label)},trailingIcon={if(mode==value)Icon(Icons.Outlined.Check,null)},onClick={addOpen=false;modes=modes+(draftKey to value)})
+                                }
+                                HorizontalDivider()
                                 DropdownMenuItem(text={Text("新对话")},onClick={addOpen=false;state.selectedProject?.let(repo::selectProject)},enabled=state.selectedProject!=null)
                                 DropdownMenuItem(text={Text("在 Windows 授权项目")},onClick={addOpen=false;repo.addProject()},enabled=!state.stale)
                             }
                         }
+                        TextButton(onClick={addOpen=true},enabled=controlsEnabled,contentPadding=PaddingValues(horizontal=4.dp)){Text(when(mode){"plan"->"Plan";"goal"->"Goal";else->"默认"},fontSize=12.sp);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(14.dp))}
                         Box{
                             TextButton(onClick={permissionOpen=true},enabled=controlsEnabled,contentPadding=PaddingValues(horizontal=4.dp)){
                                 val tint=if(state.fullAccess)Color(0xFFFF914D) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -88,7 +124,7 @@ import kotlinx.coroutines.launch
                             CodexModelPicker(state,repo,enabled=controlsEnabled)
                         }
                         if(active)FilledIconButton(onClick=onInterrupt,enabled=!state.stale&&!state.busy,modifier=Modifier.size(36.dp)){Icon(Icons.Outlined.Stop,"中断任务",Modifier.size(18.dp))}
-                        else FilledIconButton(onClick={keyboard?.hide();focus.clearFocus();val sent=text;val key=draftKey;val accepted={if(drafts[key]==sent)drafts=drafts-key;Unit};if(session==null)repo.newTask(sent,accepted)else repo.continueTask(sent,accepted)},enabled=text.isNotBlank()&&!state.stale&&!state.busy&&state.selectedProject!=null&&session?.archived!=1,modifier=Modifier.size(36.dp)){Icon(Icons.Outlined.ArrowUpward,"发送消息",Modifier.size(20.dp))}
+                        else FilledIconButton(onClick={keyboard?.hide();focus.clearFocus();val sent=text;val key=draftKey;val sentFiles=attachments;val accepted={val target="${state.host?.hostId}:"+repo.state.value.selectedSession;modes=modes+(target to mode);if(drafts[key]==sent)drafts=drafts-key;if(attachmentDrafts[key]==sentFiles)attachmentDrafts=attachmentDrafts-key;Unit};val prompt=sent.ifBlank{"请查看上传的附件。"};if(session==null)repo.newTask(prompt,mode,sentFiles,accepted)else repo.continueTask(prompt,mode,sentFiles,accepted)},enabled=(text.isNotBlank()||attachments.isNotEmpty())&&!readingAttachments&&!state.stale&&!state.busy&&state.selectedProject!=null&&session?.archived!=1,modifier=Modifier.size(36.dp)){Icon(Icons.Outlined.ArrowUpward,"发送消息",Modifier.size(20.dp))}
                     }
                 }
             }

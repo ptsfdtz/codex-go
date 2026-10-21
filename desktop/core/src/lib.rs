@@ -1,5 +1,6 @@
 pub mod approval;
 pub mod codex;
+pub mod composer;
 pub mod git;
 pub mod pairing;
 pub mod paths;

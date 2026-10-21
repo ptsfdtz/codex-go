@@ -17,7 +17,7 @@ val wire = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     }
 }
 @Serializable data class Project(val projectId:String,val name:String,val canonicalPath:String,val enabled:Boolean=true,val createdAt:String="")
-@Serializable data class Session(val sessionId:String,val projectId:String,val upstreamThreadId:String,val title:String,val status:String,val createdAt:String="",val updatedAt:String="",val archived:Int=0,val pinned:Int=0,val model:String="",val effort:String="")
+@Serializable data class Session(val sessionId:String,val projectId:String,val upstreamThreadId:String,val title:String,val status:String,val createdAt:String="",val updatedAt:String="",val archived:Int=0,val pinned:Int=0,val model:String="",val effort:String="",val mode:String="default")
 @Serializable data class ReasoningOption(val reasoningEffort:String,val description:String="")
 @Serializable data class CodexModel(val model:String,val displayName:String,val isDefault:Boolean=false,val defaultReasoningEffort:String="",val supportedReasoningEfforts:List<ReasoningOption> = emptyList())
 @Serializable data class Turn(val turnId:String,val sessionId:String,val upstreamTurnId:String?=null,val status:String,val startedAt:String="",val endedAt:String?=null,val error:String?=null)

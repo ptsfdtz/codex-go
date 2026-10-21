@@ -83,12 +83,12 @@ impl Store {
         Ok(rows)
     }
     pub fn session(&self, id: &str) -> Result<Value> {
-        let v = self.one("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE s.sessionId=?", [id])?;
+        let v = self.one("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE s.sessionId=?", [id])?;
         self.project(s(&v, "projectId"))?;
         Ok(v)
     }
     pub fn sessions(&self, id: Option<&str>) -> Result<Vec<Value>> {
-        match id{Some(id)=>{self.project(id)?;self.query("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE projectId=? ORDER BY updatedAt DESC",[id])},None=>self.query("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])}
+        match id{Some(id)=>{self.project(id)?;self.query("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s LEFT JOIN session_options o USING(sessionId) WHERE projectId=? ORDER BY updatedAt DESC",[id])},None=>self.query("SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])}
     }
     pub fn delete_session(&self, id: &str) -> Result<()> {
         let mut db = self.db.lock().unwrap();
@@ -407,7 +407,7 @@ impl Store {
         for p in &mut projects {
             p["enabled"] = json!(true);
         }
-        let sessions=Self::query_db(&tx,"SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])?;
+        let sessions=Self::query_db(&tx,"SELECT s.*,COALESCE(o.archived,0) AS archived,COALESCE(o.pinned,0) AS pinned,COALESCE(o.model,'') AS model,COALESCE(o.effort,'') AS effort,COALESCE((SELECT value FROM meta WHERE key='composerMode:'||s.sessionId),'default') AS mode FROM sessions s JOIN projects p ON s.projectId=p.projectId LEFT JOIN session_options o USING(sessionId) WHERE p.enabled=1 ORDER BY updatedAt DESC",[])?;
         let turns=Self::query_db(&tx,"SELECT * FROM turns WHERE status IN ('queued','running','waitingApproval','unknown') ORDER BY startedAt",[])?;
         let rows = Self::query_db(
             &tx,

@@ -7,6 +7,160 @@ use std::{
     time::Duration,
 };
 #[tokio::test]
+#[ignore = "explicit physical composer host; isolated temporary grant and synthetic device, real TLS and Codex"]
+async fn physical_composer_host() {
+    let directory = tempfile::tempdir().unwrap();
+    security::restrict_directory(directory.path()).unwrap();
+    let root = directory.path().join("physical-composer-only");
+    std::fs::create_dir(&root).unwrap();
+    let store = Arc::new(Store::open(&directory.path().join("host.db")).unwrap());
+    paths::add_local(&store, &root).unwrap();
+    let tls = Certificate::load(directory.path()).unwrap();
+    let fingerprint = tls.fingerprint.clone();
+    let credential = security::token();
+    let device = uid("physical_composer");
+    store
+        .replace_device(
+            &device,
+            "Isolated physical acceptance",
+            &digest(&credential),
+        )
+        .unwrap();
+    let host = json!({"endpoint":"https://127.0.0.1:49331","fingerprint":fingerprint,"hostId":store.meta("hostId").unwrap(),"deviceId":device,"credential":credential,"name":"Composer isolated acceptance"});
+    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+    let output = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let core = Core::new(store, tls, "127.0.0.1".into(), 49331, tx);
+    core.verified.store(true, Ordering::SeqCst);
+    core.listen("127.0.0.1").await.unwrap();
+    let owner = core.clone();
+    let supervisor = tokio::spawn(async move {
+        owner.supervise(codex::find().unwrap()).await;
+    });
+    let until = tokio::time::Instant::now() + Duration::from_secs(60);
+    while !core.ready.load(Ordering::SeqCst) && tokio::time::Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    core.upstream().unwrap();
+    let artifacts = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts");
+    let host_file = artifacts.join("physical-composer-host.json");
+    std::fs::write(&host_file, host.to_string()).unwrap();
+    eprintln!("PHYSICAL_COMPOSER_HOST_READY port=49331 isolated grant, synthetic credential; not a human-pairing acceptance test");
+    let stop = artifacts.join("physical-composer-stop");
+    let until = tokio::time::Instant::now() + Duration::from_secs(1200);
+    while !stop.exists() && tokio::time::Instant::now() < until {
+        let _ = core.expire_due();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    for project in core.store.projects().unwrap() {
+        for session in core.store.sessions(Some(s(&project, "projectId"))).unwrap() {
+            let _ = core
+                .upstream()
+                .unwrap()
+                .request(
+                    "thread/goal/set",
+                    json!({"threadId":session["upstreamThreadId"],"status":"paused"}),
+                )
+                .await;
+        }
+    }
+    std::fs::write(artifacts.join("physical-composer-host-result.json"),json!({"isolated":true,"sessions":core.store.sessions(None).unwrap(),"files":std::fs::read_dir(root).unwrap().count()}).to_string()).unwrap();
+    let _ = std::fs::remove_file(host_file);
+    let _ = std::fs::remove_file(stop);
+    core.shutdown().await;
+    supervisor.abort();
+    output.abort();
+}
+#[tokio::test]
+#[ignore = "explicit composer acceptance: real logged-in Codex, attachments, Plan questions and Goal"]
+async fn real_composer_modes_and_attachments() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("composer-acceptance");
+    std::fs::create_dir(&root).unwrap();
+    let store = Arc::new(Store::open(&directory.path().join("test.db")).unwrap());
+    let project = paths::add_local(&store, &root).unwrap();
+    let tls = Certificate::load(directory.path()).unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+    let output = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let core = Core::new(store, tls, "127.0.0.1".into(), 49329, tx);
+    core.verified.store(true, Ordering::SeqCst);
+    let owner = core.clone();
+    let supervisor = tokio::spawn(async move {
+        owner.supervise(codex::find().unwrap()).await;
+    });
+    let until = tokio::time::Instant::now() + Duration::from_secs(60);
+    while !core.ready.load(Ordering::SeqCst) && tokio::time::Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let session = core
+        .create_session(s(&project, "projectId"), "Isolated composer acceptance")
+        .await
+        .unwrap();
+    let id = s(&session, "sessionId");
+    let image_path = root.join("red.png");
+    image::RgbImage::from_pixel(32, 32, image::Rgb([255, 0, 0]))
+        .save(&image_path)
+        .unwrap();
+    let files = json!([{"name":"notes.txt","data":STANDARD.encode(b"ATTACHMENT_REAL_OK\n")},{"name":"red.png","data":STANDARD.encode(std::fs::read(image_path).unwrap())}]);
+    let mut results = vec![];
+    for (mode, prompt, attachments) in [
+        ("default","Only inspect the attached notes.txt in this temporary test directory and the attached image. Reply with the exact text from notes.txt and the image's dominant color. Do not change files or inspect anything else.",Some(&files)),
+        ("plan","This is a synthetic Plan-mode acceptance test. Do not implement anything or inspect files. First call request_user_input with one question id approach and two choices A and B about which test plan to use. After receiving the answer, return a short proposed plan including PLAN_REAL_OK.",None),
+        ("default","Reply exactly DEFAULT_REAL_OK. Do not use tools or inspect files.",None),
+        ("goal","This is a synthetic Goal acceptance test in a temporary directory. Reply GOAL_REAL_OK and mark this goal complete using the goal tool. Do not inspect or change files, run commands, or use network.",None),
+    ] {
+        eprintln!("Starting real composer mode: {mode}");
+        let turn = core.start_turn_composer(id,prompt,None,None,"workspace",mode,attachments).await.unwrap();
+        let tid = s(&turn,"turnId");
+        let until = tokio::time::Instant::now()+Duration::from_secs(180);
+        let mut answered = false;
+        loop {
+            for approval in core.store.approvals(Some(id)).unwrap() {
+                assert_eq!(approval["method"],"item/tool/requestUserInput","Unexpected permission request in isolated test");
+                let mut answers = serde_json::Map::new();
+                for q in approval["context"]["questions"].as_array().unwrap() { let label=q["options"][0]["label"].as_str().unwrap_or("A");answers.insert(s(q,"id").to_owned(),json!({"answers":[label]})); }
+                core.decide_with_answers(id,tid,s(&approval,"approvalId"),"approve",Some(&serde_json::Value::Object(answers))).unwrap();
+                answered = true;
+            }
+            let current=core.store.turn(tid).unwrap();
+            if tasks::terminal(s(&current,"status")) {assert_eq!(current["status"],"completed","{current}");break;}
+            assert!(tokio::time::Instant::now()<until,"Composer timed out: {current}");
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let events=core.store.history(id,None,500).unwrap();
+        let assistant = events.iter().filter(|e| e["turnId"] == tid).filter_map(|e| {
+            let p=&e["payload"];
+            if p["method"] == "item/agentMessage/delta" { p["delta"].as_str() }
+            else if p["method"] == "item/completed" && p["item"]["type"] == "agentMessage" { p["item"]["text"].as_str() }
+            else { None }
+        }).collect::<Vec<_>>().join("");
+        let marker=match mode {"plan"=>"PLAN_REAL_OK","goal"=>"GOAL_REAL_OK",_=>if attachments.is_some(){"ATTACHMENT_REAL_OK"}else{"DEFAULT_REAL_OK"}};
+        assert!(assistant.contains(marker),"Missing real assistant marker {marker}: {assistant}");
+        if attachments.is_some(){assert!(assistant.to_lowercase().contains("red"),"Image color was not recognized: {assistant}");}
+        if mode=="plan"{assert!(answered,"Plan did not produce the requested question");}
+        results.push(json!({"mode":mode,"completed":true,"questionAnswered":answered,"attachments":attachments.is_some()}));
+    }
+    let goal = core
+        .upstream()
+        .unwrap()
+        .request(
+            "thread/goal/get",
+            json!({"threadId":session["upstreamThreadId"]}),
+        )
+        .await
+        .unwrap();
+    eprintln!("Final real goal status: {}", goal["goal"]["status"]);
+    assert_eq!(goal["goal"]["status"], "complete");
+    std::fs::write(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../artifacts/real-composer-result.json"),
+        json!({"result":"PASS","turns":results,"goalStatus":goal["goal"]["status"]}).to_string(),
+    )
+    .unwrap();
+    core.shutdown().await;
+    supervisor.abort();
+    output.abort();
+}
+#[tokio::test]
 #[ignore = "requires installed Codex and Windows MXC; creates an ephemeral thread without model requests"]
 async fn real_codex_thread_start() {
     let exe = codex::find().unwrap();
