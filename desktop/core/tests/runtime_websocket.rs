@@ -301,6 +301,36 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             .unwrap()
             .iter()
             .any(|p| p["id"] == *id && p["name"] == "Externally renamed"));
+        let outside = tempfile::tempdir().unwrap();
+        let outside_root = agentdeck_service::paths::canonical(outside.path()).unwrap();
+        let mixed = native_request(&mut source, "mixed", "project/create", json!({"idempotencyKey":"mixed","name":"Unauthorized mixed roots","roots":[{"path":project},{"path":outside_root}]})).await;
+        let bridge = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(
+            agentdeck_service::store::Store::open(&bridge.path().join("bridge.db")).unwrap(),
+        );
+        let grant = agentdeck_service::paths::add_local(&store, &project).unwrap();
+        let tls = agentdeck_service::security::Certificate::load(bridge.path()).unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let core = agentdeck_service::service::Core::new(store, tls, "127.0.0.1".into(), 0, tx);
+        *core.rpc.write().unwrap() = Some(a.clone());
+        core.ready.store(true, Ordering::SeqCst);
+        let projected = core.native_project_page(None, 100).await.unwrap();
+        let entries = projected["data"].as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+        let ids: std::collections::HashSet<_> = entries
+            .iter()
+            .map(|entry| {
+                assert_eq!(
+                    entry["rootGrants"],
+                    json!([{"rootIndex":0,"projectId":grant["projectId"]}])
+                );
+                assert_ne!(entry["project"]["id"], mixed["project"]["id"]);
+                entry["project"]["id"].as_str().unwrap().to_owned()
+            })
+            .collect();
+        assert_eq!(ids, expected);
+        assert_eq!(core.store.projects().unwrap().len(), 1);
+        assert!(core.store.sessions(None).unwrap().is_empty());
         source.close(None).await.unwrap();
     }
     let created = a

@@ -10,6 +10,14 @@
 
 RPC 只为 DesktopBaseline 的 project/list 加入独立参数合约，其他请求仍校验原 ClientRequest。未开放 project/create/update/delete 等实验写操作；没有安卓 action、能力标记或自动索引导入。
 
+## Core 授权投影
+
+`Core::native_project_page` 是尚未开放远程 action 的内部读取接口。只返回全部 roots 都精确匹配有效 Bridge 本机目录授权的项目；父目录授权不自动包含子目录，部分授权、无根目录、相对路径及未授权项目整体隐藏。原生项目完整内容保存在 `project`，`rootGrants` 按 rootIndex 映射 Bridge projectId，两种身份不混用。不会新增授权、会话或业务副本。
+
+读取前后复核授权快照、目录身份与运行时连接代次。撤销或授权变化返回 SYNC_CONFLICT，目录替换按现有 WORKSPACE_FORBIDDEN 拒绝，运行时替换返回 UPSTREAM_UNAVAILABLE；失败不返回部分页面。无授权时不查询上游。过滤后的空页仍保留源 nextCursor；游标目前仅供内部使用，不能直接作为设备分页协议。
+
+五项控制源回归使用真实临时目录与 Bridge Store，覆盖多根目录、撤销/重新授权、连接替换及同路径目录替换；测试证书为占位，不构成 TLS 验收。真实安装版隔离检查另验证两个授权项目保留原 ID，一个混合未授权根目录的项目被整体隐藏，且未自动创建本机授权或会话。
+
 ## 合约来源
 
 执行以下命令从精确安装版导出，不手改 schema：
@@ -23,7 +31,7 @@ node scripts/pin-desktop-protocol.mjs <codex.exe绝对路径> --projects
 ## 验证
 
 ```powershell
-cargo test --locked --manifest-path desktop/core/Cargo.toml --test native_projects
+cargo test --locked --manifest-path desktop/core/Cargo.toml --test native_projects --test native_project_grants
 $env:AGENTDECK_DESKTOP_PROBE_EXE = '<精确0.163.0-alpha.10.2的codex.exe绝对路径>'
 cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_websocket real_desktop_baseline_ -- --ignored --nocapture
 ```
@@ -34,6 +42,6 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_webso
 
 ## 接入前的必要工作
 
-这是电脑内部低层接口，返回该运行时的项目，并不是远程授权边界。未来 Core/安卓入口必须根据既有本机 grants 验证项目的全部 roots；不能只按第一个 root 或会话 cwd 匹配，也不能把未知 roots 自动加入授权。未经授权的名称、路径和 metadata 不能泄露到远程页面。需要单独设计版本化原生 ID 映射、分页上下文和外部事件恢复，不能把原生 ID 当桌面 legacy ID。
+低层 Rpc 页面不可直接暴露；Core 已实现全部 roots 的本机授权投影，远程入口仍需设备绑定的分页上下文、跨页一致性、授权失效恢复与版本化协议。原生 ID 与 Bridge grants 的映射不代表桌面 legacy ID 映射，后者仍需核验。
 
 原版 GUI 主动排除 project/changed；本机项目缓存和界面发布仍需受支持的宿主适配，详见 CODEX_DESKTOP_GUI_PROBE.md。该读取接口没有解决首次设置、导航、侧栏刷新或双向桌面项目写入，sharedDesktopRuntime 继续为 false。
