@@ -179,6 +179,13 @@ class DeckRepository(context:Context){
                 decodeLatestTurn(result,session)
             },
             publish={notifications.publish(host.hostId,it,mutable.value.preferences.notifications)},
+            refresh={event->
+                val state=mutable.value
+                val original=snapshot.sessions.find{it.sessionId==event.sessionId}
+                val present=state.snapshot.sessions.find{it.sessionId==event.sessionId}
+                if(state.snapshot.host?.hostId!=host.hostId||original==null||present==null||original.projectId!=present.projectId||original.upstreamThreadId!=present.upstreamThreadId)null
+                else refreshReplayNotification(event,state.snapshot,includeNative=true)
+            },
         )
     }
 

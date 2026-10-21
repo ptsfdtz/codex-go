@@ -49,4 +49,36 @@ class ReplayDeliveryTest {
         deliverReplayNotifications((1..3).map(::event),{true},{true},{original},{when(reads++){0->error("read failed");1->latest.copy(turnId="new");else->latest}},{sent.add(it.eventId)})
         assertEquals(listOf("3"),sent)
     }
+
+    @Test fun approvalResolvedDuringEarlierNativeReadIsNotPublished()=runTest{
+        val now=java.time.Instant.parse("2026-10-21T12:00:00Z")
+        val approval=Approval("a","s","local-turn","command","pending",expiresAt="2026-10-21T12:01:00Z")
+        val request=event(2).copy(action="approval.requested",turnId="local-turn",payload=wire.encodeToJsonElement(Approval.serializer(),approval))
+        var state=Snapshot(host=HostState("h","ready","test"),sessions=listOf(original),approvals=listOf(approval))
+        val delayed=CompletableDeferred<LatestTurn>()
+        val sent=mutableListOf<String>()
+        val job=launch{deliverReplayNotifications(listOf(event(),request),{true},{true},{original},{delayed.await()},{sent.add(it.eventId)},refresh={refreshReplayNotification(it,state,now,true)})}
+        runCurrent();state=state.copy(approvals=emptyList());delayed.complete(latest);job.join()
+        assertEquals(listOf("1"),sent)
+    }
+
+    @Test fun terminalSupersededWhileWaitingIsNotPublished()=runTest{
+        val terminal=event(2).copy(action="turn.completed",turnId="local-turn")
+        var state=Snapshot(sessions=listOf(original.copy(status="completed")),turns=listOf(Turn("local-turn","s",status="completed")))
+        val sent=mutableListOf<String>()
+        deliverReplayNotifications(listOf(event(),terminal),{true},{true},{original},{state=state.copy(sessions=listOf(original.copy(status="running")));latest},{sent.add(it.eventId)},refresh={refreshReplayNotification(it,state,includeNative=true)})
+        assertEquals(listOf("1"),sent)
+    }
+
+    @Test fun publishingRefreshUsesNewApprovalExpiryAndDropsUnknownActions()=runTest{
+        val now=java.time.Instant.parse("2026-10-21T12:00:00Z")
+        val old=Approval("a","s","local-turn","command","pending",expiresAt="2026-10-21T12:01:00Z")
+        val current=old.copy(expiresAt="2026-10-21T12:00:30Z")
+        val request=event().copy(action="approval.requested",turnId="local-turn",payload=wire.encodeToJsonElement(Approval.serializer(),old))
+        val state=Snapshot(sessions=listOf(original),approvals=listOf(current))
+        val updated=refreshReplayNotification(request,state,now)!!
+        assertEquals(current.expiresAt,wire.decodeFromJsonElement(Approval.serializer(),updated.payload).expiresAt)
+        assertNull(refreshReplayNotification(request,state,java.time.Instant.parse(current.expiresAt)))
+        assertNull(refreshReplayNotification(event().copy(action="future.event"),state,now))
+    }
 }

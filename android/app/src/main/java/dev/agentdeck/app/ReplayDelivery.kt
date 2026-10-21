@@ -11,6 +11,7 @@ internal suspend fun deliverReplayNotifications(
     session:(String?)->Session?,
     readLatest:suspend (Session)->LatestTurn,
     publish:(DeckEvent)->Unit,
+    refresh:(DeckEvent)->DeckEvent?={it},
 ) {
     var reads=0
     for(event in events){
@@ -27,6 +28,8 @@ internal suspend fun deliverReplayNotifications(
             if(after.upstreamThreadId!=before.upstreamThreadId||after.projectId!=before.projectId)continue
             if(!latest.confirms(event))continue
         }
-        if(isCurrent())publish(event)
+        if(!isCurrent())return
+        val updated=refresh(event)?:continue
+        if(isCurrent())publish(updated)
     }
 }

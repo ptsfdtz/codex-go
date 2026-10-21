@@ -48,18 +48,24 @@ internal class NotificationReplay(private val limit:Int=128) {
     fun drain(hostId:String,snapshot:Snapshot,now:Instant=Instant.now(),includeNative:Boolean=false):List<DeckEvent> {
         val buffered=candidates.values.toList();clear()
         if(snapshot.host?.hostId!=hostId)return emptyList()
-        return buffered.mapNotNull{event->
-            val session=snapshot.sessions.find{it.sessionId==event.sessionId}?:return@mapNotNull null
-            if(event.action=="approval.requested"){
-                val prior=pendingNotificationApproval(event,now)?:return@mapNotNull null
-                val current=snapshot.approvals.find{it.approvalId==prior.approvalId&&it.sessionId==event.sessionId&&it.turnId==event.turnId&&notificationApprovalActive(it,now)}?:return@mapNotNull null
-                event.copy(payload=wire.encodeToJsonElement(Approval.serializer(),current.copy(context=JsonObject(emptyMap()),allowedDecisions=emptyList())))
-            }else if(event.action=="upstream.turn.completed"){
-                event.takeIf{includeNative&&taskNotificationTitle(it,now)!=null}
-            }else{
-                val status=event.action.removePrefix("turn.")
-                event.takeIf{session.status==status&&snapshot.turns.any{it.turnId==event.turnId&&it.sessionId==session.sessionId&&it.status==status}}
-            }
-        }.sortedBy{it.eventId.toLong()}
+        return buffered.mapNotNull{refreshReplayNotification(it,snapshot,now,includeNative)}.sortedBy{it.eventId.toLong()}
+    }
+}
+
+/** Revalidate again immediately before publishing: earlier native reads may have suspended. */
+internal fun refreshReplayNotification(event:DeckEvent,snapshot:Snapshot,now:Instant=Instant.now(),includeNative:Boolean=false):DeckEvent? {
+    val session=snapshot.sessions.find{it.sessionId==event.sessionId}?:return null
+    return when(event.action){
+        "approval.requested"->{
+            val prior=pendingNotificationApproval(event,now)?:return null
+            val current=snapshot.approvals.find{it.approvalId==prior.approvalId&&it.sessionId==event.sessionId&&it.turnId==event.turnId&&notificationApprovalActive(it,now)}?:return null
+            event.copy(payload=wire.encodeToJsonElement(Approval.serializer(),current.copy(context=JsonObject(emptyMap()),allowedDecisions=emptyList())))
+        }
+        "upstream.turn.completed"->event.takeIf{includeNative&&taskNotificationTitle(it,now)!=null}
+        "turn.completed","turn.failed","turn.interrupted"->{
+            val status=event.action.removePrefix("turn.")
+            event.takeIf{session.status==status&&snapshot.turns.any{it.turnId==event.turnId&&it.sessionId==session.sessionId&&it.status==status}}
+        }
+        else->null
     }
 }
