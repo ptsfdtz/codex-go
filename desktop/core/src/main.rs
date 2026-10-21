@@ -24,7 +24,7 @@ async fn main() {
     if let Err(e) = run().await {
         println!(
             "{}",
-            json!({"type":"error","payload":{"message":e.to_string()}})
+            json!({"type":"error","payload":{"code":e.code,"message":e.message}})
         );
         std::process::exit(1);
     }
@@ -114,7 +114,7 @@ async fn run() -> Result<()> {
                 Ok(true) => {}
                 Err(e) => owner.emit(
                     "error",
-                    json!({"localRequestId":id,"message":e.to_string()}),
+                    json!({"localRequestId":id,"code":e.code,"message":e.message}),
                 ),
             }
         }

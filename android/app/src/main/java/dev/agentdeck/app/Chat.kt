@@ -17,12 +17,10 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -60,24 +58,44 @@ import kotlinx.coroutines.launch
             if(!follow&&session!=null)FilledTonalIconButton(onClick={follow=true;scope.launch{list.animateScrollToItem((list.layoutInfo.totalItemsCount-1).coerceAtLeast(0))}},modifier=Modifier.align(Alignment.BottomCenter).padding(8.dp)){Icon(Icons.Outlined.ArrowDownward,"回到最新消息")}
         }
         ChatWidth{Column(Modifier.imePadding().padding(start=20.dp,end=20.dp,bottom=12.dp)){
-            Surface(shape=RoundedCornerShape(24.dp),color=MaterialTheme.colorScheme.surfaceContainerLow,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
-                Column(Modifier.padding(12.dp)){
+            Surface(shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surfaceContainerHighest){
+                Column(Modifier.padding(horizontal=8.dp,vertical=6.dp)){
                     TextField(value=text,onValueChange={if(it.length<=64000)drafts=drafts+(draftKey to it)},placeholder={Text(if(session==null)"向 Codex 描述任务…" else "发送消息，继续对话…",fontSize=15.sp)},modifier=Modifier.fillMaxWidth().heightIn(min=64.dp,max=180.dp).testTag("chat-input"),maxLines=7,colors=TextFieldDefaults.colors(focusedContainerColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedContainerColor=androidx.compose.ui.graphics.Color.Transparent,focusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent))
-                    CodexModelPicker(state,repo,enabled=!active&&!state.busy&&!state.stale&&session?.archived!=1)
-                    Row(Modifier.fillMaxWidth().padding(start=10.dp),verticalAlignment=Alignment.CenterVertically){
-                        var projectsOpen by remember{mutableStateOf(false)}
-                        Box{TextButton(onClick={projectsOpen=true},enabled=session==null&&!state.busy){Icon(Icons.Outlined.FolderOpen,null,Modifier.size(15.dp));Spacer(Modifier.width(6.dp));Text(state.snapshot.projects.find{it.projectId==state.selectedProject}?.name?:"选择项目",maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.widthIn(max=180.dp),fontSize=12.sp);if(session==null)Icon(Icons.Outlined.ExpandMore,null,Modifier.size(14.dp))};DropdownMenu(expanded=projectsOpen,onDismissRequest={projectsOpen=false}){state.snapshot.projects.forEach{project->DropdownMenuItem(text={Text(project.name)},onClick={projectsOpen=false;repo.selectProject(project.projectId)})};DropdownMenuItem(text={Text("在 Windows 授权项目")},onClick={projectsOpen=false;repo.addProject()},enabled=!state.stale)}}
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                        var addOpen by remember{mutableStateOf(false)}
+                        var permissionOpen by remember{mutableStateOf(false)}
+                        val controlsEnabled=!active&&!state.busy&&!state.stale&&session?.archived!=1
+                        Box{
+                            IconButton(onClick={addOpen=true},modifier=Modifier.size(40.dp),enabled=!state.busy){Icon(Icons.Outlined.Add,"更多操作",Modifier.size(20.dp))}
+                            DropdownMenu(expanded=addOpen,onDismissRequest={addOpen=false}){
+                                DropdownMenuItem(text={Text("新对话")},onClick={addOpen=false;state.selectedProject?.let(repo::selectProject)},enabled=state.selectedProject!=null)
+                                DropdownMenuItem(text={Text("在 Windows 授权项目")},onClick={addOpen=false;repo.addProject()},enabled=!state.stale)
+                            }
+                        }
+                        Box{
+                            TextButton(onClick={permissionOpen=true},enabled=controlsEnabled,contentPadding=PaddingValues(horizontal=4.dp)){
+                                val tint=if(state.fullAccess)Color(0xFFFF914D) else MaterialTheme.colorScheme.onSurfaceVariant
+                                Icon(if(state.fullAccess)Icons.Outlined.Shield else Icons.Outlined.Security,null,Modifier.size(15.dp),tint=tint)
+                                Spacer(Modifier.width(5.dp));Text(if(state.fullAccess)"全部权限" else "工作区审批",fontSize=12.sp,color=tint)
+                            }
+                            DropdownMenu(expanded=permissionOpen,onDismissRequest={permissionOpen=false}){
+                                DropdownMenuItem(text={Text("全部权限 · 无需审批")},onClick={permissionOpen=false;repo.setFullAccess(true)})
+                                DropdownMenuItem(text={Text("工作区 · 按需审批")},onClick={permissionOpen=false;repo.setFullAccess(false)})
+                            }
+                        }
                         Spacer(Modifier.weight(1f))
+                        Box(Modifier.weight(1f).widthIn(max=420.dp),contentAlignment=Alignment.CenterEnd){
+                            CodexModelPicker(state,repo,enabled=controlsEnabled)
+                        }
                         if(active)FilledIconButton(onClick=onInterrupt,enabled=!state.stale&&!state.busy,modifier=Modifier.size(36.dp)){Icon(Icons.Outlined.Stop,"中断任务",Modifier.size(18.dp))}
                         else FilledIconButton(onClick={keyboard?.hide();focus.clearFocus();val sent=text;val key=draftKey;val accepted={if(drafts[key]==sent)drafts=drafts-key;Unit};if(session==null)repo.newTask(sent,accepted)else repo.continueTask(sent,accepted)},enabled=text.isNotBlank()&&!state.stale&&!state.busy&&state.selectedProject!=null&&session?.archived!=1,modifier=Modifier.size(36.dp)){Icon(Icons.Outlined.ArrowUpward,"发送消息",Modifier.size(20.dp))}
                     }
                 }
             }
-            Text(if(state.stale)"离线 · 草稿已保留，连接恢复后可发送" else "Codex 可以修改工作区文件；额外权限由你确认。",modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=8.dp),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(state.stale)Text("离线 · 草稿已保留，连接恢复后可发送",modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=8.dp),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }}
     }
 }
-
 @Composable private fun ChatWidth(content:@Composable ()->Unit){Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.TopCenter){Column(Modifier.widthIn(max=840.dp).fillMaxWidth()){content()}}}
 
 @Composable private fun ChatMessage(entry:ChatEntry,mask:String){
@@ -87,7 +105,7 @@ import kotlinx.coroutines.launch
         "user"->Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){Surface(Modifier.widthIn(max=640.dp),shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surfaceContainerHighest){SelectionContainer{Text(text,Modifier.padding(horizontal=18.dp,vertical=14.dp),fontSize=15.sp,lineHeight=24.sp)}}}
         "assistant","plan"->Column{
             if(entry.kind=="plan")Text("计划",fontSize=12.sp,fontWeight=FontWeight.Medium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            MessageBody(text)
+            MarkdownText(text)
             if(entry.truncated)Text("消息预览已截断，请在 Windows 核对完整内容。",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton(onClick={clipboard.setText(AnnotatedString(text))},modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.ContentCopy,"复制回复",Modifier.size(15.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)}
         }
@@ -95,43 +113,10 @@ import kotlinx.coroutines.launch
             Surface(shape=RoundedCornerShape(10.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
                 Column(Modifier.fillMaxWidth()){
                     Row(Modifier.fillMaxWidth().clickable{expanded=!expanded}.padding(12.dp),verticalAlignment=Alignment.CenterVertically){Icon(if(entry.title=="修改文件")Icons.Outlined.Difference else Icons.Outlined.Terminal,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant);Spacer(Modifier.width(10.dp));Text(maskDisplay(entry.title,mask),maxLines=1,overflow=TextOverflow.Ellipsis,fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.weight(1f));Spacer(Modifier.width(8.dp));Text(statusLabel(entry.status),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant);Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,"展开执行详情",Modifier.size(18.dp))}
-                    if(expanded){HorizontalDivider();SelectionContainer{Text((maskDisplay(entry.title+"\n"+entry.text+"\n"+entry.detail,mask)).take(24000),Modifier.padding(14.dp),fontFamily=FontFamily.Monospace,fontSize=12.sp,lineHeight=19.sp)};if(entry.text.length+entry.detail.length>24000)Text("输出预览已截断",Modifier.padding(12.dp),fontSize=11.sp)}
+                    if(expanded){HorizontalDivider();val detail=if(entry.status=="failed")userFacingError(raw=entry.text.ifBlank{entry.detail}) else entry.title+"\n"+entry.text+"\n"+entry.detail;SelectionContainer{Text(maskDisplay(detail,mask).take(24000),Modifier.padding(14.dp),fontFamily=FontFamily.Monospace,fontSize=12.sp,lineHeight=19.sp)};if(entry.status!="failed"&&entry.text.length+entry.detail.length>24000)Text("输出预览已截断",Modifier.padding(12.dp),fontSize=11.sp)}
                 }
             }
         }
-        else->Column{Text(text,fontSize=12.sp,color=if(entry.status=="failed")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant);if(entry.detail.isNotBlank())SelectionContainer{Text(maskDisplay(entry.detail,mask),fontSize=12.sp)}}
+        else->Column{Text(if(entry.status=="failed")userFacingError(raw=entry.detail) else text,fontSize=12.sp,color=if(entry.status=="failed")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant);if(entry.detail.isNotBlank()&&entry.status!="failed")SelectionContainer{Text(maskDisplay(entry.detail,mask),fontSize=12.sp)}}
     }
-}
-
-/** Fenced code remains selectable text, never executable UI. */
-@Composable private fun MessageBody(text:String){
-    val parts=remember(text){text.split("```")}
-    Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
-        parts.forEachIndexed{index,part->
-            if(index%2==1){val language=part.substringBefore('\n').take(40);val code=part.substringAfter('\n',part).trimEnd();val clipboard=LocalClipboardManager.current
-                Surface(shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surfaceContainerLow,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
-                    Column(Modifier.fillMaxWidth()){
-                        Row(Modifier.fillMaxWidth().padding(horizontal=14.dp),verticalAlignment=Alignment.CenterVertically){Text(language,fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f));IconButton(onClick={clipboard.setText(AnnotatedString(code))},modifier=Modifier.size(32.dp)){Icon(Icons.Outlined.ContentCopy,"复制代码",Modifier.size(14.dp))}}
-                        SelectionContainer{Text(code,Modifier.horizontalScroll(rememberScrollState()).padding(14.dp),fontFamily=FontFamily.Monospace,fontSize=13.sp,lineHeight=21.sp)}
-                    }
-                }
-            }else if(part.isNotBlank())SelectionContainer{Column(verticalArrangement=Arrangement.spacedBy(6.dp)){part.trim().split('\n').forEach{line->val heading=line.startsWith("#");Text(inlineMarkdown(line.trimStart('#').trimStart()),fontWeight=if(heading)FontWeight.SemiBold else FontWeight.Normal,fontSize=if(heading)18.sp else 15.sp,lineHeight=25.sp)}}}
-        }
-    }
-}
-
-@Composable private fun inlineMarkdown(text:String):AnnotatedString {
-    val codeBackground=MaterialTheme.colorScheme.surfaceContainerHighest
-    return remember(text,codeBackground){buildAnnotatedString{
-        val pattern=Regex("`([^`]+)`|\\*\\*([^*]+)\\*\\*")
-        var cursor=0
-        for(match in pattern.findAll(text)){
-            append(text.substring(cursor,match.range.first))
-            val code=match.groups[1]?.value
-            if(code!=null)withStyle(SpanStyle(fontFamily=FontFamily.Monospace,background=codeBackground)){append(code)}
-            else withStyle(SpanStyle(fontWeight=FontWeight.SemiBold)){append(match.groups[2]!!.value)}
-            cursor=match.range.last+1
-        }
-        append(text.substring(cursor))
-    }}
 }

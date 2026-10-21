@@ -18,11 +18,11 @@ Git 审查显示真实新旧文件行号，可按当前或重命名前路径筛�
 
 ## Windows 启动
 
-安装版需要 Windows 11、WebView2、Git，以及当前 Windows 用户已登录的 **Codex CLI 0.159.2**；无需 Node 或 .NET 运行时。源码开发需要 Node **22.22.x**、pnpm **12.3.4**、Rust MSVC（最低 1.88）与 Visual Studio C++ 工具链。不要以管理员或 SYSTEM 身份运行。启动实际验证授权目录内可读写、目录外不可读写，不通过则不启动任务。
+安装版需要 Windows 11、WebView2 和 Git；无需 Node 或 .NET 运行时。AgentDeck 当前验证 Codex CLI **0.159.2**，检测到其他版本时会说明协议兼容原因，并可从 npm 官方仓库校验后并行安装该版本，不会替换全局 CLI。源码开发需要 Node **22.22.x**、pnpm **12.3.4**、Rust MSVC（最低 1.88）与 Visual Studio C++ 工具链。不要以管理员或 SYSTEM 身份运行。启动实际验证授权目录内可读写、目录外不可读写，不通过则不启动任务。
 
 ```powershell
 cd C:\path\to\AgentDeck
-pnpm install --frozen-lockfile
+.\scripts\setup-windows-dev.ps1
 pnpm desktop:dev
 # 构建 Windows NSIS 安装器
 pnpm desktop:build
@@ -33,10 +33,10 @@ pnpm desktop:build
 1. 点击 **同步 Codex 工作区**，从本机 Codex 配置和会话目录同步可用项目，同时选择本机 LAN 地址并显示二维码。首次仍仅监听 `127.0.0.1:49321`，本机点击同步才授予项目和 LAN 访问。
 2. Windows 与平板连接同一个可信 Wi-Fi。邀请 120 秒有效，过期可重新显示配对码。重启仅在已授权地址仍属于本机且证书 IP SAN 匹配时恢复，否则回到 loopback；高级地址选择收在 **··· → 网络与配对信息** 中。
 3. Windows 与平板连接同一个可信 Wi-Fi。在平板扫描 QR，**在两个屏幕核对六位码**，再在 Windows 点允许。
-4. Android 选择项目 → 在底部输入目标并发送；已有会话可直接继续。审批在对话内或 Windows 管理窗逐次处理；没有默认自动批准。
+4. Android 选择项目 → 在底部输入目标并发送；已有会话可直接继续。审批在对话内或 Windows 管理窗逐次处理；输入框可选择“全部权限”（无需逐次审批）或“工作区审批”；安卓初始选择全部权限并记住选择。
 5. 从 **···** 或托盘选择 **停止并退出**。窗口右上角 × 会收起到托盘。
 
-电脑端是无系统标题栏的单页：同步工作区、扫码配对。项目/设备/网络管理收在 **···** 中。同步使用官方 `config/read` 与 `thread/list`，涵盖有效的已信任目录和历史会话目录，不保证等同桌面侧栏列表；未进入这些记录的目录可在更多菜单补充。审批仍逐次由人确认。详见 [电脑端体验说明](docs/DESKTOP_EXPERIENCE.md)。
+电脑端是无系统标题栏的单页：同步工作区、扫码配对。项目/设备/网络管理收在 **···** 中。同步使用官方 `config/read` 与 `thread/list`，涵盖有效的已信任目录和历史会话目录，不保证等同桌面侧栏列表；未进入这些记录的目录可在更多菜单补充。工作区模式的审批逐次由人确认；全部权限模式通过 Codex 官方 `dangerFullAccess` + `never` 策略执行。详见 [电脑端体验说明](docs/DESKTOP_EXPERIENCE.md)。
 
 Windows 防火墙若拦截，仅允许 `runtime/agentdeck-service.exe` 的当前 Bridge 端口、Private 配置文件和本地子网。不要开放 Public 配置文件、路由器端口映射或公网隧道。需要管理员执行防火墙规则时，示例和删除命令见 [安全说明](docs/SECURITY.md)。本程序不自动修改防火墙。
 

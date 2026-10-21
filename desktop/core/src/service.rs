@@ -258,7 +258,7 @@ impl Core {
                         if let Err(e) = result {
                             owner.emit(
                                 "error",
-                                json!({"message":format!("Codex 协议检查失败：{}",e.code)}),
+                                json!({"code":"UPSTREAM_PROTOCOL_ERROR","message":format!("Codex 协议检查失败：{}",e.code)}),
                             );
                             if v.get("id").is_none() {
                                 event_rpc.stop();
@@ -411,7 +411,7 @@ impl Core {
                 json!({"session":self.store.session(s(p,"sessionId"))?,"turns":self.store.turns(Some(s(p,"sessionId")))?,"events":self.store.history(s(p,"sessionId"),p["before"].as_str(),p["limit"].as_u64().unwrap_or(100) as usize)?}),
             ),
             "turn.start" => Ok(
-                json!({"turn":self.start_turn_options(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str()).await?}),
+                json!({"turn":self.start_turn_permissions(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str(),p["permissionMode"].as_str().unwrap_or("workspace")).await?}),
             ),
             "turn.interrupt" => self.interrupt(s(p, "sessionId"), s(p, "turnId")).await,
             "approvals.list" => {

@@ -50,7 +50,7 @@ class ApiRepository(private val store:ApiPersistence,private val client:ApiClien
     init{scope.launch{try{val doc=store.read();val chats=doc.conversations.map{chat->chat.copy(messages=chat.messages.map{if(it.status=="running")it.copy(status="unknown") else it})};store.write(doc.copy(conversations=chats));mutable.value=ApiState(config=doc.config,conversations=chats,models=doc.models,loading=false,storageReady=true)}catch(_:Exception){mutable.value=ApiState(loading=false,error="无法解密 API 本地数据。记录未被覆盖，请检查设备 Keystore。")}}}
     private fun persist(){val current=mutable.value;store.write(ApiDocument(current.config,current.conversations,current.models))}
     private fun action(block:suspend()->Unit){synchronized(this){if(mutable.value.busy||!mutable.value.storageReady)return;mutable.update{it.copy(busy=true,error=null)};job=scope.launch{try{block()}catch(_:CancellationException){throw CancellationException()}catch(e:Exception){mutable.update{it.copy(error=safeError(e))}}finally{call=null;runCatching{persist()}.onFailure{mutable.update{it.copy(error="API 记录保存失败，请清理旧会话后重试")}};mutable.update{it.copy(busy=false,running=null)}}}}}
-    private fun safeError(e:Exception)=when(e){is javax.net.ssl.SSLException->"API TLS 证书校验失败";is java.io.IOException->"API 网络中断或超时，回复可能未完成";is IllegalArgumentException,is IllegalStateException->e.message?.takeIf{!it.contains(mutable.value.config.key.takeIf(String::isNotEmpty)?:"\u0000") }?.take(180)?:"API 请求未完成";else->"API 请求未完成，请检查配置"}
+    private fun safeError(e:Exception):String=when(e){is javax.net.ssl.SSLException->userFacingError("API_TLS",e.message);is java.io.IOException->userFacingError("API_NETWORK",e.message);else->userFacingError("API_REQUEST",e.message)}
     fun configure(base:String,key:String,model:String,effort:String){action{
         val normalized=apiBase(base).toString().trimEnd('/')
         val previous=mutable.value.config
@@ -69,13 +69,13 @@ class ApiRepository(private val store:ApiPersistence,private val client:ApiClien
         if(config.model.isBlank())config=config.copy(model=models.first())
         val available=(models+config.model).distinct().sorted()
         store.write(ApiDocument(config,mutable.value.conversations,available))
-        mutable.update{it.copy(config=config,models=available,modelNotice=notice?:"已获取并添加 ${models.size} 个对端模型")}
+        mutable.update{it.copy(config=config,models=available,modelNotice=notice)}
     }}
     fun models(){action{
         val config=mutable.value.config
         val models=client.models(config){call=it}
         currentCoroutineContext().ensureActive()
-        mutable.update{it.copy(config=if(config.model.isBlank())config.copy(model=models.first()) else config,models=(models+listOfNotNull(config.model.takeIf(String::isNotBlank))).distinct().sorted(),modelNotice="已获取并添加 ${models.size} 个对端模型")}
+        mutable.update{it.copy(config=if(config.model.isBlank())config.copy(model=models.first()) else config,models=(models+listOfNotNull(config.model.takeIf(String::isNotBlank))).distinct().sorted(),modelNotice=null)}
     }}
     fun chooseModel(model:String){action{require(model in mutable.value.models);mutable.update{it.copy(config=it.config.copy(model=model))}}}
     fun chooseEffort(effort:String){action{require(effort in listOf("","none","minimal","low","medium","high","xhigh"));mutable.update{it.copy(config=it.config.copy(effort=effort))}}}

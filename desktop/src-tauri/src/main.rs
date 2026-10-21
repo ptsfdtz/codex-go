@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod host;
 use host::{Action, Host, View};
-use std::{path::PathBuf, sync::Arc};
+use std::{fs::OpenOptions, io::Write, path::PathBuf, process::Command, sync::Arc};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -21,6 +21,81 @@ async fn host_action(
     tauri::async_runtime::spawn_blocking(move || host.action(action))
         .await
         .map_err(|_| "本机操作意外中断".to_owned())?
+}
+#[tauri::command]
+async fn host_restart(app: tauri::AppHandle, host: State<'_, Arc<Host>>) -> Result<(), String> {
+    let host = Arc::clone(&host);
+    let runtime = runtime(&app);
+    tauri::async_runtime::spawn_blocking(move || host.restart(runtime))
+        .await
+        .map_err(|_| "本机服务重新检测意外中断".to_owned())?
+}
+#[tauri::command]
+async fn install_supported_codex(
+    app: tauri::AppHandle,
+    host: State<'_, Arc<Host>>,
+) -> Result<String, String> {
+    let host = Arc::clone(&host);
+    let runtime = runtime(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let script_path = std::env::temp_dir().join(format!(
+            "agentdeck-install-codex-{}-{}.ps1",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "无法创建临时安装脚本".to_owned())?
+                .as_nanos()
+        ));
+        let mut script = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&script_path)
+            .map_err(|_| "无法准备 Codex CLI 安装脚本".to_owned())?;
+        script
+            .write_all(include_bytes!(
+                "../../../scripts/install-supported-codex.ps1"
+            ))
+            .map_err(|_| "无法写入 Codex CLI 安装脚本".to_owned())?;
+        drop(script);
+
+        let powershell = std::env::var_os("SystemRoot")
+            .map(|root| PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe"))
+            .unwrap_or_else(|| PathBuf::from("powershell.exe"));
+        let mut command = Command::new(powershell);
+        command
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&script_path);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let output = command
+            .output()
+            .map_err(|_| "无法启动 Windows PowerShell 安装 Codex CLI".to_owned());
+        let _ = std::fs::remove_file(&script_path);
+        let output = output?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            return Err(if detail.is_empty() {
+                "Codex CLI 安装失败，请检查网络连接后重试。".into()
+            } else {
+                format!("Codex CLI 安装失败：{detail}")
+            });
+        }
+
+        let detail = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        host.restart(runtime)?;
+        Ok(detail)
+    })
+    .await
+    .map_err(|_| "Codex CLI 安装意外中断".to_owned())?
 }
 #[tauri::command]
 async fn pick_project(host: State<'_, Arc<Host>>) -> Result<Option<serde_json::Value>, String> {
@@ -70,6 +145,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             host_snapshot,
             host_action,
+            host_restart,
+            install_supported_codex,
             pick_project,
             quit_app
         ])

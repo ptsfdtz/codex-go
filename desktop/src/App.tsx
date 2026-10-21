@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
+  errorText,
+  informationNotice,
+  presentDesktopError,
+  presentThrownError,
+  type ErrorPresentation,
+} from './errors';
+import {
   ArrowRight,
   CircleCheck,
+  Download,
   Ellipsis,
   Folder,
   LoaderCircle,
   Minus,
   Plus,
   QrCode,
+  RotateCw,
   RefreshCw,
   ShieldCheck,
   Smartphone,
@@ -93,7 +102,9 @@ export function App() {
   const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<ErrorPresentation | null>(null);
+  const [installingCodex, setInstallingCodex] = useState(false);
+  const [checkingCodex, setCheckingCodex] = useState(false);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [localRequest, setLocalRequest] = useState<LocalRequest | null>(null);
   const [selectedApproval, setSelectedApproval] = useState<string | null>(null);
@@ -121,7 +132,7 @@ export function App() {
         accept(await host.snapshot());
       } catch {
         if (!disposed)
-          setNotice('请从 Windows 的 AgentDeck 桌面应用打开。浏览器预览未连接本机服务。');
+          setNotice(informationNotice('本机服务不可用', '请从 Windows 的 AgentDeck 桌面应用打开。浏览器预览未连接本机服务。'));
       }
     })();
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -156,7 +167,9 @@ export function App() {
     (a) => a.status === 'pending' && remaining(a.expiresAt, now) > 0,
   );
   const approval = approvals.find((a) => a.approvalId === selectedApproval) ?? approvals[0];
-  const visibleError = notice ?? view.error;
+  const visibleHelp = notice ?? (view.error ? presentDesktopError(view.errorCode, view.error) : null);
+  const visibleError = visibleHelp ? errorText(visibleHelp) : null;
+  const startupHelp = view.error && !notice ? visibleHelp : null;
   const effectiveAddress = state.addresses.includes(address)
     ? address
     : (state.addresses.find((a) => a === state.listenAddress && a !== '127.0.0.1') ??
@@ -176,17 +189,40 @@ export function App() {
       await fn();
       return true;
     } catch (error) {
-      setNotice(typeof error === 'string' ? error : '操作未完成，请检查连接状态。');
+      setNotice(presentThrownError(error));
       return false;
     } finally {
       inFlight.current = false;
       setBusy(null);
     }
   };
+  const recheckCodex = async () => {
+    setCheckingCodex(true);
+    setNotice(null);
+    try {
+      await host.restart();
+    } catch (error) {
+      setNotice(presentThrownError(error));
+    } finally {
+      setCheckingCodex(false);
+    }
+  };
+  const installSupportedCodex = async () => {
+    setInstallingCodex(true);
+    setNotice(informationNotice('正在安装兼容版', '正在从 npm 官方仓库下载并校验 Codex CLI 0.159.2。'));
+    try {
+      await host.installSupportedCodex();
+      setNotice(null);
+    } catch (error) {
+      setNotice(presentThrownError(error));
+    } finally {
+      setInstallingCodex(false);
+    }
+  };
   const send = (label: string, action: Action) => run(label, () => host.action(action));
   const pair = async () => {
     if (!effectiveAddress) {
-      setNotice('未找到局域网地址，请将电脑和平板连接同一 Wi-Fi。');
+      setNotice(informationNotice('未找到局域网地址', '请将电脑和平板连接同一 Wi-Fi 后重试。'));
       return;
     }
     if (await send('pair', { action: 'pair.create', address: effectiveAddress })) setShowPair(true);
@@ -207,9 +243,9 @@ export function App() {
   const nativeWindow = (action: 'minimize' | 'hide') => {
     try {
       const window = getCurrentWindow();
-      void window[action]().catch(() => setNotice('此操作仅适用于 Windows 桌面窗口。'));
+      void window[action]().catch(() => setNotice(informationNotice('无法执行此操作', '此操作仅适用于 Windows 桌面窗口。')));
     } catch {
-      setNotice('此操作仅适用于 Windows 桌面窗口。');
+      setNotice(informationNotice('无法执行此操作', '此操作仅适用于 Windows 桌面窗口。'));
     }
   };
   const drag = (event: React.PointerEvent) => {
@@ -224,11 +260,13 @@ export function App() {
   };
   const title = ready
     ? 'Codex 已就绪'
-    : view.running
-      ? state.sandboxVerified
-        ? '正在连接 Codex'
-        : '正在检查安全环境'
-      : '服务未连接';
+    : view.errorCode === 'UPSTREAM_VERSION_UNSUPPORTED'
+      ? 'Codex 版本需处理'
+      : view.running
+        ? state.sandboxVerified
+          ? '正在连接 Codex'
+          : '正在检查安全环境'
+        : '服务未连接';
   return (
     <div className="app-shell">
       <header className="topbar" onPointerDown={drag}>
@@ -301,7 +339,41 @@ export function App() {
           </div>
           {visibleError && (
             <div className="notice" role="alert">
-              <span>{visibleError}</span>
+              <div className="notice-copy">
+                {visibleHelp && <strong>{visibleHelp.title}</strong>}
+                {visibleHelp && <span>{visibleHelp.detail}</span>}
+                {visibleHelp?.solution && <p>{visibleHelp.solution}</p>}
+                {startupHelp && (
+                  <div className="notice-actions">
+                    {startupHelp.install && (
+                      <button
+                        className="button secondary compact"
+                        disabled={installingCodex || checkingCodex}
+                        onClick={() => void installSupportedCodex()}
+                      >
+                        {installingCodex ? (
+                          <LoaderCircle className="spin" size={15} />
+                        ) : (
+                          <Download size={15} />
+                        )}
+                        {installingCodex ? '正在安装兼容版…' : '安装 Codex CLI 0.159.2'}
+                      </button>
+                    )}
+                    <button
+                      className="button secondary compact"
+                      disabled={installingCodex || checkingCodex}
+                      onClick={() => void recheckCodex()}
+                    >
+                      {checkingCodex ? (
+                        <LoaderCircle className="spin" size={15} />
+                      ) : (
+                        <RotateCw size={15} />
+                      )}
+                      {checkingCodex ? '正在检测…' : '重新检测'}
+                    </button>
+                  </div>
+                )}
+              </div>
               {notice && (
                 <button
                   className="icon-button"

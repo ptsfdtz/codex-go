@@ -86,7 +86,10 @@ pub fn parse(v: Value) -> Result<Request> {
         "approvals.list" => (&[], &["sessionId"]),
         "sessions.create" => (&["projectId", "title"], &[]),
         "sessions.detail" => (&["sessionId"], &["before", "limit"]),
-        "turn.start" => (&["sessionId", "text"], &["model", "effort"]),
+        "turn.start" => (
+            &["sessionId", "text"],
+            &["model", "effort", "permissionMode"],
+        ),
         "sessions.rename" => (&["sessionId", "title"], &[]),
         "sessions.archive" | "sessions.restore" | "sessions.delete" => (&["sessionId"], &[]),
         "sessions.pin" => (&["sessionId", "pinned"], &[]),
@@ -97,6 +100,13 @@ pub fn parse(v: Value) -> Result<Request> {
         _ => return Err(Error::new("INVALID_REQUEST", "Unsupported action")),
     };
     fields(p, required, optional)?;
+    if let Some(mode) = p.get("permissionMode") {
+        ensure(
+            mode == "full" || mode == "workspace",
+            "INVALID_REQUEST",
+            "Invalid permission mode",
+        )?;
+    }
     for key in ["projectId", "sessionId", "turnId", "approvalId", "fileId"] {
         if p.get(key).is_some() {
             text(p, key, 1, 160)?;

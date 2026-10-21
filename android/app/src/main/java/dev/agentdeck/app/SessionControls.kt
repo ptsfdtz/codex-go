@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @Composable fun SessionActions(session:Session,state:DeckState,repo:DeckRepository){
     var menu by remember(state.host?.hostId){mutableStateOf(false)}
@@ -35,14 +36,14 @@ fun effortLabel(value:String)=when(value){"none"->"无";"minimal"->"最少";"low
 @Composable fun CodexModelPicker(state:DeckState,repo:DeckRepository,enabled:Boolean){
     var modelsOpen by remember(state.host?.hostId){mutableStateOf(false)}
     var effortOpen by remember(state.host?.hostId){mutableStateOf(false)}
-    val selected=state.models.find{it.model==state.selectedModel}
+    val selected=state.models.find{it.model==state.selectedModel}?:state.models.firstOrNull{state.selectedModel.isEmpty()&&it.isDefault}
     Row(Modifier.horizontalScroll(rememberScrollState())){
-        Box{TextButton(onClick={modelsOpen=true},enabled=enabled){Text(selected?.displayName?:state.selectedModel.ifEmpty{"默认模型"});Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))}
+        Box{TextButton(onClick={modelsOpen=true},enabled=enabled){Text(selected?.displayName?:state.selectedModel.ifEmpty{"默认模型"},fontSize=12.sp,maxLines=1);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))}
             DropdownMenu(expanded=modelsOpen,onDismissRequest={modelsOpen=false}){
                 state.models.forEach{model->DropdownMenuItem(text={Text(model.displayName)},onClick={modelsOpen=false;repo.selectModel(model)})}
                 DropdownMenuItem(text={Text("刷新可用模型")},onClick={modelsOpen=false;repo.refreshModels()},enabled=!state.stale)
             }}
-        if(selected!=null&&selected.supportedReasoningEfforts.isNotEmpty())Box{TextButton(onClick={effortOpen=true},enabled=enabled){Text("思考 · "+effortLabel(state.selectedEffort));Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))}
+        if(selected!=null&&selected.supportedReasoningEfforts.isNotEmpty())Box{TextButton(onClick={effortOpen=true},enabled=enabled){Text(effortLabel(state.selectedEffort.ifEmpty{selected.defaultReasoningEffort}),fontSize=12.sp,maxLines=1);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))}
             DropdownMenu(expanded=effortOpen,onDismissRequest={effortOpen=false}){selected.supportedReasoningEfforts.forEach{option->DropdownMenuItem(text={Text(effortLabel(option.reasoningEffort))},onClick={effortOpen=false;repo.selectEffort(option.reasoningEffort)})}}}
     }
 }

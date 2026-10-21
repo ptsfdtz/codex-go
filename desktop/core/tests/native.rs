@@ -19,6 +19,36 @@ struct Harness {
     _output: tokio::task::JoinHandle<()>,
     worker: Option<tokio::task::JoinHandle<()>>,
 }
+#[tokio::test]
+async fn upstream_output_burst_preserves_connection() {
+    let node = codex::sync_command("where.exe", &["node.exe"], None).unwrap();
+    let node = Path::new(node.lines().next().unwrap().trim());
+    let script = r#"
+        for (let i=0;i<1024;i++) process.stdout.write(JSON.stringify({method:'burst',params:{index:i}})+'\n');
+        require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+            const request=JSON.parse(line);
+            process.stdout.write(JSON.stringify({id:request.id,result:{ok:true}})+'\n');
+        });
+    "#;
+    let (rpc, mut events) = Rpc::start(node, &["-e".into(), script.into()]).unwrap();
+    // Deliberately let the bounded queue fill before consuming command output.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    for index in 0..1024 {
+        let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(event["method"], "burst");
+        assert_eq!(event["params"]["index"], index);
+    }
+    assert_eq!(
+        rpc.request("config/read", json!({"includeLayers":false}))
+            .await
+            .unwrap()["ok"],
+        true
+    );
+    rpc.stop();
+}
 impl Harness {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
@@ -120,8 +150,21 @@ fn strict_android_protocol() {
         json!({"v":1,"type":"request","id":"1","action":"projects.add","payload":{"path":"C:/"}}),
         json!({"v":1,"type":"request","id":"1","action":"approvals.decide","payload":{"sessionId":"s","turnId":"t","approvalId":"a","decision":"acceptForSession"}}),
         json!({"v":1,"type":"request","id":"1","action":"turn.start","payload":{"sessionId":"s","text":" "}}),
+        json!({"v":1,"type":"request","id":"1","action":"turn.start","payload":{"sessionId":"s","text":"hello","permissionMode":"invented"}}),
+        json!({"v":1,"type":"request","id":"1","action":"turn.start","payload":{"sessionId":"s","text":"hello","permissionMode":true}}),
     ] {
         assert!(protocol::parse(v).is_err());
+    }
+    for mode in ["full", "workspace"] {
+        assert_eq!(
+            request(
+                "turn.start",
+                json!({"sessionId":"s","text":"hello","permissionMode":mode}),
+                "permission"
+            )
+            .payload["permissionMode"],
+            mode
+        );
     }
     assert_eq!(
         request("sessions.detail", json!({"sessionId":"s"}), "1").payload["limit"],
@@ -170,6 +213,70 @@ async fn model_catalog_and_effort_are_validated_and_forwarded() {
         h.core.store.snapshot(true).unwrap()["sessions"][0]["effort"],
         "high"
     );
+}
+#[tokio::test]
+async fn idle_writer_conflict_continues_history_without_stealing_lock() {
+    let h = Harness::fixture().await;
+    let session = h.session("writer conflict").await;
+    let id = s(&session, "sessionId");
+    h.core
+        .manage_session(
+            "sessions.rename",
+            &json!({"sessionId":id,"title":"WRITER_CONFLICT"}),
+        )
+        .await
+        .unwrap();
+    let error = h.core.start_turn(id, "hello").await.unwrap_err();
+    assert_eq!(error.code, "THREAD_IN_USE");
+    assert_eq!(
+        h.core.store.session(id).unwrap()["upstreamThreadId"],
+        session["upstreamThreadId"]
+    );
+    h.core
+        .loaded
+        .lock()
+        .unwrap()
+        .insert(s(&session, "upstreamThreadId").into());
+    let turn = h.core.start_turn(id, "hello").await.unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    h.core.loaded.lock().unwrap().clear();
+    let turn = h
+        .core
+        .start_turn_permissions(id, "CHECK_PERMISSION_FULL", None, None, "full")
+        .await
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    assert_ne!(
+        h.core.store.session(id).unwrap()["upstreamThreadId"],
+        session["upstreamThreadId"]
+    );
+    assert_eq!(h.core.store.turns(Some(id)).unwrap().len(), 2);
+}
+#[tokio::test]
+async fn permission_modes_switch_without_inheriting_full_access() {
+    let h = Harness::fixture().await;
+    let session = h.session("permissions").await;
+    let id = s(&session, "sessionId");
+    for mode in ["full", "workspace", "full"] {
+        let text = if mode == "full" {
+            "CHECK_PERMISSION_FULL"
+        } else {
+            "CHECK_PERMISSION_WORKSPACE"
+        };
+        let turn = h
+            .core
+            .start_turn_permissions(id, text, None, None, mode)
+            .await
+            .unwrap();
+        h.wait(s(&turn, "turnId"), "completed").await;
+        h.core.loaded.lock().unwrap().clear();
+    }
+    assert!(h.core.store.approvals(None).unwrap().is_empty());
+    assert!(h
+        .core
+        .start_turn_permissions(id, "hello", None, None, "invented")
+        .await
+        .is_err());
 }
 #[tokio::test]
 async fn session_management_waits_for_upstream_and_survives_reopen() {

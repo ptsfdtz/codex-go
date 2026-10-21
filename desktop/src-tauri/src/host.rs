@@ -27,6 +27,7 @@ pub struct View {
     pub state: Value,
     pub qr: Option<Value>,
     pub pairing: Option<Value>,
+    pub error_code: Option<String>,
     pub error: Option<String>,
     pub running: bool,
 }
@@ -37,6 +38,7 @@ impl Default for View {
             state: json!({"projects":[],"devices":[],"approvals":[],"addresses":[],"codexReady":false,"sandboxVerified":false}),
             qr: None,
             pairing: None,
+            error_code: None,
             error: None,
             running: false,
         }
@@ -90,6 +92,7 @@ pub struct Host {
     process: Mutex<Option<Process>>,
     pending: Mutex<HashMap<String, mpsc::Sender<Result<Value, String>>>>,
     counter: AtomicU64,
+    generation: AtomicU64,
     stopping: AtomicBool,
     app: AppHandle,
 }
@@ -166,6 +169,7 @@ impl Host {
             process: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             counter: AtomicU64::new(1),
+            generation: AtomicU64::new(0),
             stopping: AtomicBool::new(false),
             app,
         })
@@ -183,7 +187,13 @@ impl Host {
         let _ = self.app.emit("host-view", next);
     }
     pub fn error(&self, message: String) {
-        self.change(|v| v.error = Some(message));
+        self.error_with_code(None, message);
+    }
+    fn error_with_code(&self, code: Option<String>, message: String) {
+        self.change(|v| {
+            v.error_code = code;
+            v.error = Some(message);
+        });
     }
     pub fn start(self: &Arc<Self>, runtime: PathBuf) -> Result<(), String> {
         // Preserve the exact resource location while normalizing Win32 spelling.
@@ -247,9 +257,11 @@ impl Host {
             #[cfg(windows)]
             _job: job,
         });
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.stopping.store(false, Ordering::SeqCst);
         self.change(|v| {
             v.running = true;
+            v.error_code = None;
             v.error = None;
         });
         // Never retain arbitrary stderr, which can contain user data.
@@ -261,13 +273,21 @@ impl Host {
             let mut reader = BufReader::new(stdout);
             loop {
                 match read_frame(&mut reader) {
-                    Ok(Some(packet)) => host.receive(packet),
+                    Ok(Some(packet)) if host.generation.load(Ordering::SeqCst) == generation => {
+                        host.receive(packet)
+                    }
+                    Ok(Some(_)) => break,
                     Ok(None) => break,
                     Err(e) => {
-                        host.error(e);
+                        if host.generation.load(Ordering::SeqCst) == generation {
+                            host.error(e);
+                        }
                         break;
                     }
                 }
+            }
+            if host.generation.load(Ordering::SeqCst) != generation {
+                return;
             }
             host.change(|v| {
                 v.running = false;
@@ -279,6 +299,7 @@ impl Host {
                     for device in devices { device["connected"] = json!(false); }
                 }
                 if !host.stopping.load(Ordering::SeqCst) && v.error.is_none() {
+                    v.error_code = Some("SERVICE_DISCONNECTED".into());
                     v.error = Some("本机服务已断开。不会将进行中的任务视为完成，请退出并重新打开。若原版本仍在运行，请先从它的托盘菜单退出。".into());
                 }
             });
@@ -321,7 +342,8 @@ impl Host {
                     let _ = window.set_focus();
                 }
             }
-            "error" => self.error(
+            "error" => self.error_with_code(
+                payload["code"].as_str().map(str::to_owned),
                 payload["message"]
                     .as_str()
                     .unwrap_or("本机服务错误")
@@ -332,6 +354,10 @@ impl Host {
             }
             _ => {}
         }
+    }
+    pub fn restart(self: &Arc<Self>, runtime: PathBuf) -> Result<(), String> {
+        self.shutdown();
+        self.start(runtime)
     }
     pub fn action(&self, action: Action) -> Result<Value, String> {
         let view = self.snapshot();
@@ -378,6 +404,7 @@ impl Host {
         self.pending.lock().unwrap().remove(&id);
         if result.is_ok() {
             self.change(|v| {
+                v.error_code = None;
                 v.error = None;
                 if value["action"] == "pair.confirm" {
                     v.pairing = None;
@@ -390,6 +417,7 @@ impl Host {
         if self.stopping.swap(true, Ordering::SeqCst) {
             return;
         }
+        self.generation.fetch_add(1, Ordering::SeqCst);
         let process = self.process.lock().unwrap().take();
         if let Some(mut process) = process {
             let _ = process.stdin.write_all(b"{\"action\":\"stop\"}\n");

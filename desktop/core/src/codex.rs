@@ -58,33 +58,59 @@ pub fn find() -> Result<PathBuf> {
             "CONFIG_ERROR",
             "Native Codex executable required",
         )?;
-        return Ok(p);
+        return paths::canonical(&p);
     }
-    let paths = sync_command("where.exe", &["codex"], None)?;
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let managed = PathBuf::from(local_app_data)
+            .join("AgentDeck/tools/codex-cli")
+            .join(VERSION)
+            .join("codex.exe");
+        let packaged = managed.parent().unwrap().join("bin/codex.exe");
+        if packaged.is_file() {
+            return paths::canonical(&packaged);
+        }
+        if managed.is_file() {
+            // Resolve MSIX filesystem redirection before MXC launches its helper.
+            // The sandbox service cannot see the parent's virtualized path.
+            return paths::canonical(&managed);
+        }
+    }
+    let paths = sync_command("where.exe", &["codex"], None).map_err(|_| {
+        Error::new(
+            "CODEX_CLI_NOT_FOUND",
+            "找不到 Codex CLI。请安装 Codex，或使用 AgentDeck 提供的兼容版本安装按钮。",
+        )
+    })?;
     for line in paths.lines() {
         let p = PathBuf::from(line.trim());
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
-            return Ok(p);
+            return paths::canonical(&p);
         }
         if let Some(parent) = p.parent() {
             let candidate=parent.join("node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe");
             if candidate.is_file() {
-                return Ok(candidate);
+                return paths::canonical(&candidate);
             }
         }
     }
     Err(Error::new(
-        "CONFIG_ERROR",
-        "Native Codex executable not found",
+        "CODEX_CLI_NOT_FOUND",
+        "找不到 Codex CLI。请安装 Codex，或使用 AgentDeck 提供的兼容版本安装按钮。",
     ))
 }
 pub fn verify(exe: &Path) -> Result<()> {
-    ensure(
-        sync_command(&exe.to_string_lossy(), &["--version"], None)?.trim()
-            == format!("codex-cli {VERSION}"),
+    let output = sync_command(&exe.to_string_lossy(), &["--version"], None)?;
+    let expected = format!("codex-cli {VERSION}");
+    let actual = output.trim();
+    if actual == expected {
+        return Ok(());
+    }
+    Err(Error::new(
         "UPSTREAM_VERSION_UNSUPPORTED",
-        "Requires codex-cli 0.159.2",
-    )
+        &format!(
+            "检测到 {actual}；AgentDeck 当前使用 codex-cli {VERSION} 的稳定 App Server 协议 schema，并仅验证过该版本的 Windows 沙箱与审批行为。可以安装 AgentDeck 管理的兼容版本；不会替换你的全局 Codex CLI。"
+        ),
+    ))
 }
 pub fn filtered_path(path: &str) -> String {
     path.split(';')
@@ -160,6 +186,14 @@ pub async fn settings(rpc: &Rpc, root: &Path) -> Result<()> {
     check_policy(&v)
 }
 pub fn checked_thread(v: &Value, root: &Path, verified: bool) -> Result<()> {
+    checked_thread_with_full(v, root, verified, false)
+}
+pub fn checked_thread_with_full(
+    v: &Value,
+    root: &Path,
+    verified: bool,
+    previously_full: bool,
+) -> Result<()> {
     for cwd in [&v["cwd"], &v["thread"]["cwd"]] {
         let p = paths::canonical(Path::new(cwd.as_str().unwrap_or("")))?;
         ensure(
@@ -169,13 +203,26 @@ pub fn checked_thread(v: &Value, root: &Path, verified: bool) -> Result<()> {
         )?;
     }
     let b = &v["sandbox"];
+    // Resuming an already loaded thread can return its previous turn's policy.
+    // Only tolerate full access when our own journal records that explicit choice;
+    // start_inner sets both requested policies again before executing the new turn.
+    if previously_full && b["type"] == "dangerFullAccess" {
+        return ensure(
+            verified && v["approvalPolicy"] == "never" && v["approvalsReviewer"] == "user",
+            "UNSAFE_UPSTREAM_CONFIG",
+            "Unexpected full-access thread policy",
+        );
+    }
     ensure(
         v["approvalPolicy"] == "on-request"
             && v["approvalsReviewer"] == "user"
             && ["readOnly", "workspaceWrite"].contains(&s(b, "type"))
             && b["networkAccess"] == false,
         "UNSAFE_UPSTREAM_CONFIG",
-        "Unsafe thread policy",
+        &format!(
+            "Unsafe thread policy: approval={}, reviewer={}, sandbox={}",
+            v["approvalPolicy"], v["approvalsReviewer"], b
+        ),
     )?;
     if b["type"] == "workspaceWrite" {
         ensure(

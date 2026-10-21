@@ -64,6 +64,22 @@ impl Core {
         model: Option<&str>,
         effort: Option<&str>,
     ) -> Result<Value> {
+        self.start_turn_permissions(session_id, text, model, effort, "workspace")
+            .await
+    }
+    pub async fn start_turn_permissions(
+        &self,
+        session_id: &str,
+        text: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+        permission_mode: &str,
+    ) -> Result<Value> {
+        ensure(
+            ["workspace", "full"].contains(&permission_mode),
+            "INVALID_REQUEST",
+            "Invalid permission mode",
+        )?;
         let rpc = self.upstream()?;
         let _permit = self
             .task_limit
@@ -94,7 +110,7 @@ impl Core {
             busy.insert(session_id.into());
         }
         let result = self
-            .start_inner(&rpc, session_id, text, model, effort)
+            .start_inner(&rpc, session_id, text, model, effort, permission_mode)
             .await;
         self.busy.lock().unwrap().remove(session_id);
         result
@@ -106,6 +122,7 @@ impl Core {
         text: &str,
         model: Option<&str>,
         effort: Option<&str>,
+        permission_mode: &str,
     ) -> Result<Value> {
         let mut session = self.store.session(session_id)?;
         ensure(
@@ -154,9 +171,41 @@ impl Core {
                     session["upstreamThreadId"] = v["thread"]["id"].clone();
                     v
                 }
+                Err(e)
+                    if e.code == "UPSTREAM_ERROR"
+                        && e.message.contains("already has an active writer") =>
+                {
+                    // Another Codex client can keep an idle thread loaded indefinitely.
+                    // Continue from its latest completed turn without stealing its writer.
+                    let history = rpc.request("thread/turns/list", json!({"threadId":session["upstreamThreadId"],"limit":1,"sortDirection":"desc","itemsView":"summary"})).await?;
+                    validate("v2/ThreadTurnsListResponse", &history)?;
+                    let last = history["data"].as_array().and_then(|v| v.first());
+                    ensure(last.is_some_and(|v| terminal(s(v,"status"))), "THREAD_IN_USE", "Conversation is open in another Codex client and has no confirmed terminal turn")?;
+                    let previous = session["upstreamThreadId"].clone();
+                    let v = rpc.request("thread/fork", json!({"threadId":previous,"lastTurnId":last.unwrap()["id"],"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"},"excludeTurns":true})).await?;
+                    validate("v2/ThreadForkResponse", &v)?;
+                    codex::checked_thread(&v, &root, self.verified.load(Ordering::SeqCst))?;
+                    self.store.exec(
+                        "UPDATE sessions SET upstreamThreadId=? WHERE sessionId=?",
+                        [s(&v["thread"], "id"), session_id],
+                    )?;
+                    session["upstreamThreadId"] = v["thread"]["id"].clone();
+                    self.store.append("session.updated", json!({"session":self.store.session(session_id)?,"continuedFrom":previous,"reason":"writer-conflict"}),Some(session_id),None)?;
+                    v
+                }
                 Err(e) => return Err(e),
             };
-            codex::checked_thread(&response, &root, self.verified.load(Ordering::SeqCst))?;
+            let previously_full = self
+                .store
+                .meta(&format!("permissionMode:{session_id}"))?
+                .as_deref()
+                == Some("full");
+            codex::checked_thread_with_full(
+                &response,
+                &root,
+                self.verified.load(Ordering::SeqCst),
+                previously_full,
+            )?;
             self.loaded
                 .lock()
                 .unwrap()
@@ -170,17 +219,26 @@ impl Core {
         self.store.status(session_id, Some(&turn), "queued", None)?;
         self.store.append(
             "turn.queued",
-            json!({"turn":self.store.turn(&turn)?,"text":text}),
+            json!({"turn":self.store.turn(&turn)?,"text":text,"permissionMode":permission_mode}),
             Some(session_id),
             Some(&turn),
         )?;
         let mut params = json!({"threadId":session["upstreamThreadId"],"input":[{"type":"text","text":text,"text_elements":[]}],"approvalPolicy":"on-request","approvalsReviewer":"user"});
+        // Set both policies on every turn so switching back never inherits full access.
+        if permission_mode == "full" {
+            params["approvalPolicy"] = json!("never");
+            params["sandboxPolicy"] = json!({"type":"dangerFullAccess"});
+        } else {
+            params["sandboxPolicy"] = json!({"type":"workspaceWrite","writableRoots":[root],"networkAccess":false,"excludeTmpdirEnvVar":true,"excludeSlashTmp":true});
+        }
         if !selected_model.is_empty() {
             params["model"] = json!(selected_model);
         }
         if !selected_effort.is_empty() {
             params["effort"] = json!(selected_effort);
         }
+        self.store
+            .set_meta(&format!("permissionMode:{session_id}"), permission_mode)?;
         let result=async{let response=rpc.request("turn/start",params).await?;validate("v2/TurnStartResponse",&response)?;
         self.store.exec("INSERT INTO session_options(sessionId,model,effort) VALUES(?,?,?) ON CONFLICT(sessionId) DO UPDATE SET model=excluded.model,effort=excluded.effort",rusqlite::params![session_id,selected_model,selected_effort])?;
         let current=self.store.turn(&turn)?;ensure(current["upstreamTurnId"].is_null()||current["upstreamTurnId"]==response["turn"]["id"],"UPSTREAM_PROTOCOL_ERROR","Turn identity mismatch")?;

@@ -50,7 +50,7 @@ First send `system.hello` with `{client,version:1}`. A socket receives events on
 | sessions.pin                        | sessionId, pinned boolean                            | session; local ordering preference                                                       |
 | sessions.create                     | projectId, title ≤160                                | session                                                                                  |
 | sessions.detail                     | sessionId, optional before, limit 1–500              | session, turns, events                                                                   |
-| turn.start                          | sessionId, text ≤64000, optional model / effort ≤160 | submitted turn; not terminal success                                                     |
+| turn.start                          | sessionId, text ≤64000, optional model / effort ≤160, permissionMode: full or workspace | submitted turn; not terminal success                                                     |
 | turn.interrupt                      | sessionId, turnId                                    | requested and currently confirmed state                                                  |
 | approvals.list                      | optional sessionId                                   | pending approvals                                                                        |
 | approvals.decide                    | sessionId, turnId, approvalId, approve/reject/cancel | one-shot local delivery result                                                           |
@@ -78,3 +78,5 @@ Session records add `archived` and `pinned` (integer 0/1), `model` and `effort` 
 Deletion emits `session.deleted` and removes local turn/approval/event history. Removing history raises the replay floor so older cursors require a fresh snapshot. Android removes vanished sessions from its cached events and selected view. Other clients' thread management notifications are currently not imported.
 
 Independent Android API conversations do not use WSS or Codex credentials. They use HTTPS OpenAI-compatible Chat Completions with `reasoning_effort` (different spelling from Codex `effort`); see CONVERSATIONS_AND_API.md.
+
+`turn.start.permissionMode` is an authenticated per-turn choice: `full` maps to Codex `dangerFullAccess` + `never`; `workspace` (also the legacy omitted-field default) maps to `workspaceWrite` + `on-request`. Android remembers the composer selection and initially uses full access. `turn.queued` records the selected mode. Switching mode is allowed between turns; both upstream policies are explicitly reset each time.

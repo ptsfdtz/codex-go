@@ -1,6 +1,8 @@
 # Development
 
-Windows uses React/Tauri and a native Rust service. Node 22.22.x / pnpm 12.3.4 are development tools only. Install Rust MSVC, Visual Studio C++ tools and WebView2. Both Cargo.lock files and pnpm-lock.yaml must be retained. Do not independently update Codex or edit exported JSON schemas.
+Windows uses React/Tauri and a native Rust service. Node 22.22.3 / pnpm 12.3.4 are development tools only. Install Rust MSVC, Visual Studio 2022 C++ tools, Windows 11 SDK 10.0.26100.0 and WebView2. Both Cargo.lock files and pnpm-lock.yaml must be retained. Do not independently update Codex or edit exported JSON schemas.
+
+On Windows, run `scripts\setup-windows-dev.ps1` from PowerShell to install the Node, Rust and Java toolchains under the current user's profile, set up Android SDK 36, and install the pnpm workspace dependencies. The script writes `android/local.properties` and configures Android SDK environment variables for the current Windows user. Visual Studio Build Tools, the Windows SDK and WebView2 remain machine prerequisites. If PowerShell blocks local scripts, run `Set-ExecutionPolicy -Scope Process Bypass` in that terminal before starting setup.
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -29,7 +31,7 @@ pnpm smoke:codex
 node scripts/check-native-data.mjs
 ```
 
-The startup check uses a temporary data directory and verifies real DPAPI, TLS, MXC inside/outside boundaries and Codex initialization without starting an AI task. check-native-data and migration tooling use Node's built-in node:sqlite (experimental warning on Node 22); it is not part of the shipped runtime. Real tests require the current user's logged-in CLI 0.159.2. No login files or token values are read. Human pairing/approvals are never automated. CI runs fixture tests and builds only, not authenticated model requests or physical-device acceptance.
+The startup check uses a temporary data directory and verifies real DPAPI, TLS, MXC inside/outside boundaries and Codex initialization without starting an AI task. check-native-data and migration tooling use Node's built-in node:sqlite (experimental warning on Node 22); it is not part of the shipped runtime. Real tests require the current user's logged-in CLI 0.159.2. The desktop can install that verified Windows x64 binary alongside other CLI installs from the npm registry after checking its SHA-512 integrity; it does not replace global Codex. Newer CLI versions remain unsupported until their schemas, sandbox and approval behavior are revalidated. No login files or token values are read. Human pairing/approvals are never automated. CI runs fixture tests and builds only, not authenticated model requests or physical-device acceptance.
 
 Android uses AGP 8.13.2, Kotlin 2.2.21, Gradle 8.14.3, JDK 21 and SDK 36 (minSdk 28). Set ANDROID_HOME or ignored android/local.properties; do not commit machine-local paths.
 

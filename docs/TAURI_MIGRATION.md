@@ -4,7 +4,7 @@
 
 ## 运行边界
 
-React 本地资产 → Tauri typed commands → Rust host → 私有 stdio JSONL → Rust agentdeck-service.exe → 固定 Codex CLI 0.159.2。
+React 本地资产 → Tauri typed commands → Rust host → 私有 stdio JSONL → Rust agentdeck-service.exe → 已验证的 Codex CLI 0.159.2。
 
 Rust host 负责无系统标题栏窗口、托盘、单实例、原生目录选择、数据目录锁、有界 IPC 和 Windows Job Object。Rust service 负责 TLS/WSS、SQLite、路径授权、配对、Windows DPAPI、Codex 生命周期、人工审批、事件重放和只读 Git。
 
@@ -18,7 +18,7 @@ Android v1 协议保持兼容。CLI 稳定 JSON schema 位于 packages/codex-pro
 
 ## 构建
 
-需要 Windows 11、WebView2、Rust MSVC（service 最低 1.88）、Visual Studio C++ 工具链、Node 22.22.x、pnpm 12.3.4。运行需要已登录的 Codex CLI 0.159.2 和 Git。
+需要 Windows 11、WebView2、Rust MSVC（service 最低 1.88）、Visual Studio C++ 工具链、Node 22.22.x、pnpm 12.3.4。运行需要 Git 和已登录的 Codex CLI。AgentDeck 当前只验证过 CLI 0.159.2；发现其他版本时会解释 schema 与安全验证的版本边界，并提供 SHA-512 校验的并行安装，不改写全局 CLI。新版 CLI 需要重新核对 schema、沙箱与审批行为后才能加入支持范围。
 
 ```powershell
 pnpm install --frozen-lockfile

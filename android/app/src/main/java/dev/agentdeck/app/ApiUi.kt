@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.sp
             Column(Modifier.weight(1f).fillMaxHeight().windowInsetsPadding(WindowInsets.safeDrawing).imePadding().testTag("api-workspace-content")){
                 Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically){
                     if(!wide||!sidebarExpanded)IconButton(onClick={if(wide)sidebarExpanded=true else listOpen=true}){Icon(Icons.Outlined.Menu,"chat 会话列表")}
-                    Column(Modifier.weight(1f)){Text(if(settings)"设置" else selected?.title?:"chat",maxLines=1,overflow=TextOverflow.Ellipsis,fontWeight=FontWeight.SemiBold);Text("平板直连 · 不访问 Windows 工作区",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                    Text(if(settings)"设置" else selected?.title?:"chat",Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis,fontWeight=FontWeight.SemiBold)
                     if(settings)TextButton(onClick={settings=false}){Text("返回对话")}
                     TextButton(onClick=onCodex){Text("Codex")}
                     if(!wide||!sidebarExpanded)IconButton(onClick={settings=true},modifier=Modifier.testTag("api-open-settings")){Icon(Icons.Outlined.Settings,"设置")}
@@ -52,7 +52,7 @@ import androidx.compose.ui.unit.sp
                 state.error?.let{message->Surface(color=MaterialTheme.colorScheme.errorContainer){Row(Modifier.fillMaxWidth().padding(start=20.dp),verticalAlignment=Alignment.CenterVertically){Text(message,Modifier.weight(1f),fontSize=12.sp);IconButton(onClick=repo::clearError){Icon(Icons.Outlined.Close,"关闭 API 提示")}}}}
                 if(settings){Box(Modifier.weight(1f)){ApiSettings(state,repo,onOpenArchived={showArchived=true})}}else{
                 if(state.loading)Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){CircularProgressIndicator()}
-                else if(selected==null)Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(16.dp)){Icon(Icons.Outlined.ChatBubbleOutline,null,Modifier.size(40.dp));Text("开始 chat 对话",fontSize=24.sp,fontWeight=FontWeight.SemiBold);Text("配置 HTTPS 地址、密钥和模型后即可发送。",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant);if(state.config.key.isEmpty())Button(onClick={settings=true},enabled=state.storageReady){Text("配置 API")}}}
+                else if(selected==null)Box(Modifier.weight(1f).fillMaxWidth().padding(24.dp),contentAlignment=Alignment.Center){Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(16.dp)){Icon(Icons.Outlined.ChatBubbleOutline,null,Modifier.size(40.dp));Text("开始 chat 对话",fontSize=24.sp,fontWeight=FontWeight.SemiBold);if(state.config.key.isEmpty())Button(onClick={settings=true},enabled=state.storageReady){Text("配置 API")}}}
                 else {
                     val list=rememberLazyListState()
                     var following by remember(selected.id){mutableStateOf(true)}
@@ -60,7 +60,10 @@ import androidx.compose.ui.unit.sp
                     LaunchedEffect(selected.messages.lastOrNull()){if(following&&selected.messages.isNotEmpty())list.scrollToItem(selected.messages.lastIndex)}
                     LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=list,contentPadding=PaddingValues(24.dp),verticalArrangement=Arrangement.spacedBy(20.dp)){
                         items(selected.messages,key={it.id}){message->Box(Modifier.fillMaxWidth(),contentAlignment=if(message.role=="user")Alignment.CenterEnd else Alignment.CenterStart){Column(Modifier.widthIn(max=760.dp).then(if(message.role=="user")Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest,RoundedCornerShape(20.dp)).padding(16.dp) else Modifier)){
-                            if(message.text.isNotEmpty())SelectionContainer{Text(message.text,fontSize=15.sp,lineHeight=24.sp)}
+                            if(message.text.isNotEmpty()){
+                                if(message.role=="assistant")MarkdownText(message.text)
+                                else SelectionContainer{Text(message.text,fontSize=15.sp,lineHeight=24.sp)}
+                            }
                             if(message.status!="completed")Text(statusLabel(message.status),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             if(message.role=="assistant"&&message.text.isNotEmpty())IconButton(onClick={clipboard.setText(AnnotatedString(message.text))},modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.ContentCopy,"复制 API 回复",Modifier.size(15.dp))}
                         }}}
@@ -68,7 +71,7 @@ import androidx.compose.ui.unit.sp
                 }
                 Column(Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=12.dp)){
                     Row(Modifier.horizontalScroll(rememberScrollState())){
-                        Box{TextButton(onClick={modelsOpen=true;if(state.models.isEmpty()&&state.config.key.isNotBlank())repo.models()},enabled=!state.busy){Text(state.config.model.ifEmpty{"选择模型"});Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))};DropdownMenu(expanded=modelsOpen,onDismissRequest={modelsOpen=false}){state.models.forEach{model->DropdownMenuItem(text={Text(model)},enabled=!state.busy,onClick={modelsOpen=false;repo.chooseModel(model)})};DropdownMenuItem(text={Text("获取并添加对端模型")},onClick={modelsOpen=false;repo.models()},enabled=state.config.key.isNotEmpty()&&!state.busy);DropdownMenuItem(text={Text("手动配置模型")},onClick={modelsOpen=false;settings=true})}}
+                        Box{TextButton(onClick={modelsOpen=true;if(state.models.isEmpty()&&state.config.key.isNotBlank())repo.models()},enabled=!state.busy){Text(state.config.model.ifEmpty{"选择模型"});Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))};DropdownMenu(expanded=modelsOpen,onDismissRequest={modelsOpen=false}){state.models.forEach{model->DropdownMenuItem(text={Text(model)},enabled=!state.busy,onClick={modelsOpen=false;repo.chooseModel(model)})};DropdownMenuItem(text={Text("刷新模型")},onClick={modelsOpen=false;repo.models()},enabled=state.config.key.isNotEmpty()&&!state.busy);DropdownMenuItem(text={Text("手动配置模型")},onClick={modelsOpen=false;settings=true})}}
                         Box{TextButton(onClick={effortOpen=true},enabled=!state.busy){Text("思考 · "+state.config.effort.ifEmpty{"默认"}.let(::effortLabel))};DropdownMenu(expanded=effortOpen,onDismissRequest={effortOpen=false}){listOf("","none","minimal","low","medium","high","xhigh").forEach{effort->DropdownMenuItem(text={Text(if(effort.isEmpty())"服务商默认" else effortLabel(effort))},onClick={effortOpen=false;repo.chooseEffort(effort)})}}}
                     }
                     state.modelNotice?.let{Text(it,fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
@@ -78,7 +81,6 @@ import androidx.compose.ui.unit.sp
                         if(state.running!=null)FilledIconButton(onClick=repo::stop){Icon(Icons.Outlined.Stop,"停止 API 回复")}
                         else FilledIconButton(onClick={repo.send(text){if(drafts[draftKey]==text)drafts=drafts-draftKey}},enabled=text.isNotBlank()&&!state.busy&&state.storageReady&&selected?.archived!=true){Icon(Icons.Outlined.ArrowUpward,"发送 API 消息")}
                     }
-                    Text("请求发送到你配置的服务商；不支持的模型参数会直接报错。",fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(top=8.dp))
                 }
                 }
             }

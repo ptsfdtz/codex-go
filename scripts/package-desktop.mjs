@@ -30,7 +30,7 @@ cpSync(installer, resolve('artifacts/AgentDeck_0.3.0_x64-setup.exe'));
 cpSync('docs/TAURI_MIGRATION.md', join(output, 'MIGRATION.md'));
 writeFileSync(
   join(output, 'README.txt'),
-  'AgentDeck 0.3.0\r\nRun AgentDeck.exe. React frontend, Tauri host and native Rust Bridge. No Node/C# runtime required.\r\nRequires Windows 11, WebView2, Git and logged-in Codex CLI 0.159.2.\r\nData: %LOCALAPPDATA%\\AgentDeck, or AGENTDECK_DATA_DIR.\r\nClose button hides to tray. Use tray menu to stop and exit.\r\n',
+  'AgentDeck 0.3.0\r\nRun AgentDeck.exe. React frontend, Tauri host and native Rust Bridge. No Node/C# runtime required.\r\nRequires Windows 11, WebView2, Git and a logged-in Codex CLI. AgentDeck currently verifies 0.159.2 and can install it alongside your global CLI after SHA-512 validation.\r\nData: %LOCALAPPDATA%\\AgentDeck, or AGENTDECK_DATA_DIR.\r\nClose button hides to tray. Use tray menu to stop and exit.\r\n',
 );
 const files = [
   'artifacts/AgentDeck_0.3.0_x64-setup.exe',

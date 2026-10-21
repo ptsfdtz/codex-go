@@ -142,7 +142,9 @@ impl Rpc {
             let mut reader = BufReader::new(stdout);
             while let Ok(Some(v)) = read_frame(&mut reader).await {
                 if v.get("method").is_some() {
-                    if read_events.try_send(v).is_err() {
+                    // Backpressure command-output bursts instead of killing Codex
+                    // when the database consumer temporarily falls behind.
+                    if read_events.send(v).await.is_err() {
                         break;
                     }
                 } else if let Some(id) = v.get("id") {

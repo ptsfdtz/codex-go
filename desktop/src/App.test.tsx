@@ -155,7 +155,8 @@ describe('desktop human interactions', () => {
     render(<App />);
     fireEvent.click(await screen.findByRole('button', { name: '同步工作区' }));
     await screen.findByRole('alert');
-    expect(screen.getByRole('alert').textContent).toContain('重新授权');
+    expect(screen.getByRole('alert').textContent).toContain('重新同步工作区');
+    expect(screen.getByRole('alert').textContent).not.toContain('工作区路径已经失效');
   });
   it('rejects older hydration and expires codes without fake progress', () => {
     const current = fixture(),

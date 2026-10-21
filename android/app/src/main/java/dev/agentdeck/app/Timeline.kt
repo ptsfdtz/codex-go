@@ -20,10 +20,20 @@ fun timelineEvents(events:List<DeckEvent>):List<DeckEvent> {
 }
 
 fun eventText(event:DeckEvent):String {
-    val p=event.payload as? JsonObject?:return event.payload.toString()
+    val failureAction=event.action.contains("error",true)||event.action.endsWith(".failed")
+    val p=event.payload as? JsonObject?:return if(failureAction)userFacingError(raw=event.payload.toString()) else event.payload.toString()
+    if(event.action=="turn.failed"){
+        val turn=p["turn"] as? JsonObject
+        return "任务失败\n"+userFacingError(raw=(turn?.get("error") as? JsonPrimitive)?.contentOrNull)
+    }
+    if(failureAction||(p["method"] as? JsonPrimitive)?.contentOrNull=="error"||p.containsKey("error")){
+        val message=(p["message"] as? JsonPrimitive)?.contentOrNull?: (p["error"] as? JsonPrimitive)?.contentOrNull?:p.toString()
+        return userFacingError((p["code"] as? JsonPrimitive)?.contentOrNull,message)
+    }
     for(key in listOf("delta","text","message"))p[key]?.jsonPrimitive?.contentOrNull?.let{return it}
     val item=p["item"] as? JsonObject
     if(item!=null){
+        if(item["status"]?.jsonPrimitive?.contentOrNull=="failed")return userFacingError(raw=item["aggregatedOutput"]?.jsonPrimitive?.contentOrNull)
         val text=item["text"]?.jsonPrimitive?.contentOrNull
         if(text!=null)return text
         val command=item["command"]?.jsonPrimitive?.contentOrNull
@@ -31,7 +41,7 @@ fun eventText(event:DeckEvent):String {
     }
     if(event.action in listOf("turn.completed","turn.failed","turn.interrupted")){
         val turn=p["turn"] as? JsonObject
-        return statusLabel(turn?.get("status")?.jsonPrimitive?.contentOrNull?:event.action.substringAfter('.'))+(turn?.get("error")?.jsonPrimitive?.contentOrNull?.let{"\n$it"}?:"")
+        return statusLabel(turn?.get("status")?.jsonPrimitive?.contentOrNull?:event.action.substringAfter('.'))
     }
     return event.payload.toString()
 }

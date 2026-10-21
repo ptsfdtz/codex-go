@@ -134,6 +134,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     }
     case 'thread/resume': {
       const thread = threads.get(p.threadId);
+      if (thread?.name === 'WRITER_CONFLICT') {
+        send({id:m.id,error:{code:-32600,message:`thread ${p.threadId} already has an active writer`}});
+        return;
+      }
       if (!thread) {
         send({ id: m.id, error: { code: -1, message: 'Not found' } });
         return;
@@ -142,6 +146,16 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       result.thread.id = p.threadId;
       result.thread.cwd = thread.root;
       result.cwd = thread.root;
+      respond(result);
+      return;
+    }
+    case 'thread/fork': {
+      const source = threads.get(p.threadId);
+      const result = clone(samples.threadStart);
+      result.thread.id = 'fixture_' + randomUUID();
+      result.thread.cwd = source.root;
+      result.cwd = source.root;
+      threads.set(result.thread.id, {root:source.root, turns:new Map(source.turns)});
       respond(result);
       return;
     }
@@ -154,7 +168,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     }
     case 'thread/turns/list':
       respond({
-        data: [...(threads.get(p.threadId)?.turns.values() ?? [])],
+        data: [...(threads.get(p.threadId)?.turns.values() ?? [])].reverse().slice(0,p.limit ?? 100),
         nextCursor: null,
         backwardsCursor: null,
       });
@@ -167,6 +181,15 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       result.turn.completedAt = null;
       result.turn.items = [];
       const text = p.input[0].text;
+      if (text.startsWith('CHECK_PERMISSION_')) {
+        const full = text === 'CHECK_PERMISSION_FULL';
+        if (p.approvalPolicy !== (full ? 'never' : 'on-request') ||
+            p.sandboxPolicy?.type !== (full ? 'dangerFullAccess' : 'workspaceWrite') ||
+            (!full && (p.sandboxPolicy.networkAccess !== false || !p.sandboxPolicy.excludeTmpdirEnvVar || !p.sandboxPolicy.excludeSlashTmp))) {
+          send({ id: m.id, error: { code: -1, message: 'Permission policy not forwarded/reset' } });
+          return;
+        }
+      }
       if (text === 'CHECK_MODEL' && (p.model !== 'fixture-model' || p.effort !== 'high')) {
         send({ id: m.id, error: { code: -1, message: 'Model/effort not forwarded' } });
         return;

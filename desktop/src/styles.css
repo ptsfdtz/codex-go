@@ -308,7 +308,7 @@ h1 {
 }
 .notice {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   border-radius: 10px;
   padding: 10px 12px;
@@ -319,8 +319,41 @@ h1 {
   color: var(--danger);
   overflow-wrap: anywhere;
 }
-.notice > span {
+.notice-copy {
   flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.notice-copy strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.notice-copy p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.error-code {
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.notice-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+.notice-actions .button {
+  min-height: 34px;
+  border-color: #b3261e33;
+  color: var(--text);
+}
+.notice > .icon-button {
+  margin: -5px -5px 0 0;
 }
 .approval-banner {
   width: 100%;
@@ -355,6 +388,9 @@ h1 {
 }
 .modal-wide {
   width: 660px;
+}
+.modal .notice {
+  white-space: pre-line;
 }
 .modal::backdrop {
   background: #0005;

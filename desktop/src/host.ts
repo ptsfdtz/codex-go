@@ -49,6 +49,7 @@ export interface View {
   state: HostState;
   qr: Invitation | null;
   pairing: Pairing | null;
+  errorCode: string | null;
   error: string | null;
   running: boolean;
 }
@@ -64,6 +65,7 @@ export const emptyView: View = {
   },
   qr: null,
   pairing: null,
+  errorCode: null,
   error: null,
   running: false,
 };
@@ -91,6 +93,8 @@ export const host = {
   localRequests: (callback: (request: LocalRequest) => void) =>
     listen<LocalRequest>('local-request', (event) => callback(event.payload)),
   action: (action: Action) => invoke('host_action', { action }),
+  restart: () => invoke('host_restart'),
+  installSupportedCodex: () => invoke<string>('install_supported_codex'),
   pickProject: () => invoke('pick_project'),
   quit: () => invoke('quit_app'),
 };

@@ -402,6 +402,7 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
             response
         }
         Err(e) => {
+            let _ = core.store.append("request.failed", json!({"action":r.action,"requestId":r.id,"code":e.code,"message":crate::redact(&e.message)}), r.payload["sessionId"].as_str(), None);
             if mutate {
                 let _ = core.store.exec(
                     "UPDATE requests SET status='unknown' WHERE deviceId=? AND requestId=?",
