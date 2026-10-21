@@ -94,3 +94,11 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 新增诊断 desktopOptedOutProjectChanged=true：至少一个 GUI 连接的真实 initialize.capabilities.optOutNotificationMethods 明确包含 project/changed。只读安装代码 src-DsLVGakC.js 的 initialize 构造使用公共排除表，src-Dtwb7yKT.js 的表把 project/changed 标为 false。这解释了相应连接不接收事件，不是服务端普遍无事件的证据，也未证明所有连接的订阅或跨客户端广播。源连接收到通知不能代替第二个未排除客户端的广播测试。
 
 接入结论：原生项目列表/归属有路径；桌面活动项目更新还需核验宿主缓存、发布与跨端变更入口。不能为了通过探测而修改 GUI 自己的 initialize、移除排除项、伪造变更通知或写入私有全局状态。下一步应定位宿主 projectBackend/publishProjects 的受支持调用和生命周期，并验证独立原生客户端广播；可见侧栏、新名称刷新、双向操作及完整共享运行时仍未验收。
+
+## 独立原生客户端广播与反向更新
+
+后续 `--with-native-project` 在 GUI 启动前建立第二条独立认证原生 WebSocket，单独 initialize/initialized 并保留 project/changed 通知，再核验原项目身份与名称。源重命名后观察该连接的 updated 通知并读取新名称；随后由第二客户端修改同一项目，源连接重新读取结果。请求 ID 全局唯一、各连接有独立 pending 表；两个表均在 finally 清理，所有 socket 纳入同一退出清理。第二客户端自身写入开始后，不再把其通知计为先前源更新的跨客户端证据。不发送审批或账户模型请求。
+
+真实 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-project-peer-probe.json` 的 peerInitializedWithoutProjectOptOut、peerReadOriginalSeedProject、peerReceivedExternalProjectChanged、peerReadUpdatedSeedProject、sourceReadPeerProjectUpdate 全部 true。它证明安装版隔离运行时在两个未排除通知的原生连接间支持项目变更广播和双向读取更新，排除了“项目通知只回给写入者”的解释；第二客户端仍只是原生协议探测客户端，不是安卓或 Bridge。
+
+GUI 的 desktopOptedOutProjectChanged 仍 true，变更通知和新名称读取仍 false，因此整体 passed=false，历史严格门槛本次未启用，UI/宿主集成/安卓状态均不升级。子进程退出且固定代理错误码为空。实现方向应分开：原生项目数据/身份及事件可作为远程同步底座，原版桌面的本机缓存/项目发布需另行宿主适配；不能因原生双端通过就宣称桌面侧栏自动刷新已通过。

@@ -3,6 +3,14 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：独立原生项目广播与反向更新通过（阶段 0 / P01）
+
+- 前一轮提交 98fa4d4。本轮扩展 --with-native-project 为两条独立认证原生连接：第二连接独立初始化且不排除项目通知，先核验同一项目；源重命名后观察外部 updated 事件并重新读取，再由第二客户端写入、源连接重新读取。第二客户端开始自身写入后不再给外部事件检查记分，避免把自身通知当作跨客户端广播。请求 ID 全局唯一，pending 按连接隔离且退出时一并清理。
+- 真实 desktop-gui-project-peer-probe.json：peerInitializedWithoutProjectOptOut、peerReadOriginalSeedProject、peerReceivedExternalProjectChanged、peerReadUpdatedSeedProject、sourceReadPeerProjectUpdate 全部 true。确认安装版隔离源原生项目可广播到非写入连接并双向修改同一对象，不再把“只通知写入者”作为当前结论。第二客户端只是原生协议检查，不冒充安卓/已配对 Bridge。
+- GUI 仍主动排除 project/changed，通知和新名称读取仍 false，因此整体 passed=false，UI/宿主集成/完整共享状态不升级；本次未启用严格历史门槛。源/GUI 既有项目身份和线程归属继续通过，子进程退出、固定代理错误码为空，另查隔离 GUI/runtime/proxy 剩余 0。测试模型为回环合成服务，未改动生产桌面、账户或私有数据库。
+- 验证：真实三方实验完成，脚本 ESLint/Prettier、相关 diff 检查通过。无 Rust、安卓、协议或数据库变更，不重复无关构建。架构文档持久化原生项目同步与桌面宿主缓存/发布必须分别适配的结论。
+- 阶段 0/sharedDesktopRuntime 仍未完成。下一步核验宿主 projectBackend/publishProjects 的受支持接入与生命周期；原生目录/身份/事件可用于后续远程底座，但不能据此跳过桌面项目可见性和完整导航/历史验收。本轮选择性提交相关代码、真实证据和接手文档，保留独立 CI/发布改动，不推送。
+
 ## 2026-10-21 实施记录：项目归属、幂等与 GUI 主动排除变更通知（阶段 0 / P01）
 
 - 前一轮提交 516868c。通过精确安装版在隔离 HOME 导出实验 schema，核验项目创建/更新参数、持久线程 projectId 及 project/changed 的 updated 枚举；未改动生产 schema lock。本轮扩展 --with-native-project：重复创建核验同 ID，首轮历史持久化后读取源线程归属，再核验 GUI 自己读取的归属；源重命名并重新读取后，分别检查 GUI 通知和新名称。只在本次重命名开始后计入事件。

@@ -187,6 +187,11 @@ const report = {
     desktopReadUpdatedSeedProject: false,
     sourceReceivedProjectChanged: false,
     desktopOptedOutProjectChanged: false,
+    peerInitializedWithoutProjectOptOut: false,
+    peerReadOriginalSeedProject: false,
+    peerReceivedExternalProjectChanged: false,
+    peerReadUpdatedSeedProject: false,
+    sourceReadPeerProjectUpdate: false,
   },
   passed: false,
 };
@@ -195,26 +200,30 @@ const sockets = new Set();
 let observer;
 let model;
 let direct;
+let peer;
 let seededThread;
 let seededProject;
 let projectRenameStarted = false;
+let peerWriteStarted = false;
 let seededTurn;
 let completedSeed = false;
 let requestId = 0;
 const directPending = new Map();
+const peerPending = new Map();
 const renamedTitle = 'AgentDeck isolated GUI cross-client rename';
 const seedInput = 'Isolated GUI sharing probe; do not call tools.';
 const seedAnswer = 'Isolated GUI shared history fixture.';
 const renamedProject = 'AgentDeck isolated renamed native project';
-async function request(method, params) {
+const peerRenamedProject = 'AgentDeck isolated peer renamed native project';
+async function request(method, params, client = direct, pending = directPending) {
   return new Promise((resolve, reject) => {
     const id = `probe-${++requestId}`;
     const timer = setTimeout(() => {
-      directPending.delete(id);
+      pending.delete(id);
       reject(new Error('Probe RPC timeout'));
     }, 15000);
-    directPending.set(id, { resolve, reject, timer });
-    direct.send(JSON.stringify({ id, method, params }));
+    pending.set(id, { resolve, reject, timer });
+    client.send(JSON.stringify({ id, method, params }));
   });
 }
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -447,6 +456,61 @@ try {
         persisted.thread?.id === seededThread && persisted.thread?.projectId === seededProject;
       if (!report.checks.sourceThreadProjectPersisted)
         throw new Error('Native thread project not persisted');
+      peer = new WebSocket(endpoint, {
+        headers: { Authorization: `Bearer ${token}` },
+        handshakeTimeout: 5000,
+        maxPayload: 8 * 1024 * 1024,
+      });
+      sockets.add(peer);
+      peer.on('error', () => {});
+      await once(peer, 'open');
+      peer.on('message', (data) => {
+        const packet = JSON.parse(data.toString());
+        if (
+          projectRenameStarted &&
+          !peerWriteStarted &&
+          packet.method === 'project/changed' &&
+          packet.params?.projectId === seededProject &&
+          packet.params?.changeType === 'updated'
+        )
+          report.checks.peerReceivedExternalProjectChanged = true;
+        const waiter = peerPending.get(packet.id);
+        if (waiter && !packet.method) {
+          peerPending.delete(packet.id);
+          clearTimeout(waiter.timer);
+          if (packet.error) waiter.reject(new Error('Probe peer RPC rejected'));
+          else waiter.resolve(packet.result);
+        } else if (packet.id != null && packet.method) {
+          peer.send(
+            JSON.stringify({
+              id: packet.id,
+              error: { code: -32601, message: 'Probe never approves requests' },
+            }),
+          );
+        }
+      });
+      await request(
+        'initialize',
+        {
+          clientInfo: { name: 'agentdeck_gui_project_peer', version: '0.3.0' },
+          capabilities: { experimentalApi: true },
+        },
+        peer,
+        peerPending,
+      );
+      peer.send(JSON.stringify({ method: 'initialized', params: {} }));
+      report.checks.peerInitializedWithoutProjectOptOut = true;
+      const original = await request(
+        'project/read',
+        { projectId: seededProject },
+        peer,
+        peerPending,
+      );
+      report.checks.peerReadOriginalSeedProject =
+        original.project?.id === seededProject &&
+        original.project?.name === 'AgentDeck isolated native project';
+      if (!report.checks.peerReadOriginalSeedProject)
+        throw new Error('Peer project identity mismatch');
     }
   }
   observer = new WebSocketServer({
@@ -684,6 +748,26 @@ try {
       i++
     )
       await pause(100);
+    if (nativeProject) {
+      const updated = await request(
+        'project/read',
+        { projectId: seededProject },
+        peer,
+        peerPending,
+      );
+      report.checks.peerReadUpdatedSeedProject =
+        updated.project?.id === seededProject && updated.project?.name === renamedProject;
+      peerWriteStarted = true;
+      await request(
+        'project/update',
+        { projectId: seededProject, name: peerRenamedProject },
+        peer,
+        peerPending,
+      );
+      const returned = await request('project/read', { projectId: seededProject });
+      report.checks.sourceReadPeerProjectUpdate =
+        returned.project?.id === seededProject && returned.project?.name === peerRenamedProject;
+    }
   }
   report.passed = [
     'nativeAuthenticatedListener',
@@ -728,14 +812,22 @@ try {
       report.checks.desktopReadSeedThreadProject === true &&
       report.checks.desktopReceivedProjectChanged === true &&
       report.checks.desktopReadUpdatedSeedProject === true;
+  if (nativeProject)
+    report.passed &&=
+      report.checks.peerInitializedWithoutProjectOptOut === true &&
+      report.checks.peerReadOriginalSeedProject === true &&
+      report.checks.peerReceivedExternalProjectChanged === true &&
+      report.checks.peerReadUpdatedSeedProject === true &&
+      report.checks.sourceReadPeerProjectUpdate === true;
 } catch {
   report.failure = 'ISOLATED_GUI_PROBE_FAILED';
 } finally {
-  for (const waiter of directPending.values()) {
+  for (const waiter of [...directPending.values(), ...peerPending.values()]) {
     clearTimeout(waiter.timer);
     waiter.reject(new Error('Probe closed'));
   }
   directPending.clear();
+  peerPending.clear();
   for (const ws of sockets) ws.terminate();
   if (observer) await new Promise((done) => observer.close(done));
   if (model) {
