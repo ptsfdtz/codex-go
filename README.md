@@ -46,6 +46,8 @@ Windows 防火墙若拦截，仅允许 `runtime/agentdeck-service.exe` 的当前
 
 ## 安装 Android
 
+GitHub 下载：进入 [Releases](https://github.com/ptsfdtz/AgentHub/releases)，选择标有 **Pre-release** 的版本，在 Assets 下载 Windows 安装器、Windows 便携 ZIP 或 `AgentDeck-android-debug.apk`。`SHA256SUMS.txt` 提供校验值。安卓为 CI 临时 debug 签名测试包，不保证跨构建覆盖安装；卸载会清除本地数据。发布方式见 [开发文档](docs/DEVELOPMENT.md#github-ci与pre-release)。
+
 现有开发 APK：`android\app\build\outputs\apk\debug\app-debug.apk`。
 
 ```powershell
