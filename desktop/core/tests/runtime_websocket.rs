@@ -312,8 +312,14 @@ async fn desktop_baseline_contracts(with_history: bool) {
     );
     let granted = agentdeck_service::paths::add_local(&store, &project).unwrap();
     let tls = agentdeck_service::security::Certificate::load(directory.path()).unwrap();
-    let (tx, mut output) = tokio::sync::mpsc::channel(32);
-    let output_task = tokio::spawn(async move { while output.recv().await.is_some() {} });
+    let (tx, mut output) = tokio::sync::mpsc::channel::<Value>(32);
+    let output_task = tokio::spawn(async move {
+        while let Some(value) = output.recv().await {
+            if value["type"] == "error" {
+                eprintln!("isolated Core error: {}", value["payload"]);
+            }
+        }
+    });
     let core = agentdeck_service::service::Core::new(store, tls, "127.0.0.1".into(), 49321, tx);
     // Only the real successful boundary above authorizes the isolated Core.
     core.verified.store(true, Ordering::SeqCst);
@@ -357,30 +363,29 @@ async fn desktop_baseline_contracts(with_history: bool) {
         .unwrap();
     b.validate("v2/ThreadReadResponse", &read).unwrap();
     assert_eq!(read["thread"]["name"], "Supervised desktop baseline");
-    let indexed = core.sync_thread_index().await.unwrap();
-    if indexed != 2 {
-        for params in [
-            json!({"limit":100,"modelProviders":[]}),
-            json!({"limit":100,"modelProviders":[],"useStateDbOnly":true}),
-            json!({"limit":100,"modelProviders":[],"cwd":project}),
-        ] {
-            let listed = b.request("thread/list", params.clone()).await.unwrap();
-            eprintln!(
-                "isolated listing diagnostic: stateDbOnly={}, cwdFilter={}, rows={}",
-                params["useStateDbOnly"],
-                params.get("cwd").is_some(),
-                listed["data"].as_array().unwrap().len()
-            );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if core
+                .store
+                .sessions(None)
+                .unwrap()
+                .iter()
+                .any(|v| v["upstreamThreadId"] == id && v["title"] == "Versioned desktop baseline")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
         }
-    }
-    assert_eq!(indexed, 2);
+    })
+    .await
+    .expect("attached runtime did not automatically import existing thread");
     let sessions = core.store.sessions(None).unwrap();
     let imported = sessions
         .iter()
         .find(|v| v["upstreamThreadId"] == id)
         .unwrap();
     let imported_id = imported["sessionId"].as_str().unwrap().to_owned();
-    let history = core.upstream_history(&imported_id, None, 20).await.unwrap();
+    let mut history = core.upstream_history(&imported_id, None, 20).await.unwrap();
     if let Some(turn_id) = &history_turn {
         assert_eq!(history["data"].as_array().unwrap().len(), 2);
         let first = core.upstream_history(&imported_id, None, 1).await.unwrap();
@@ -403,6 +408,35 @@ async fn desktop_baseline_contracts(with_history: bool) {
     assert!(history["nextCursor"].is_null());
     assert_eq!(imported["title"], "Versioned desktop baseline");
     assert_eq!(imported["upstream"]["source"], created["thread"]["source"]);
+    if with_history {
+        let generation = core.upstream().unwrap().generation.clone();
+        let started = b.request("turn/start", json!({"threadId":id,"input":[{"type":"text","text":"External turn after index import.","text_elements":[]}]})).await.unwrap();
+        let turn_id = started["turn"]["id"].clone();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let read = b
+                    .request("thread/read", json!({"threadId":id,"includeTurns":true}))
+                    .await
+                    .unwrap();
+                if read["thread"]["turns"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|turn| turn["id"] == turn_id && turn["status"] == "completed")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("external synthetic turn did not complete");
+        history = core.upstream_history(&imported_id, None, 20).await.unwrap();
+        assert_eq!(history["data"].as_array().unwrap().len(), 4);
+        assert_eq!(core.upstream().unwrap().generation, generation);
+        assert!(core.store.turns(Some(&imported_id)).unwrap().is_empty());
+    }
+    core.busy.lock().unwrap().insert(imported_id.clone());
     b.request(
         "thread/name/set",
         json!({"threadId":id,"name":"External title after import"}),
@@ -412,11 +446,58 @@ async fn desktop_baseline_contracts(with_history: bool) {
     b.request("thread/archive", json!({"threadId":id}))
         .await
         .unwrap();
-    assert_eq!(core.sync_thread_index().await.unwrap(), 2);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        core.store.session(&imported_id).unwrap()["title"],
+        "Versioned desktop baseline"
+    );
+    core.busy.lock().unwrap().remove(&imported_id);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let current = core.store.session(&imported_id).unwrap();
+            if current["title"] == "External title after import" && current["archived"] == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("external metadata notifications did not refresh original thread");
     let imported = core.store.session(&imported_id).unwrap();
     assert_eq!(imported["upstreamThreadId"], id);
     assert_eq!(imported["title"], "External title after import");
     assert_eq!(imported["archived"], 1);
+    b.request("thread/unarchive", json!({"threadId":id}))
+        .await
+        .unwrap();
+    let restored = tokio::time::timeout(Duration::from_secs(10), async {
+        while core.store.session(&imported_id).unwrap()["archived"] != 0 {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await;
+    restored.expect("external unarchive did not refresh original session");
+    let external = b
+        .request(
+            "thread/start",
+            json!({"cwd":project,"sandbox":"read-only","approvalPolicy":"on-request"}),
+        )
+        .await
+        .unwrap();
+    let external_id = external["thread"]["id"].clone();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !core
+            .store
+            .sessions(None)
+            .unwrap()
+            .iter()
+            .any(|v| v["upstreamThreadId"] == external_id)
+        {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("externally created original thread was not imported by notification");
     assert_eq!(
         core.store
             .session(session["sessionId"].as_str().unwrap())
@@ -759,7 +840,7 @@ async fn real_pinned_runtime_accepts_two_rust_clients() {
     );
     let granted = agentdeck_service::paths::add_local(&store, &project).unwrap();
     let tls = agentdeck_service::security::Certificate::load(directory.path()).unwrap();
-    let (tx, mut output) = tokio::sync::mpsc::channel(32);
+    let (tx, mut output) = tokio::sync::mpsc::channel::<Value>(32);
     let output_task = tokio::spawn(async move { while output.recv().await.is_some() {} });
     let core = agentdeck_service::service::Core::new(store, tls, "127.0.0.1".into(), 49321, tx);
     core.verified.store(true, Ordering::SeqCst);

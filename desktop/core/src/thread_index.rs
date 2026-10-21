@@ -1,4 +1,4 @@
-//! Explicit local import of authoritative thread identities, never thread copies.
+//! Authorized authoritative thread indexes, never thread copies.
 use crate::{ensure, paths, s, service::Core, Error, Result};
 use serde_json::{json, Value};
 use std::{
@@ -27,13 +27,69 @@ fn timestamp(value: &Value) -> Result<String> {
         .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Invalid thread timestamp"))
 }
 impl Core {
-    // Called only by the Windows-local sync action; no new remote path grant.
+    pub(crate) fn note_thread_index_change(&self, thread: &str) -> Result<()> {
+        let mut pending = self.thread_index_pending.lock().unwrap();
+        ensure(
+            pending.len() < 20000 || pending.contains_key(thread),
+            "SYNC_LIMIT",
+            "Too many pending thread metadata changes",
+        )?;
+        if !thread.is_empty() {
+            pending.insert(thread.to_owned(), crate::uid("change"));
+        }
+        self.thread_index_changed.notify_one();
+        Ok(())
+    }
+    /// Attached runtimes reconcile on connect and validated metadata notifications.
+    /// This worker never blocks the RPC event reader or grants a new directory.
+    pub(crate) async fn watch_thread_index(
+        self: std::sync::Arc<Self>,
+        rpc: std::sync::Arc<crate::rpc::Rpc>,
+    ) {
+        use std::sync::atomic::Ordering;
+        self.thread_index_changed.notify_one();
+        let mut last_error = None;
+        let mut failures = 0u32;
+        loop {
+            self.thread_index_changed.notified().await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            if self.stopping.load(Ordering::SeqCst)
+                || !rpc.alive.load(Ordering::SeqCst)
+                || !self
+                    .upstream()
+                    .is_ok_and(|current| current.generation == rpc.generation)
+            {
+                break;
+            }
+            if let Err(error) = self.sync_thread_index().await {
+                if !["CONFLICT", "SYNC_CONFLICT", "UPSTREAM_UNAVAILABLE"]
+                    .contains(&error.code.as_str())
+                    && last_error.as_deref() != Some(error.code.as_str())
+                {
+                    self.emit("error", json!({"code":"THREAD_SYNC_FAILED","message":format!("会话索引同步尚未完成（{}）",error.code)}));
+                }
+                last_error = Some(error.code);
+                // Keep the last committed index and retry after contention or
+                // transient source failure; never replace it with partial data.
+                tokio::time::sleep(Duration::from_secs((2u64 << failures.min(4)).min(30))).await;
+                failures = failures.saturating_add(1);
+                self.thread_index_changed.notify_one();
+            } else {
+                failures = 0;
+                last_error = None;
+                self.publish();
+            }
+        }
+    }
+
+    // Also called by Windows-local sync; both paths use existing local grants.
     pub async fn sync_thread_index(&self) -> Result<usize> {
         let _sync = self
             .thread_sync
             .try_lock()
             .map_err(|_| Error::new("CONFLICT", "Thread index sync already in progress"))?;
         let rpc = self.upstream()?;
+        let pending = self.thread_index_pending.lock().unwrap().clone();
         let projects = self.store.projects()?;
         let mut authorized = Vec::new();
         for project in projects {
@@ -99,6 +155,13 @@ impl Core {
             "SYNC_LIMIT",
             "Loaded thread page limit reached; index unchanged",
         )?;
+        // Zero-turn threads can disappear from both list and loaded/list after
+        // unarchive. Read validated notification identities through public APIs.
+        for id in pending.keys() {
+            if loaded_ids.insert(id.clone()) {
+                loaded.push(json!(id));
+            }
+        }
         // Persisted archive membership takes precedence over this fallback.
         let mut loaded_threads = Vec::new();
         for id in loaded {
@@ -143,7 +206,14 @@ impl Core {
                     page.extend(
                         loaded_threads
                             .iter()
-                            .filter(|v| !entries.contains_key(s(v, "id")))
+                            .filter(|v| {
+                                !entries.contains_key(s(v, "id"))
+                                    && !response["data"]
+                                        .as_array()
+                                        .unwrap()
+                                        .iter()
+                                        .any(|listed| listed["id"] == v["id"])
+                            })
                             .cloned(),
                     );
                 }
@@ -243,6 +313,11 @@ impl Core {
         }
         let busy = self.busy.lock().unwrap();
         ensure(
+            self.upstream()?.generation == rpc.generation,
+            "SYNC_CONFLICT",
+            "Runtime connection changed during sync; index unchanged",
+        )?;
+        ensure(
             busy.is_empty(),
             "CONFLICT",
             "Local conversation operation in progress; retry sync after it finishes",
@@ -250,8 +325,14 @@ impl Core {
         for (id, _) in &authorized {
             paths::root(&self.store, id)?;
         }
-        self.store
-            .apply_thread_index(&entries.into_values().collect::<Vec<_>>())
+        let count = self
+            .store
+            .apply_thread_index(&entries.into_values().collect::<Vec<_>>())?;
+        self.thread_index_pending
+            .lock()
+            .unwrap()
+            .retain(|id, revision| pending.get(id) != Some(revision));
+        Ok(count)
     }
 }
 

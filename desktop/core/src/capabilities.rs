@@ -35,6 +35,7 @@ pub fn describe_profile(
         "features": {
             "sessionManagement": true,
             "threadIndexImport": true,
+            "externalThreadMetadataSync": attached,
             "upstreamHistoryPages": true,
             "upstreamHistoryContent": true,
             "modelSelection": true,
@@ -68,10 +69,12 @@ mod tests {
                 "bridge-created-and-imported"
             );
             assert_eq!(value["features"]["fullHistoryRead"], false);
+            assert_eq!(value["features"]["externalThreadMetadataSync"], false);
         }
         let attached = super::describe_runtime(true, false, true);
         assert_eq!(attached["runtime"]["mode"], "attached-local-ws");
         assert_eq!(attached["runtime"]["sharedDesktopRuntime"], false);
+        assert_eq!(attached["features"]["externalThreadMetadataSync"], true);
         let desktop = super::describe_profile(
             true,
             true,

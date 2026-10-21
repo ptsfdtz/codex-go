@@ -480,6 +480,25 @@ impl Core {
     pub fn notification(&self, rpc: &Rpc, v: &Value) -> Result<()> {
         let method = s(v, "method");
         let p = &v["params"];
+        let index_schema = match method {
+            "thread/started" => Some("v2/ThreadStartedNotification"),
+            "thread/name/updated" => Some("v2/ThreadNameUpdatedNotification"),
+            "thread/archived" => Some("v2/ThreadArchivedNotification"),
+            "thread/unarchived" => Some("v2/ThreadUnarchivedNotification"),
+            "thread/status/changed" => Some("v2/ThreadStatusChangedNotification"),
+            _ => None,
+        };
+        if let Some(schema) = index_schema {
+            rpc.validate(schema, p)?;
+            if self.attached_runtime.load(Ordering::SeqCst) {
+                self.note_thread_index_change(if method == "thread/started" {
+                    s(&p["thread"], "id")
+                } else {
+                    s(p, "threadId")
+                })?;
+            }
+            return Ok(());
+        }
         if method == "thread/goal/updated" || method == "thread/goal/cleared" {
             rpc.validate(
                 if method.ends_with("updated") {
@@ -541,6 +560,14 @@ impl Core {
             return Ok(());
         };
         let session_id = s(&session, "sessionId");
+        if turn.is_none() && self.attached_runtime.load(Ordering::SeqCst) {
+            // External turns have no local turn identity yet. Do not fabricate
+            // progress records or reject their valid completion as corruption.
+            if matches!(method, "turn/started" | "turn/completed") {
+                self.note_thread_index_change(s(p, "threadId"))?;
+            }
+            return Ok(());
+        }
         if method == "turn/completed" {
             let turn = turn.ok_or_else(|| {
                 Error::new("UPSTREAM_PROTOCOL_ERROR", "Completion has no matching turn")

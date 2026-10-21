@@ -31,6 +31,8 @@ pub struct Core {
     pub loaded: Mutex<HashSet<String>>,
     pub busy: Mutex<HashSet<String>>,
     pub(crate) thread_sync: tokio::sync::Mutex<()>,
+    pub(crate) thread_index_changed: Notify,
+    pub(crate) thread_index_pending: Mutex<HashMap<String, String>>,
     pub task_limit: Semaphore,
     pub connected: Mutex<HashMap<String, usize>>,
     pub address: RwLock<String>,
@@ -70,6 +72,8 @@ impl Core {
             loaded: Mutex::new(HashSet::new()),
             busy: Mutex::new(HashSet::new()),
             thread_sync: tokio::sync::Mutex::new(()),
+            thread_index_changed: Notify::new(),
+            thread_index_pending: Mutex::new(HashMap::new()),
             task_limit: Semaphore::new(2),
             connected: Mutex::new(HashMap::new()),
             address: RwLock::new(address),
@@ -357,7 +361,13 @@ impl Core {
                     return Err(e);
                 }
                 failures = 0;
+                let index_task = if target.attached() {
+                    let owner = self.clone();
+                    let index_rpc = rpc.clone();
+                    Some(tokio::spawn(async move { owner.watch_thread_index(index_rpc).await }))
+                } else { None };
                 let _ = event_task.await;
+                if let Some(task) = index_task { task.abort(); let _ = task.await; }
                 Ok(())
             }
             .await;
