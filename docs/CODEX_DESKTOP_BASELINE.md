@@ -99,6 +99,12 @@ node scripts/audit-codex-protocol.mjs <Codex可执行文件绝对路径> artifac
 
 ## 阶段 0 尚未完成的验收
 
+### 2026-10-21 本地认证适配增量
+
+只读检查安装包 `application-network-startup-DB1VeU3v.js` 和 `main-C4DYk222.js`：本地 URL 路由的握手 headers 默认为空；云端特殊 host 才使用账户认证握手，不能挪用账户 token。其 Node ws 构造器接受 URL userinfo 的 Basic 认证。新增默认关闭的 Rust 回环 Basic → Bearer 适配，具体配置、验证和接手限制见 [本机认证适配](CODEX_DESKTOP_ADAPTER.md)。
+
+ws 8.21.0 对应构造参数的 fixture，以及精确安装版真实隔离服务的 initialize/原 threadId 读取已验证；不是原版 GUI 运行证据。桌面 URL 日志与环境继承的凭据保护仍需审计，当前未重启、重配或启动原版 GUI；完整共享能力保持 false。
+
 1. 可见页面、菜单、快捷键和账户/实验入口逐项盘点，不把资产文件名当作实际可用入口。
 2. 找到桌面真正支持的共享接入方式，或对每种候选路径给出可复核阻塞结论。
 3. 同一活动任务双端操作实验（隔离线程），以及参数/响应/通知 schema 兼容评估。

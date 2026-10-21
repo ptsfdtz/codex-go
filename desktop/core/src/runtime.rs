@@ -2,6 +2,7 @@
 use crate::{ensure, rpc::ProtocolVersion, Error, Result};
 use std::{io::Read, path::PathBuf};
 
+#[derive(Clone)]
 pub enum RuntimeTarget {
     Managed,
     Attached {

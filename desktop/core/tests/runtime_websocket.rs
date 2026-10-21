@@ -213,6 +213,58 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         .unwrap();
     a.validate("v2/ThreadStartResponse", &created).unwrap();
     let id = created["thread"]["id"].clone();
+    // A desktop-compatible Basic handshake reaches this same real native server.
+    // This is transport acceptance, not evidence that the original GUI is attached.
+    {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let target = agentdeck_service::runtime::RuntimeTarget::Attached {
+            endpoint: endpoint.clone(),
+            token_file: token_file.clone(),
+            protocol: ProtocolVersion::DesktopBaseline,
+        };
+        let adapter = agentdeck_service::desktop_adapter::DesktopAdapter::listen(target, 0)
+            .await
+            .unwrap();
+        let mut request = format!("ws://127.0.0.1:{}/", adapter.port)
+            .into_client_request()
+            .unwrap();
+        request.headers_mut().insert(
+            "authorization",
+            format!("Basic {}", STANDARD.encode(format!("agentdeck:{token}")))
+                .parse()
+                .unwrap(),
+        );
+        let (mut client, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+        client.send(Message::Text(json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"adapter_probe","version":"0.1"},"capabilities":{"experimentalApi":true}}}).to_string().into())).await.unwrap();
+        let initialized = tokio::time::timeout(Duration::from_secs(10), client.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let initialized: Value = serde_json::from_str(initialized.to_text().unwrap()).unwrap();
+        assert_eq!(initialized["id"], 1);
+        assert!(initialized.get("result").is_some());
+        client
+            .send(Message::Text(
+                json!({"method":"initialized"}).to_string().into(),
+            ))
+            .await
+            .unwrap();
+        client.send(Message::Text(json!({"id":2,"method":"thread/read","params":{"threadId":id,"includeTurns":false}}).to_string().into())).await.unwrap();
+        let read = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let message = client.next().await.unwrap().unwrap();
+                let value: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+                if value["id"] == 2 {
+                    break value;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(read["result"]["thread"]["id"], id);
+    }
     let named = a
         .request(
             "thread/name/set",

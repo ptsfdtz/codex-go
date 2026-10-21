@@ -150,6 +150,15 @@ async fn run() -> Result<()> {
         "sandboxVerifiedVersion",
         runtime_target.protocol().version(),
     )?;
+    let desktop_adapter =
+        agentdeck_service::desktop_adapter::DesktopAdapter::from_environment(&runtime_target)
+            .await?;
+    if let Some(adapter) = &desktop_adapter {
+        core.emit(
+            "desktop.adapter.status",
+            json!({"status":"listening","port":adapter.port}),
+        );
+    }
     let owner = core.clone();
     let supervisor = tokio::spawn(async move {
         owner.supervise_runtime(exe, runtime_target).await;
@@ -178,6 +187,7 @@ async fn run() -> Result<()> {
         core.stop.notified().await;
         core.shutdown().await;
     }
+    drop(desktop_adapter);
     actions.abort();
     refresh.abort();
     git_poll.abort();

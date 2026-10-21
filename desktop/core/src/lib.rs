@@ -2,6 +2,7 @@ pub mod approval;
 pub mod capabilities;
 pub mod codex;
 pub mod composer;
+pub mod desktop_adapter;
 pub mod git;
 mod history;
 mod observation;
