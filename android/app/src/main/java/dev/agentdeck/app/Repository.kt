@@ -210,7 +210,21 @@ class DeckRepository(context:Context){
         require(result["sessionId"]?.jsonPrimitive?.content==id&&result["upstreamTurnId"]?.jsonPrimitive?.content==expected&&result["accepted"]?.jsonPrimitive?.booleanOrNull==true){"追加结果需要核实，请勿重复发送"}
         withContext(Dispatchers.Main){onAccepted()};refreshSnapshot()
     }}
-    fun interrupt(){action{val id=mutable.value.selectedSession?:return@action;val turn=mutable.value.snapshot.turns.lastOrNull{it.sessionId==id&&it.status in listOf("running","waitingApproval","unknown")}?:error("没有活动回合");rpc().request("turn.interrupt",payload("sessionId" to id,"turnId" to turn.turnId));refreshSnapshot()}}
+    fun interrupt(){action{
+        val id=mutable.value.selectedSession?:return@action
+        val turn=mutable.value.snapshot.turns.lastOrNull{it.sessionId==id&&it.status in listOf("running","waitingApproval","unknown")}
+        val connection=rpc()
+        if(turn!=null)connection.request("turn.interrupt",payload("sessionId" to id,"turnId" to turn.turnId))
+        else {
+            require(mutable.value.capabilities?.supports("activeTurnInterruption")==true){"电脑端需要升级才能停止外部任务"}
+            val active=connection.request("turn.active",payload("sessionId" to id))
+            require(active["sessionId"]?.jsonPrimitive?.content==id){"会话身份不匹配"}
+            val expected=(active["upstreamTurnId"] as? JsonPrimitive)?.contentOrNull?:error("当前没有活动轮次，请刷新任务状态")
+            val result=connection.request("turn.interruptActive",payload("sessionId" to id,"expectedTurnId" to expected))
+            require(result["sessionId"]?.jsonPrimitive?.content==id&&result["upstreamTurnId"]?.jsonPrimitive?.content==expected&&result["requested"]?.jsonPrimitive?.booleanOrNull==true){"停止结果需要核实，请勿重复操作"}
+        }
+        refreshSnapshot()
+    }}
     fun decide(approval:Approval,decision:String){action{require(Instant.parse(approval.expiresAt).isAfter(Instant.now())){"审批已过期"};rpc().request("approvals.decide",payload("sessionId" to approval.sessionId,"turnId" to approval.turnId,"approvalId" to approval.approvalId,"decision" to decision));refreshSnapshot()}}
     fun answerQuestions(approval:Approval,answers:Map<String,String>){action{rpc().request("approvals.decide",buildJsonObject{
         put("sessionId",approval.sessionId);put("turnId",approval.turnId);put("approvalId",approval.approvalId);put("decision","approve")

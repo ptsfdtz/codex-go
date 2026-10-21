@@ -571,6 +571,21 @@ impl Core {
         if turn.is_none() && self.attached_runtime.load(Ordering::SeqCst) {
             // External turns have no local turn identity yet. Do not fabricate
             // progress records or reject their valid completion as corruption.
+            if method == "turn/completed" {
+                let status = s(&p["turn"], "status");
+                ensure(
+                    terminal(status),
+                    "UPSTREAM_PROTOCOL_ERROR",
+                    "Nonterminal external completion",
+                )?;
+                if paths::root(&self.store, s(&session, "projectId")).is_err() {
+                    return Ok(());
+                }
+                let seen=self.store.query("SELECT eventId FROM events WHERE sessionId=? AND action='upstream.turn.completed' AND json_extract(payloadJson,'$.upstreamTurnId')=? LIMIT 1",[session_id,s(&p["turn"],"id")])?;
+                if seen.is_empty() {
+                    self.store.append("upstream.turn.completed",json!({"upstreamTurnId":p["turn"]["id"],"status":status,"error":p["turn"]["error"]["message"]}),Some(session_id),None)?;
+                }
+            }
             if matches!(method, "turn/started" | "turn/completed") {
                 self.note_thread_index_change(s(p, "threadId"))?;
             }

@@ -817,6 +817,88 @@ async fn steer_preserves_turn_identity_and_request_replay_never_duplicates_input
     );
 }
 #[tokio::test]
+async fn external_stop_is_idempotent_pauses_goal_and_waits_for_native_terminal() {
+    let h = Harness::fixture().await;
+    let session = h.session("external-stop").await;
+    let id = s(&session, "sessionId");
+    h.core.attached_runtime.store(true, Ordering::SeqCst);
+    let rpc = h.core.upstream().unwrap();
+    let started=rpc.request("turn/start",json!({"threadId":session["upstreamThreadId"],"input":[{"type":"text","text":"WAIT","text_elements":[]}]})).await.unwrap();
+    let native = s(&started["turn"], "id");
+    rpc.request("thread/goal/set",json!({"threadId":session["upstreamThreadId"],"objective":"Fixture external goal","status":"active"})).await.unwrap();
+    assert_eq!(
+        h.core
+            .interrupt_active_turn(id, "wrong-target")
+            .await
+            .unwrap_err()
+            .code,
+        "TURN_CHANGED"
+    );
+    h.core
+        .store
+        .replace_device("stop-device", "fixture", &digest("fixture-token"))
+        .unwrap();
+    let r = request(
+        "turn.interruptActive",
+        json!({"sessionId":id,"expectedTurnId":native}),
+        "external-stop-once",
+    );
+    let first = transport::handle_request(&h.core, &r, "stop-device").await;
+    assert_eq!(first["type"], "response", "{first}");
+    assert_eq!(first["payload"]["requested"], true);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if h.core
+                .store
+                .history(id, None, 100)
+                .unwrap()
+                .iter()
+                .any(|e| {
+                    e["action"] == "upstream.turn.completed"
+                        && e["payload"]["status"] == "interrupted"
+                })
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let cursor = h.core.store.cursor().unwrap();
+    assert_eq!(
+        transport::handle_request(&h.core, &r, "stop-device").await,
+        first
+    );
+    assert_eq!(h.core.store.cursor().unwrap(), cursor);
+    assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+    let goal = rpc
+        .request(
+            "thread/goal/get",
+            json!({"threadId":session["upstreamThreadId"]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(goal["goal"]["status"], "paused");
+    let turns = rpc
+        .request(
+            "thread/turns/list",
+            json!({"threadId":session["upstreamThreadId"],"limit":1}),
+        )
+        .await
+        .unwrap();
+    h.core.notification(&rpc,&json!({"method":"turn/completed","params":{"threadId":session["upstreamThreadId"],"turn":turns["data"][0]}})).unwrap();
+    assert_eq!(h.core.store.cursor().unwrap(), cursor);
+    assert_eq!(
+        h.core
+            .interrupt_active_turn(id, native)
+            .await
+            .unwrap_err()
+            .code,
+        "TURN_CHANGED"
+    );
+}
+#[tokio::test]
 async fn framing_partial_utf8_invalid_and_oversize() {
     let line = json!({"id":"one","result":{"text":"测试😀"}}).to_string() + "\n";
     let (mut writer, reader) = tokio::io::duplex(32);

@@ -5,6 +5,13 @@ import org.junit.Test
 import kotlinx.serialization.json.*
 
 class ConversationTest {
+    @Test fun externalStopWaitsForAuthorityAndLateRequestDoesNotOverwriteTerminal(){
+        val pending=event(1,"""{"upstreamTurnId":"native"}""",action="turn.interruptRequested")
+        val terminal=event(2,"""{"upstreamTurnId":"native","status":"interrupted"}""",action="upstream.turn.completed")
+        assertEquals("stopping",conversationEntries(listOf(pending)).single().status)
+        assertEquals("interrupted",conversationEntries(listOf(pending,terminal)).single().status)
+        assertEquals("interrupted",conversationEntries(listOf(terminal,pending,terminal)).single().status)
+    }
     @Test fun appendedInstructionsPreserveOriginalMessageAndReplayDoesNotDuplicate(){
         val original=event(1,"""{"text":"Original"}""",action="turn.queued")
         val appended=event(2,"""{"text":"Additional","upstreamTurnId":"native-turn"}""",action="turn.steered")

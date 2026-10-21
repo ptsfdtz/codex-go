@@ -222,6 +222,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         backwardsCursor: null,
       });
       return;
+    case 'thread/goal/get':
+      respond({goal:threads.get(p.threadId)?.goal ?? null});
+      return;
     case 'thread/goal/set': {
       const current = threads.get(p.threadId);
       const now = Date.now();

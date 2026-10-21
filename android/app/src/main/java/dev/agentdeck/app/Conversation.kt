@@ -24,6 +24,17 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
             rows[prefix+"steer:"+e.eventId]=ChatEntry(prefix+"steer:"+e.eventId,"user",p.string("text"),title="已追加")
             continue
         }
+        if(e.action in listOf("turn.interruptRequested","upstream.turn.completed")){
+            val native=p.string("upstreamTurnId")
+            if(native.isNotBlank()){
+                val key="${e.sessionId}:upstream:$native:result"
+                if(e.action=="upstream.turn.completed"){
+                    val status=p.string("status")
+                    if(status in listOf("completed","failed","interrupted"))rows[key]=ChatEntry(key,"status",statusLabel(status),status=status,detail=p.string("error"))
+                }else if(rows[key]?.status !in listOf("completed","failed","interrupted"))rows[key]=ChatEntry(key,"status","已请求停止，等待 Codex 确认",status="stopping")
+                continue
+            }
+        }
         if(e.action in listOf("turn.completed","turn.failed","turn.interrupted")){
             val turn=p["turn"] as? JsonObject
             val status=turn?.string("status")?.ifBlank{null}?:e.action.substringAfter('.')

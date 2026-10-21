@@ -60,6 +60,8 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     let answer = "Persisted synthetic answer: 中文 😀\n```text\noriginal content\n```";
     let response_gate = std::sync::Arc::new(tokio::sync::Notify::new());
     let provider_gate = response_gate.clone();
+    let hold_response = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(with_steering));
+    let provider_hold = hold_response.clone();
     let provider_requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let provider_count = provider_requests.clone();
     let instruction_consumed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -75,6 +77,7 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
                 let response_gate = provider_gate.clone();
                 let request_count = provider_count.clone();
                 let consumed = provider_consumed.clone();
+                let hold = provider_hold.clone();
                 tokio::spawn(async move {
                     let mut request = Vec::new();
                     let mut buffer = [0u8; 8192];
@@ -101,7 +104,7 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
                         }
                     }
                     assert!(request.starts_with(b"POST /v1/responses "));
-                    let request_number = request_count.fetch_add(1, Ordering::SeqCst);
+                    request_count.fetch_add(1, Ordering::SeqCst);
                     if String::from_utf8_lossy(&request)
                         .contains("Continue the exact original task.")
                     {
@@ -122,7 +125,7 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
                         ));
                     }
                     let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len());
-                    if with_steering && request_number == 0 {
+                    if hold.swap(false, Ordering::SeqCst) {
                         let split =
                             response.find("\r\n\r\n").unwrap() + 4 + body.find("\n\n").unwrap() + 2;
                         if stream
@@ -493,9 +496,13 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         );
         response_gate.notify_one();
         tokio::time::timeout(Duration::from_secs(10), async {
-            while !core.active_upstream_turn(&imported_id).await.unwrap()["upstreamTurnId"]
-                .is_null()
-            {
+            loop {
+                match core.active_upstream_turn(&imported_id).await {
+                    Ok(active) if active["upstreamTurnId"].is_null() => break,
+                    Ok(_) => {}
+                    Err(error) if error.code == "TURN_STATE_UNAVAILABLE" => {}
+                    Err(error) => panic!("active turn reconciliation failed: {error:?}"),
+                }
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
         })
@@ -512,6 +519,52 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             .unwrap();
         assert_eq!(finished["data"][0]["id"], turn_id);
         assert_eq!(finished["data"][0]["status"], "completed");
+        hold_response.store(true, Ordering::SeqCst);
+        let stopping=b.request("turn/start",json!({"threadId":id,"input":[{"type":"text","text":"Hold for external stop.","text_elements":[]}]})).await.unwrap();
+        let stop_id = stopping["turn"]["id"].as_str().unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if core
+                    .active_upstream_turn(&imported_id)
+                    .await
+                    .is_ok_and(|active| active["upstreamTurnId"] == stop_id)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("external stop target did not become visible");
+        assert_eq!(
+            core.interrupt_active_turn(&imported_id, "wrong-stop-target")
+                .await
+                .unwrap_err()
+                .code,
+            "TURN_CHANGED"
+        );
+        let requested = core
+            .interrupt_active_turn(&imported_id, stop_id)
+            .await
+            .unwrap();
+        assert_eq!(requested["requested"], true);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let events = core.store.history(&imported_id, None, 100).unwrap();
+                if events.iter().any(|event| {
+                    event["action"] == "upstream.turn.completed"
+                        && event["payload"]["upstreamTurnId"] == stop_id
+                        && event["payload"]["status"] == "interrupted"
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("stop acknowledgement was not followed by authoritative interruption");
+        assert!(core.store.turns(Some(&imported_id)).unwrap().is_empty());
+        response_gate.notify_one();
         history = core.upstream_history(&imported_id, None, 20).await.unwrap();
     }
     if with_history {

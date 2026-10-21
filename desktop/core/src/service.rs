@@ -471,6 +471,10 @@ impl Core {
             ),
             "turn.interrupt" => self.interrupt(s(p, "sessionId"), s(p, "turnId")).await,
             "turn.active" => self.active_upstream_turn(s(p, "sessionId")).await,
+            "turn.interruptActive" => {
+                self.interrupt_active_turn(s(p, "sessionId"), s(p, "expectedTurnId"))
+                    .await
+            }
             "turn.steer" => {
                 self.steer_turn(
                     s(p, "sessionId"),

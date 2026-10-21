@@ -381,6 +381,7 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
             | "sessions.pin"
             | "turn.start"
             | "turn.steer"
+            | "turn.interruptActive"
             | "turn.interrupt"
             | "approvals.decide"
             | "projects.add"

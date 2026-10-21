@@ -98,6 +98,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "turn.interrupt" => (&["sessionId", "turnId"], &[]),
         "turn.active" => (&["sessionId"], &[]),
         "turn.steer" => (&["sessionId", "expectedTurnId", "text"], &[]),
+        "turn.interruptActive" => (&["sessionId", "expectedTurnId"], &[]),
         "approvals.decide" => (
             &["sessionId", "turnId", "approvalId", "decision"],
             &["answers"],

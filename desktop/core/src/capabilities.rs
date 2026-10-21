@@ -35,6 +35,7 @@ pub fn describe_profile(
         "features": {
             "sessionManagement": true,
             "activeTurnSteering": true,
+            "activeTurnInterruption": true,
             "threadIndexImport": true,
             "externalThreadMetadataSync": attached,
             "externalThreadDeletionEvents": attached,
