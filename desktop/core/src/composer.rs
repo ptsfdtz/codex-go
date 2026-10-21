@@ -45,7 +45,7 @@ pub fn decode_attachments(files: &Value) -> Result<Vec<(String, Vec<u8>)>> {
             .as_str()
             .ok_or_else(|| Error::new("INVALID_REQUEST", "Base64 data required"))?;
         ensure(
-            encoded.len() <= (MAX_ATTACHMENT_BYTES + 2) / 3 * 4,
+            encoded.len() <= MAX_ATTACHMENT_BYTES.div_ceil(3) * 4,
             "INVALID_REQUEST",
             "附件总大小不能超过 512 KB",
         )?;

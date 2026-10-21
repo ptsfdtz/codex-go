@@ -86,6 +86,7 @@ impl Core {
         )
         .await
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn start_turn_composer(
         &self,
         session_id: &str,
@@ -153,6 +154,7 @@ impl Core {
         self.busy.lock().unwrap().remove(session_id);
         result
     }
+    #[allow(clippy::too_many_arguments)]
     async fn start_inner(
         &self,
         rpc: &Rpc,
@@ -435,22 +437,23 @@ impl Core {
         }
         if bind
             && found.is_none()
-            && turn.is_some()
             && self.store.meta(&format!("goalMode:{id}"))?.as_deref() == Some("active")
         {
-            let local = uid("turn");
-            self.store.exec(
-                "INSERT INTO turns VALUES(?,?,?,?,?,NULL,NULL)",
-                rusqlite::params![local, id, turn.unwrap(), "running", now()],
-            )?;
-            self.store.status(id, Some(&local), "running", None)?;
-            found = Some(self.store.turn(&local)?);
-            self.store.append(
-                "turn.started",
-                json!({"turn":found,"source":"goal"}),
-                Some(id),
-                Some(&local),
-            )?;
+            if let Some(turn) = turn {
+                let local = uid("turn");
+                self.store.exec(
+                    "INSERT INTO turns VALUES(?,?,?,?,?,NULL,NULL)",
+                    rusqlite::params![local, id, turn, "running", now()],
+                )?;
+                self.store.status(id, Some(&local), "running", None)?;
+                found = Some(self.store.turn(&local)?);
+                self.store.append(
+                    "turn.started",
+                    json!({"turn":found,"source":"goal"}),
+                    Some(id),
+                    Some(&local),
+                )?;
+            }
         }
         Ok(Some((session, found)))
     }
