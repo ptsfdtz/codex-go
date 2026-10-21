@@ -103,6 +103,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "sessions.pin" => (&["sessionId", "pinned"], &[]),
         "turn.interrupt" => (&["sessionId", "turnId"], &[]),
         "turn.active" => (&["sessionId"], &[]),
+        "turn.latest" => (&["sessionId", "contractVersion"], &[]),
         "turn.steer" => (&["sessionId", "expectedTurnId", "text"], &[]),
         "turn.interruptActive" => (&["sessionId", "expectedTurnId"], &[]),
         "approvals.decide" => (
@@ -212,7 +213,7 @@ pub fn parse(v: Value) -> Result<Request> {
         }
         integer(p, "limit", 1, 500)?;
     }
-    if r.action == "sessions.refreshIndex" {
+    if matches!(r.action.as_str(), "sessions.refreshIndex" | "turn.latest") {
         integer(p, "contractVersion", 1, 1)?;
     }
     if r.action == "projects.nativePage" {

@@ -994,6 +994,21 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             json!({"sessionId":imported_id,"limit":20}),
         )
         .await;
+        let remote_latest = bridge_call(
+            &mut socket,
+            "project-session-latest-turn",
+            "turn.latest",
+            json!({"sessionId":imported_id,"contractVersion":1}),
+        )
+        .await;
+        assert_eq!(remote_latest["type"], "response", "{remote_latest}");
+        assert_eq!(remote_latest["payload"]["upstreamThreadId"], id);
+        assert_eq!(
+            remote_latest["payload"]["turn"]["upstreamTurnId"],
+            *history_turn.as_ref().unwrap()
+        );
+        assert_eq!(remote_latest["payload"]["turn"]["status"], "completed");
+        assert_eq!(remote_latest["payload"]["contractVersion"], 1);
         let content = remote_history["payload"]["data"].as_array().unwrap();
         assert_eq!(content.len(), 2);
         assert!(content.iter().any(|entry| entry["item"]["text"] == answer
@@ -1177,6 +1192,11 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             .unwrap();
         assert_eq!(finished["data"][0]["id"], turn_id);
         assert_eq!(finished["data"][0]["status"], "completed");
+        let latest = core.latest_upstream_turn(&imported_id).await.unwrap();
+        assert_eq!(latest["turn"]["upstreamTurnId"], turn_id);
+        assert_eq!(latest["turn"]["status"], "completed");
+        assert_eq!(latest["upstreamThreadId"], id);
+        assert_eq!(latest["contractVersion"], 1);
         hold_response.store(true, Ordering::SeqCst);
         let stopping=b.request("turn/start",json!({"threadId":id,"input":[{"type":"text","text":"Hold for external stop.","text_elements":[]}]})).await.unwrap();
         let stop_id = stopping["turn"]["id"].as_str().unwrap();

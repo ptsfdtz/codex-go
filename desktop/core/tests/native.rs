@@ -842,6 +842,80 @@ async fn session_mutations_are_idempotent_per_device() {
     );
     assert_eq!(h.core.store.session(id).unwrap()["title"], "once");
 }
+#[test]
+fn latest_turn_contract_rejects_missing_version_and_scope_overrides() {
+    for payload in [
+        json!({"sessionId":"s"}),
+        json!({"sessionId":"s","contractVersion":2}),
+        json!({"sessionId":"s","contractVersion":1,"threadId":"override"}),
+        json!({"sessionId":"s","contractVersion":1,"limit":2}),
+    ] {
+        assert!(protocol::parse(
+            json!({"v":1,"type":"request","id":"latest","action":"turn.latest","payload":payload})
+        )
+        .is_err());
+    }
+    request(
+        "turn.latest",
+        json!({"sessionId":"s","contractVersion":1}),
+        "valid-latest",
+    );
+}
+
+#[tokio::test]
+async fn latest_turn_reads_empty_running_and_terminal_without_creating_local_turns() {
+    let h = Harness::fixture().await;
+    let session = h.session("latest-turn").await;
+    let id = s(&session, "sessionId");
+    let empty = h.core.latest_upstream_turn(id).await.unwrap();
+    assert_eq!(empty["contractVersion"], 1);
+    assert_eq!(empty["upstreamThreadId"], session["upstreamThreadId"]);
+    assert!(empty["turn"].is_null());
+    assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+    let turn = h.core.start_turn(id, "WAIT").await.unwrap();
+    h.wait(s(&turn, "turnId"), "running").await;
+    let r = request(
+        "turn.latest",
+        json!({"sessionId":id,"contractVersion":1}),
+        "latest-read",
+    );
+    let response = transport::handle_request(&h.core, &r, "latest-device").await;
+    assert_eq!(response["type"], "response", "{response}");
+    assert_eq!(response["payload"]["turn"]["status"], "inProgress");
+    assert_eq!(
+        response["payload"]["turn"]["upstreamTurnId"],
+        h.core.store.turn(s(&turn, "turnId")).unwrap()["upstreamTurnId"]
+    );
+    assert_eq!(response["payload"]["turn"].as_object().unwrap().len(), 2);
+    assert!(h
+        .core
+        .store
+        .query("SELECT * FROM requests WHERE requestId='latest-read'", [])
+        .unwrap()
+        .is_empty());
+    h.core.interrupt(id, s(&turn, "turnId")).await.unwrap();
+    h.wait(s(&turn, "turnId"), "interrupted").await;
+    assert_eq!(
+        h.core.latest_upstream_turn(id).await.unwrap()["turn"]["status"],
+        "interrupted"
+    );
+    let next = h.core.start_turn(id, "complete newest turn").await.unwrap();
+    h.wait(s(&next, "turnId"), "completed").await;
+    let latest = h.core.latest_upstream_turn(id).await.unwrap();
+    assert_eq!(latest["turn"]["status"], "completed");
+    assert_eq!(
+        latest["turn"]["upstreamTurnId"],
+        h.core.store.turn(s(&next, "turnId")).unwrap()["upstreamTurnId"]
+    );
+    assert_eq!(h.core.store.turns(Some(id)).unwrap().len(), 2);
+    assert!(h.core.active_upstream_turn(id).await.unwrap()["upstreamTurnId"].is_null());
+    paths::remove_local(&h.core.store, s(&session, "projectId")).unwrap();
+    assert_eq!(
+        h.core.latest_upstream_turn(id).await.unwrap_err().code,
+        "WORKSPACE_FORBIDDEN"
+    );
+}
+
 #[tokio::test]
 async fn steer_preserves_turn_identity_and_request_replay_never_duplicates_input() {
     let h = Harness::fixture().await;

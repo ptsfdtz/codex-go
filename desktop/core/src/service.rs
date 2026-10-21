@@ -502,6 +502,12 @@ impl Core {
             ),
             "turn.interrupt" => self.interrupt(s(p, "sessionId"), s(p, "turnId")).await,
             "turn.active" => self.active_upstream_turn(s(p, "sessionId")).await,
+            "turn.latest" => tokio::time::timeout(
+                Duration::from_secs(30),
+                self.latest_upstream_turn(s(p, "sessionId")),
+            )
+            .await
+            .map_err(|_| Error::new("UPSTREAM_TIMEOUT", "Latest turn read timed out"))?,
             "turn.interruptActive" => {
                 self.interrupt_active_turn(s(p, "sessionId"), s(p, "expectedTurnId"))
                     .await

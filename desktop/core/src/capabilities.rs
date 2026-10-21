@@ -36,6 +36,7 @@ pub fn describe_profile(
             "nativeProjectReadViews": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
             "sessionManagement": true,
             "activeTurnSteering": true,
+            "latestUpstreamTurn": true,
             "activeTurnInterruption": true,
             "threadIndexImport": true,
             "threadIndexRefresh": true,

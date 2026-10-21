@@ -127,7 +127,7 @@ impl Core {
         Ok(json!({"sessionId":session_id,"upstreamTurnId":expected,"requested":true}))
     }
 
-    pub async fn active_upstream_turn(&self, session_id: &str) -> Result<Value> {
+    pub async fn latest_upstream_turn(&self, session_id: &str) -> Result<Value> {
         let session = self.store.session(session_id)?;
         let root = paths::root(&self.store, s(&session, "projectId"))?;
         ensure(
@@ -158,15 +158,50 @@ impl Core {
         ensure(
             data.len() <= 1,
             "UPSTREAM_PROTOCOL_ERROR",
-            "Active turn query exceeded requested limit",
+            "Latest turn query exceeded requested limit",
         )?;
-        paths::root(&self.store, s(&session, "projectId"))?;
-        let active = data
-            .first()
-            .filter(|turn| turn["status"] == "inProgress")
-            .map(|turn| turn["id"].clone());
         ensure(
-            active.is_some() || thread["thread"]["status"]["type"] != "active",
+            data.first().is_none_or(|turn| !s(turn, "id").is_empty())
+                && (!data.is_empty() || turns["nextCursor"].is_null()),
+            "UPSTREAM_PROTOCOL_ERROR",
+            "Latest turn identity is incomplete",
+        )?;
+        let current = self.store.session(session_id)?;
+        let current_root = paths::root(&self.store, s(&current, "projectId"))?;
+        ensure(
+            current["upstreamThreadId"] == session["upstreamThreadId"]
+                && current["projectId"] == session["projectId"]
+                && paths::equal(&root, &current_root),
+            "SYNC_CONFLICT",
+            "Conversation authorization changed during turn read",
+        )?;
+        ensure(
+            !self.store.thread_deleted(s(&current, "upstreamThreadId"))?,
+            "THREAD_NOT_FOUND",
+            "Original thread was deleted during turn read",
+        )?;
+        ensure(
+            rpc.alive.load(Ordering::SeqCst) && self.upstream()?.generation == rpc.generation,
+            "UPSTREAM_UNAVAILABLE",
+            "Runtime changed during turn read",
+        )?;
+        let latest = data
+            .first()
+            .map(|turn| json!({"upstreamTurnId":turn["id"],"status":turn["status"]}));
+        Ok(
+            json!({"contractVersion":1,"sessionId":session_id,"upstreamThreadId":session["upstreamThreadId"],"threadStatus":thread["thread"]["status"]["type"],"turn":latest}),
+        )
+    }
+
+    pub async fn active_upstream_turn(&self, session_id: &str) -> Result<Value> {
+        let latest = self.latest_upstream_turn(session_id).await?;
+        let active = if latest["turn"]["status"] == "inProgress" {
+            latest["turn"]["upstreamTurnId"].clone()
+        } else {
+            Value::Null
+        };
+        ensure(
+            !active.is_null() || latest["threadStatus"] != "active",
             "TURN_STATE_UNAVAILABLE",
             "Active turn identity is not visible yet; retry after refreshing",
         )?;

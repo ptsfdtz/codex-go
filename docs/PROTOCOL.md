@@ -1,5 +1,15 @@
 # AgentDeck protocol v1
 
+## Latest native turn (additive contract 1)
+
+`latestUpstreamTurn:true` advertises read-only `turn.latest` with required `{sessionId,contractVersion:1}` and no caller-supplied native thread ID, project scope, cursor or limit. This is available for both locked profiles. Old servers reject the new action; clients must capability-gate it. No database migration or mutation-journal entry is used. Remote dispatch has a 30-second overall timeout and returns UPSTREAM_TIMEOUT on expiry.
+
+Response: `{contractVersion:1,sessionId,upstreamThreadId,threadStatus,turn:{upstreamTurnId,status}|null}`. `turn:null` means the source descending turn list returned no turn, not that a previous turn succeeded. `status` is the validated native status (including `inProgress`); no items, error details or task content are projected. Empty/incomplete identities, an over-limit source page, deleted threads, changed grants, changed session mapping or replaced/dead runtime fail explicitly.
+
+The server resolves the original thread from the authorized Bridge session, checks public thread/read identity and exact cwd authorization, then requests thread/turns/list with limit 1, descending order and itemsView notLoaded. It rechecks authorization, deletion and runtime generation before returning. It never resumes a thread or modifies execution settings. Existing turn.active reuses the reader and retains its old response and active-state checks.
+
+This is a fresh bounded observation, not an atomic combined thread/turn snapshot or a subscription. threadStatus is observed before the turn page; clients must reject conflicting/unknown state and bind results to the expected host, connection, Bridge session and native thread. New activity can begin after any read. Native replay notification consumption is not yet implemented in Android; the endpoint alone does not complete notification recovery or shared-desktop acceptance.
+
 ## Native project read views (additive contract 1)
 
 `projects.nativePage` is read-only, independent of `projects.list` (local directory grants). Payload requires `contractVersion:1`; optional `limit` defaults to 50 (1..100) and optional `cursor` must be an opaque 43-character URL-safe token. Omit cursor to restart; do not send null, raw native cursors, device IDs or local project IDs. The authenticated connection supplies device identity.
