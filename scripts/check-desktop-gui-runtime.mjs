@@ -4,19 +4,27 @@ import { spawn, execFileSync } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import {
   copyFileSync,
+  openSync,
+  readSync,
+  closeSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { once } from 'node:events';
 import WebSocket, { WebSocketServer } from 'ws';
 
 const [desktop, native, proxy, destination] = process.argv.slice(2);
+const sharedIndex = process.argv.slice(6).includes('--shared-index');
+if (process.argv.slice(6).some((arg) => arg !== '--shared-index'))
+  throw new Error('Unknown probe option');
 if (
   process.platform !== 'win32' ||
   ![desktop, native, proxy, destination].every((p) => p && isAbsolute(p))
@@ -105,12 +113,32 @@ const report = {
   modelTurnExecuted: false,
   visualAcceptance: false,
   androidVerified: false,
+  mainAppBootstrapVerified: false,
   checks: {},
   passed: false,
 };
 const children = [];
 const sockets = new Set();
 let observer;
+let model;
+let direct;
+let seededThread;
+let seededTurn;
+let completedSeed = false;
+let requestId = 0;
+const directPending = new Map();
+const renamedTitle = 'AgentDeck isolated GUI cross-client rename';
+async function request(method, params) {
+  return new Promise((resolve, reject) => {
+    const id = `probe-${++requestId}`;
+    const timer = setTimeout(() => {
+      directPending.delete(id);
+      reject(new Error('Probe RPC timeout'));
+    }, 15000);
+    directPending.set(id, { resolve, reject, timer });
+    direct.send(JSON.stringify({ id, method, params }));
+  });
+}
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 function launch(file, args, environment = env) {
   const child = spawn(file, args, {
@@ -134,6 +162,63 @@ async function freePort() {
   return port;
 }
 try {
+  if (sharedIndex) {
+    model = createHttpServer((req, res) => {
+      req.resume();
+      if (req.method !== 'POST' || req.url !== '/v1/responses') {
+        res.writeHead(404).end();
+        return;
+      }
+      report.modelTurnExecuted = true;
+      const item = {
+        id: 'isolated-gui-message',
+        type: 'message',
+        role: 'assistant',
+        status: 'completed',
+        content: [
+          { type: 'output_text', text: 'Isolated GUI shared history fixture.', annotations: [] },
+        ],
+      };
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      for (const event of [
+        {
+          type: 'response.created',
+          response: { id: 'isolated-gui-response', status: 'in_progress', output: [] },
+        },
+        {
+          type: 'response.output_item.added',
+          output_index: 0,
+          item: { ...item, status: 'in_progress', content: [] },
+        },
+        {
+          type: 'response.output_text.delta',
+          item_id: item.id,
+          output_index: 0,
+          content_index: 0,
+          delta: item.content[0].text,
+        },
+        { type: 'response.output_item.done', output_index: 0, item },
+        {
+          type: 'response.completed',
+          response: {
+            id: 'isolated-gui-response',
+            status: 'completed',
+            output: [item],
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          },
+        },
+      ])
+        res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      res.end();
+    });
+    model.listen(0, '127.0.0.1');
+    await once(model, 'listening');
+    writeFileSync(
+      join(home, 'config.toml'),
+      `model="agentdeck-gui-probe"\nmodel_provider="gui_probe"\n[model_providers.gui_probe]\nname="isolated GUI synthetic model"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\nwire_api="responses"\nrequires_openai_auth=false\nsupports_websockets=false\n[features]\ncode_mode_host=true\n[analytics]\nenabled=false\n`,
+    );
+    report.evidenceLevel = 'original-packaged-gui-shared-index-with-synthetic-model';
+  }
   const version = execFileSync(native, ['--version'], {
     env,
     encoding: 'utf8',
@@ -170,6 +255,66 @@ try {
   }
   if (!ready) throw new Error('Native server unavailable');
   report.checks.nativeAuthenticatedListener = true;
+  if (sharedIndex) {
+    direct = new WebSocket(endpoint, {
+      headers: { Authorization: `Bearer ${token}` },
+      handshakeTimeout: 5000,
+      maxPayload: 8 * 1024 * 1024,
+    });
+    sockets.add(direct);
+    direct.on('error', () => {});
+    await once(direct, 'open');
+    direct.on('message', (data) => {
+      const packet = JSON.parse(data.toString());
+      const waiter = directPending.get(packet.id);
+      if (waiter && !packet.method) {
+        directPending.delete(packet.id);
+        clearTimeout(waiter.timer);
+        if (packet.error) waiter.reject(new Error('Probe RPC rejected'));
+        else waiter.resolve(packet.result);
+      } else if (
+        packet.method === 'turn/completed' &&
+        packet.params?.threadId === seededThread &&
+        packet.params?.turn?.id === seededTurn
+      )
+        completedSeed = packet.params.turn.status === 'completed';
+      else if (packet.id != null && packet.method)
+        direct.send(
+          JSON.stringify({
+            id: packet.id,
+            error: { code: -32601, message: 'Probe never approves requests' },
+          }),
+        );
+    });
+    await request('initialize', {
+      clientInfo: { name: 'agentdeck_gui_seed', version: '0.3.0' },
+      capabilities: { experimentalApi: true },
+    });
+    direct.send(JSON.stringify({ method: 'initialized', params: {} }));
+    const project = join(root, 'project');
+    mkdirSync(project);
+    const started = await request('thread/start', {
+      cwd: project,
+      ephemeral: false,
+      sandbox: 'read-only',
+      approvalPolicy: 'on-request',
+    });
+    seededThread = started.thread.id;
+    const turn = await request('turn/start', {
+      threadId: seededThread,
+      input: [
+        { type: 'text', text: 'Isolated GUI sharing probe; do not call tools.', text_elements: [] },
+      ],
+    });
+    seededTurn = turn.turn.id;
+    for (let i = 0; i < 150 && !completedSeed; i++) await pause(100);
+    if (!completedSeed) throw new Error('Synthetic seed turn did not complete');
+    const listed = await request('thread/list', { limit: 100 });
+    report.checks.seedVisibleToDirectClient =
+      listed.data?.some((thread) => thread.id === seededThread) === true;
+    if (!report.checks.seedVisibleToDirectClient)
+      throw new Error('Seed not persisted in source index');
+  }
   observer = new WebSocketServer({
     host: '127.0.0.1',
     port: 0,
@@ -200,7 +345,9 @@ try {
         if (packet.method === 'initialize') report.checks.desktopInitializeSent = true;
         if (
           packet.id != null &&
-          ['initialize', 'config/read'].includes(packet.method) &&
+          ['initialize', 'config/read', 'thread/list', 'thread/read', 'thread/resume'].includes(
+            packet.method,
+          ) &&
           pending.size < 256
         )
           pending.set(String(packet.id), packet.method);
@@ -236,8 +383,25 @@ try {
               userAgent.startsWith(`Codex Desktop/${report.nativeVersion} (`);
           }
           if (method === 'config/read') report.checks.sameSocketConfigurationRead = true;
+          if (
+            method === 'thread/list' &&
+            packet.result.data?.some((thread) => thread.id === seededThread)
+          )
+            report.checks.desktopListedSeededThread = true;
+          if (
+            ['thread/read', 'thread/resume'].includes(method) &&
+            packet.result.thread?.id === seededThread
+          )
+            report.checks.desktopOpenedSeededThread = true;
           pending.delete(String(packet.id));
         }
+        if (
+          sharedIndex &&
+          packet.method === 'thread/name/updated' &&
+          packet.params?.threadId === seededThread &&
+          packet.params?.threadName === renamedTitle
+        )
+          report.checks.desktopReceivedExternalRename = true;
       } catch {
         downstream.terminate();
         return;
@@ -280,10 +444,14 @@ try {
   }).trim();
   if (proxyVersion !== version) throw new Error('Proxy environment preflight failed');
   report.checks.proxyVersionWithDesktopOverride = true;
-  const gui = launch(desktop, [`--user-data-dir=${userData}`], {
-    ...env,
-    CODEX_CLI_PATH: proxyPath,
-  });
+  const gui = launch(
+    desktop,
+    [`--user-data-dir=${userData}`, ...(sharedIndex ? [`codex://threads/${seededThread}`] : [])],
+    {
+      ...env,
+      CODEX_CLI_PATH: proxyPath,
+    },
+  );
   for (let i = 0; i < 600; i++) {
     if (
       report.checks.desktopInitializedNotification ||
@@ -294,6 +462,17 @@ try {
     await pause(100);
   }
   report.checks.guiStayedRunning = gui.exitCode == null && !report.checks.processSpawnFailed;
+  if (sharedIndex && report.checks.desktopInitializedNotification) {
+    for (let i = 0; i < 300 && !report.checks.desktopOpenedSeededThread; i++) await pause(100);
+    await request('thread/name/set', { threadId: seededThread, name: renamedTitle });
+    for (
+      let i = 0;
+      i < 200 &&
+      !(report.checks.desktopListedSeededThread && report.checks.desktopReceivedExternalRename);
+      i++
+    )
+      await pause(100);
+  }
   report.passed = [
     'nativeAuthenticatedListener',
     'desktopInitializeSucceeded',
@@ -302,11 +481,25 @@ try {
     'desktopInitializedNotification',
     'guiStayedRunning',
   ].every((key) => report.checks[key] === true);
+  if (sharedIndex)
+    report.passed &&=
+      report.checks.seedVisibleToDirectClient === true &&
+      report.checks.desktopListedSeededThread === true &&
+      report.checks.desktopReceivedExternalRename === true;
 } catch {
   report.failure = 'ISOLATED_GUI_PROBE_FAILED';
 } finally {
+  for (const waiter of directPending.values()) {
+    clearTimeout(waiter.timer);
+    waiter.reject(new Error('Probe closed'));
+  }
+  directPending.clear();
   for (const ws of sockets) ws.terminate();
   if (observer) await new Promise((done) => observer.close(done));
+  if (model) {
+    model.closeAllConnections();
+    await new Promise((done) => model.close(done));
+  }
   // Only PID trees created and retained by this probe; never image-name termination.
   for (const child of children.reverse())
     if (child.pid && child.exitCode == null) {
@@ -331,6 +524,57 @@ try {
     (child) => !child.pid || child.exitCode != null || child.signalCode != null,
   );
   if (!report.checks.probeChildrenExited) report.passed = false;
+  // Only this fresh GUI's logs. Persist fixed diagnostics, never raw lines/paths.
+  const logRoots = [join(profile, 'AppData', 'Local', 'Codex', 'Logs')];
+  const knownCodes = [
+    'PROXY_ARGUMENT_UNSUPPORTED',
+    'PROXY_CONFIG_KEY_UNSUPPORTED',
+    'PROXY_CONFIG_MISMATCH',
+    'PROXY_VERSION_UNVERIFIED',
+    'PROXY_PROTOCOL_ERROR',
+    'PROXY_IO_TIMEOUT',
+  ];
+  const failureCodes = new Set();
+  let inspectedEntries = 0;
+  let inspectedBytes = 0;
+  while (logRoots.length && inspectedEntries < 100 && inspectedBytes < 8 * 1024 * 1024) {
+    const directory = logRoots.pop();
+    let files;
+    try {
+      files = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      if (++inspectedEntries > 100) break;
+      const path = join(directory, file.name);
+      if (file.isDirectory()) logRoots.push(path);
+      else if (file.isFile() && file.name.endsWith('.log')) {
+        const fd = openSync(path, 'r');
+        const raw = Buffer.alloc(
+          Math.min(2 * 1024 * 1024 + 1, 8 * 1024 * 1024 - inspectedBytes + 1),
+        );
+        let count = 0;
+        try {
+          while (count < raw.length) {
+            const bytes = readSync(fd, raw, count, raw.length - count, null);
+            if (!bytes) break;
+            count += bytes;
+          }
+        } finally {
+          closeSync(fd);
+        }
+        inspectedBytes += count;
+        if (count > 2 * 1024 * 1024 || inspectedBytes > 8 * 1024 * 1024) continue;
+        const text = raw.subarray(0, count).toString();
+        for (const code of knownCodes) if (text.includes(code)) failureCodes.add(code);
+        if (text.includes('Desktop bootstrap failed to start the main app'))
+          report.checks.desktopBootstrapFailed = true;
+      }
+    }
+  }
+  report.observedProxyFailureCodes = [...failureCodes].sort();
+  if (sharedIndex && report.checks.desktopBootstrapFailed) report.passed = false;
   for (const file of [tokenFile, manifest]) {
     try {
       unlinkSync(file);

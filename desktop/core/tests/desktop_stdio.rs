@@ -113,6 +113,22 @@ async fn real_desktop_baseline_startup_override_semantics() {
             args(&["-c", "desktop.agentdeck_probe.word=  unknown label  "]),
         ),
         (
+            "plugin_style_key",
+            args(&["-c", "desktop.agentdeck_probe.tool@vendor=1"]),
+        ),
+        (
+            "quoted_key",
+            args(&["-c", "desktop.agentdeck_probe.\"quoted\"=1"]),
+        ),
+        (
+            "unicode_key",
+            args(&["-c", "desktop.agentdeck_probe.测试=1"]),
+        ),
+        (
+            "quoted_dot_key",
+            args(&["-c", "desktop.agentdeck_probe.\"a.b\"=1"]),
+        ),
+        (
             "desktop_dynamic_endpoints",
             args(&[
                 "app-server",
@@ -218,6 +234,10 @@ async fn real_desktop_baseline_startup_override_semantics() {
             "scalar_then_child" => expected["scope"]["a"] = json!(2),
             "table_then_scalar" => expected["scope"]["$serde_json::private::Number"] = json!("2"),
             "raw_whitespace" => expected["word"] = json!("unknown label"),
+            "plugin_style_key" => expected["tool@vendor"] = json!(1),
+            "quoted_key" => expected["\"quoted\""] = json!(1),
+            "unicode_key" => expected["测试"] = json!(1),
+            "quoted_dot_key" => expected["\"a"] = json!({"b\"":1}),
             _ => {}
         }
         assert_eq!(
@@ -482,6 +502,41 @@ fn startup_overlay_preserves_siblings_and_checks_nested_types() {
         .unwrap()
         .check(&json!({"config":{"x":{"base":true}}}))
         .unwrap();
+}
+
+#[test]
+fn startup_config_segments_are_literal_and_never_unquoted() {
+    let startup = Startup::parse(&args(&[
+        "app-server",
+        "-c",
+        "x.tool@vendor.enabled=true",
+        "-c",
+        "x.\"quoted\"=2",
+        "-c",
+        "x.测试=3",
+    ]))
+    .unwrap();
+    let mut config =
+        json!({"config":{"x":{"tool@vendor":{"enabled":true},"\"quoted\"":2,"测试":3}}});
+    startup.check(&config).unwrap();
+    config["config"]["x"]
+        .as_object_mut()
+        .unwrap()
+        .remove("\"quoted\"");
+    config["config"]["x"]["quoted"] = json!(2);
+    assert_eq!(
+        startup.check(&config).unwrap_err().code,
+        "PROXY_CONFIG_MISMATCH"
+    );
+    for key in ["x..y=1", "x.\ny=1"] {
+        assert_eq!(
+            Startup::parse(&args(&["app-server", "-c", key]))
+                .err()
+                .unwrap()
+                .code,
+            "PROXY_CONFIG_KEY_UNSUPPORTED"
+        );
+    }
 }
 
 #[tokio::test]

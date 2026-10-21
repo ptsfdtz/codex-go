@@ -27,9 +27,9 @@ endpoint 沿用精确回环 IP、显式端口、根路径校验，禁止 userinf
 ## 版本、参数和配置门槛
 
 - `--version` / `-V` 调用 manifest 指定的原生程序核验精确版本后返回真实匹配版本，不伪造兼容。已知协议版本沿用运行时选择规则，真实验证目前覆盖安装版 0.163.0-alpha.10.2。
-- 开发入口支持 app-server stdio 启动、`-c` / `--config` / `--config=...`、`--enable` / `--disable`、`--analytics-default-enabled`，以及可选 `--stdio` 或 `--listen stdio://`。最多 128 个参数、合计 32 KiB。配置值按 TOML 解析，解析失败按原 CLI 文档回退为原始字符串；只接收普通 dotted key。
+- 开发入口支持 app-server stdio 启动、`-c` / `--config` / `--config=...`、`--enable` / `--disable`、`--analytics-default-enabled`，以及可选 `--stdio` 或 `--listen stdio://`。最多 128 个参数、合计 32 KiB。配置值按 TOML 解析，解析失败回退为原始字符串；键按原生 CLI 字面点分段，允许 @、Unicode、引号等字符，不作 TOML 键解码，拒绝空段/控制字符（固定代码 PROXY_CONFIG_KEY_UNSUPPORTED）。
 - 覆盖先按顺序归并：后写父项替换先前 CLI 子项，后写子项更新父项（标量父项转为表），重复项取最后值；最终表与文件/默认配置深合并。核对所有指定字段的类型和值，允许保留未指定的基础字段；数组和标量仍完整相等。空表要求实际为表。原生表→数字碰撞的异常结构明确返回 PROXY_CONFIG_MISMATCH，不伪装成数字。不是完整 CLI 参数兼容实现。
-- 原生特性开关在显式 -c 后应用，enable 先、disable 后，不按 argv 交错顺序；精确安装版已核验根参数与 app-server 参数组合。无法按 TOML 解析的值使用去除首尾空白的原始字符串；仅支持普通 dotted key。
+- 原生特性开关在显式 -c 后应用，enable 先、disable 后，不按 argv 交错顺序；精确安装版已核验根参数与 app-server 参数组合。无法按 TOML 解析的值使用去除首尾空白的原始字符串。
 - analytics 默认标志只在服务已有明确 enabled=true/false 时放行：遵守既有选择，不猜测隐式默认值，也不为了通过检查开启 analytics。
 - 其他命令、子命令、开关及不支持的配置均失败；不将其交给另一个 app-server 兜底，不启动新原生执行服务，不忽略参数。stderr 只输出固定错误代码，不包含参数、路径、版本检查原始输出、上游错误正文或会话内容。
 
@@ -48,6 +48,8 @@ endpoint 沿用精确回环 IP、显式端口、根路径校验，禁止 userinf
 设置 AGENTDECK_DESKTOP_PROBE_EXE 后，显式运行同测试文件的 real_desktop_baseline_startup_override_semantics（--ignored）。14 组隔离 HOME 实验只读取配置，以合成 desktop.agentdeck_probe 字段核验原生结果和转接门槛：重复、父子先后、空表、标量/表冲突、特性优先级、跨根/子命令与原始字符串空白。不输出完整配置，不调用账户模型；其他版本需重新核验。
 
 该实验现增加第 15 组：按安装代码纯函数生成顺序使用合成 chatgpt_base_url/openai_base_url，真实 config/read 与转接检查通过，地址不符仍失败。参数构造纯函数的默认、空白和双地址输入已由 audit-desktop-ws-environment.mjs 核对；仅传入合成环境，不使用真实 process.env。安装代码另显示 CLI override 会改变 Windows 注册核心/沙箱服务分支；辅助 tcp-tunnel 有独立解析器，不能假定一定调用本转接程序。具体风险与后续验证见 CODEX_DESKTOP_BASELINE.md，尚不支持直接替换生产桌面。
+
+真实配置实验现共 19 组，新增插件形状 tool@vendor、Unicode、引号字面键和引号内点分段。原生不会去掉键中的引号，也不会把引号内的点保留为一个 TOML 键；转接与该行为一致。GUI 扩展探测确认：前置策略连接初始化通过后，主连接仍追加动态覆盖；修复键限制后它被 PROXY_CONFIG_MISMATCH 明确拒绝，主应用 bootstrap 失败。具体不一致字段尚未采集核验，不忽略覆盖、不写入共享配置或关闭集成兜底。详见 GUI 探测的负面报告，不能把前置连接通过当作主界面就绪。
 
 设置 AGENTDECK_DESKTOP_PROBE_EXE 为精确安装版原生程序，再执行 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_websocket real_desktop_baseline_ -- --ignored --nocapture`。三项真实隔离检查均复制实际转接可执行文件到临时目录，写相邻 manifest，以与安装版默认相同的特性/analytics 参数启动子进程，验证版本、配置不符时 stdout 为空/固定 stderr、同线程读取、EOF 后退出和原连接继续可用。源服务在隔离目录显式设置 code_mode_host=true、analytics.enabled=false；不改变生产设置，不用账户模型；历史/活动检查使用本机合成模型。它们不是启动原版 GUI 的证据。
 

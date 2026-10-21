@@ -21,7 +21,7 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 
 报告 passed 需要真实原版 GUI 经转接发送 initialize、源服务返回成功、同一 socket 配置读取成功、桌面收到放行后的初始化响应并发出 initialized，以及 GUI 仍在运行。只看到 GUI 进程或端口监听不足以通过。
 
-报告 visualAcceptance/androidVerified/modelTurnExecuted 保持 false。即使传输通过，仍须验证原版页面、同一任务双端操作、审批、断线恢复、Windows 沙箱/宿主依赖、登录与全部功能矩阵。探测失败先检查观察器、冷启动和具体协议检查点；不能只凭超时宣称不支持。首次开发时观察器曾错误转发二进制帧，修正前的失败不作为原生不兼容证据。
+默认模式报告 visualAcceptance/androidVerified/modelTurnExecuted 保持 false。即使传输通过，仍须验证原版页面、同一任务双端操作、审批、断线恢复、Windows 沙箱/宿主依赖、登录与全部功能矩阵。探测失败先检查观察器、冷启动和具体协议检查点；不能只凭超时宣称不支持。首次开发时观察器曾错误转发二进制帧，修正前的失败不作为原生不兼容证据。
 
 ## 2026-10-21 结果
 
@@ -30,3 +30,13 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 真实 GUI 返回的 userAgent 包含精确原生版本，但不是先前写死的 `Codex Desktop/` 前缀。转接已按非空 originator + 精确 `/版本 (` 分隔符核验，同时保留原生 schema、认证和版本可执行程序检查。错误版本、相似版本后缀、空 originator 和无分隔符回归均拒绝，且不释放 initialize 响应或转发排队任务。没有改写 GUI 的原 initialize 请求或伪造响应。
 
 下一步是同源会话/活动任务在真实 GUI 与远程客户端间的操作和恢复验证；当前报告没有证明这些行为，sharedDesktopRuntime 继续为 false。
+
+## 扩展：共享索引及外部变更
+
+上述命令末尾加 `--shared-index`，使用独立报告路径（本次为 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-shared-index-probe.json`）。此模式启动回环合成模型，以独立原生客户端创建只读沙箱线程并完成合成轮次，先断言权威 thread/list 确实含该对象，再通过安装版支持的 codex://threads/<id> 参数启动独立 GUI。GUI 初始化后等待打开目标，随后由原生客户端重命名；扩展 passed 额外要求 GUI 的 thread/list 响应包含同一原生 ID，且 GUI 连接收到该 ID/新名称对应的 thread/name/updated。不能以另一个原生客户端读取成功代替 GUI。
+
+未自动批准请求；不使用账户模型，modelTurnExecuted 仅在合成服务实际收到请求时为 true。GUI read/resume 成功另记 desktopOpenedSeededThread；无该证据不称已打开，更不声称内容已渲染。探测不向报告写 threadId、名称、完整消息或参数。退出后仅从本次全新 profile 的日志提取固定代理错误码和“主应用 bootstrap 失败”布尔值，不保存日志原文；读取目录和总字节有界。
+
+最终扩展报告 **passed=false**：合成轮次及源索引成功、前置 GUI 初始化成功，但没有 GUI 索引/打开/重命名通知的成功证据。新发现主连接启动仍追加配置覆盖：起初被普通键名限制拒绝，原生 19 组配置实验证明特殊字符应按字面分段后修复；随后出现 **PROXY_CONFIG_MISMATCH**，独立 GUI 日志确认主应用 bootstrap 失败。前一轮报告只证明前置策略连接，不证明主应用就绪；新报告 mainAppBootstrapVerified=false，保留该区别。
+
+下一步必须核验 GUI 主连接的实际动态覆盖如何与权威运行时/宿主集成保持一致（具体不一致字段尚未采集核验），再继续同源会话和活动任务实验。不能丢弃参数、关闭集成、伪造读到的配置或另起平行线程来获得绿色报告。当前生产桌面和账户保持原样；这只是否定当前隔离配置组合，不是否定所有共享接入路径。

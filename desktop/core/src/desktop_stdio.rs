@@ -153,14 +153,11 @@ impl Startup {
             .split_once('=')
             .ok_or_else(|| failure("PROXY_ARGUMENT_UNSUPPORTED"))?;
         ensure(
-            key.trim().split('.').all(|part| {
-                !part.is_empty()
-                    && part
-                        .bytes()
-                        .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
-            }),
-            "PROXY_ARGUMENT_UNSUPPORTED",
-            "Only plain dotted config keys are currently supported",
+            key.trim()
+                .split('.')
+                .all(|part| !part.is_empty() && !part.chars().any(char::is_control)),
+            "PROXY_CONFIG_KEY_UNSUPPORTED",
+            "Config key segments must be nonempty and contain no control characters",
         )?;
         let path: Vec<String> = key.trim().split('.').map(str::to_owned).collect();
         let raw = raw.trim();
