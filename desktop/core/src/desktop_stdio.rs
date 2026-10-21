@@ -86,6 +86,8 @@ impl Startup {
         let mut result = Self::default();
         let mut server = false;
         let mut index = 0;
+        let mut enables = Vec::new();
+        let mut disables = Vec::new();
         while index < args.len() {
             match args[index].as_str() {
                 "app-server" if !server => server = true,
@@ -120,7 +122,11 @@ impl Startup {
                         "PROXY_ARGUMENT_UNSUPPORTED",
                         "Unsupported feature argument",
                     )?;
-                    result.add(&format!("features.{name}={enabled}"))?;
+                    if enabled {
+                        enables.push(name.clone());
+                    } else {
+                        disables.push(name.clone());
+                    }
                 }
                 other if other.starts_with("--config=") => result.add(&other[9..])?,
                 _ => return Err(failure("PROXY_ARGUMENT_UNSUPPORTED")),
@@ -132,6 +138,14 @@ impl Startup {
             "PROXY_ARGUMENT_UNSUPPORTED",
             "Only app-server stdio startup is supported",
         )?;
+        // Native CLI applies feature toggles after explicit config overrides,
+        // enables first and disables last, irrespective of argv order.
+        for name in enables {
+            result.add(&format!("features.{name}=true"))?;
+        }
+        for name in disables {
+            result.add(&format!("features.{name}=false"))?;
+        }
         Ok(result)
     }
     fn add(&mut self, assignment: &str) -> Result<()> {
@@ -148,24 +162,8 @@ impl Startup {
             "PROXY_ARGUMENT_UNSUPPORTED",
             "Only plain dotted config keys are currently supported",
         )?;
-        let mut keys = toml::from_str::<toml::Value>(&format!("{key}=1"))
-            .map_err(|_| failure("PROXY_ARGUMENT_UNSUPPORTED"))?;
-        let mut path = Vec::new();
-        while let toml::Value::Table(table) = keys {
-            ensure(
-                table.len() == 1,
-                "PROXY_ARGUMENT_UNSUPPORTED",
-                "Unsupported config key",
-            )?;
-            let (name, next) = table.into_iter().next().unwrap();
-            path.push(name);
-            keys = next;
-        }
-        ensure(
-            keys == toml::Value::Integer(1) && !path.is_empty(),
-            "PROXY_ARGUMENT_UNSUPPORTED",
-            "Unsupported config key",
-        )?;
+        let path: Vec<String> = key.trim().split('.').map(str::to_owned).collect();
+        let raw = raw.trim();
         // Native CLI falls back to a raw string for a value that is not TOML.
         let value = toml::from_str::<toml::Table>(&format!("value={raw}"))
             .ok()
@@ -184,15 +182,36 @@ impl Startup {
             "PROXY_ARGUMENT_UNSUPPORTED",
             "Non-finite configuration unsupported",
         )?;
-        // Do not approximate native last-write semantics for overlapping keys.
-        ensure(
-            !self
-                .overrides
-                .iter()
-                .any(|(old, _)| old.starts_with(&path) || path.starts_with(old)),
-            "PROXY_ARGUMENT_UNSUPPORTED",
-            "Overlapping startup overrides not yet supported",
-        )?;
+        // Build the final CLI overlay before comparing with the shared base.
+        // Assigning a parent replaces prior CLI descendants; assigning a child
+        // updates its parent, replacing a scalar ancestor with a table.
+        self.overrides.retain(|(old, _)| !old.starts_with(&path));
+        if let Some((parent, root)) = self
+            .overrides
+            .iter_mut()
+            .find(|(old, _)| path.starts_with(old))
+        {
+            let mut cursor = root;
+            let relative = &path[parent.len()..];
+            for key in &relative[..relative.len() - 1] {
+                if !cursor.is_object() {
+                    *cursor = json!({});
+                }
+                cursor = cursor
+                    .as_object_mut()
+                    .unwrap()
+                    .entry(key.clone())
+                    .or_insert_with(|| json!({}));
+            }
+            if !cursor.is_object() {
+                *cursor = json!({});
+            }
+            cursor
+                .as_object_mut()
+                .unwrap()
+                .insert(relative.last().unwrap().clone(), value);
+            return Ok(());
+        }
         self.overrides.push((path, value));
         Ok(())
     }
@@ -205,7 +224,7 @@ impl Startup {
                     .ok_or_else(|| failure("PROXY_CONFIG_MISMATCH"))?;
             }
             ensure(
-                actual == expected,
+                matches_override(actual, expected),
                 "PROXY_CONFIG_MISMATCH",
                 "Desktop startup override differs from shared configuration",
             )?;
@@ -219,6 +238,20 @@ impl Startup {
             )?;
         }
         Ok(())
+    }
+}
+// The final CLI table is merged with file/default tables by native Codex.
+// Unmentioned base fields remain authoritative; arrays/scalars replace whole values.
+fn matches_override(actual: &Value, expected: &Value) -> bool {
+    match expected {
+        Value::Object(table) => actual.as_object().is_some_and(|object| {
+            table.iter().all(|(key, value)| {
+                object
+                    .get(key)
+                    .is_some_and(|actual| matches_override(actual, value))
+            })
+        }),
+        _ => actual == expected,
     }
 }
 fn contains_null(value: &Value) -> bool {

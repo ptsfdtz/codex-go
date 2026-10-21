@@ -26,7 +26,8 @@ endpoint 沿用精确回环 IP、显式端口、根路径校验，禁止 userinf
 
 - `--version` / `-V` 调用 manifest 指定的原生程序核验精确版本后返回真实匹配版本，不伪造兼容。已知协议版本沿用运行时选择规则，真实验证目前覆盖安装版 0.163.0-alpha.10.2。
 - 开发入口支持 app-server stdio 启动、`-c` / `--config` / `--config=...`、`--enable` / `--disable`、`--analytics-default-enabled`，以及可选 `--stdio` 或 `--listen stdio://`。最多 128 个参数、合计 32 KiB。配置值按 TOML 解析，解析失败按原 CLI 文档回退为原始字符串；只接收普通 dotted key。
-- 每项覆盖必须与真实 config/read 对应位置的 JSON 类型和值一致，inline table 按整表比较，不能只检查部分字段。重叠/重复覆盖涉及尚未验证的 last-write 语义，当前明确拒绝。不是完整 CLI 参数兼容实现。
+- 覆盖先按顺序归并：后写父项替换先前 CLI 子项，后写子项更新父项（标量父项转为表），重复项取最后值；最终表与文件/默认配置深合并。核对所有指定字段的类型和值，允许保留未指定的基础字段；数组和标量仍完整相等。空表要求实际为表。原生表→数字碰撞的异常结构明确返回 PROXY_CONFIG_MISMATCH，不伪装成数字。不是完整 CLI 参数兼容实现。
+- 原生特性开关在显式 -c 后应用，enable 先、disable 后，不按 argv 交错顺序；精确安装版已核验根参数与 app-server 参数组合。无法按 TOML 解析的值使用去除首尾空白的原始字符串；仅支持普通 dotted key。
 - analytics 默认标志只在服务已有明确 enabled=true/false 时放行：遵守既有选择，不猜测隐式默认值，也不为了通过检查开启 analytics。
 - 其他命令、子命令、开关及不支持的配置均失败；不将其交给另一个 app-server 兜底，不启动新原生执行服务，不忽略参数。stderr 只输出固定错误代码，不包含参数、路径、版本检查原始输出、上游错误正文或会话内容。
 
@@ -40,8 +41,10 @@ endpoint 沿用精确回环 IP、显式端口、根路径校验，禁止 userinf
 
 ## 本轮证据和接手
 
-`cargo test --locked --manifest-path desktop/core/Cargo.toml --test desktop_stdio` 覆盖 TOML 类型/整表校验、未知参数/analytics 拒绝、配置失败不泄露快照或放行排队任务、同连接检查、原生通知打断半个 UTF-8 字符时完整恢复、manifest 边界。
+`cargo test --locked --manifest-path desktop/core/Cargo.toml --test desktop_stdio` 覆盖表归并、指定字段/数组类型核对、兄弟字段保留、未知参数/analytics 拒绝、配置失败不泄露快照或放行排队任务、同连接检查、原生通知打断半个 UTF-8 字符时完整恢复、manifest 边界。
+
+设置 AGENTDECK_DESKTOP_PROBE_EXE 后，显式运行同测试文件的 real_desktop_baseline_startup_override_semantics（--ignored）。14 组隔离 HOME 实验只读取配置，以合成 desktop.agentdeck_probe 字段核验原生结果和转接门槛：重复、父子先后、空表、标量/表冲突、特性优先级、跨根/子命令与原始字符串空白。不输出完整配置，不调用账户模型；其他版本需重新核验。
 
 设置 AGENTDECK_DESKTOP_PROBE_EXE 为精确安装版原生程序，再执行 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_websocket real_desktop_baseline_ -- --ignored --nocapture`。三项真实隔离检查均复制实际转接可执行文件到临时目录，写相邻 manifest，以与安装版默认相同的特性/analytics 参数启动子进程，验证版本、配置不符时 stdout 为空/固定 stderr、同线程读取、EOF 后退出和原连接继续可用。源服务在隔离目录显式设置 code_mode_host=true、analytics.enabled=false；不改变生产设置，不用账户模型；历史/活动检查使用本机合成模型。它们不是启动原版 GUI 的证据。
 
-下一步：验证原版桌面的完整动态 CLI 参数、配置层与 CLI 工具调用；补覆盖合并和必须委派的命令语义；准备相互隔离、可回退的原版 GUI 接入，再进行双端真实活动任务和全量 UI 基准验收。sharedDesktopRuntime 仍为 false，阶段 0 仍未通过。
+下一步：验证原版桌面的完整动态 CLI 参数、配置层与 CLI 工具调用；补必须委派的命令语义；准备相互隔离、可回退的原版 GUI 接入，再进行双端真实活动任务和全量 UI 基准验收。sharedDesktopRuntime 仍为 false，阶段 0 仍未通过。

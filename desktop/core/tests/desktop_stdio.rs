@@ -12,6 +12,229 @@ fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| v.to_string()).collect()
 }
 
+#[tokio::test]
+#[ignore = "explicit installed native CLI; isolated HOME, configuration reads only"]
+async fn real_desktop_baseline_startup_override_semantics() {
+    let executable =
+        std::env::var_os("AGENTDECK_DESKTOP_PROBE_EXE").expect("set installed native executable");
+    agentdeck_service::codex::verify_for(
+        std::path::Path::new(&executable),
+        ProtocolVersion::DesktopBaseline,
+    )
+    .unwrap();
+    let cases = [
+        (
+            "duplicate",
+            args(&[
+                "-c",
+                "desktop.agentdeck_probe.x=1",
+                "-c",
+                "desktop.agentdeck_probe.x=2",
+            ]),
+        ),
+        (
+            "parent_then_child",
+            args(&[
+                "-c",
+                "desktop.agentdeck_probe.scope={a=1,b=2}",
+                "-c",
+                "desktop.agentdeck_probe.scope.a=3",
+            ]),
+        ),
+        (
+            "child_then_parent",
+            args(&[
+                "-c",
+                "desktop.agentdeck_probe.scope.a=1",
+                "-c",
+                "desktop.agentdeck_probe.scope={b=2}",
+            ]),
+        ),
+        (
+            "empty_parent",
+            args(&["-c", "desktop.agentdeck_probe.scope={}"]),
+        ),
+        (
+            "scalar_then_child",
+            args(&[
+                "-c",
+                "desktop.agentdeck_probe.scope=1",
+                "-c",
+                "desktop.agentdeck_probe.scope.a=2",
+            ]),
+        ),
+        (
+            "table_then_scalar",
+            args(&[
+                "-c",
+                "desktop.agentdeck_probe.scope={a=1}",
+                "-c",
+                "desktop.agentdeck_probe.scope=2",
+            ]),
+        ),
+        (
+            "enable_before_config",
+            args(&[
+                "--enable",
+                "code_mode_host",
+                "-c",
+                "features.code_mode_host=false",
+            ]),
+        ),
+        (
+            "config_before_enable",
+            args(&[
+                "-c",
+                "features.code_mode_host=false",
+                "--enable",
+                "code_mode_host",
+            ]),
+        ),
+        (
+            "enable_then_disable",
+            args(&["--enable", "code_mode_host", "--disable", "code_mode_host"]),
+        ),
+        (
+            "disable_then_enable",
+            args(&["--disable", "code_mode_host", "--enable", "code_mode_host"]),
+        ),
+        (
+            "root_then_subcommand",
+            args(&[
+                "-c",
+                "desktop.agentdeck_probe.x=1",
+                "app-server",
+                "-c",
+                "desktop.agentdeck_probe.x=2",
+            ]),
+        ),
+        (
+            "raw_whitespace",
+            args(&["-c", "desktop.agentdeck_probe.word=  unknown label  "]),
+        ),
+        (
+            "root_enable_subcommand_disable",
+            args(&[
+                "--enable",
+                "code_mode_host",
+                "app-server",
+                "--disable",
+                "code_mode_host",
+            ]),
+        ),
+        (
+            "root_disable_subcommand_enable",
+            args(&[
+                "--disable",
+                "code_mode_host",
+                "app-server",
+                "--enable",
+                "code_mode_host",
+            ]),
+        ),
+    ];
+    for (name, overrides) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        std::fs::write(home.join("config.toml"),"[analytics]\nenabled=false\n[desktop.agentdeck_probe.scope]\nkeep=\"file\"\nnested={a=1,b=2}\n").unwrap();
+        let mut child = tokio::process::Command::new(&executable)
+            .args(&overrides)
+            .args(if overrides.iter().any(|arg| arg == "app-server") {
+                vec![]
+            } else {
+                vec!["app-server"]
+            })
+            .args(["--listen", "stdio://"])
+            .env("CODEX_HOME", &home)
+            .env_remove("OPENAI_API_KEY")
+            .env_remove("CODEX_API_KEY")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let mut input = child.stdin.take().unwrap();
+        let mut output = tokio::io::BufReader::new(child.stdout.take().unwrap());
+        input.write_all(format!("{}\n",json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"startup_audit","version":"0.1"}}})).as_bytes()).await.unwrap();
+        async fn response(
+            reader: &mut tokio::io::BufReader<tokio::process::ChildStdout>,
+            id: i64,
+        ) -> Value {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let packet = agentdeck_service::rpc::read_frame(reader)
+                        .await
+                        .unwrap()
+                        .expect("native config probe exited");
+                    if packet["id"] == id {
+                        return packet;
+                    }
+                }
+            })
+            .await
+            .unwrap()
+        }
+        let initialized = response(&mut output, 1).await;
+        assert!(
+            initialized.get("result").is_some(),
+            "native initialization failed for {name}"
+        );
+        input
+            .write_all(
+                format!(
+                    "{}\n{}\n",
+                    json!({"method":"initialized"}),
+                    json!({"id":2,"method":"config/read","params":{"includeLayers":false}})
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let config = response(&mut output, 2).await;
+        assert!(config.get("result").is_some());
+        let mut expected = json!({"scope":{"keep":"file","nested":{"a":1,"b":2}}});
+        match name {
+            "duplicate" | "root_then_subcommand" => expected["x"] = json!(2),
+            "parent_then_child" => {
+                expected["scope"]["a"] = json!(3);
+                expected["scope"]["b"] = json!(2);
+            }
+            "child_then_parent" => expected["scope"]["b"] = json!(2),
+            "scalar_then_child" => expected["scope"]["a"] = json!(2),
+            "table_then_scalar" => expected["scope"]["$serde_json::private::Number"] = json!("2"),
+            "raw_whitespace" => expected["word"] = json!("unknown label"),
+            _ => {}
+        }
+        assert_eq!(
+            config["result"]["config"]["desktop"]["agentdeck_probe"], expected,
+            "{name}"
+        );
+        if name.contains("enable") {
+            assert_eq!(
+                config["result"]["config"]["features"]["code_mode_host"],
+                json!(!name.contains("disable")),
+                "{name}"
+            );
+        }
+        let mut proxy_args = overrides.clone();
+        if !proxy_args.iter().any(|arg| arg == "app-server") {
+            proxy_args.push("app-server".into());
+        }
+        let checked = Startup::parse(&proxy_args)
+            .unwrap()
+            .check(&config["result"]);
+        if name == "table_then_scalar" {
+            assert_eq!(checked.unwrap_err().code, "PROXY_CONFIG_MISMATCH");
+        } else {
+            checked.unwrap();
+        }
+        drop(input);
+        child.kill().await.unwrap();
+    }
+}
+
 #[test]
 fn manifest_rejects_inline_secrets_remote_endpoints_and_self_delegation() {
     let dir = tempfile::tempdir().unwrap();
@@ -97,7 +320,7 @@ async fn configuration_gate_never_forwards_a_queued_task_or_its_snapshot() {
 }
 
 #[test]
-fn startup_checks_toml_types_whole_tables_and_never_ignores_flags() {
+fn startup_checks_merged_tables_exact_values_and_never_ignores_flags() {
     let startup = Startup::parse(&args(&[
         "-c",
         "features.code_mode_host=true",
@@ -111,14 +334,13 @@ fn startup_checks_toml_types_whole_tables_and_never_ignores_flags() {
     let mut config = json!({"config":{"features":{"code_mode_host":true},"model":"test","experimental":{"a":1,"b":[2,3]},"analytics":{"enabled":false}}});
     startup.check(&config).unwrap();
     config["config"]["experimental"]["extra"] = json!(true);
+    startup.check(&config).unwrap();
+    config["config"]["experimental"]["b"] = json!([2, 3, 4]);
     assert_eq!(
         startup.check(&config).unwrap_err().code,
         "PROXY_CONFIG_MISMATCH"
     );
-    config["config"]["experimental"]
-        .as_object_mut()
-        .unwrap()
-        .remove("extra");
+    config["config"]["experimental"]["b"] = json!([2, 3]);
     config["config"]["analytics"] = Value::Null;
     assert_eq!(
         startup.check(&config).unwrap_err().code,
@@ -128,7 +350,6 @@ fn startup_checks_toml_types_whole_tables_and_never_ignores_flags() {
         vec!["app-server", "daemon"],
         vec!["app-server", "--listen", "ws://127.0.0.1:1"],
         vec!["app-server", "--strict-config"],
-        vec!["app-server", "-c", "x=1", "-c", "x.y=2"],
         vec!["app-server", "-c", "x=nan"],
         vec!["app-server", "-c"],
         vec!["exec"],
@@ -136,6 +357,46 @@ fn startup_checks_toml_types_whole_tables_and_never_ignores_flags() {
         assert!(Startup::parse(&args(&input)).is_err());
     }
     Startup::parse(&args(&["app-server","--enable","feature_a","--disable","feature_b","-c","model=unquoted-model"])).unwrap().check(&json!({"config":{"features":{"feature_a":true,"feature_b":false},"model":"unquoted-model"}})).unwrap();
+}
+
+#[test]
+fn startup_overlay_preserves_siblings_and_checks_nested_types() {
+    let startup = Startup::parse(&args(&[
+        "app-server",
+        "-c",
+        "x={a={old=1},b=2}",
+        "-c",
+        "x.a=3",
+        "-c",
+        "x.a.new=4",
+        "-c",
+        "x.a.new=5",
+        "--disable",
+        "host",
+        "--enable",
+        "host",
+    ]))
+    .unwrap();
+    let mut config =
+        json!({"config":{"x":{"a":{"new":5,"base":true},"b":2},"features":{"host":false}}});
+    startup.check(&config).unwrap();
+    for wrong in [json!(3), json!({"new":"5"}), json!({})] {
+        config["config"]["x"]["a"] = wrong;
+        assert_eq!(
+            startup.check(&config).unwrap_err().code,
+            "PROXY_CONFIG_MISMATCH"
+        );
+    }
+    config["config"]["x"]["a"] = json!({"new":5});
+    config["config"]["x"]["b"] = json!(3);
+    assert_eq!(
+        startup.check(&config).unwrap_err().code,
+        "PROXY_CONFIG_MISMATCH"
+    );
+    Startup::parse(&args(&["app-server", "-c", "x.a=1", "-c", "x={}"]))
+        .unwrap()
+        .check(&json!({"config":{"x":{"base":true}}}))
+        .unwrap();
 }
 
 #[tokio::test]
