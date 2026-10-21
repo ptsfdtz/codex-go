@@ -3,6 +3,13 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：源历史交叉核验及首次启动路由实证（阶段 0 / P01）
+
+- 前一轮提交 e224802。本轮 GUI 探测在启动桌面前调用源 thread/items/list，要求原线程/轮次的完整用户输入和助手回复均匹配；缺失即失败。真实更新报告 sourceRetainsExactSeedInput/sourceRetainsExactSeedAnswer 均 true；GUI 仍未请求含轮次读取或 turns/items 分页，原文检查 false，整体 passed=false。排除了源合成历史未保存这一原因，不把元数据读取升级为历史加载。
+- 新增 audit-desktop-onboarding.mjs：只读安装 ASAR，严格匹配已知纯路由函数并在 VM 中运行合成状态，保存文件 SHA-256/字符偏移与固定结果。10 组检查确认本地 allowed 状态的工作区/完成状态影响 welcome/app 选择，而登录、缺 token、gateway 登录要求仍优先。没有执行 bundle、读写生产 profile/账户、调用首次设置 API 或伪造完成标志。supportedFixtureSetupVerified/guiAcceptance 仍 false，源码条件不等于实际 GUI 状态。
+- 验证：3 项历史判定回归、10 组安装代码纯函数实验、脚本 ESLint/Prettier 与相关 diff 检查通过；真实 GUI 严格历史检查按证据失败，子进程已退出，另查无测试路径进程残留。无 Rust、安卓、协议或数据库变更，不重复不相关构建。
+- 阶段 0/sharedDesktopRuntime 仍未完成。下一步定位桌面工作区根目录的受支持设置接口及首次设置后的深链接延续方式，再验证真实 GUI 完整历史和双向活动任务；原生线程 cwd 不能等同桌面已配置工作区。仍需宿主集成、生产保留历史升级及安卓真机验收。本轮选择性提交实现、正负证据和接手文档，保留其他 CI/发布修改，不推送。
+
 ## 2026-10-21 实施记录：GUI 完整历史严格检查与未请求证据（阶段 0 / P01）
 
 - 前一轮提交 80be7d2。本轮新增 --shared-history（要求 --shared-index），通过条件必须包含 GUI 自身请求得到的同线程、同轮次完整用户输入及助手回复；不注入 GUI 请求，不用直接客户端或列表元数据代替内容。覆盖 read/resume 内嵌历史及 turns/items 分页，关联原请求 threadId 与响应轮次，只保存固定布尔值。

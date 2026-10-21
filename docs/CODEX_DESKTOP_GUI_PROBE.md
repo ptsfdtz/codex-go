@@ -66,3 +66,11 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 观察覆盖 thread/read、thread/resume 内嵌 turns，以及 GUI 请求的 thread/turns/list 和 thread/items/list 分页响应；分页通过原请求 threadId 和返回 turnId 关联。只在内存比较合成原文，持久化布尔值；不保存请求、响应、线程 ID 或内容。回归命令：`node --test scripts/lib/gui-history.test.mjs`，包括跨线程/轮次误归属、元数据、原文片段和错误回复的拒绝。此检查仍不能证明 UI 渲染、长历史全量分页、生产账户或安卓真机。
 
 真实结果保存在 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-history-probe.json`：**passed=false**，GUI 线程元数据读取、列表和外部重命名仍成功，但两项完整原文检查均 false。固定请求诊断确认观察期内 GUI 未请求 seed 的 includeTurns=true、thread/turns/list 或 thread/items/list；没有代理失败码，子进程退出。不能把上一轮 desktopOpenedSeededThread=true 解释为完整历史加载，也不能把本次未请求历史解释为上游接口拒绝历史。下一步核验首次设置/深链接导航的受支持测试路径，并先交叉核验源服务的完整合成历史，再验证 GUI 实际请求、内容及双向操作。
+
+后续探测在启动 GUI 前新增源服务 thread/items/list 交叉核验，只认可原线程和轮次的完整合成输入/回复；缺失则在启动 GUI 前失败，不能将无效种子解释为 GUI 缺陷。更新的真实报告 sourceRetainsExactSeedInput/sourceRetainsExactSeedAnswer 均 true，而 GUI 原文及历史请求仍 false。因此本次缺口不是源合成历史未保存；并未因此证明生产数据、长历史全量分页或可见内容通过。
+
+## 首次启动路由的只读代码核验
+
+运行 `node scripts/audit-desktop-onboarding.mjs <app.asar绝对路径> <report.json绝对路径>`。严格匹配安装版 app-initial 中已知纯路由函数，未知布局失败；只在 VM 中以合成状态运行该函数，不执行 bundle、不访问生产配置、不调用账户或首次设置 API。`baselines/codex-0.163.0-alpha.10.2/desktop-onboarding-route-audit.json` 保存文件指纹、字符偏移和 10 组结果。
+
+本安装基准的合成 allowed/local 状态无工作区时选择 welcome，有工作区或已有完成状态时选择 app；加载状态可暂不选页。需要登录、缺少 ChatGPT token 或 gateway 要求登录时，即使已有工作区或完成标志也仍选 login。它仅说明路由条件，不证明这些合成状态就是当前 GUI 实际状态，也不证明创建原生线程的 cwd 等于桌面工作区根目录。supportedFixtureSetupVerified 仍 false；后续应查清桌面工作区的受支持设置接口和深链接延续路径，不写入伪造完成标志、复制生产 profile 或以源码分支推断 UI 已可用。

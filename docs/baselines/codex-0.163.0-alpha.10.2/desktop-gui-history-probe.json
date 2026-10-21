@@ -21,6 +21,8 @@
     "desktopRequestedSeedReadWithTurns": false,
     "desktopRequestedSeedTurns": false,
     "desktopRequestedSeedItems": false,
+    "sourceRetainsExactSeedInput": true,
+    "sourceRetainsExactSeedAnswer": true,
     "nativeAuthenticatedListener": true,
     "seedVisibleToDirectClient": true,
     "proxyVersionWithDesktopOverride": true,

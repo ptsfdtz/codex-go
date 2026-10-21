@@ -170,6 +170,8 @@ const report = {
     desktopRequestedSeedReadWithTurns: false,
     desktopRequestedSeedTurns: false,
     desktopRequestedSeedItems: false,
+    sourceRetainsExactSeedInput: false,
+    sourceRetainsExactSeedAnswer: false,
   },
   passed: false,
 };
@@ -376,6 +378,20 @@ try {
       listed.data?.some((thread) => thread.id === seededThread) === true;
     if (!report.checks.seedVisibleToDirectClient)
       throw new Error('Seed not persisted in source index');
+    const history = await request('thread/items/list', {
+      threadId: seededThread,
+      limit: 100,
+      sortDirection: 'asc',
+    });
+    const sourceContent = inspectGuiHistory(
+      { method: 'thread/items/list', threadId: seededThread },
+      history,
+      { threadId: seededThread, turnId: seededTurn, input: seedInput, answer: seedAnswer },
+    );
+    report.checks.sourceRetainsExactSeedInput = sourceContent.user;
+    report.checks.sourceRetainsExactSeedAnswer = sourceContent.assistant;
+    if (!sourceContent.user || !sourceContent.assistant)
+      throw new Error('Seed content not persisted in source history');
   }
   observer = new WebSocketServer({
     host: '127.0.0.1',
@@ -570,6 +586,8 @@ try {
   if (sharedIndex)
     report.passed &&=
       report.checks.seedVisibleToDirectClient === true &&
+      report.checks.sourceRetainsExactSeedInput === true &&
+      report.checks.sourceRetainsExactSeedAnswer === true &&
       report.checks.desktopListedSeededThread === true &&
       report.checks.desktopReceivedExternalRename === true;
   if (inspectionSeconds) {

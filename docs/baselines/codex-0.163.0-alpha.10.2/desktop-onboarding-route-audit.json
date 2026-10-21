@@ -1,0 +1,66 @@
+{
+  "evidenceLevel": "installed-code-pure-function-with-synthetic-state",
+  "bundle": {
+    "name": "app-initial-df84a35d942d.js",
+    "sha256": "d7659a96f7d0cfe2249e089ef19675d09d04d6dd9569b550ddaa64722d4f13f3",
+    "functionOffset": 8697647
+  },
+  "productionStateRead": false,
+  "productionStateModified": false,
+  "onboardingBypassed": false,
+  "guiAcceptance": false,
+  "supportedFixtureSetupVerified": false,
+  "cases": [
+    {
+      "name": "fresh-local-context",
+      "result": "welcome",
+      "passed": true
+    },
+    {
+      "name": "workspace-present",
+      "result": "app",
+      "passed": true
+    },
+    {
+      "name": "backend-completed",
+      "result": "app",
+      "passed": true
+    },
+    {
+      "name": "projectless-completed",
+      "result": "app",
+      "passed": true
+    },
+    {
+      "name": "workspace-timeout",
+      "result": "app",
+      "passed": true
+    },
+    {
+      "name": "workspace-loading",
+      "result": null,
+      "passed": true
+    },
+    {
+      "name": "auth-required-with-workspace",
+      "result": "login",
+      "passed": true
+    },
+    {
+      "name": "chatgpt-token-missing",
+      "result": "login",
+      "passed": true
+    },
+    {
+      "name": "gateway-required",
+      "result": "login",
+      "passed": true
+    },
+    {
+      "name": "feature-loading",
+      "result": null,
+      "passed": true
+    }
+  ],
+  "passed": true
+}
