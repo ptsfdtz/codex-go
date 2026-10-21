@@ -179,6 +179,14 @@ const report = {
     sourceListedSeedProject: false,
     desktopRequestedProjects: false,
     desktopListedSeedProject: false,
+    sourceProjectCreateIdempotent: false,
+    sourceThreadProjectPersisted: false,
+    sourceProjectUpdatePersisted: false,
+    desktopReadSeedThreadProject: false,
+    desktopReceivedProjectChanged: false,
+    desktopReadUpdatedSeedProject: false,
+    sourceReceivedProjectChanged: false,
+    desktopOptedOutProjectChanged: false,
   },
   passed: false,
 };
@@ -189,6 +197,7 @@ let model;
 let direct;
 let seededThread;
 let seededProject;
+let projectRenameStarted = false;
 let seededTurn;
 let completedSeed = false;
 let requestId = 0;
@@ -196,6 +205,7 @@ const directPending = new Map();
 const renamedTitle = 'AgentDeck isolated GUI cross-client rename';
 const seedInput = 'Isolated GUI sharing probe; do not call tools.';
 const seedAnswer = 'Isolated GUI shared history fixture.';
+const renamedProject = 'AgentDeck isolated renamed native project';
 async function request(method, params) {
   return new Promise((resolve, reject) => {
     const id = `probe-${++requestId}`;
@@ -340,6 +350,13 @@ try {
     await once(direct, 'open');
     direct.on('message', (data) => {
       const packet = JSON.parse(data.toString());
+      if (
+        projectRenameStarted &&
+        packet.method === 'project/changed' &&
+        packet.params?.projectId === seededProject &&
+        packet.params?.changeType === 'updated'
+      )
+        report.checks.sourceReceivedProjectChanged = true;
       const waiter = directPending.get(packet.id);
       if (waiter && !packet.method) {
         directPending.delete(packet.id);
@@ -368,12 +385,13 @@ try {
     const project = join(root, 'project');
     mkdirSync(project);
     if (nativeProject) {
-      const created = await request('project/create', {
+      const createParams = {
         name: 'AgentDeck isolated native project',
         roots: [{ path: project }],
         metadata: {},
         idempotencyKey: 'agentdeck-isolated-gui-project',
-      });
+      };
+      const created = await request('project/create', createParams);
       seededProject = created.project?.id;
       if (typeof seededProject !== 'string' || !seededProject)
         throw new Error('Native project identity missing');
@@ -381,6 +399,10 @@ try {
       report.checks.sourceListedSeedProject =
         listed.data?.some((p) => p.id === seededProject) === true;
       if (!report.checks.sourceListedSeedProject) throw new Error('Native project not indexed');
+      const repeated = await request('project/create', createParams);
+      report.checks.sourceProjectCreateIdempotent = repeated.project?.id === seededProject;
+      if (!report.checks.sourceProjectCreateIdempotent)
+        throw new Error('Native project create did not retain identity');
     }
     const started = await request('thread/start', {
       cwd: project,
@@ -416,6 +438,16 @@ try {
     report.checks.sourceRetainsExactSeedAnswer = sourceContent.assistant;
     if (!sourceContent.user || !sourceContent.assistant)
       throw new Error('Seed content not persisted in source history');
+    if (nativeProject) {
+      const persisted = await request('thread/read', {
+        threadId: seededThread,
+        includeTurns: false,
+      });
+      report.checks.sourceThreadProjectPersisted =
+        persisted.thread?.id === seededThread && persisted.thread?.projectId === seededProject;
+      if (!report.checks.sourceThreadProjectPersisted)
+        throw new Error('Native thread project not persisted');
+    }
   }
   observer = new WebSocketServer({
     host: '127.0.0.1',
@@ -444,7 +476,11 @@ try {
       }
       try {
         const packet = JSON.parse(data.toString());
-        if (packet.method === 'initialize') report.checks.desktopInitializeSent = true;
+        if (packet.method === 'initialize') {
+          report.checks.desktopInitializeSent = true;
+          if (packet.params?.capabilities?.optOutNotificationMethods?.includes('project/changed'))
+            report.checks.desktopOptedOutProjectChanged = true;
+        }
         if (packet.method === 'project/list') report.checks.desktopRequestedProjects = true;
         if (seededThread && packet.params?.threadId === seededThread) {
           if (packet.method === 'thread/read' && packet.params.includeTurns === true)
@@ -463,12 +499,14 @@ try {
             'thread/turns/list',
             'thread/items/list',
             'project/list',
+            'project/read',
           ].includes(packet.method) &&
           pending.size < 256
         )
           pending.set(String(packet.id), {
             method: packet.method,
             threadId: packet.params?.threadId,
+            projectId: packet.params?.projectId,
           });
         if (packet.method === 'initialized') report.checks.desktopInitializedNotification = true;
       } catch {
@@ -510,6 +548,18 @@ try {
           )
             report.checks.desktopListedSeedProject = true;
           if (
+            seededProject &&
+            ((method === 'project/read' &&
+              observedRequest.projectId === seededProject &&
+              packet.result.project?.id === seededProject &&
+              packet.result.project?.name === renamedProject) ||
+              (method === 'project/list' &&
+                packet.result.data?.some(
+                  (p) => p.id === seededProject && p.name === renamedProject,
+                )))
+          )
+            report.checks.desktopReadUpdatedSeedProject = true;
+          if (
             method === 'thread/list' &&
             packet.result.data?.some((thread) => thread.id === seededThread)
           )
@@ -517,8 +567,15 @@ try {
           if (
             ['thread/read', 'thread/resume'].includes(method) &&
             packet.result.thread?.id === seededThread
-          )
+          ) {
             report.checks.desktopOpenedSeededThread = true;
+            if (
+              seededProject &&
+              observedRequest.threadId === seededThread &&
+              packet.result.thread.projectId === seededProject
+            )
+              report.checks.desktopReadSeedThreadProject = true;
+          }
           const history = inspectGuiHistory(observedRequest, packet.result, {
             threadId: seededThread,
             turnId: seededTurn,
@@ -529,6 +586,14 @@ try {
           if (history.assistant) report.checks.desktopReceivedExactSeedAnswer = true;
           pending.delete(String(packet.id));
         }
+        if (
+          seededProject &&
+          projectRenameStarted &&
+          packet.method === 'project/changed' &&
+          packet.params?.projectId === seededProject &&
+          packet.params?.changeType === 'updated'
+        )
+          report.checks.desktopReceivedProjectChanged = true;
         if (
           sharedIndex &&
           packet.method === 'thread/name/updated' &&
@@ -599,10 +664,23 @@ try {
   if (sharedIndex && report.checks.desktopInitializedNotification) {
     for (let i = 0; i < 300 && !report.checks.desktopOpenedSeededThread; i++) await pause(100);
     await request('thread/name/set', { threadId: seededThread, name: renamedTitle });
+    if (nativeProject) {
+      projectRenameStarted = true;
+      await request('project/update', { projectId: seededProject, name: renamedProject });
+      const reread = await request('project/read', { projectId: seededProject });
+      report.checks.sourceProjectUpdatePersisted =
+        reread.project?.id === seededProject && reread.project?.name === renamedProject;
+      if (!report.checks.sourceProjectUpdatePersisted)
+        throw new Error('Native project update not persisted');
+    }
     for (
       let i = 0;
       i < 200 &&
-      !(report.checks.desktopListedSeededThread && report.checks.desktopReceivedExternalRename);
+      !(
+        report.checks.desktopListedSeededThread &&
+        report.checks.desktopReceivedExternalRename &&
+        (!nativeProject || report.checks.desktopReadUpdatedSeedProject)
+      );
       i++
     )
       await pause(100);
@@ -643,7 +721,13 @@ try {
   if (nativeProject)
     report.passed &&=
       report.checks.sourceListedSeedProject === true &&
-      report.checks.desktopListedSeedProject === true;
+      report.checks.desktopListedSeedProject === true &&
+      report.checks.sourceProjectCreateIdempotent === true &&
+      report.checks.sourceThreadProjectPersisted === true &&
+      report.checks.sourceProjectUpdatePersisted === true &&
+      report.checks.desktopReadSeedThreadProject === true &&
+      report.checks.desktopReceivedProjectChanged === true &&
+      report.checks.desktopReadUpdatedSeedProject === true;
 } catch {
   report.failure = 'ISOLATED_GUI_PROBE_FAILED';
 } finally {

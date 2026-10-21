@@ -82,3 +82,15 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 安装代码 main-C4DYk222.js 的 writeAppServerProject/listProjects 明确使用这些原生接口；initializeProjects 读取服务项目并维护原生/legacy ID 映射，且仍使用桌面缓存/迁移状态。src-Dtwb7yKT.js 的 projects 最低版本为 0.148.0-alpha.21。代码读取只是接入定位，不能证明全部项目元数据或侧栏已经迁移。
 
 真实 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-native-project-probe.json` 中 sourceListedSeedProject、desktopRequestedProjects、desktopListedSeedProject 均 true，源完整输入/回复仍存在，同线程列表/读取和外部重命名仍通过；完整 GUI 历史检查仍 false，整体 passed=false，子进程退出、无代理失败码。因此原生项目共享列表已取得真实证据，但添加原生项目本身没有使 GUI 请求历史；尚未证明可见侧栏、桌面工作区根目录状态、首次设置完成、线程项目归属或双向项目操作。下一步应将原生项目身份及桌面本机导航偏好分别建模，继续核验实际导航阻塞，不把项目列表成功冒充 UI 或阶段 1 完成。
+
+## 项目生命周期与通知排除
+
+后续 `--with-native-project` 增加严格门槛：以相同 idempotencyKey/相同参数重复创建须返回同一 ID；首轮合成任务完成后通过源 thread/read 核验持久 projectId，GUI 自己读取的原线程也须携带同一 projectId；源 project/update 重命名后通过 project/read 核验新名称，再观察 GUI 的 updated 通知和项目 read/list 中的新名称。通知仅在本次重命名开始后计入，不将启动期间其他变化算作成功。线程读取安排在首轮持久化之后，不用尚无历史时的读取失败否定归属功能。
+
+最新实验请求/响应约束来自精确安装版的隔离 `generate-json-schema --experimental` 导出：project/create 的 name、roots、idempotencyKey 必填，metadata 为字符串值映射；thread/start 的 projectId 用于持久线程归属，thread/read 返回权威 projectId；project/changed 只含 projectId/changeType，updated 是有效枚举。未手改既有 schema lock，也未将实验接口加入安卓生产协议。
+
+真实 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-project-lifecycle-probe.json` 确认创建幂等、源/GUI 原线程归属及源重命名持久化均 true。源更新连接收到 project/changed，但 GUI 未收到该通知、未读到新名称，**passed=false**。本报告未开启 --shared-history，不将未开启的严格历史门槛混入项目生命周期结论；此前历史负面报告保留。子进程退出，无代理失败码。
+
+新增诊断 desktopOptedOutProjectChanged=true：至少一个 GUI 连接的真实 initialize.capabilities.optOutNotificationMethods 明确包含 project/changed。只读安装代码 src-DsLVGakC.js 的 initialize 构造使用公共排除表，src-Dtwb7yKT.js 的表把 project/changed 标为 false。这解释了相应连接不接收事件，不是服务端普遍无事件的证据，也未证明所有连接的订阅或跨客户端广播。源连接收到通知不能代替第二个未排除客户端的广播测试。
+
+接入结论：原生项目列表/归属有路径；桌面活动项目更新还需核验宿主缓存、发布与跨端变更入口。不能为了通过探测而修改 GUI 自己的 initialize、移除排除项、伪造变更通知或写入私有全局状态。下一步应定位宿主 projectBackend/publishProjects 的受支持调用和生命周期，并验证独立原生客户端广播；可见侧栏、新名称刷新、双向操作及完整共享运行时仍未验收。

@@ -3,6 +3,14 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：项目归属、幂等与 GUI 主动排除变更通知（阶段 0 / P01）
+
+- 前一轮提交 516868c。通过精确安装版在隔离 HOME 导出实验 schema，核验项目创建/更新参数、持久线程 projectId 及 project/changed 的 updated 枚举；未改动生产 schema lock。本轮扩展 --with-native-project：重复创建核验同 ID，首轮历史持久化后读取源线程归属，再核验 GUI 自己读取的归属；源重命名并重新读取后，分别检查 GUI 通知和新名称。只在本次重命名开始后计入事件。
+- 真实 desktop-gui-project-lifecycle-probe.json：创建幂等、源/GUI 同线程项目归属、源更新持久化均 true；源更新连接收到 project/changed，GUI 没有该通知，也未重新读到新名称，整体 passed=false。最终项目实验没有启用 --shared-history，之前历史负面报告保留；不得把未启用的历史检查计入项目失败。子进程退出，无代理错误码，另查隔离 GUI/runtime/proxy 剩余 0。
+- 关键新证据：desktopOptedOutProjectChanged=true，至少一个 GUI 连接的真实 initialize.capabilities.optOutNotificationMethods 明确包含 project/changed。安装代码 src-DsLVGakC.js 的 initialize 使用公共排除表，src-Dtwb7yKT.js 把该方法标 false。不能把缺失通知概括为服务端没有事件；尚未验证第二个未排除客户端的跨连接广播，也未证明所有 GUI 连接订阅。项目活动更新必须继续核验桌面宿主缓存/发布入口，不能删除 GUI 排除项或伪造事件来制造通过。
+- 开发期间一次过早 thread/read 未通过，最终改为首轮合成历史持久化后验证；未把该前置失败作为原生归属不支持的证据。最终真实运行验证已包含该顺序。ESLint/Prettier、相关 diff 检查通过；无 Rust、安卓、协议或数据库变更，不重复不相关构建。
+- 阶段 0/sharedDesktopRuntime 仍未完成。下一步核验独立原生客户端项目广播、宿主 projectBackend/publishProjects 的受支持调用，以及导航/完整历史和双向活动任务。可见侧栏与安卓真机仍未验收。本轮选择性提交实现、真实证据和接手文档，保留独立 CI/发布改动，不推送。
+
 ## 2026-10-21 实施记录：原生项目与 GUI 同源列表验证（阶段 0 / P01）
 
 - 前一轮提交 7e68398。本轮只读安装代码定位 writeAppServerProject/listProjects/initializeProjects：桌面使用原生 project/create/list/read/update/import 并维护 legacy ID 映射；projects 最低原生版本为 0.148.0-alpha.21。不能继续把线程 cwd 或 Bridge 的目录列表等同桌面项目组织。
