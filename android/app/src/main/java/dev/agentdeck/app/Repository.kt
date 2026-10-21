@@ -57,7 +57,8 @@ class DeckRepository(context:Context){
     private val timelineRevision=java.util.concurrent.atomic.AtomicLong()
     @Volatile private var transport:DeckTransport?=null
     private val snapshotReads=SnapshotReads()
-    private var cursor="0"
+    private val eventCheckpoint=EventCheckpoint()
+    private val cursor get()=eventCheckpoint.value
     private val cacheMutex=Mutex()
     private val actionMutex=Mutex()
     private val connectionMutex=Mutex()
@@ -82,9 +83,9 @@ class DeckRepository(context:Context){
                 val capabilities=wire.decodeFromJsonElement(BridgeCapabilities.serializer(),current.request("system.capabilities"))
                 if(capabilities.protocolVersion!=1)throw DeckException("PROTOCOL_VERSION","电脑端协议不兼容，请更新客户端")
                 mutable.update{it.copy(capabilities=capabilities)}
-                val cache=dao.host(host.hostId)
+                val cache=cacheMutex.withLock{dao.host(host.hostId)?.also{eventCheckpoint.reset(it.cursor)}}
                 if(cache==null){refreshSnapshot(current,resetCursor=true)}
-                else {cursor=cache.cursor;try{replay(current)}catch(e:DeckException){if(e.code!="REPLAY_GAP")throw e;refreshSnapshot(current,resetCursor=true);mutable.update{it.copy(error="部分历史已过保留期，已恢复可信快照")}};refreshSnapshot(current)}
+                else {try{replay(current)}catch(e:DeckException){if(e.code!="REPLAY_GAP")throw e;refreshSnapshot(current,resetCursor=true);mutable.update{it.copy(error="部分历史已过保留期，已恢复可信快照")}};refreshSnapshot(current)}
                 val retention=wire.decodeFromJsonElement(Retention.serializer(),current.request("settings.get").getValue("retention"))
                 mutable.update{it.copy(connection="已连接",stale=false,retention=retention)};attempt=0
                 loadModels()
@@ -102,10 +103,10 @@ class DeckRepository(context:Context){
         try{
             connectionJob?.cancelAndJoin();connectionMutex.withLock{};snapshotJob?.cancelAndJoin();selectionJob?.cancelAndJoin();timelineJob?.cancelAndJoin();timelineRefreshJob?.cancelAndJoin();timelineRevision.incrementAndGet()
             connectionJob=null;snapshotJob=null;selectionJob=null;transport=null
-            cacheMutex.withLock{cursor="0";restoreNavigation=true;mutable.value=mutable.value.forHost(book)}
+            cacheMutex.withLock{eventCheckpoint.reset("0");restoreNavigation=true;mutable.value=mutable.value.forHost(book)}
             book.active?.let{host->
                 dao.host(host.hostId)?.let{cached->
-                    try{val snapshot=wire.decodeFromString(Snapshot.serializer(),cached.snapshot);require(snapshot.host?.hostId==host.hostId);cursor=cached.cursor;mutable.update{it.copy(snapshot=snapshot,selectedProject=snapshot.projects.firstOrNull()?.projectId,lastSynced=cached.syncedAt)}}
+                    try{val snapshot=wire.decodeFromString(Snapshot.serializer(),cached.snapshot);require(snapshot.host?.hostId==host.hostId);eventCheckpoint.reset(cached.cursor);mutable.update{it.copy(snapshot=snapshot,selectedProject=snapshot.projects.firstOrNull()?.projectId,lastSynced=cached.syncedAt)}}
                     catch(e:CancellationException){throw e}catch(_:Exception){dao.removeHost(host.hostId)}
                 }
                 restoreLastSession(mutable.value.snapshot)
@@ -117,7 +118,23 @@ class DeckRepository(context:Context){
     fun renameHost(id:String,name:String){action{val book=vault.readBook().renamed(id,name);vault.saveBook(book);mutable.update{it.copy(hosts=book.hosts,host=book.active)}}}
     private fun errorMessage(e:Throwable):String=when(e){is DeckException->userFacingError(e.code,e.message);is java.security.cert.CertificateException,is javax.net.ssl.SSLPeerUnverifiedException,is javax.net.ssl.SSLHandshakeException->userFacingError("TLS",e.message);is TimeoutCancellationException->userFacingError("TIMEOUT",e.message);is java.io.IOException->userFacingError("NETWORK",e.message);else->userFacingError(null,e.message)}
     private suspend fun replay(current:DeckTransport){do{val result=current.request("events.replay",buildJsonObject{put("cursor",cursor);put("limit",500)});val events=result["events"]?.jsonArray?:JsonArray(emptyList());for(element in events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),element);if(event.eventId.toLong()>cursor.toLong())applyEvent(event)};val more=result["more"]?.jsonPrimitive?.boolean==true}while(more)}
-    private suspend fun applyEvent(event:DeckEvent){cacheMutex.withLock{val host=mutable.value.host?:return;val id=event.eventId.toLong();if(id<=cursor.toLong())return;db.withTransaction{dao.saveEvents(listOf(CachedEvent(host.hostId,id,event.sessionId,wire.encodeToString(DeckEvent.serializer(),event))));cursor=event.eventId;dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),mutable.value.snapshot),cursor,Instant.now().toString()))};if(id%100L==0L)dao.trim(host.hostId)};if(event.action=="session.observed")mutable.update{if(it.observationPendingSession==event.sessionId)it.copy(observationPendingSession=null)else it};if(event.action in listOf("upstream.turn.completed","turn.completed","turn.failed","turn.interrupted","session.observed","host.status")&&(event.sessionId==null||event.sessionId==mutable.value.selectedSession))scheduleTimelineHistory();if(event.action=="git.changed"&&mutable.value.git!=null)refreshGit()}
+    private suspend fun applyEvent(event:DeckEvent){
+        val committed=cacheMutex.withLock{
+            val host=mutable.value.host?:return
+            val accepted=eventCheckpoint.commit(event.eventId){
+                db.withTransaction{
+                    dao.saveEvents(listOf(CachedEvent(host.hostId,event.eventId.toLong(),event.sessionId,wire.encodeToString(DeckEvent.serializer(),event))))
+                    dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),mutable.value.snapshot),event.eventId,Instant.now().toString()))
+                }
+            }
+            if(accepted&&event.eventId.toLong()%100L==0L)dao.trim(host.hostId)
+            accepted
+        }
+        if(!committed)return
+        if(event.action=="session.observed")mutable.update{if(it.observationPendingSession==event.sessionId)it.copy(observationPendingSession=null)else it}
+        if(event.action in listOf("upstream.turn.completed","turn.completed","turn.failed","turn.interrupted","session.observed","host.status")&&(event.sessionId==null||event.sessionId==mutable.value.selectedSession))scheduleTimelineHistory()
+        if(event.action=="git.changed"&&mutable.value.git!=null)refreshGit()
+    }
     private suspend fun updateSnapshot(snapshot:Snapshot,isCurrent:()->Boolean,resetCursor:Boolean=false){cacheMutex.withLock{
         if(!isCurrent())throw CancellationException("Snapshot connection replaced")
         val host=mutable.value.host?:return
@@ -129,7 +146,7 @@ class DeckRepository(context:Context){
             dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),snapshot),if(resetCursor)snapshot.cursor else cursor,at))
         }
         if(!isCurrent())throw CancellationException("Snapshot connection replaced")
-        if(resetCursor)cursor=snapshot.cursor
+        if(resetCursor)eventCheckpoint.reset(snapshot.cursor)
         val selected=mutable.value.selectedSession
         if(selected!=null&&snapshot.sessions.none{it.sessionId==selected})selectionJob?.cancel()
         mutable.update{old->val vanished=old.selectedSession!=null&&snapshot.sessions.none{it.sessionId==old.selectedSession};old.copy(snapshot=snapshot,lastSynced=at,selectedSession=if(vanished)null else old.selectedSession,timelineHistory=if(vanished)TimelineHistory() else old.timelineHistory,events=if(vanished)emptyList() else old.events,selectedProject=old.selectedProject?.takeIf{id->snapshot.projects.any{it.projectId==id}}?:snapshot.projects.firstOrNull()?.projectId)}
