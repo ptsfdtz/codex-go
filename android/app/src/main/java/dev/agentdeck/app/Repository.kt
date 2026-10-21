@@ -52,6 +52,9 @@ class DeckRepository(context:Context){
     private var pairGeneration=0L
     private var credentialsUnreadable=false
     private var snapshotJob:Job?=null
+    private var timelineJob:Job?=null
+    private var timelineRefreshJob:Job?=null
+    private val timelineRevision=java.util.concurrent.atomic.AtomicLong()
     private var transport:DeckTransport?=null
     private var cursor="0"
     private val cacheMutex=Mutex()
@@ -96,7 +99,7 @@ class DeckRepository(context:Context){
     private suspend fun activateBook(book:HostBook){
         synchronized(this){switchingHost=true;hostEpoch++;connectionJob?.cancel();transport?.close()}
         try{
-            connectionJob?.cancelAndJoin();connectionMutex.withLock{};snapshotJob?.cancelAndJoin();selectionJob?.cancelAndJoin()
+            connectionJob?.cancelAndJoin();connectionMutex.withLock{};snapshotJob?.cancelAndJoin();selectionJob?.cancelAndJoin();timelineJob?.cancelAndJoin();timelineRefreshJob?.cancelAndJoin();timelineRevision.incrementAndGet()
             connectionJob=null;snapshotJob=null;selectionJob=null;transport=null
             cacheMutex.withLock{cursor="0";restoreNavigation=true;mutable.value=mutable.value.forHost(book)}
             book.active?.let{host->
@@ -113,7 +116,7 @@ class DeckRepository(context:Context){
     fun renameHost(id:String,name:String){action{val book=vault.readBook().renamed(id,name);vault.saveBook(book);mutable.update{it.copy(hosts=book.hosts,host=book.active)}}}
     private fun errorMessage(e:Throwable):String=when(e){is DeckException->userFacingError(e.code,e.message);is java.security.cert.CertificateException,is javax.net.ssl.SSLPeerUnverifiedException,is javax.net.ssl.SSLHandshakeException->userFacingError("TLS",e.message);is TimeoutCancellationException->userFacingError("TIMEOUT",e.message);is java.io.IOException->userFacingError("NETWORK",e.message);else->userFacingError(null,e.message)}
     private suspend fun replay(current:DeckTransport){do{val result=current.request("events.replay",buildJsonObject{put("cursor",cursor);put("limit",500)});val events=result["events"]?.jsonArray?:JsonArray(emptyList());for(element in events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),element);if(event.eventId.toLong()>cursor.toLong())applyEvent(event)};val more=result["more"]?.jsonPrimitive?.boolean==true}while(more)}
-    private suspend fun applyEvent(event:DeckEvent){cacheMutex.withLock{val host=mutable.value.host?:return;val id=event.eventId.toLong();if(id<=cursor.toLong())return;db.withTransaction{dao.saveEvents(listOf(CachedEvent(host.hostId,id,event.sessionId,wire.encodeToString(DeckEvent.serializer(),event))));cursor=event.eventId;dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),mutable.value.snapshot),cursor,Instant.now().toString()))};if(id%100L==0L)dao.trim(host.hostId)};if(event.action=="session.observed")mutable.update{if(it.observationPendingSession==event.sessionId)it.copy(observationPendingSession=null)else it};if(event.action=="git.changed"&&mutable.value.git!=null)refreshGit()}
+    private suspend fun applyEvent(event:DeckEvent){cacheMutex.withLock{val host=mutable.value.host?:return;val id=event.eventId.toLong();if(id<=cursor.toLong())return;db.withTransaction{dao.saveEvents(listOf(CachedEvent(host.hostId,id,event.sessionId,wire.encodeToString(DeckEvent.serializer(),event))));cursor=event.eventId;dao.saveHost(CachedHost(host.hostId,wire.encodeToString(Snapshot.serializer(),mutable.value.snapshot),cursor,Instant.now().toString()))};if(id%100L==0L)dao.trim(host.hostId)};if(event.action=="session.observed")mutable.update{if(it.observationPendingSession==event.sessionId)it.copy(observationPendingSession=null)else it};if(event.action in listOf("upstream.turn.completed","turn.completed","turn.failed","turn.interrupted","session.observed","host.status")&&(event.sessionId==null||event.sessionId==mutable.value.selectedSession))scheduleTimelineHistory();if(event.action=="git.changed"&&mutable.value.git!=null)refreshGit()}
     private suspend fun updateSnapshot(snapshot:Snapshot){cacheMutex.withLock{
         val host=mutable.value.host?:return
         require(snapshot.host?.hostId==host.hostId){"Bridge identity mismatch"}
@@ -125,7 +128,7 @@ class DeckRepository(context:Context){
         }
         val selected=mutable.value.selectedSession
         if(selected!=null&&snapshot.sessions.none{it.sessionId==selected})selectionJob?.cancel()
-        mutable.update{old->val vanished=old.selectedSession!=null&&snapshot.sessions.none{it.sessionId==old.selectedSession};old.copy(snapshot=snapshot,lastSynced=at,selectedSession=if(vanished)null else old.selectedSession,events=if(vanished)emptyList() else old.events,selectedProject=old.selectedProject?.takeIf{id->snapshot.projects.any{it.projectId==id}}?:snapshot.projects.firstOrNull()?.projectId)}
+        mutable.update{old->val vanished=old.selectedSession!=null&&snapshot.sessions.none{it.sessionId==old.selectedSession};old.copy(snapshot=snapshot,lastSynced=at,selectedSession=if(vanished)null else old.selectedSession,timelineHistory=if(vanished)TimelineHistory() else old.timelineHistory,events=if(vanished)emptyList() else old.events,selectedProject=old.selectedProject?.takeIf{id->snapshot.projects.any{it.projectId==id}}?:snapshot.projects.firstOrNull()?.projectId)}
     }}
     private fun restoreLastSession(snapshot:Snapshot){
         if(!restoreNavigation||snapshot.sessions.isEmpty())return
@@ -148,16 +151,40 @@ class DeckRepository(context:Context){
         val pairedHost=requireNotNull(host){"配对已过期，请重新生成二维码"};require(Regex("[A-Za-z0-9_-]{43}").matches(pairedHost.credential)){"设备凭据无效"};actionMutex.withLock{ensureActive();withContext(NonCancellable){val book=(if(credentialsUnreadable)HostBook()else vault.readBook()).paired(pairedHost);vault.saveBook(book);credentialsUnreadable=false;activateBook(book)}}
     }catch(e:CancellationException){throw e}catch(e:Exception){if(generation==pairGeneration)mutable.update{it.copy(error=errorMessage(e),pairingCode=null)}}finally{client?.dispatcher?.executorService?.shutdown();client?.connectionPool?.evictAll();if(generation==pairGeneration)mutable.update{it.copy(busy=false)}}}}
     fun cancelPair(){pairGeneration++;pairingJob?.cancel();mutable.update{it.copy(pairingCode=null,pairingName=null,busy=false)}}
-    fun selectProject(id:String){restoreNavigation=false;selectionJob?.cancel();navigation.edit().remove("${mutable.value.host?.hostId}:session").apply();mutable.update{it.copy(selectedProject=id,selectedSession=null,events=emptyList(),git=null,diff=null)}}
-    fun selectSession(id:String){val host=mutable.value.host?:return;restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();val session=mutable.value.snapshot.sessions.find{it.sessionId==id}?:return;mutable.update{it.copy(selectedSession=id,selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(events=events)else it}}}}
-    private suspend fun refreshSession(id:String,before:String?=null){val host=mutable.value.host?:return;if(before==null&&mutable.value.capabilities?.supports("externalThreadObservation")==true){val observed=rpc().request("sessions.observe",payload("sessionId" to id));require(observed["sessionId"]?.jsonPrimitive?.content==id&&observed["observing"]?.jsonPrimitive?.booleanOrNull!=null){"会话订阅身份不匹配"};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(observationPendingSession=if(observed["observing"]?.jsonPrimitive?.booleanOrNull==true)null else id)else it}};val result=rpc().request("sessions.detail",buildJsonObject{put("sessionId",id);put("limit",500);if(before!=null)put("before",before)});val events=result["events"]?.jsonArray?.map{wire.decodeFromJsonElement(DeckEvent.serializer(),it)}?:emptyList();dao.saveEvents(events.map{CachedEvent(host.hostId,it.eventId.toLong(),it.sessionId,wire.encodeToString(DeckEvent.serializer(),it))})}
-    internal suspend fun readUpstreamHistory(id:String,cursor:String?):UpstreamHistoryPage {
+    fun selectProject(id:String){cancelTimelineRequests();restoreNavigation=false;selectionJob?.cancel();navigation.edit().remove("${mutable.value.host?.hostId}:session").apply();mutable.update{it.copy(selectedProject=id,selectedSession=null,events=emptyList(),timelineHistory=TimelineHistory(),git=null,diff=null)}}
+    fun selectSession(id:String){cancelTimelineRequests();val host=mutable.value.host?:return;restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();val session=mutable.value.snapshot.sessions.find{it.sessionId==id}?:return;mutable.update{it.copy(selectedSession=id,timelineHistory=TimelineHistory(sessionId=id),selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(events=events)else it}}}}
+    private suspend fun refreshSession(id:String,before:String?=null){
+        val host=mutable.value.host?:return
         val epoch=hostEpoch
+        val connection=rpc()
+        if(before==null&&mutable.value.capabilities?.supports("externalThreadObservation")==true){
+            try{
+                val observed=connection.request("sessions.observe",payload("sessionId" to id))
+                require(observed["sessionId"]?.jsonPrimitive?.content==id&&observed["observing"]?.jsonPrimitive?.booleanOrNull!=null){"会话订阅身份不匹配"}
+                mutable.update{if(epoch==hostEpoch&&it.selectedSession==id)it.copy(observationPendingSession=if(observed["observing"]?.jsonPrimitive?.booleanOrNull==true)null else id)else it}
+            }catch(e:CancellationException){throw e}catch(e:Exception){
+                // A failed live join must not prevent authorized persisted reads.
+                mutable.update{if(epoch==hostEpoch&&it.selectedSession==id)it.copy(observationPendingSession=id,error=errorMessage(e))else it}
+            }
+        }
+        val result=connection.request("sessions.detail",buildJsonObject{put("sessionId",id);put("limit",500);if(before!=null)put("before",before)})
+        require(epoch==hostEpoch&&mutable.value.host?.hostId==host.hostId){"电脑连接已切换"}
+        require(result["session"]?.jsonObject?.get("sessionId")?.jsonPrimitive?.content==id){"会话身份不匹配"}
+        val events=result["events"]?.jsonArray?.map{wire.decodeFromJsonElement(DeckEvent.serializer(),it)}?:emptyList()
+        require(events.all{it.sessionId==id}){"会话消息身份不匹配"}
+        dao.saveEvents(events.map{CachedEvent(host.hostId,it.eventId.toLong(),it.sessionId,wire.encodeToString(DeckEvent.serializer(),it))})
+        if(before==null&&mutable.value.selectedSession==id)loadTimelineHistory()
+    }
+    internal suspend fun readUpstreamHistory(id:String,cursor:String?,sortDirection:String="asc"):UpstreamHistoryPage {
+        val epoch=hostEpoch
+        require(sortDirection in listOf("asc","desc")){"无效历史顺序"}
+        if(sortDirection=="desc")require(mutable.value.capabilities?.supports("upstreamHistoryOrdering")==true){"电脑端需要升级才能读取最近历史"}
         require(mutable.value.capabilities?.supports("upstreamHistoryPages")==true){"电脑端需要升级才能读取已保存历史"}
         val connection=rpc()
-        fun params()=buildJsonObject{put("sessionId",id);cursor?.let{put("cursor",it)}}
+        fun params()=buildJsonObject{put("sessionId",id);cursor?.let{put("cursor",it)};if(sortDirection!="asc")put("sortDirection",sortDirection)}
         val result=connection.request("sessions.history",params())
         require(result["sessionId"]?.jsonPrimitive?.content==id){"会话身份不匹配"}
+        if(sortDirection!="asc")require((result["sortDirection"] as? JsonPrimitive)?.contentOrNull==sortDirection){"历史顺序不匹配"}
         val entries=result["data"]?.jsonArray.orEmpty().map{it.jsonObject}.toMutableList()
         val resource=result["resource"] as? JsonObject
         if(resource!=null){
@@ -171,7 +198,7 @@ class DeckRepository(context:Context){
             while(offset<total){
                 currentCoroutineContext().ensureActive()
                 require(epoch==hostEpoch){"电脑连接已切换"}
-                val chunk=connection.request("sessions.historyContent",buildJsonObject{put("sessionId",id);cursor?.let{put("cursor",it)};put("sha256",hash);put("offset",offset)})
+                val chunk=connection.request("sessions.historyContent",buildJsonObject{put("sessionId",id);cursor?.let{put("cursor",it)};put("sha256",hash);put("offset",offset);if(sortDirection!="asc")put("sortDirection",sortDirection)})
                 require(chunk["sessionId"]?.jsonPrimitive?.content==id&&chunk["sha256"]?.jsonPrimitive?.content==hash&&chunk["offset"]?.jsonPrimitive?.int==offset&&chunk["totalBytes"]?.jsonPrimitive?.int==total){"历史内容身份不匹配"}
                 val bytes=Base64.decode(chunk.getValue("data").jsonPrimitive.content,Base64.DEFAULT)
                 require(bytes.isNotEmpty()&&bytes.size<=48*1024&&offset+bytes.size<=total){"历史分块大小无效"}
@@ -189,6 +216,29 @@ class DeckRepository(context:Context){
         require(epoch==hostEpoch){"电脑连接已切换"}
         return UpstreamHistoryPage(entries,(result["nextCursor"] as? JsonPrimitive)?.contentOrNull)
     }
+    private fun cancelTimelineRequests(){synchronized(this){timelineRevision.incrementAndGet();timelineJob?.cancel();timelineRefreshJob?.cancel()}}
+    private fun scheduleTimelineHistory(){synchronized(this){timelineRefreshJob?.cancel();timelineRefreshJob=scope.launch{delay(250);loadTimelineHistory()}}}
+    fun olderHistory(){loadTimelineHistory(older=true)}
+    private fun loadTimelineHistory(older:Boolean=false){synchronized(this){
+        val state=mutable.value
+        val id=state.selectedSession?:return
+        if(state.stale||state.capabilities?.supports("upstreamHistoryOrdering")!=true)return
+        val existing=state.timelineHistory.takeIf{it.sessionId==id}?:TimelineHistory(sessionId=id)
+        if(older&&(existing.loading||!existing.loaded||existing.nextCursor==null))return
+        val target=if(older)existing.nextCursor else null
+        val epoch=hostEpoch
+        val revision=timelineRevision.incrementAndGet()
+        timelineJob?.cancel()
+        fun current(s:DeckState)=epoch==hostEpoch&&revision==timelineRevision.get()&&s.selectedSession==id
+        mutable.update{if(current(it))it.copy(timelineHistory=existing.copy(loading=true,error=null))else it}
+        timelineJob=scope.launch{
+            try{
+                val page=readUpstreamHistory(id,target,"desc")
+                val loaded=historyPageLoaded(existing,page,older)
+                mutable.update{if(current(it))it.copy(timelineHistory=loaded)else it}
+            }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{if(current(it))it.copy(timelineHistory=existing.copy(loading=false,error=errorMessage(e)))else it}}
+        }
+    }}
     private fun turnPayload(id:String,text:String,mode:String,attachments:List<ChatAttachment>)=buildJsonObject{put("mode",mode);put("attachments",buildJsonArray{attachments.forEach{file->add(buildJsonObject{put("name",file.name);put("data",file.data)})}});put("sessionId",id);put("text",text);put("permissionMode",if(mutable.value.fullAccess)"full" else "workspace");mutable.value.selectedModel.takeIf{it.isNotBlank()}?.let{put("model",it);mutable.value.selectedEffort.takeIf{it.isNotBlank()}?.let{effort->put("effort",effort)}}}
     private suspend fun loadModels(){try{val list=rpc().request("models.list")["models"]?.jsonArray?.map{wire.decodeFromJsonElement(CodexModel.serializer(),it)}?:emptyList();mutable.update{it.copy(models=list)}}catch(_:Exception){mutable.update{it.copy(models=emptyList())}}}
     fun refreshModels(){action{loadModels();if(mutable.value.models.isEmpty())error("模型列表暂不可用，请更新并连接 Windows Bridge")}}

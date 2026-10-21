@@ -34,7 +34,8 @@ import androidx.compose.ui.platform.LocalContext
     val keyboard=LocalSoftwareKeyboardController.current
     val focus=LocalFocusManager.current
     val session=state.snapshot.sessions.find{it.sessionId==state.selectedSession}
-    val entries=remember(state.events){conversationEntries(state.events)}
+    val history=state.timelineHistory.takeIf{it.sessionId==state.selectedSession}
+    val entries=remember(state.events,history?.entries,state.snapshot.turns,state.selectedSession){state.selectedSession?.let{conversationTimeline(it,state.events,history?.entries.orEmpty(),state.snapshot.turns)}?:emptyList()}
     val approvals=state.snapshot.approvals.filter{it.sessionId==state.selectedSession&&it.status=="pending"}
     val active=session?.status in listOf("running","queued","waitingApproval","unknown")
     var showUpstreamHistory by remember(state.host?.hostId,state.selectedSession){mutableStateOf(false)}
@@ -78,7 +79,11 @@ import androidx.compose.ui.platform.LocalContext
                 Text(if(state.selectedProject==null)"先在会话列表中授权一个项目，再开始对话。" else "描述你的目标，Codex 会在 Windows 工作区中开始处理。",fontSize=14.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,lineHeight=23.sp)
                 if(state.selectedProject==null)OutlinedButton(onClick=repo::addProject,enabled=!state.stale){Text("在 Windows 选择项目")}
             }else LazyColumn(Modifier.fillMaxSize().testTag("execution-timeline"),state=list,contentPadding=PaddingValues(horizontal=24.dp,vertical=20.dp),verticalArrangement=Arrangement.spacedBy(24.dp)){
-                item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderEvents,enabled=!state.stale&&!state.busy){Text("加载更早的消息",fontSize=12.sp)}}}
+                if(state.capabilities?.supports("upstreamHistoryOrdering")==true){
+                    if(history?.loading==true)item{LinearProgressIndicator(Modifier.fillMaxWidth())}
+                    history?.error?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error);TextButton(onClick=repo::refresh,enabled=!state.stale){Text("重新读取会话")}}}
+                    if(history?.nextCursor!=null)item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderHistory,enabled=!state.stale&&history.loading!=true){Text("加载更早的消息",fontSize=12.sp)}}}
+                }else item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderEvents,enabled=!state.stale&&!state.busy){Text("加载更早的消息",fontSize=12.sp)}}}
                 items(entries,key={"${state.host?.hostId}:${it.id}"}){entry->ChatWidth{ChatMessage(entry,state.displayMask)}}
                 items(approvals,key={"${state.host?.hostId}:approval:"+it.approvalId}){approval->ChatWidth{if(approval.method=="item/tool/requestUserInput")QuestionCard(approval,state.stale||state.busy,repo::answerQuestions,{repo.decide(approval,"cancel")})else ApprovalCard(approval,state.stale||state.busy,repo::decide)}}
                 item{ChatWidth{if(active&&approvals.isEmpty())Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){if(!state.stale&&session.status!="unknown")CircularProgressIndicator(Modifier.size(13.dp),strokeWidth=1.5.dp);Text(if(state.stale)"连接恢复后核对任务状态" else statusLabel(session.status),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
@@ -146,7 +151,7 @@ import androidx.compose.ui.platform.LocalContext
         "assistant","plan"->Column{
             if(entry.kind=="plan")Text("计划",fontSize=12.sp,fontWeight=FontWeight.Medium,color=MaterialTheme.colorScheme.onSurfaceVariant)
             MarkdownText(text)
-            if(entry.truncated)Text("消息预览已截断，请在 Windows 核对完整内容。",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(entry.truncated)Text("消息预览已截断，可通过会话上方的历史查看完整记录。",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
             IconButton(onClick={clipboard.setText(AnnotatedString(text))},modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.ContentCopy,"复制回复",Modifier.size(15.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)}
         }
         "tool"->{var expanded by rememberSaveable(entry.id){mutableStateOf(false)}

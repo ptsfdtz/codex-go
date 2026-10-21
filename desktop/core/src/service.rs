@@ -449,19 +449,21 @@ impl Core {
             }
             "sessions.observe" => self.observe_session(s(p, "sessionId")).await,
             "sessions.history" => {
-                self.upstream_history(
+                self.upstream_history_ordered(
                     s(p, "sessionId"),
                     p["cursor"].as_str(),
                     p["limit"].as_u64().unwrap_or(20) as usize,
+                    p["sortDirection"].as_str().unwrap_or("asc"),
                 )
                 .await
             }
             "sessions.historyContent" => {
-                self.upstream_history_content(
+                self.upstream_history_content_ordered(
                     s(p, "sessionId"),
                     p["cursor"].as_str(),
                     s(p, "sha256"),
                     p["offset"].as_u64().unwrap() as usize,
+                    p["sortDirection"].as_str().unwrap_or("asc"),
                 )
                 .await
             }

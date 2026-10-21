@@ -2,26 +2,31 @@ package dev.agentdeck.app
 
 import kotlinx.serialization.json.*
 
-data class ChatEntry(val id:String,val kind:String,val text:String,val title:String="",val status:String="",val detail:String="",val truncated:Boolean=false)
+data class ChatEntry(val id:String,val kind:String,val text:String,val title:String="",val status:String="",val detail:String="",val truncated:Boolean=false,val sourceTurn:String?=null,val sourceItem:String?=null)
 
 /** Project durable bridge events into messages; completed items replace their streamed preview. */
-fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
+fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):List<ChatEntry> {
+    val nativeTurns=turns.filter{!it.upstreamTurnId.isNullOrBlank()}.associate{it.turnId to it.upstreamTurnId!!}.toMutableMap()
+    for(e in events){val p=e.payload as? JsonObject?:continue;val t=p["turn"] as? JsonObject;val native=(t?.get("upstreamTurnId") as? JsonPrimitive)?.contentOrNull?:if((p["method"] as? JsonPrimitive)?.contentOrNull=="turn/started")(t?.get("id") as? JsonPrimitive)?.contentOrNull else null;if(e.turnId!=null&&!native.isNullOrBlank())nativeTurns[e.turnId]=native}
+    val identities=mutableMapOf<String,Pair<String?,String?>>()
     val rows=linkedMapOf<String,ChatEntry>()
     val seen=hashSetOf<String>()
     for(e in events){
         if(!seen.add(e.eventId))continue
         val p=e.payload as? JsonObject?:continue
         fun JsonObject.string(key:String)=(get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
-        val native=if(e.action=="upstream.progress")p.string("upstreamTurnId") else ""
+        val native=p.string("upstreamTurnId").ifBlank{nativeTurns[e.turnId].orEmpty()}
         val prefix=if(native.isNotBlank())"${e.sessionId}:upstream:$native:" else "${e.sessionId}:${e.turnId}:"
         if((p["truncated"] as? JsonPrimitive)?.booleanOrNull==true)rows[prefix+"truncated:"+e.eventId]=ChatEntry(prefix+"truncated:"+e.eventId,"status","部分执行内容超过保留上限，预览已截断。完整内容请在 Windows 工作区核对。")
         if(e.action=="turn.queued"){
             val files=(p["attachments"] as? JsonArray).orEmpty().mapNotNull{(it as? JsonPrimitive)?.contentOrNull}
             val text=p.string("text")+if(files.isEmpty())"" else "\n\n附件："+files.joinToString("、")
+            identities[prefix+"user"]=native.ifBlank{null} to null
             if(text.isNotBlank())rows[prefix+"user"]=ChatEntry(prefix+"user","user",text)
             continue
         }
         if(e.action=="turn.steered"){
+            identities[prefix+"steer:"+e.eventId]=native.ifBlank{null} to null
             rows[prefix+"steer:"+e.eventId]=ChatEntry(prefix+"steer:"+e.eventId,"user",p.string("text"),title="已追加")
             continue
         }
@@ -29,6 +34,7 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
             val native=p.string("upstreamTurnId")
             if(native.isNotBlank()){
                 val key="${e.sessionId}:upstream:$native:result"
+                identities[key]=native to null
                 if(e.action=="upstream.turn.completed"){
                     val status=p.string("status")
                     if(status in listOf("completed","failed","interrupted"))rows[key]=ChatEntry(key,"status",statusLabel(status),status=status,detail=p.string("error"))
@@ -39,12 +45,14 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
         if(e.action in listOf("turn.completed","turn.failed","turn.interrupted")){
             val turn=p["turn"] as? JsonObject
             val status=turn?.string("status")?.ifBlank{null}?:e.action.substringAfter('.')
+            identities[prefix+"result"]=native.ifBlank{null} to null
             rows[prefix+"result"]=ChatEntry(prefix+"result","status",statusLabel(status),status=status,detail=turn?.string("error").orEmpty())
             continue
         }
         val method=p.string("method")
         val item=p["item"] as? JsonObject
         val id=prefix+(item?.string("id")?.ifBlank{null}?:p.string("itemId").ifBlank{e.eventId})
+        identities[id]=native.ifBlank{null} to (item?.string("id")?.ifBlank{null}?:p.string("itemId").ifBlank{null})
         val old=rows[id]
         if(method.endsWith("/delta")||method.endsWith("/outputDelta")){
             val kind=when(method){"item/agentMessage/delta"->"assistant";"item/plan/delta"->"plan";else->"tool"}
@@ -61,7 +69,7 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
             when(type){
                 "agentMessage","plan"->{val text=item.string("text").ifEmpty{old?.text.orEmpty()};rows[id]=ChatEntry(id,if(type=="agentMessage")"assistant" else "plan",text.take(128000),status=status,truncated=text.length>128000||(item.string("text").isEmpty()&&old?.truncated==true))}
                 // turn.queued owns user messages, avoiding an echo from item/userMessage.
-                "userMessage"->if(native.isNotBlank()){val text=(item["content"] as? JsonArray).orEmpty().mapNotNull{it as? JsonObject}.joinToString("\n"){part->if(part.string("type")=="text")part.string("text") else "[${part.string("type")}]"};rows[id]=ChatEntry(id,"user",text,detail=item.toString(),status=status)}
+                "userMessage"->if(e.action=="upstream.progress"){val text=(item["content"] as? JsonArray).orEmpty().mapNotNull{it as? JsonObject}.joinToString("\n"){part->if(part.string("type")=="text")part.string("text") else "[${part.string("type")}]"};rows[id]=ChatEntry(id,"user",text,detail=item.toString(),status=status)}
                 "reasoning"->Unit
                 else->{
                     val title=when(type){"commandExecution"->item.string("command");"fileChange"->"修改文件";"mcpToolCall"->item.string("tool");else->"执行步骤"}
@@ -73,5 +81,5 @@ fun conversationEntries(events:List<DeckEvent>):List<ChatEntry> {
             rows[id]=ChatEntry(id,"status","执行遇到错误",status="failed",detail=p.toString())
         }
     }
-    return rows.values.filter{it.kind=="tool"||it.text.isNotBlank()}.toList()
+    return rows.values.filter{it.kind=="tool"||it.text.isNotBlank()}.map{row->identities[row.id]?.let{row.copy(sourceTurn=it.first,sourceItem=it.second)}?:row}
 }

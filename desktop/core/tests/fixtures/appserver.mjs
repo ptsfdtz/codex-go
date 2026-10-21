@@ -214,6 +214,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         {turnId:'persisted-turn',item:{type:'userMessage',id:'user-history',content:[{type:'text',text:'原始问题',text_elements:[]}]}},
         {turnId:'persisted-turn',item:{type:'agentMessage',id:'answer-history',text}},
       ];
+      if (p.sortDirection === 'desc') entries.reverse();
       const offset = p.cursor ? Number(p.cursor) : 0;
       const data = entries.slice(offset,offset+(p.limit ?? 20));
       const next = offset+data.length;

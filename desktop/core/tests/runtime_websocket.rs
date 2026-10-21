@@ -440,6 +440,17 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         assert_eq!(second["data"][0]["turnId"], *turn_id);
         assert_eq!(second["data"][0]["item"]["type"], "agentMessage");
         assert_eq!(second["data"][0]["item"]["text"], answer);
+        let latest = core
+            .upstream_history_ordered(&imported_id, None, 1, "desc")
+            .await
+            .unwrap();
+        assert_eq!(latest["data"][0], second["data"][0]);
+        let older = core
+            .upstream_history_ordered(&imported_id, latest["nextCursor"].as_str(), 1, "desc")
+            .await
+            .unwrap();
+        assert_eq!(older["data"][0], first["data"][0]);
+        assert!(older["nextCursor"].is_null());
     } else {
         assert!(history["data"].as_array().unwrap().is_empty());
     }
@@ -548,6 +559,32 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         })
         .await
         .expect("native observation did not deliver original output and completion");
+        let saved_items = core
+            .upstream_history_ordered(&imported_id, None, 20, "desc")
+            .await
+            .unwrap();
+        let completed_item = core
+            .store
+            .history(&imported_id, None, 100)
+            .unwrap()
+            .into_iter()
+            .find(|e| {
+                e["action"] == "upstream.progress"
+                    && e["payload"]["upstreamTurnId"] == turn_id
+                    && e["payload"]["method"] == "item/completed"
+                    && e["payload"]["item"]["type"] == "agentMessage"
+            })
+            .unwrap();
+        assert!(
+            saved_items["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["turnId"] == turn_id
+                    && entry["item"]["id"] == completed_item["payload"]["item"]["id"]
+                    && entry["item"]["text"] == answer),
+            "persisted and streamed original items must have the same native identity"
+        );
 
         let finished = b
             .request(
@@ -840,6 +877,13 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         })
         .await
         .expect("restored native observation missed the next original turn");
+        let recovered = core
+            .upstream_history_ordered(&imported_id, None, 1, "desc")
+            .await
+            .unwrap();
+        assert_eq!(recovered["data"][0]["turnId"], *turn_id);
+        assert_eq!(recovered["data"][0]["item"]["text"], answer);
+
         assert!(core.store.turns(Some(&imported_id)).unwrap().is_empty());
     }
     core.shutdown().await;

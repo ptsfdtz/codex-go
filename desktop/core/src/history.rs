@@ -12,7 +12,13 @@ impl Core {
         session_id: &str,
         cursor: Option<&str>,
         limit: usize,
+        direction: &str,
     ) -> Result<(std::sync::Arc<Rpc>, Value)> {
+        ensure(
+            ["asc", "desc"].contains(&direction),
+            "INVALID_REQUEST",
+            "Invalid history direction",
+        )?;
         let session = self.store.session(session_id)?;
         let root = paths::root(&self.store, s(&session, "projectId"))?;
         let rpc = self.upstream()?;
@@ -36,7 +42,7 @@ impl Core {
         let page = rpc
             .request(
                 "thread/items/list",
-                json!({"threadId":thread_id,"cursor":cursor,"limit":limit,"sortDirection":"asc"}),
+                json!({"threadId":thread_id,"cursor":cursor,"limit":limit,"sortDirection":direction}),
             )
             .await?;
         rpc.validate("v2/ThreadItemsListResponse", &page)?;
@@ -61,6 +67,16 @@ impl Core {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<Value> {
+        self.upstream_history_ordered(session_id, cursor, limit, "asc")
+            .await
+    }
+    pub async fn upstream_history_ordered(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+        limit: usize,
+        direction: &str,
+    ) -> Result<Value> {
         ensure(
             (1..=50).contains(&limit),
             "INVALID_REQUEST",
@@ -68,11 +84,13 @@ impl Core {
         )?;
         let mut limit = limit;
         loop {
-            let (_, page) = self.history_source(session_id, cursor, limit).await?;
+            let (_, page) = self
+                .history_source(session_id, cursor, limit, direction)
+                .await?;
             let bytes = page.to_string().into_bytes();
             if bytes.len() <= PAGE_BYTES {
                 return Ok(
-                    json!({"sessionId":session_id,"source":"upstream-persisted","data":page["data"],"nextCursor":page["nextCursor"],"resource":null}),
+                    json!({"sessionId":session_id,"source":"upstream-persisted","sortDirection":direction,"data":page["data"],"nextCursor":page["nextCursor"],"resource":null}),
                 );
             }
             if limit > 1 {
@@ -87,7 +105,7 @@ impl Core {
             )?;
             let content = data[0].to_string().into_bytes();
             return Ok(
-                json!({"sessionId":session_id,"source":"upstream-persisted","data":[],"nextCursor":page["nextCursor"],"resource":{"cursor":cursor,"sha256":format!("{:x}",Sha256::digest(&content)),"bytes":content.len(),"itemId":data[0]["item"]["id"],"turnId":data[0]["turnId"],"chunkBytes":CHUNK_BYTES}}),
+                json!({"sessionId":session_id,"source":"upstream-persisted","sortDirection":direction,"data":[],"nextCursor":page["nextCursor"],"resource":{"cursor":cursor,"sha256":format!("{:x}",Sha256::digest(&content)),"bytes":content.len(),"itemId":data[0]["item"]["id"],"turnId":data[0]["turnId"],"chunkBytes":CHUNK_BYTES}}),
             );
         }
     }
@@ -98,7 +116,20 @@ impl Core {
         expected_hash: &str,
         offset: usize,
     ) -> Result<Value> {
-        let (_, page) = self.history_source(session_id, cursor, 1).await?;
+        self.upstream_history_content_ordered(session_id, cursor, expected_hash, offset, "asc")
+            .await
+    }
+    pub async fn upstream_history_content_ordered(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+        expected_hash: &str,
+        offset: usize,
+        direction: &str,
+    ) -> Result<Value> {
+        let (_, page) = self
+            .history_source(session_id, cursor, 1, direction)
+            .await?;
         let data = page["data"].as_array().unwrap();
         ensure(
             data.len() == 1,

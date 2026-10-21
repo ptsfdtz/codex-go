@@ -41,6 +41,7 @@ pub fn describe_profile(
             "externalThreadDeletionEvents": attached,
             "externalThreadObservation": attached,
             "upstreamHistoryPages": true,
+            "upstreamHistoryOrdering": true,
             "upstreamHistoryContent": true,
             "modelSelection": true,
             "plan": true,

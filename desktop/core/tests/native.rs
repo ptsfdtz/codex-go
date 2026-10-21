@@ -20,6 +20,88 @@ struct Harness {
     worker: Option<tokio::task::JoinHandle<()>>,
 }
 #[tokio::test]
+async fn descending_history_preserves_direction_across_pages_and_large_resources() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let h = Harness::fixture().await;
+    let session = h.session("ordered-history").await;
+    let id = s(&session, "sessionId");
+    let latest = h
+        .core
+        .dispatch(
+            &request(
+                "sessions.history",
+                json!({"sessionId":id,"sortDirection":"desc","limit":1}),
+                "latest",
+            ),
+            "fixture",
+        )
+        .await
+        .unwrap();
+    assert_eq!(latest["sortDirection"], "desc");
+    assert_eq!(latest["data"][0]["item"]["type"], "agentMessage");
+    let older = h
+        .core
+        .upstream_history_ordered(id, latest["nextCursor"].as_str(), 1, "desc")
+        .await
+        .unwrap();
+    assert_eq!(older["data"][0]["item"]["type"], "userMessage");
+    assert!(older["nextCursor"].is_null());
+    assert_eq!(
+        h.core.upstream_history(id, None, 1).await.unwrap()["data"][0],
+        older["data"][0]
+    );
+    h.core
+        .upstream()
+        .unwrap()
+        .request(
+            "thread/name/set",
+            json!({"threadId":session["upstreamThreadId"],"name":"HISTORY_LARGE"}),
+        )
+        .await
+        .unwrap();
+    let large = h
+        .core
+        .upstream_history_ordered(id, None, 1, "desc")
+        .await
+        .unwrap();
+    let hash = s(&large["resource"], "sha256");
+    assert!(!hash.is_empty());
+    assert_eq!(
+        h.core
+            .upstream_history_content_ordered(id, None, hash, 0, "asc")
+            .await
+            .unwrap_err()
+            .code,
+        "CONTENT_CHANGED"
+    );
+    let mut offset = 0;
+    let mut bytes = Vec::new();
+    loop {
+        let chunk = h
+            .core
+            .dispatch(
+                &request(
+                    "sessions.historyContent",
+                    json!({"sessionId":id,"sortDirection":"desc","sha256":hash,"offset":offset}),
+                    "chunk",
+                ),
+                "fixture",
+            )
+            .await
+            .unwrap();
+        bytes.extend(STANDARD.decode(s(&chunk, "data")).unwrap());
+        if let Some(next) = chunk["nextOffset"].as_u64() {
+            offset = next as usize;
+        } else {
+            break;
+        }
+    }
+    let item: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(item["item"]["type"], "agentMessage");
+    assert_eq!(item["item"]["text"], "完整历史😀".repeat(90000));
+}
+
+#[tokio::test]
 async fn upstream_history_is_complete_paged_and_large_content_is_verified() {
     use base64::{engine::general_purpose::STANDARD, Engine};
     let h = Harness::fixture().await;
@@ -442,6 +524,14 @@ fn request(action: &str, payload: Value, id: &str) -> protocol::Request {
 #[test]
 fn strict_android_protocol() {
     for (action, payload) in [
+        (
+            "sessions.history",
+            json!({"sessionId":"s","sortDirection":"sideways"}),
+        ),
+        (
+            "sessions.historyContent",
+            json!({"sessionId":"s","sha256":"a".repeat(64),"offset":0,"sortDirection":false}),
+        ),
         (
             "sessions.observe",
             json!({"sessionId":"s","permissionMode":"full"}),

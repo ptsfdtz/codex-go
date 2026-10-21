@@ -87,8 +87,11 @@ pub fn parse(v: Value) -> Result<Request> {
         "sessions.create" => (&["projectId", "title"], &[]),
         "sessions.detail" => (&["sessionId"], &["before", "limit"]),
         "sessions.observe" => (&["sessionId"], &[]),
-        "sessions.history" => (&["sessionId"], &["cursor", "limit"]),
-        "sessions.historyContent" => (&["sessionId", "sha256", "offset"], &["cursor"]),
+        "sessions.history" => (&["sessionId"], &["cursor", "limit", "sortDirection"]),
+        "sessions.historyContent" => (
+            &["sessionId", "sha256", "offset"],
+            &["cursor", "sortDirection"],
+        ),
         "turn.start" => (
             &["sessionId", "text"],
             &["model", "effort", "permissionMode", "mode", "attachments"],
@@ -137,6 +140,13 @@ pub fn parse(v: Value) -> Result<Request> {
         if p.get(key).is_some() {
             text(p, key, 1, 160)?;
         }
+    }
+    if p.get("sortDirection").is_some() {
+        ensure(
+            ["asc", "desc"].iter().any(|d| p["sortDirection"] == *d),
+            "INVALID_REQUEST",
+            "Invalid history direction",
+        )?;
     }
     if p.get("pinned").is_some() {
         ensure(
