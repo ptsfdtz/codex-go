@@ -102,3 +102,13 @@ node scripts/check-desktop-gui-runtime.mjs <ChatGPT.exe绝对路径> <codex.exe�
 真实 `baselines/codex-0.163.0-alpha.10.2/desktop-gui-project-peer-probe.json` 的 peerInitializedWithoutProjectOptOut、peerReadOriginalSeedProject、peerReceivedExternalProjectChanged、peerReadUpdatedSeedProject、sourceReadPeerProjectUpdate 全部 true。它证明安装版隔离运行时在两个未排除通知的原生连接间支持项目变更广播和双向读取更新，排除了“项目通知只回给写入者”的解释；第二客户端仍只是原生协议探测客户端，不是安卓或 Bridge。
 
 GUI 的 desktopOptedOutProjectChanged 仍 true，变更通知和新名称读取仍 false，因此整体 passed=false，历史严格门槛本次未启用，UI/宿主集成/安卓状态均不升级。子进程退出且固定代理错误码为空。实现方向应分开：原生项目数据/身份及事件可作为远程同步底座，原版桌面的本机缓存/项目发布需另行宿主适配；不能因原生双端通过就宣称桌面侧栏自动刷新已通过。
+
+## 桌面项目宿主路径与适配约束
+
+`node scripts/audit-desktop-project-host.mjs <app.asar绝对路径> <report.json绝对路径>` 只读安装 main bundle，严格匹配已知 renameLocal 方法及五个集成标记，再用合成依赖执行该方法。报告 `baselines/codex-0.163.0-alpha.10.2/desktop-project-host-audit.json` 保存代码指纹/字符偏移与六组结果。没有执行整个 bundle、读取生产状态或调用桌面 IPC；解析器、后端与广播均为替身，不能将这些检查解释为真实参数校验、授权、存储或界面验收。
+
+只读定位显示 createAppHost 为 renderer 提供 `projects:this.projectsManager`；前端通过 host.projects 调用 createLocal/renameLocal/upsertLocal，getLocalProjects 来源为本机 global-state 的解析结果。宿主安装原生 projectBackend，renameLocal 在后端成功后发布 LOCAL_PROJECTS 与 workspace-root-options-updated。此为内部 renderer 服务路径，尚无已验证的外部宿主 endpoint；不能把方法名直接当作可远程调用的公开 API。
+
+六组合成检查覆盖：名称去空白后写入并依次发布两类更新；相同名称、空白名称、本机缓存不存在的项目均无操作；解析器拒绝输入则失败；后端失败只尝试写入，不发布更新。未知本机项目会静默不执行，因此适配不能将“方法正常返回”当作重命名成功，也不能直接把原生 projectId 当桌面 legacy ID。必须先通过受支持入口核验身份映射和本机项目存在，提交后重新读取实际名称/版本；缺少映射、结果不符或状态未知要明确报错，禁止重复创建替代项目。
+
+后续接入应限定在电脑本机、绑定精确安装版并沿用宿主权限/文件夹确认；远程协议不得透传任意 renderer 方法或 global-state 写入。只有找到并验证受支持的外部宿主边界后，才能实现跨端项目写入与发布。当前外部入口和导航仍是阶段 0 未解决项；原生项目与线程能力的已验证路径继续保留，不因宿主缺口退回平行数据源。

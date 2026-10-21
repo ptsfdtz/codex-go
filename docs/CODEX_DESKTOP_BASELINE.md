@@ -74,7 +74,7 @@ node scripts/audit-codex-protocol.mjs <Codex可执行文件绝对路径> artifac
 | 条目 | 桌面能力/安卓对应目标 | 导出候选接口或服务适配 | 当前状态与完成所需证据 |
 | --- | --- | --- | --- |
 | P01.1 | 同一活动任务双端查看和操作 | desktop stdio；已验证 authenticated WS 原生服务；桌面 WS URL 路由 | 协议双客户端实测通过；原版桌面认证连接适配与真机尚未验证 |
-| P02.1 | 项目组织与排序 | 实验 project/list/read/update/move/import；稳定 threadSection/* | 接口候选；需核验桌面侧栏采用的数据源和操作语义 |
+| P02.1 | 项目组织与排序 | 实验 project/list/read/create/update/move/import；稳定 threadSection/*；桌面 projectsManager/projectBackend | 原生创建幂等、线程归属、独立连接广播及双向更新真实通过；GUI 主动排除 project/changed，本机缓存/发布路径已定位，外部宿主入口及 ID 映射仍未验收；排序/可见侧栏也未验收，详见 CODEX_DESKTOP_GUI_PROBE.md |
 | P03.1 | 全部历史/归档/派生关系 | thread/list/read/turns/list/items/list；实验 timeline/list、search | Bridge 尚未导入；需分页、来源/派生关系及外部变更测试 |
 | P03.2 | 完整输出按需读取 | 实验 thread/items/read；稳定 items/list | 候选；需检查超大内容、项标识和稳定完整读取能力 |
 | P04.1 | 分叉/编辑重发/重试 | thread/fork/revert；turn/start | 候选；编辑/重试语义须与桌面核对，不默认删除或覆盖历史 |
