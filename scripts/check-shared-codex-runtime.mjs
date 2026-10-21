@@ -1,21 +1,25 @@
 // Isolated native two-client probe. Never reads user history or account credentials.
 // Add --synthetic-turn to test active turns against a loopback synthetic model provider.
 // Add --complete-history with --synthetic-turn to verify completed assistant history and pagination.
-// Usage: node scripts/check-shared-codex-runtime.mjs <absolute-codex.exe> <report-dir> [--synthetic-turn] [--complete-history]
+// --unix-proxy probes the native Unix-listener/native-proxy pairing, not desktop GUI.
+// This candidate is known incompatible on the current baseline (raw vs WS handshake).
+// Usage: node scripts/check-shared-codex-runtime.mjs <absolute-codex.exe> <report-dir> [--synthetic-turn] [--complete-history] [--unix-proxy]
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { once } from 'node:events';
 import WebSocket from 'ws';
+import { nativeStdioSocket } from './lib/native-stdio-socket.mjs';
 
 const [executable, destination] = process.argv.slice(2);
 const syntheticTurn = process.argv.includes('--synthetic-turn');
 const primeTurn = process.argv.includes('--prime-turn');
 const completeHistory = process.argv.includes('--complete-history');
+const unixProxy = process.argv.includes('--unix-proxy');
 if (primeTurn && !syntheticTurn) throw new Error('--prime-turn requires --synthetic-turn');
 if (completeHistory && !syntheticTurn)
   throw new Error('--complete-history requires --synthetic-turn');
@@ -28,6 +32,23 @@ const cliVersion = execFileSync(executable, ['--version'], {
   timeout: 15000,
 }).trim();
 const directory = mkdtempSync(join(tmpdir(), 'agentdeck-shared-runtime-'));
+if (unixProxy) {
+  if (process.platform === 'win32') {
+    const who = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 15000,
+    });
+    const sid = who.match(/S-1-5-[0-9-]+/)?.[0];
+    if (!sid) throw new Error('Cannot identify probe directory owner');
+    // Apply only to the freshly created probe directory, never user configuration.
+    execFileSync('icacls.exe', [directory, '/inheritance:r', '/grant:r', `*${sid}:(OI)(CI)F`], {
+      windowsHide: true,
+      timeout: 15000,
+      stdio: 'ignore',
+    });
+  } else chmodSync(directory, 0o700);
+}
 const home = join(directory, 'codex-home');
 const project = join(directory, 'project');
 mkdirSync(home);
@@ -109,13 +130,16 @@ if (model) {
 }
 const token = randomBytes(32).toString('base64url');
 const tokenFile = join(directory, 'ws-token');
-writeFileSync(tokenFile, token, { mode: 0o600 });
+if (!unixProxy) writeFileSync(tokenFile, token, { mode: 0o600 });
 const reservation = createServer();
 reservation.listen(0, '127.0.0.1');
 await once(reservation, 'listening');
 const port = reservation.address().port;
 await new Promise((done) => reservation.close(done));
-const endpoint = `ws://127.0.0.1:${port}`;
+const socketPath = join(directory, 'native.sock');
+const endpoint = unixProxy
+  ? `unix://${socketPath.replaceAll('\\', '/')}`
+  : `ws://127.0.0.1:${port}`;
 const probeEnvironment = {
   ...process.env,
   CODEX_HOME: home,
@@ -126,6 +150,8 @@ const probeEnvironment = {
 for (const key of Object.keys(probeEnvironment)) {
   if (/^(?:https?|all)_proxy$/i.test(key) || /^(?:OPENAI|CODEX|ANTHROPIC)_API_KEY$/.test(key))
     delete probeEnvironment[key];
+  if (/^(?:CODEX_CLI_PATH|CODEX_APP_SERVER_WS_URL|AGENTDECK_RUNTIME_|AGENTDECK_DESKTOP_)/.test(key))
+    delete probeEnvironment[key];
 }
 const child = spawn(
   executable,
@@ -133,10 +159,7 @@ const child = spawn(
     'app-server',
     '--listen',
     endpoint,
-    '--ws-auth',
-    'capability-token',
-    '--ws-token-file',
-    tokenFile,
+    ...(unixProxy ? [] : ['--ws-auth', 'capability-token', '--ws-token-file', tokenFile]),
   ],
   {
     windowsHide: true,
@@ -145,37 +168,66 @@ const child = spawn(
   },
 );
 let stderrBytes = 0;
+let stderrTail = '';
 child.stderr.on('data', (bytes) => {
   stderrBytes += bytes.length;
+  stderrTail = (stderrTail + bytes.toString()).slice(-4096);
 });
 let spawnError;
 child.on('error', (error) => {
   spawnError = error.code;
 });
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+const sanitize = (value) =>
+  String(value)
+    .replaceAll(JSON.stringify(directory).slice(1, -1), '<probe-dir>')
+    .replaceAll(directory, '<probe-dir>')
+    .replaceAll(directory.replaceAll('\\', '/'), '<probe-dir>')
+    .replaceAll(token, '<redacted>');
 const clients = [];
 async function connect(authentication = 'valid') {
-  const socket = new WebSocket(endpoint, {
-    headers:
-      authentication === 'missing'
-        ? {}
-        : { Authorization: `Bearer ${authentication === 'valid' ? token : 'invalid-probe-token'}` },
-    handshakeTimeout: 2000,
-  });
-  await new Promise((done, reject) => {
-    socket.once('open', done);
-    socket.once('error', reject);
-    socket.once('unexpected-response', (_request, response) => {
-      response.resume();
-      socket.terminate();
-      reject(Object.assign(new Error('Handshake rejected'), { httpStatus: response.statusCode }));
+  const socket = unixProxy
+    ? await nativeStdioSocket(executable, socketPath, probeEnvironment)
+    : new WebSocket(endpoint, {
+        headers:
+          authentication === 'missing'
+            ? {}
+            : {
+                Authorization: `Bearer ${authentication === 'valid' ? token : 'invalid-probe-token'}`,
+              },
+        handshakeTimeout: 2000,
+      });
+  if (!unixProxy)
+    await new Promise((done, reject) => {
+      socket.once('open', done);
+      socket.once('error', reject);
+      socket.once('unexpected-response', (_request, response) => {
+        response.resume();
+        socket.terminate();
+        reject(Object.assign(new Error('Handshake rejected'), { httpStatus: response.statusCode }));
+      });
     });
-  });
   const pending = new Map();
   const events = [];
   let next = 0;
+  let initialized = false;
+  const disconnected = () => {
+    for (const request of pending.values()) {
+      clearTimeout(request.timeout);
+      request.reject(new Error('Probe transport disconnected'));
+    }
+    pending.clear();
+  };
+  socket.on('close', disconnected);
+  socket.on('error', disconnected);
   socket.on('message', (bytes) => {
-    const value = JSON.parse(bytes.toString());
+    let value;
+    try {
+      value = JSON.parse(bytes.toString());
+    } catch {
+      socket.terminate();
+      return;
+    }
     if (value.id != null && !value.method) {
       const request = pending.get(String(value.id));
       if (request) {
@@ -209,20 +261,25 @@ async function connect(authentication = 'valid') {
     request(method, params) {
       return new Promise((done, reject) => {
         const id = String(++next);
-        const timeout = setTimeout(() => {
-          pending.delete(id);
-          reject(new Error(`Timeout: ${method}`));
-        }, 15000);
+        const timeout = setTimeout(
+          () => {
+            pending.delete(id);
+            reject(new Error(`Timeout: ${method}`));
+          },
+          unixProxy && method === 'initialize' ? 3000 : 15000,
+        );
         pending.set(id, { done, reject, timeout });
         socket.send(JSON.stringify({ id, method, params }));
       });
     },
     async initialize(name) {
+      if (initialized) return;
       await this.request('initialize', {
         clientInfo: { name, version: '0.3.0' },
         capabilities: { experimentalApi: true },
       });
       socket.send(JSON.stringify({ method: 'initialized', params: {} }));
+      initialized = true;
     },
     close() {
       for (const request of pending.values()) {
@@ -234,6 +291,16 @@ async function connect(authentication = 'valid') {
     },
   };
   clients.push(client);
+  if (unixProxy) {
+    // Do not use fs.stat as readiness: Windows AF_UNIX reparse entries may return
+    // EACCES even while the native proxy can connect. Require a real handshake.
+    try {
+      await client.initialize('agentdeck_parity_stdio');
+    } catch {
+      client.close();
+      throw new Error('Native stdio initialization failed');
+    }
+  }
   return client;
 }
 const report = {
@@ -243,11 +310,19 @@ const report = {
     ? 'real-native-runtime-with-synthetic-model'
     : 'real-isolated-runtime-no-model-turn',
   desktopClientVerified: false,
+  transport: unixProxy ? 'native-unix-listener-and-native-stdio-proxy' : 'authenticated-websocket',
+  unverified: unixProxy
+    ? [
+        'original-desktop-cli-override-and-startup-arguments',
+        'socket-acl-and-production-lifecycle',
+        'android',
+      ]
+    : ['original-desktop', 'android'],
   checks: {},
 };
 try {
   let a;
-  for (let attempt = 0; attempt < 60; attempt++) {
+  for (let attempt = 0; attempt < (unixProxy ? 5 : 60); attempt++) {
     if (spawnError || child.exitCode != null) throw new Error('Isolated server failed to start');
     try {
       a = await connect();
@@ -257,7 +332,7 @@ try {
     }
   }
   if (!a) throw new Error('Isolated server did not accept authenticated connection');
-  for (const authentication of ['missing', 'wrong']) {
+  for (const authentication of unixProxy ? [] : ['missing', 'wrong']) {
     let status;
     try {
       const unauthorized = await connect(authentication);
@@ -410,6 +485,12 @@ try {
     persistedEntries = saved;
   }
   a.close();
+  if (unixProxy) {
+    for (let attempt = 0; attempt < 30 && !a.socket.proxyExited(); attempt++) await pause(100);
+    report.checks.closedClientProxyExits = a.socket.proxyExited();
+    const afterClose = await b.request('thread/read', { threadId: id, includeTurns: false });
+    report.checks.otherClientSurvivesProxyExit = afterClose.thread.id === id;
+  }
   const c = await connect();
   await c.initialize('agentdeck_parity_reconnect');
   const restored = await c.request('thread/resume', { threadId: id, excludeTurns: true });
@@ -437,6 +518,15 @@ try {
   if (!report.passed) process.exitCode = 1;
 } catch (error) {
   report.passed = false;
+  if (unixProxy)
+    report.proxyFailure = clients.slice(-2).map((client) => sanitize(client.socket.stderrTail()));
+  report.serverFailure = sanitize(stderrTail).slice(-2000);
+  if (unixProxy)
+    report.observed = {
+      nativeListenerRejectsRawProxyHandshake: stderrTail.includes(
+        'failed to upgrade control socket websocket connection',
+      ),
+    };
   report.failure = {
     message: error.message,
     rpcCode: error.rpcCode ?? null,
@@ -481,7 +571,8 @@ try {
   report.syntheticModelRequests = modelRequests;
   report.primedTurnBeforeResume = primeTurn;
   report.syntheticModelRoutes = modelRoutes;
-  if (child.exitCode != null || child.signalCode != null) unlinkSync(tokenFile);
+  if (!unixProxy && (child.exitCode != null || child.signalCode != null)) unlinkSync(tokenFile);
+  if (unixProxy) report.proxyStderrBytes = clients.map((client) => client.socket.stderrBytes());
   report.stderrBytes = stderrBytes;
   const output = resolve(destination);
   mkdirSync(output, { recursive: true });

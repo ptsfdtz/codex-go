@@ -20,6 +20,8 @@
   "terminalRetainsLocalUrl": true,
   "sanitizerControlRemoved": true,
   "originalGuiExecuted": false,
+  "cliExecutablePathOverride": true,
+  "desktopAddsConfigAndAnalyticsStartupArguments": true,
   "scope": "local-websocket-url-userinfo-in-environment",
   "productionRouteApproved": false
 }

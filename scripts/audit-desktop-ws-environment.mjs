@@ -68,6 +68,10 @@ try {
   );
   const routeOffset = network.text.indexOf('process.env.CODEX_APP_SERVER_WS_URL');
   if (routeOffset < 0) throw new Error('Local URL environment route not found');
+  const cliOverride = network.text.includes('let e=process.env.CODEX_CLI_PATH');
+  const defaultDesktopArguments =
+    network.text.includes('Os=[`-c`,`features.code_mode_host=true`]') &&
+    network.text.includes('[...Os,`app-server`,`--analytics-default-enabled`]');
   const report = {
     kind: 'installed-static-code-and-pure-function',
     bundles: [main, network].map(({ name, sha256 }) => ({ name, sha256 })),
@@ -77,6 +81,8 @@ try {
     terminalRetainsLocalUrl: sanitized.CODEX_APP_SERVER_WS_URL === marker,
     sanitizerControlRemoved: !Object.hasOwn(sanitized, 'BREAKPAD_DUMP_LOCATION'),
     originalGuiExecuted: false,
+    cliExecutablePathOverride: cliOverride,
+    desktopAddsConfigAndAnalyticsStartupArguments: defaultDesktopArguments,
     scope: 'local-websocket-url-userinfo-in-environment',
     productionRouteApproved: false,
   };

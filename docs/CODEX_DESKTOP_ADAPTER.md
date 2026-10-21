@@ -32,3 +32,15 @@ Node 构造参数验证：将 `AGENTDECK_DESKTOP_WS_MODULE` 指向本机已安�
 真实原生服务：将 `AGENTDECK_DESKTOP_PROBE_EXE` 指向精确 0.163.0-alpha.10.2 可执行文件，运行 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test runtime_websocket real_desktop_baseline_ -- --ignored --nocapture`。三项检查现在都经过 Basic → Bearer 适配完成 initialize，并读取另一原生连接创建的相同 threadId。服务 HOME/目录隔离，模型检查使用本机合成提供者，不读取当前桌面历史、不使用账户模型。
 
 仍需：环境继承问题的实际解决、桌面凭据日志路径审计、原版 GUI 安全连接与任务全流程、断连/重连/审批归属、真实账户及安卓真机验证；不能把以上测试升级为这些验收证据。
+
+## 不含认证 URL 的候选路径核验
+
+本轮没有找到可可靠配置本地 `websocket_url` 的宿主设置入口；不能因为内部对象存在该字段就指导改写用户私有数据。只读代码确认 `CODEX_CLI_PATH` 可覆盖可执行文件路径，默认仍附加 `-c features.code_mode_host=true`、`app-server`、`--analytics-default-enabled`，还可能附加动态 `-c` 覆盖项；新增静态结论也记录在指纹审计报告中。这是受控 CLI 转接的候选入口，不是已验收接口。
+
+原生 `app-server --listen unix://PATH` 和 `app-server proxy --sock PATH` 均存在，但**当前安装版不能把这两者直接配对**。隔离 Windows 实测：控制 socket 目录需仅授予当前用户 SID；沿用 Bridge 的用户+SYSTEM 目录权限时，原生服务拒绝“socket directory is not private to the current user”。改为仅当前用户后，服务启动，但内置 proxy 发送原始 stdio 字节，而 listener 要求 WebSocket，原生日志报告 `failed to upgrade control socket websocket connection: WebSocket protocol error: httparse error: invalid token`。这里的 token 指 HTTP 解析项，不能误当作缺少账户认证而开始读取账户令牌。该结果仅否定这组精确启动参数，不否定所有原生 daemon/control socket 接入方式。
+
+可复现：`node scripts/check-shared-codex-runtime.mjs <精确安装版codex.exe绝对路径> <报告目录> --unix-proxy`。当前基准应退出 1，报告 passed=false，表示候选接入未通过，不能改写为测试成功。脚本只创建隔离临时 HOME/目录，在新目录移除继承并授予当前用户；不修改现有桌面配置、不运行模型、不启动/重配现有 daemon。原始报告留在本机 artifacts，去掉无关日志与路径的必要证据见 [不兼容记录](baselines/codex-0.163.0-alpha.10.2/native-stdio-proxy-incompatibility.json)。
+
+脚本的 stdio fixture helper 只用于上述原生命令探测，不是发布版代理。其分帧与退出回归：`node --test scripts/lib/native-stdio-socket.test.mjs`。原 WS 默认模式继续通过真实合成模型的共享/历史检查。Windows AF_UNIX 文件可表现为无法 stat 的 reparse point，启动判据使用真实 initialize，不能用文件存在替代连接成功。
+
+下一实现路径：受控 stdio → 已认证回环 WS 转接，凭据从电脑文件读取，桌面只接触不含令牌的可执行路径。必须先核验 CLI 版本及全部 startup `-c`/特性/analytics 参数如何与共享服务配置对齐；不允许丢弃参数、以第二个服务兜底、伪造版本或吞掉不支持命令。当前尚未实现该转接程序，不能将 CODEX_CLI_PATH 指向不兼容的 Bridge 主程序。另需继续验证原生控制套接字、桌面宿主功能与独立 GUI 的可回退接入。

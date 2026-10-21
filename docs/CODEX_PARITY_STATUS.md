@@ -3,6 +3,17 @@
 最后更新：2026-10-21。
 
 
+## 2026-10-21 实施记录：原生 stdio/control 候选路径真实核验（阶段 0 / P01）
+
+- 前一轮提交 `92b09f9` 为实际进展。本轮只读检查没有定位到可可靠配置本地 websocket_url 的宿主设置入口，不改写私有数据。确认 CODEX_CLI_PATH 为可执行路径覆盖，桌面仍附加 -c features.code_mode_host=true、app-server、--analytics-default-enabled 及动态配置覆盖；扩充安装代码指纹报告，不把方法存在当作可直接替换 CLI。
+- 新增共享探测 --unix-proxy：隔离 HOME/目录，启动真实 app-server --listen unix://PATH 与原生 app-server proxy --sock PATH。新建目录沿用用户+SYSTEM 权限时原生拒绝私有性；仅当前用户 SID 后 listener 可启动，但 proxy 的原始 stdio 与 listener 的 WebSocket 握手不兼容，原生日志明确报告 failed to upgrade control socket websocket connection / httparse invalid token。此处不是账户令牌错误，没有为此读取凭据或关闭权限检查。
+- 最终精确新版真实探测退出 1、passed=false，并记录 nativeListenerRejectsRawProxyHandshake=true；去除无关日志/路径的必要证据持久化为 native-stdio-proxy-incompatibility.json。该结果只否定这组精确参数，不宣称 Windows 没有 AF_UNIX 或所有 daemon 路径不可用。socket 文件的 stat/EACCES 不能作为运行成功或失败判据，探测要求真实 initialize。
+- 探测 helper 限制 8 MiB JSONL、处理拆分 UTF-8/多帧、断开拒绝待处理请求，关闭仅结束自身 proxy；不作为发布版代理。新增 3 项 Node 分帧、超大输入及启动失败不回显路径回归通过。脚本 ESLint/Prettier/diff 通过。默认认证 WS 路径重新运行真实合成模型完整历史检查，19 个检查全部通过，2 次本机合成模型调用，不使用账户模型。
+- 本轮未改变 Rust/安卓生产实现，无需重复其构建；未启动/重配原版 GUI、现有 daemon 或已有任务，未做真机验收。已检查探测进程终态并确认没有带本轮隔离目录参数的 codex 进程残留。阶段 0/sharedDesktopRuntime 继续未验收，不能把负面接入证据改写为阶段通过。
+- 下一步实施受控 stdio→认证回环 WS 转接，将凭据留在电脑文件，桌面只配置可执行路径；必须核验 CLI 版本、startup -c/特性/analytics 与共享运行时配置，拒绝不支持项，不能丢弃参数或另起服务兜底。同时继续原生控制服务及完整桌面基准核验。每轮选择性提交，不混入 CI/发布修改，不推送。
+
+
+
 ## 2026-10-21 实施记录：认证环境继承证据与独立适配凭据（P01 / 阶段 0）
 
 - 前一轮提交 `74f3526` 是实际进展。本轮只读检查安装包后确认一个具体障碍：桌面 buildTerminalEnv 先复制 process.env；工作树环境读取失败时回退继承环境，最终 Ct 仅清理崩溃报告变量，不清除 CODEX_APP_SERVER_WS_URL。因此认证 URL 的环境变量方案不能批准为生产桌面接入；没有重启、重配原版桌面，也未读取用户环境、日志或账户令牌。
