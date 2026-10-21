@@ -22,7 +22,36 @@ pub(crate) struct ProjectView {
     pages: Vec<Value>,
 }
 
+fn view_live(view: &ProjectView, now: Instant) -> bool {
+    now.saturating_duration_since(view.created) < TTL
+}
+
 impl Core {
+    fn prune_project_views(
+        &self,
+        views: &mut Vec<ProjectView>,
+        replacing: Option<&str>,
+    ) -> Result<()> {
+        let rpc = self.upstream()?;
+        let active: HashSet<String> = self
+            .store
+            .query("SELECT deviceId FROM devices WHERE revokedAt IS NULL", [])?
+            .iter()
+            .map(|row| crate::s(row, "deviceId").to_owned())
+            .collect();
+        let grants = self.project_grant_snapshot()?;
+        let now = Instant::now();
+        views.retain(|view| {
+            view_live(view, now)
+                && replacing != Some(view.device.as_str())
+                && active.contains(&view.device)
+                && view.generation == rpc.generation
+                && view.revision == rpc.project_revision()
+                && view.grants == grants
+        });
+        Ok(())
+    }
+
     fn project_view_device(&self, device: &str) -> Result<()> {
         ensure(
             !self
@@ -87,7 +116,8 @@ impl Core {
                 "Restart project listing",
             )?;
             let mut views = self.project_views.lock().unwrap();
-            views.retain(|view| view.created.elapsed() < TTL);
+            let now = Instant::now();
+            views.retain(|view| view_live(view, now));
             let (view, index) = views
                 .iter()
                 .filter(|view| view.device == device)
@@ -110,6 +140,15 @@ impl Core {
             .project_view_build
             .try_lock()
             .map_err(|_| Error::new("BUSY", "Project listing is already being prepared"))?;
+        {
+            let mut views = self.project_views.lock().unwrap();
+            self.prune_project_views(&mut views, Some(device))?;
+            ensure(
+                views.len() < 8,
+                "BUSY",
+                "Project listing cache is full; retry later",
+            )?;
+        }
         let view = tokio::time::timeout(
             Duration::from_secs(30),
             self.build_project_view(device, limit),
@@ -124,7 +163,7 @@ impl Core {
         self.verify_project_view(device, &view.generation, view.revision, &view.grants)?;
         let first = view.pages[0].clone();
         let mut views = self.project_views.lock().unwrap();
-        views.retain(|old| old.created.elapsed() < TTL && old.device != device);
+        self.prune_project_views(&mut views, Some(device))?;
         ensure(
             views.len() < 8,
             "BUSY",
@@ -228,5 +267,65 @@ impl Core {
             tokens,
             pages,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn expired_continuation_is_removed_without_contacting_upstream() {
+        use std::sync::Arc;
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::store::Store::open(&directory.path().join("bridge.db")).unwrap());
+        store
+            .replace_device("device", "test", "synthetic-hash")
+            .unwrap();
+        let certificate = crate::security::Certificate {
+            cert: String::new(),
+            key: String::new(),
+            fingerprint: "fixture".into(),
+            ips: vec![],
+        };
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let core = Core::new(store, certificate, "127.0.0.1".into(), 0, tx);
+        let token = security::token();
+        core.project_views.lock().unwrap().push(ProjectView {
+            device: "device".into(),
+            generation: "expired".into(),
+            revision: 0,
+            grants: vec![],
+            created: Instant::now() - TTL,
+            limit: 1,
+            tokens: vec![token.clone()],
+            pages: vec![json!({"secret":"stale"})],
+        });
+        assert_eq!(
+            core.native_project_device_page("device", Some(&token), 1)
+                .await
+                .unwrap_err()
+                .code,
+            "INVALID_CURSOR"
+        );
+        assert!(core.project_views.lock().unwrap().is_empty());
+        assert!(core.rpc.read().unwrap().is_none());
+    }
+    #[test]
+    fn view_expires_at_exact_deadline_without_refresh_on_replay() {
+        let created = Instant::now();
+        let view = ProjectView {
+            device: "device".into(),
+            generation: "generation".into(),
+            revision: 0,
+            grants: vec![],
+            created,
+            limit: 1,
+            tokens: vec![],
+            pages: vec![],
+        };
+        assert!(view_live(&view, created + TTL - Duration::from_nanos(1)));
+        assert!(!view_live(&view, created + TTL));
+        assert!(!view_live(&view, created + TTL + Duration::from_secs(1)));
     }
 }

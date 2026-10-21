@@ -145,6 +145,125 @@ fn project(id: &str, roots: &[PathBuf]) -> Value {
 }
 
 #[tokio::test]
+async fn full_view_cache_rejects_before_source_read_and_revocation_reclaims_capacity() {
+    let h = Harness::new();
+    // Multiple devices are a server-side fixture, not a claim about pairing UI.
+    for index in 0..9 {
+        h.core
+            .store
+            .query(
+                "INSERT INTO devices VALUES(?,? ,?,'fixture',NULL)",
+                [
+                    format!("device-{index}"),
+                    format!("test-{index}"),
+                    format!("synthetic-{index}"),
+                ],
+            )
+            .unwrap();
+    }
+    let mut source = h.source(json!({"data":[]})).await;
+    for index in 0..8 {
+        assert!(h
+            .core
+            .native_project_device_page(&format!("device-{index}"), None, 1)
+            .await
+            .unwrap()["data"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+    assert_eq!(
+        h.core
+            .native_project_device_page("device-8", None, 1)
+            .await
+            .unwrap_err()
+            .code,
+        "BUSY"
+    );
+    // Replacing this device's view does not consume a ninth slot.
+    h.core
+        .native_project_device_page("device-0", None, 1)
+        .await
+        .unwrap();
+    h.core
+        .store
+        .query(
+            "UPDATE devices SET revokedAt='fixture' WHERE deviceId='device-0'",
+            [],
+        )
+        .unwrap();
+    h.core
+        .native_project_device_page("device-8", None, 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        h.core
+            .native_project_device_page("device-0", None, 1)
+            .await
+            .unwrap_err()
+            .code,
+        "UNAUTHORIZED"
+    );
+    source.rpc.stop();
+    assert!(source.requested.take().unwrap().await.is_err());
+    source.stop().await;
+}
+
+#[tokio::test]
+async fn reconnect_rejects_old_cursor_and_refreshes_same_identity_from_new_source() {
+    let h = Harness::new();
+    let a = h.folder("a");
+    paths::add_local(&h.core.store, &a).unwrap();
+    h.core
+        .store
+        .replace_device("device", "test", "synthetic-hash")
+        .unwrap();
+    let old = project("same-native", std::slice::from_ref(&a));
+    let mut first_source = h
+        .source(json!({"data":[old,project("two",std::slice::from_ref(&a))]}))
+        .await;
+    first_source.release();
+    let first = h
+        .core
+        .native_project_device_page("device", None, 1)
+        .await
+        .unwrap();
+    let cursor = first["nextCursor"].as_str().unwrap();
+    first_source.stop().await;
+    let mut changed = old.clone();
+    changed["name"] = json!("Changed while disconnected");
+    let mut second_source = h.source(json!({"data":[changed]})).await;
+    assert_eq!(
+        h.core
+            .native_project_device_page("device", Some(cursor), 1)
+            .await
+            .unwrap_err()
+            .code,
+        "UPSTREAM_UNAVAILABLE"
+    );
+    second_source.release();
+    let refreshed = h
+        .core
+        .native_project_device_page("device", None, 1)
+        .await
+        .unwrap();
+    assert_ne!(refreshed["viewId"], first["viewId"]);
+    assert_eq!(refreshed["data"][0]["project"], changed);
+    assert!(refreshed["nextCursor"].is_null());
+    assert_eq!(
+        h.core
+            .native_project_device_page("device", Some(cursor), 1)
+            .await
+            .unwrap_err()
+            .code,
+        "INVALID_CURSOR"
+    );
+    assert_eq!(h.core.store.projects().unwrap().len(), 1);
+    assert!(h.core.store.sessions(None).unwrap().is_empty());
+    second_source.stop().await;
+}
+
+#[tokio::test]
 async fn project_notifications_invalidate_both_cached_and_inflight_views() {
     for during_build in [false, true] {
         let h = Harness::new();
