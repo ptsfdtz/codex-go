@@ -23,7 +23,14 @@ internal class NotificationReplay(private val limit:Int=128) {
             "turn.completed","turn.failed","turn.interrupted"->{
                 if(event.turnId!=null)put("terminal:$session",event.copy(payload=JsonNull))
             }
-            "turn.started","upstream.turn.completed"->candidates.remove("terminal:$session")
+            "upstream.turn.completed"->{
+                candidates.remove("terminal:$session")
+                if(taskNotificationTitle(event,now)!=null){
+                    val payload=event.payload as JsonObject
+                    put("terminal:$session",event.copy(payload=buildJsonObject{put("upstreamTurnId",payload.getValue("upstreamTurnId"));put("status",payload.getValue("status"))}))
+                }
+            }
+            "turn.started"->candidates.remove("terminal:$session")
             "upstream.progress"->{
                 if(((event.payload as? JsonObject)?.get("method") as? JsonPrimitive)?.contentOrNull=="turn/started")candidates.remove("terminal:$session")
             }
@@ -38,7 +45,7 @@ internal class NotificationReplay(private val limit:Int=128) {
 
     fun clear(){candidates.clear()}
 
-    fun drain(hostId:String,snapshot:Snapshot,now:Instant=Instant.now()):List<DeckEvent> {
+    fun drain(hostId:String,snapshot:Snapshot,now:Instant=Instant.now(),includeNative:Boolean=false):List<DeckEvent> {
         val buffered=candidates.values.toList();clear()
         if(snapshot.host?.hostId!=hostId)return emptyList()
         return buffered.mapNotNull{event->
@@ -47,6 +54,8 @@ internal class NotificationReplay(private val limit:Int=128) {
                 val prior=pendingNotificationApproval(event,now)?:return@mapNotNull null
                 val current=snapshot.approvals.find{it.approvalId==prior.approvalId&&it.sessionId==event.sessionId&&it.turnId==event.turnId&&notificationApprovalActive(it,now)}?:return@mapNotNull null
                 event.copy(payload=wire.encodeToJsonElement(Approval.serializer(),current.copy(context=JsonObject(emptyMap()),allowedDecisions=emptyList())))
+            }else if(event.action=="upstream.turn.completed"){
+                event.takeIf{includeNative&&taskNotificationTitle(it,now)!=null}
             }else{
                 val status=event.action.removePrefix("turn.")
                 event.takeIf{session.status==status&&snapshot.turns.any{it.turnId==event.turnId&&it.sessionId==session.sessionId&&it.status==status}}

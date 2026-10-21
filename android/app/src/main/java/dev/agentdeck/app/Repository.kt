@@ -164,9 +164,27 @@ class DeckRepository(context:Context){
             check(!more||cursor.toLong()>before.toLong()){"事件重放没有推进，请重新连接"}
         }while(more)
     }
-    private fun publishReplayNotifications(current:DeckTransport,host:Host,replay:NotificationReplay){
-        if(current!==transport||mutable.value.stale||mutable.value.host?.hostId!=host.hostId){replay.clear();return}
-        replay.drain(host.hostId,mutable.value.snapshot).forEach{notifications.publish(host.hostId,it,mutable.value.preferences.notifications)}
+    private suspend fun publishReplayNotifications(current:DeckTransport,host:Host,replay:NotificationReplay){
+        val epoch=hostEpoch
+        fun valid()=epoch==hostEpoch&&current===transport&&!mutable.value.stale&&mutable.value.host?.hostId==host.hostId
+        if(!valid()){replay.clear();return}
+        val snapshot=mutable.value.snapshot
+        var nativeReads=0
+        replay.drain(host.hostId,snapshot,includeNative=true).forEach{event->
+            if(!valid())return
+            if(event.action=="upstream.turn.completed"){
+                if(mutable.value.capabilities?.supports("latestUpstreamTurn")!=true||nativeReads>=8)return@forEach
+                val session=snapshot.sessions.find{it.sessionId==event.sessionId}?:return@forEach
+                nativeReads++
+                try{
+                    val result=withTimeout(4000){current.request("turn.latest",buildJsonObject{put("sessionId",session.sessionId);put("contractVersion",1)})}
+                    val latest=decodeLatestTurn(result,session)
+                    if(!valid()||mutable.value.snapshot.sessions.none{it.sessionId==session.sessionId&&it.upstreamThreadId==session.upstreamThreadId})return
+                    if(!latest.confirms(event))return@forEach
+                }catch(e:TimeoutCancellationException){return@forEach}catch(e:CancellationException){throw e}catch(_:Exception){return@forEach}
+            }
+            if(valid())notifications.publish(host.hostId,event,mutable.value.preferences.notifications)
+        }
     }
     private suspend fun applyEvent(event:DeckEvent){
         val committed=cacheMutex.withLock{

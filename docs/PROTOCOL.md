@@ -8,7 +8,7 @@ Response: `{contractVersion:1,sessionId,upstreamThreadId,threadStatus,turn:{upst
 
 The server resolves the original thread from the authorized Bridge session, checks public thread/read identity and exact cwd authorization, then requests thread/turns/list with limit 1, descending order and itemsView notLoaded. It rechecks authorization, deletion and runtime generation before returning. It never resumes a thread or modifies execution settings. Existing turn.active reuses the reader and retains its old response and active-state checks.
 
-This is a fresh bounded observation, not an atomic combined thread/turn snapshot or a subscription. threadStatus is observed before the turn page; clients must reject conflicting/unknown state and bind results to the expected host, connection, Bridge session and native thread. New activity can begin after any read. Native replay notification consumption is not yet implemented in Android; the endpoint alone does not complete notification recovery or shared-desktop acceptance.
+This is a fresh bounded observation, not an atomic combined thread/turn snapshot or a subscription. threadStatus is observed before the turn page; clients must reject conflicting/unknown state and bind results to the expected host, connection, Bridge session and native thread. New activity can begin after any read. Android now capability-gates bounded native replay checks, requiring exact latest terminal identity and idle thread status. This is not atomic notification delivery or shared-desktop acceptance; see ANDROID_NOTIFICATIONS.md.
 
 ## Native project read views (additive contract 1)
 
