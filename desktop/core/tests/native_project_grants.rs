@@ -162,6 +162,20 @@ fn project(id: &str, roots: &[PathBuf]) -> Value {
     json!({"id":id,"name":format!("project-{id}"),"roots":roots.iter().map(|p|json!({"path":p})).collect::<Vec<_>>(),"metadata":{"original":"preserved"},"position":2,"createdAt":1,"updatedAt":3})
 }
 
+#[test]
+fn refresh_index_contract_does_not_accept_device_or_directory_overrides() {
+    let packet = |payload: Value| json!({"v":1,"type":"request","id":"refresh","action":"sessions.refreshIndex","payload":payload});
+    assert!(agentdeck_service::protocol::parse(packet(json!({"contractVersion":1}))).is_ok());
+    for payload in [
+        json!({}),
+        json!({"contractVersion":2}),
+        json!({"contractVersion":1,"projectId":"outside"}),
+        json!({"contractVersion":1,"deviceId":"other"}),
+    ] {
+        assert!(agentdeck_service::protocol::parse(packet(payload)).is_err());
+    }
+}
+
 #[tokio::test]
 async fn authenticated_wss_reads_native_pages_and_refuses_invalidated_continuation() {
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;

@@ -175,6 +175,17 @@ class DeckRepository(context:Context){
         dao.saveEvents(events.map{CachedEvent(host.hostId,it.eventId.toLong(),it.sessionId,wire.encodeToString(DeckEvent.serializer(),it))})
         if(before==null&&mutable.value.selectedSession==id)loadTimelineHistory()
     }
+    internal suspend fun refreshNativeProjectSessions(){
+        val epoch=hostEpoch
+        val connection=rpc()
+        require(!mutable.value.stale&&mutable.value.capabilities?.supports("threadIndexRefresh")==true){"电脑端需要升级或重新连接才能同步会话"}
+        val result=connection.request("sessions.refreshIndex",buildJsonObject{put("contractVersion",1)})
+        require(result["contractVersion"]?.jsonPrimitive?.intOrNull==1){"不支持的会话同步版本"}
+        require(epoch==hostEpoch&&connection===transport&&!mutable.value.stale){"连接已变更，请重试同步"}
+        val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),connection.request("snapshot.get"))
+        require(epoch==hostEpoch&&connection===transport&&!mutable.value.stale){"连接已变更，请重试同步"}
+        updateSnapshot(snapshot)
+    }
     internal fun openNativeProjectSession(expectedHost:String?,entry:JsonObject,id:String):Boolean {
         val current=mutable.value
         if(current.host?.hostId!=expectedHost||expectedHost==null||current.stale||current.busy||current.capabilities?.supports("nativeProjectReadViews")!=true)return false

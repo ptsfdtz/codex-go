@@ -395,6 +395,31 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
                 && entry["project"]["name"] == "After device view"));
         assert_eq!(core.store.projects().unwrap().len(), 1);
         assert!(core.store.sessions(None).unwrap().is_empty());
+        let external = native_request(&mut source,"external-thread","thread/start",json!({"cwd":project,"projectId":id,"sandbox":"read-only","approvalPolicy":"on-request"})).await;
+        let refresh = agentdeck_service::protocol::parse(json!({"v":1,"type":"request","id":"refresh-native-index","action":"sessions.refreshIndex","payload":{"contractVersion":1}})).unwrap();
+        let refreshed_index = core.dispatch(&refresh, "project-reader").await.unwrap();
+        assert_eq!(refreshed_index["contractVersion"], 1);
+        assert!(refreshed_index["indexed"].as_u64().unwrap() >= 1);
+        let sessions = core.store.sessions(None).unwrap();
+        let imported = sessions
+            .iter()
+            .find(|session| session["upstreamThreadId"] == external["thread"]["id"])
+            .unwrap();
+        let authoritative = native_request(
+            &mut source,
+            "read-unpersisted",
+            "thread/read",
+            json!({"threadId":external["thread"]["id"],"includeTurns":false}),
+        )
+        .await;
+        assert_eq!(
+            imported["upstream"]["projectId"],
+            authoritative["thread"]["projectId"]
+        );
+        // No history/model turn was created: preserve unknown association rather
+        // than inferring it from the requested project or matching cwd.
+        assert!(authoritative["thread"]["projectId"].is_null());
+        assert_eq!(imported["projectId"], grant["projectId"]);
         source.close(None).await.unwrap();
     }
     let created = a

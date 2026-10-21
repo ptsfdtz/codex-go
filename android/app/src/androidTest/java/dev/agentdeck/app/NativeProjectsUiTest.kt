@@ -14,6 +14,18 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NativeProjectsUiTest {
     @get:Rule val compose=createAndroidComposeRule<MainActivity>()
+    @Test fun refreshFailureRetainsProjectAndOffersExplicitRetry(){
+        var calls=0
+        val read:suspend(String?)->NativeProjectPage={NativeProjectPage("view",listOf(entry("one","Project stays visible")),null)}
+        val refresh:suspend()->Unit={calls++;if(calls==1)throw DeckException("CONFLICT","同步忙碌，请重试")}
+        compose.runOnUiThread{compose.activity.setContent{DeckTheme{NativeProjectsViewer("fixture",read,{},refreshSessions=refresh)}}}
+        compose.onNodeWithText("同步会话").performClick()
+        compose.onNodeWithText("同步忙碌，请重试").assertIsDisplayed()
+        compose.onNodeWithText("Project stays visible").assertIsDisplayed()
+        compose.onNodeWithText("同步会话").performClick()
+        compose.onNodeWithText("同步忙碌，请重试").assertDoesNotExist()
+        compose.runOnIdle{assertEquals(2,calls)}
+    }
     private fun entry(id:String,name:String)=buildJsonObject{
         put("project",buildJsonObject{put("id",id);put("name",name);put("roots",buildJsonArray{add(buildJsonObject{put("path","C:/fixture/$id")})});put("metadata",buildJsonObject{put("marker","complete-metadata")})})
         put("rootGrants",buildJsonArray{add(buildJsonObject{put("rootIndex",0);put("projectId","grant-$id")})})

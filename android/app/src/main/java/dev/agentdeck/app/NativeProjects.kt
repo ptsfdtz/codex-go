@@ -48,10 +48,10 @@ internal fun nativeProjectSessions(entry:JsonObject,sessions:List<Session>):List
     val state by repo.state.collectAsState()
     NativeProjectsViewer(hostId,repo::readNativeProjects,onClose,sessions=if(state.host?.hostId==hostId)state.snapshot.sessions else emptyList(),navigationEnabled=state.host?.hostId==hostId&&!state.stale&&!state.busy,onOpenSession={entry,id->
         if(repo.openNativeProjectSession(hostId,entry,id)){onClose();onOpenChat()}
-    })
+    },refreshSessions=if(state.capabilities?.supports("threadIndexRefresh")==true)repo::refreshNativeProjectSessions else null)
 }
 
-@Composable internal fun NativeProjectsViewer(hostId:String?,readPage:suspend (String?)->NativeProjectPage,onClose:()->Unit,sessions:List<Session> = emptyList(),navigationEnabled:Boolean=true,onOpenSession:(JsonObject,String)->Unit={_,_->}){
+@Composable internal fun NativeProjectsViewer(hostId:String?,readPage:suspend (String?)->NativeProjectPage,onClose:()->Unit,sessions:List<Session> = emptyList(),navigationEnabled:Boolean=true,onOpenSession:(JsonObject,String)->Unit={_,_->},refreshSessions:(suspend ()->Unit)?=null){
     val scope=rememberCoroutineScope()
     var page by remember(hostId){mutableStateOf<NativeProjectPage?>(null)}
     var busy by remember(hostId){mutableStateOf(false)}
@@ -72,6 +72,11 @@ internal fun nativeProjectSessions(entry:JsonObject,sessions:List<Session>):List
             Row{Text("Codex 项目",modifier=Modifier.weight(1f),style=MaterialTheme.typography.titleLarge);TextButton(onClick=onClose){Text("关闭")}}
             Text("显示电脑已授权的项目。列表暂存两分钟；查看最新变化请刷新。",style=MaterialTheme.typography.bodySmall)
             TextButton(onClick={scope.launch{load(null)}},enabled=!busy){Text("刷新")}
+            if(refreshSessions!=null)TextButton(onClick={scope.launch{
+                busy=true;error=null
+                try{refreshSessions()}catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"会话同步失败，请重试"}finally{busy=false}
+            }},enabled=!busy&&navigationEnabled){Text("同步会话")}
+
             if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
             LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp)){

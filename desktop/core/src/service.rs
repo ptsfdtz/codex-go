@@ -438,6 +438,18 @@ impl Core {
                 Ok(json!({"retention":p}))
             }
             "snapshot.get" => self.snapshot(),
+            "sessions.refreshIndex" => {
+                let indexed =
+                    tokio::time::timeout(Duration::from_secs(30), self.sync_thread_index())
+                        .await
+                        .map_err(|_| {
+                            Error::new(
+                                "UPSTREAM_TIMEOUT",
+                                "Thread index refresh timed out; retry refresh",
+                            )
+                        })??;
+                Ok(json!({"contractVersion":1,"indexed":indexed}))
+            }
             "projects.nativePage" => {
                 self.native_project_device_page(
                     device,

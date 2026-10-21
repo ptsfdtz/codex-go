@@ -220,7 +220,15 @@ async fn imports_existing_thread_ids_with_archives_provenance_and_atomic_paginat
     let outside = h._directory.path().join("not-granted");
     std::fs::create_dir(&outside).unwrap();
     external(&rpc, &outside, "INDEX_OUTSIDE").await;
-    assert_eq!(h.core.sync_thread_index().await.unwrap(), 4);
+    let refresh = request(
+        "sessions.refreshIndex",
+        json!({"contractVersion":1}),
+        "refresh-index",
+    );
+    assert_eq!(
+        h.core.dispatch(&refresh, "fixture").await.unwrap()["indexed"],
+        4
+    );
     let sessions = h.core.store.sessions(None).unwrap();
     assert_eq!(sessions.len(), 4);
     let imported = sessions

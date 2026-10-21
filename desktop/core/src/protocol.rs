@@ -80,6 +80,7 @@ pub fn parse(v: Value) -> Result<Request> {
         | "projects.add"
         | "settings.get"
         | "devices.revokeSelf" => (&[], &[]),
+        "sessions.refreshIndex" => (&["contractVersion"], &[]),
         "projects.nativePage" => (&["contractVersion"], &["cursor", "limit"]),
         "settings.update" => (&["days", "maxMiB"], &[]),
         "projects.remove" | "git.status" => (&["projectId"], &[]),
@@ -210,6 +211,9 @@ pub fn parse(v: Value) -> Result<Request> {
             p["limit"] = json!(100);
         }
         integer(p, "limit", 1, 500)?;
+    }
+    if r.action == "sessions.refreshIndex" {
+        integer(p, "contractVersion", 1, 1)?;
     }
     if r.action == "projects.nativePage" {
         integer(p, "contractVersion", 1, 1)?;

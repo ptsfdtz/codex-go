@@ -38,6 +38,7 @@ pub fn describe_profile(
             "activeTurnSteering": true,
             "activeTurnInterruption": true,
             "threadIndexImport": true,
+            "threadIndexRefresh": true,
             "externalThreadMetadataSync": attached,
             "externalThreadDeletionEvents": attached,
             "externalThreadObservation": attached,
