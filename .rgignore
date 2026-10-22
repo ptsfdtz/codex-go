@@ -1,0 +1,5 @@
+# Generated upstream schemas: read explicitly when changing protocol contracts.
+packages/codex-protocol/schema/
+packages/codex-protocol/experimental/
+packages/codex-protocol/versions/*/schema/
+packages/codex-protocol/versions/*/experimental/

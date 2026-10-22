@@ -68,20 +68,4 @@ class SidebarTest {
         }finally{automation.setRotation(UiAutomation.ROTATION_UNFREEZE)}
     }
 
-    @Test fun apiSidebarFillsHeightAndCanCollapse(){
-        val automation=InstrumentationRegistry.getInstrumentation().uiAutomation
-        try{
-            rotate(UiAutomation.ROTATION_FREEZE_90)
-            val repo=(compose.activity.application as DeckApplication).apiRepository
-            compose.runOnUiThread{compose.activity.setContent{DeckTheme{ApiWorkspace(repo){}}}}
-            assertFullHeight("api-sidebar")
-            screenshot("api-expanded")
-            val expandedWidth=compose.onNodeWithTag("api-workspace-content").fetchSemanticsNode().boundsInRoot.width
-            compose.onNodeWithContentDescription("收起 chat 会话列表").performClick()
-            compose.onNodeWithTag("api-sidebar").assertDoesNotExist()
-            assertTrue(compose.onNodeWithTag("api-workspace-content").fetchSemanticsNode().boundsInRoot.width>expandedWidth)
-            compose.onNodeWithContentDescription("chat 会话列表").performClick()
-            assertFullHeight("api-sidebar")
-        }finally{automation.setRotation(UiAutomation.ROTATION_UNFREEZE)}
-    }
 }

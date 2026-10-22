@@ -23,7 +23,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import kotlinx.serialization.json.*
@@ -34,8 +33,6 @@ import java.time.Instant
     MaterialTheme(colorScheme=if(dark)darkColorScheme(primary=Color(0xFFE6E6E6),onPrimary=Color(0xFF171717),primaryContainer=Color(0xFF333333),onPrimaryContainer=Color(0xFFF5F5F5),background=Color(0xFF181818),surface=Color(0xFF181818),surfaceContainerLow=Color(0xFF212121),surfaceContainer=Color(0xFF252525),surfaceContainerHighest=Color(0xFF303030),secondaryContainer=Color(0xFF303030),onSecondaryContainer=Color(0xFFF0F0F0),outlineVariant=Color(0xFF373737))else lightColorScheme(primary=Color(0xFF202020),onPrimary=Color.White,primaryContainer=Color(0xFFEAEAEA),onPrimaryContainer=Color(0xFF202020),background=Color.White,surface=Color.White,surfaceContainerLow=Color(0xFFF8F8F8),surfaceContainer=Color(0xFFF3F3F3),surfaceContainerHighest=Color(0xFFEEEEEE),secondaryContainer=Color(0xFFEAEAEA),onSecondaryContainer=Color(0xFF202020),outlineVariant=Color(0xFFE8E8E8)),typography=Typography(),content=content)
 }
 @Composable fun DeckApp(state:DeckState,repo:DeckRepository){
-    val api=(LocalContext.current.applicationContext as DeckApplication).apiRepository
-    var apiMode by rememberSaveable{mutableStateOf(false)}
     var panel by rememberSaveable{mutableStateOf("chat")}
     var showPair by rememberSaveable{mutableStateOf(false)}
     var showComputers by rememberSaveable{mutableStateOf(false)}
@@ -47,8 +44,7 @@ import java.time.Instant
     var sessionCommand by remember(state.host?.hostId){mutableStateOf<Pair<String,String>?>(null)}
     val workspaceState=rememberSaveableStateHolder()
     var notificationSeen by rememberSaveable{mutableStateOf("")}
-    LaunchedEffect(state.notificationNavigation){if(state.notificationNavigation.isNotEmpty()&&state.notificationNavigation!=notificationSeen){notificationSeen=state.notificationNavigation;apiMode=false;panel="chat";sidebar=false;showPair=false;showComputers=false}}
-    if(apiMode){androidx.activity.compose.BackHandler{apiMode=false};ApiWorkspace(api){apiMode=false};return}
+    LaunchedEffect(state.notificationNavigation){if(state.notificationNavigation.isNotEmpty()&&state.notificationNavigation!=notificationSeen){notificationSeen=state.notificationNavigation;panel="chat";sidebar=false;showPair=false;showComputers=false}}
     val canBack=!state.busy&&state.host?.hostId?.let{repo.workspaceNavigation.destination(it,-1,state.snapshot)}!=null
     val canForward=!state.busy&&state.host?.hostId?.let{repo.workspaceNavigation.destination(it,1,state.snapshot)}!=null
     fun navigate(direction:Int){if(repo.navigateWorkspace(direction)){panel="chat";sidebar=false}}
@@ -82,7 +78,6 @@ import java.time.Instant
                     if(state.host!=null)IconButton(onClick={showDrafts=true}){Icon(Icons.Outlined.Drafts,"未发送草稿")}
                     IconButton(onClick={showCommands=true}){Icon(Icons.Outlined.Search,"搜索操作与会话")}
                     if(!compactToolbar){
-                    TextButton(onClick={apiMode=true}){Text("chat")}
                     DisplayMaskAction(state.displayMask,repo::setDisplayMask)
                     }
                     if(!wide||state.host==null)IconButton(onClick={panel="settings"},modifier=Modifier.testTag("codex-open-settings")){Icon(Icons.Outlined.Settings,"设置")}
@@ -97,7 +92,6 @@ import java.time.Instant
                         TextButton(onClick={panel="review";repo.refreshGit()},enabled=state.selectedProject!=null){Icon(Icons.Outlined.Difference,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("审查")}
                         TextButton(onClick={state.selectedProject?.let(repo::selectProject);panel="chat"},enabled=state.selectedProject!=null){Icon(Icons.Outlined.EditNote,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("新对话")}
                     }
-                    TextButton(onClick={apiMode=true}){Text("chat")}
                     DisplayMaskAction(state.displayMask,repo::setDisplayMask)
                 }
                 if(state.stale&&state.host!=null)Surface(color=MaterialTheme.colorScheme.surfaceContainerHighest){Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.CloudOff,null,Modifier.size(16.dp));Spacer(Modifier.width(8.dp));Text("连接已断开 · 当前显示缓存，恢复连接后可继续",fontSize=12.sp,modifier=Modifier.weight(1f));TextButton(onClick=repo::reconnect){Text("重连")}}}

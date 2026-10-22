@@ -32,7 +32,7 @@ import kotlinx.serialization.json.*
 
 private val diagnosticJson=Json{prettyPrint=true}
 
-internal val deckSettingsSections=listOf("general" to "通用","account" to "账户与用量","execution" to "执行配置","skills" to "技能","conversations" to "会话","shortcuts" to "键盘快捷键","computers" to "电脑与连接","data" to "数据与诊断")
+internal val deckSettingsSections=listOf("general" to "通用","conversations" to "会话","shortcuts" to "键盘快捷键","computers" to "电脑与连接","data" to "数据与诊断")
 
 @Composable fun DeckSettings(state:DeckState,repo:DeckRepository,onPair:()->Unit,onForget:()->Unit,onReconnect:()->Unit,onOpenArchived:(String)->Unit,requestedSection:String?=null,onSectionConsumed:()->Unit={}){
     var section by rememberSaveable{mutableStateOf("general")}
@@ -121,9 +121,6 @@ internal val deckSettingsSections=listOf("general" to "通用","account" to "账
                 }
             }
         }}}
-        if(section=="execution")item{ExecutionConfigSettings(state,repo)}
-        if(section=="skills")item{SkillSettings(state,repo)}
-        if(section=="account")item{AccountSettings(state,repo)}
         if(section=="conversations")item{ArchivedSettingsCard(state.snapshot.sessions.count{it.archived==1}){showArchived=true}}
         if(section=="general")item{OutlinedCard{Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
             Text("外观",fontWeight=FontWeight.SemiBold)

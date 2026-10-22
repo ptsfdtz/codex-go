@@ -27,7 +27,6 @@ cpSync(resolve('desktop/src-tauri/resources/native-runtime'), join(output, 'runt
 const installer = join(release, 'bundle/nsis/AgentDeck_0.3.0_x64-setup.exe');
 if (!existsSync(installer)) throw new Error('Build the NSIS bundle first');
 cpSync(installer, resolve('artifacts/AgentDeck_0.3.0_x64-setup.exe'));
-cpSync('docs/history/TAURI_MIGRATION.md', join(output, 'MIGRATION.md'));
 writeFileSync(
   join(output, 'README.txt'),
   'AgentDeck 0.3.0\r\nRun AgentDeck.exe. React frontend, Tauri host and native Rust Bridge. No Node/C# runtime required.\r\nRequires Windows 11, WebView2, Git and a logged-in Codex CLI. AgentDeck currently verifies 0.159.2 and can install it alongside your global CLI after SHA-512 validation.\r\nData: %LOCALAPPDATA%\\AgentDeck, or AGENTDECK_DATA_DIR.\r\nClose button hides to tray. Use tray menu to stop and exit.\r\n',

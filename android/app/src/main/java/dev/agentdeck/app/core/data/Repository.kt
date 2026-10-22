@@ -21,7 +21,6 @@ import kotlin.random.Random
 
 class DeckApplication:Application(){
     var foreground=false;private set
-    val apiRepository:ApiRepository by lazy{ApiRepository(this)}
     val repository:DeckRepository by lazy{DeckRepository(this)}
     override fun onCreate(){super.onCreate();registerActivityLifecycleCallbacks(object:ActivityLifecycleCallbacks{
         override fun onActivityResumed(activity:android.app.Activity){foreground=true}
@@ -439,31 +438,6 @@ class DeckRepository(context:Context){
     fun selectModel(model:CodexModel){mutable.update{it.copy(selectedModel=model.model,selectedEffort=model.defaultReasoningEffort)}}
     fun setFullAccess(enabled:Boolean){navigation.edit().putBoolean("fullAccess",enabled).apply();mutable.update{it.copy(fullAccess=enabled)}}
     fun selectEffort(effort:String){val model=mutable.value.models.find{it.model==mutable.value.selectedModel}?:mutable.value.models.firstOrNull{it.isDefault};require(effort.isEmpty()||model?.supportedReasoningEfforts?.any{it.reasoningEffort==effort}==true);mutable.update{it.copy(selectedModel=model?.model?:it.selectedModel,selectedEffort=effort)}}
-    internal suspend fun readExecutionConfig(projectId:String?):JsonObject {
-        val epoch=hostEpoch
-        val connection=rpc()
-        require(mutable.value.capabilities?.supports("executionConfigView")==true){"电脑尚不支持执行配置视图"}
-        val result=connection.request("settings.execution",buildJsonObject{projectId?.let{put("projectId",it)}})
-        require(epoch==hostEpoch&&connection===transport){"电脑连接已切换"}
-        require((result["projectId"] as? JsonPrimitive)?.contentOrNull==projectId){"配置项目身份不匹配"}
-        return result
-    }
-    internal suspend fun writeModelDefaults(model:String,effort:String,revision:String):JsonObject {
-        val epoch=hostEpoch;val connection=rpc()
-        require(mutable.value.capabilities?.supports("modelDefaultsWrite")==true){"电脑尚不支持默认模型配置写入"}
-        val result=connection.request("settings.modelDefaults",buildJsonObject{put("model",model);if(effort.isNotEmpty())put("effort",effort);put("expectedUserRevision",revision)})
-        require(epoch==hostEpoch&&connection===transport){"电脑连接已变化，请刷新核对配置"}
-        require(result["model"]?.jsonPrimitive?.content==model){"默认模型写入结果未获确认，请刷新核对"}
-        return result
-    }
-    internal suspend fun writeOutputDefaults(verbosity:String,summary:String,revision:String):JsonObject {
-        val epoch=hostEpoch;val connection=rpc()
-        require(mutable.value.capabilities?.supports("outputDefaultsWrite")==true){"电脑尚不支持回复设置写入"}
-        val result=connection.request("settings.outputDefaults",payload("verbosity" to verbosity,"summary" to summary,"expectedUserRevision" to revision))
-        require(epoch==hostEpoch&&connection===transport&&!mutable.value.stale){"电脑连接已变化，请刷新核对配置"}
-        require(result["verbosity"]?.jsonPrimitive?.content==verbosity&&result["summary"]?.jsonPrimitive?.content==summary){"回复设置写入未获确认，请刷新核对"}
-        return result
-    }
     internal suspend fun readSkillCatalog(projectId:String):JsonObject {
         val epoch=hostEpoch
         val connection=rpc()
@@ -472,14 +446,6 @@ class DeckRepository(context:Context){
         require(epoch==hostEpoch&&connection===transport){"电脑连接已切换"}
         require((result["projectId"] as? JsonPrimitive)?.contentOrNull==projectId){"技能目录项目身份不匹配"}
         return result
-    }
-    internal suspend fun setSkillEnabled(projectId:String,id:String,enabled:Boolean,expected:Boolean):Boolean {
-        val epoch=hostEpoch;val connection=rpc()
-        require(mutable.value.capabilities?.supports("skillConfiguration")==true){"电脑尚不支持技能配置修改"}
-        val result=connection.request("skills.setEnabled",buildJsonObject{put("projectId",projectId);put("skillId",id);put("enabled",enabled);put("expectedEnabled",expected)})
-        require(epoch==hostEpoch&&connection===transport){"电脑连接已变化，请刷新技能配置核对结果"}
-        require(result["projectId"]?.jsonPrimitive?.content==projectId&&result["skillId"]?.jsonPrimitive?.content==id){"技能配置结果身份不匹配，请刷新核对"}
-        return result["effectiveEnabled"]?.jsonPrimitive?.booleanOrNull?:error("技能配置结果未获确认，请刷新核对")
     }
     internal suspend fun listProjectFiles(projectId:String,directory:String):JsonObject {
         val epoch=hostEpoch;val connection=rpc()
@@ -505,14 +471,6 @@ class DeckRepository(context:Context){
         require(epoch==hostEpoch&&connection===transport){"电脑连接已切换"}
         require(result["projectId"]?.jsonPrimitive?.content==projectId&&result["path"]?.jsonPrimitive?.content==path){"文件引用来源不匹配"}
         return result["referenceText"]?.jsonPrimitive?.content?.takeIf{it.isNotBlank()&&it.length<=16000}?:error("文件引用无效")
-    }
-    internal suspend fun readAccountStatus():JsonObject {
-        val epoch=hostEpoch
-        val connection=rpc()
-        require(mutable.value.capabilities?.supports("accountSummary")==true){"电脑尚不支持账户概览"}
-        val result=connection.request("account.status")
-        require(epoch==hostEpoch&&connection===transport){"电脑连接已切换"}
-        return result
     }
     internal suspend fun nativeQueue(sessionId:String,operation:String,extra:JsonObject=JsonObject(emptyMap())):JsonObject{
         require(operation in listOf("list","add","update","delete","reorder","start"))
