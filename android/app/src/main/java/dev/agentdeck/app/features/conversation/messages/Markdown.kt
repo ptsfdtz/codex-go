@@ -62,7 +62,7 @@ internal fun MarkdownText(text: String, modifier: Modifier = Modifier, fontSizeS
                 movementMethod = LinkMovementMethod.getInstance()
                 includeFontPadding = false
                 setPadding(0, 0, 0, 0)
-                setLineSpacing(0f, 1.18f)
+                setLineSpacing(0f, 1.35f)
             }
         },
         update = { view ->

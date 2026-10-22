@@ -16,14 +16,12 @@ import kotlinx.serialization.json.*
 import java.security.SecureRandom
 import android.util.Base64
 import java.time.Instant
-import kotlin.math.min
-import kotlin.random.Random
 
 class DeckApplication:Application(){
     var foreground=false;private set
     val repository:DeckRepository by lazy{DeckRepository(this)}
     override fun onCreate(){super.onCreate();registerActivityLifecycleCallbacks(object:ActivityLifecycleCallbacks{
-        override fun onActivityResumed(activity:android.app.Activity){foreground=true}
+        override fun onActivityResumed(activity:android.app.Activity){foreground=true;repository.checkConnection()}
         override fun onActivityPaused(activity:android.app.Activity){foreground=false}
         override fun onActivityCreated(activity:android.app.Activity,state:android.os.Bundle?){}
         override fun onActivityStarted(activity:android.app.Activity){}
@@ -51,6 +49,9 @@ class DeckRepository(context:Context){
     private val initialized=CompletableDeferred<Unit>()
     private var notificationJob:Job?=null
     private var connectionJob:Job?=null
+    private var connectionProbeJob:Job?=null
+    private val connectionRecovery=ConnectionRecovery()
+    @Volatile private var connectionError:String?=null
     private var selectionJob:Job?=null
     private var pairingJob:Job?=null
     private var pairGeneration=0L
@@ -70,7 +71,10 @@ class DeckRepository(context:Context){
     @Volatile private var switchingHost=false
     @Volatile private var hostEpoch=0L
     private val connectivity=context.getSystemService(ConnectivityManager::class.java)
-    private val callback=object:ConnectivityManager.NetworkCallback(){override fun onAvailable(network:Network){val host=mutable.value.host;if(host!=null&&mutable.value.connection!="已连接")startConnection(host)}}
+    private val callback=object:ConnectivityManager.NetworkCallback(){
+        override fun onAvailable(network:Network){checkConnection()}
+        override fun onLost(network:Network){checkConnection()}
+    }
     init {
         connectivity.registerDefaultNetworkCallback(callback)
         scope.launch{try{actionMutex.withLock{
@@ -82,6 +86,8 @@ class DeckRepository(context:Context){
         var attempt=0
         while(isActive){
             val current=DeckTransport(host);transport=current
+            var connectedAt:Long?=null
+            var indexRefresh:Job?=null
             val replayNotifications=NotificationReplay()
             try{
                 mutable.update{it.copy(connection=if(attempt==0)"正在连接" else "重新连接中",stale=true)}
@@ -93,23 +99,37 @@ class DeckRepository(context:Context){
                 if(cache==null){refreshSnapshot(current,resetCursor=true)}
                 else {try{replay(current,replayNotifications)}catch(e:DeckException){if(e.code!="REPLAY_GAP")throw e;replayNotifications.clear();refreshSnapshot(current,resetCursor=true);mutable.update{it.copy(error="部分历史已过保留期，已恢复可信快照")}};refreshSnapshot(current)}
                 val retention=wire.decodeFromJsonElement(Retention.serializer(),current.request("settings.get").getValue("retention"))
-                mutable.update{it.copy(connection="已连接",stale=false,retention=retention)};attempt=0
+                mutable.update{it.copy(connection="已连接",stale=false,retention=retention,error=if(it.error==connectionError)null else it.error)}
+                connectedAt=System.nanoTime();connectionRecovery.connected()
+                if(capabilities.supports("threadIndexRefresh"))indexRefresh=scope.launch{
+                    if(transport!==current)return@launch
+                    try{refreshNativeProjectSessions()}
+                    catch(e:CancellationException){throw e}
+                    catch(e:Exception){if(transport===current)mutable.update{it.copy(error="已有会话同步未完成，可在会话列表重试。${errorMessage(e)}")}}
+                }
                 publishReplayNotifications(current,host,replayNotifications)
                 loadModels()
                 restoreLastSession(mutable.value.snapshot)
                 mutable.value.selectedSession?.let{refreshSession(it)}
                 for(packet in current.events){val event=wire.decodeFromJsonElement(DeckEvent.serializer(),packet);val id=event.eventId.toLong();if(id<=cursor.toLong())continue;if(id>cursor.toLong()+1){replay(current,replayNotifications);refreshSnapshot(current);publishReplayNotifications(current,host,replayNotifications)};if(id>cursor.toLong()){applyEvent(event);notifications.publish(host.hostId,event,mutable.value.preferences.notifications)};scheduleSnapshot(current)}
                 throw java.io.IOException("Bridge 连接已结束")
-            }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(connection="重新连接中",stale=true,error=errorMessage(e))};attempt++;delay(min(30000L,500L*(1L shl min(attempt,6)))+Random.nextLong(250))}
-            finally{current.close()}
+            }catch(e:CancellationException){throw e}catch(e:Exception){
+                val previousConnectionError=connectionError
+                connectionError=errorMessage(e)
+                mutable.update{it.copy(connection="重新连接中",stale=true,error=if(it.error==null||it.error==previousConnectionError)connectionError else it.error)}
+                if(connectedAt?.let{System.nanoTime()-it>=30_000_000_000L}==true)attempt=0
+                attempt++
+            }
+            finally{indexRefresh?.cancel();current.close();if(transport===current)transport=null}
+            connectionRecovery.pause(attempt)
         }
     }}}}
     // Called under actionMutex: complete/cancel old work before publishing the new host.
     private suspend fun activateBook(book:HostBook){
         synchronized(this){switchingHost=true;hostEpoch++;connectionJob?.cancel();transport?.close()}
         try{
-            connectionJob?.cancelAndJoin();connectionMutex.withLock{};snapshotJob?.cancelAndJoin();selectionJob?.cancelAndJoin();timelineJob?.cancelAndJoin();timelineRefreshJob?.cancelAndJoin();timelineRevision.incrementAndGet()
-            connectionJob=null;snapshotJob=null;selectionJob=null;transport=null
+            connectionJob?.cancelAndJoin();connectionProbeJob?.cancelAndJoin();connectionMutex.withLock{};snapshotJob?.cancelAndJoin();selectionJob?.cancelAndJoin();timelineJob?.cancelAndJoin();timelineRefreshJob?.cancelAndJoin();timelineRevision.incrementAndGet()
+            connectionJob=null;snapshotJob=null;selectionJob=null;transport=null;connectionError=null
             cacheMutex.withLock{eventCheckpoint.reset("0");restoreNavigation=true;mutable.value=mutable.value.forHost(book)}
             book.active?.let{host->
                 dao.host(host.hostId)?.let{cached->
@@ -230,8 +250,12 @@ class DeckRepository(context:Context){
         if(resetCursor)eventCheckpoint.reset(snapshot.cursor)
         notifications.reconcileApprovals(host.hostId,snapshot)
         val selected=mutable.value.selectedSession
+        val previousSession=mutable.value.snapshot.sessions.find{it.sessionId==selected}
+        val refreshedSession=snapshot.sessions.find{it.sessionId==selected}
+        val sourceHistoryChanged=previousSession!=null&&refreshedSession!=null&&previousSession.updatedAt!=refreshedSession.updatedAt
         if(selected!=null&&snapshot.sessions.none{it.sessionId==selected})selectionJob?.cancel()
         mutable.update{old->val vanished=old.selectedSession!=null&&snapshot.sessions.none{it.sessionId==old.selectedSession};old.copy(historyGeneration=historyRevision.get(),snapshot=snapshot,lastSynced=at,selectedSession=if(vanished)null else old.selectedSession,timelineHistory=if(vanished||resetCursor)TimelineHistory(sessionId=if(vanished)null else old.selectedSession) else old.timelineHistory,events=if(vanished||resetCursor)emptyList() else old.events,selectedProject=old.selectedProject?.takeIf{id->snapshot.projects.any{it.projectId==id}}?:snapshot.projects.firstOrNull()?.projectId)}
+        if(sourceHistoryChanged)scheduleTimelineHistory()
     }}
     private fun restoreLastSession(snapshot:Snapshot){
         if(!restoreNavigation||snapshot.sessions.isEmpty())return
@@ -251,7 +275,7 @@ class DeckRepository(context:Context){
     }
     private fun scheduleSnapshot(current:DeckTransport){if(snapshotJob?.isActive==true)return;snapshotJob=scope.launch{delay(250);try{refreshSnapshot(current)}catch(e:CancellationException){throw e}catch(_:Exception){}}}
     private fun rpc():DeckTransport {check(mutable.value.connection=="已连接"&&!mutable.value.stale){"离线时不能执行操作"};return transport?:error("Bridge 未连接")}
-    private fun action(block:suspend()->Unit){val epoch=hostEpoch;scope.launch{if(!actionMutex.tryLock())return@launch;if(epoch!=hostEpoch){actionMutex.unlock();return@launch};mutable.update{it.copy(busy=true,error=null)};try{block()}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}finally{mutable.update{it.copy(busy=false)};actionMutex.unlock()}}}
+    private fun action(block:suspend()->Unit){val epoch=hostEpoch;scope.launch{if(!actionMutex.tryLock())return@launch;if(epoch!=hostEpoch){actionMutex.unlock();return@launch};mutable.update{it.copy(busy=true,error=null)};try{block()}catch(e:Exception){connectionError=null;mutable.update{it.copy(error=errorMessage(e))}}finally{mutable.update{it.copy(busy=false)};actionMutex.unlock()}}}
     fun beginPair(raw:String){val generation=++pairGeneration;pairingJob?.cancel();pairingJob=scope.launch{mutable.update{it.copy(busy=true,error=null)};var client:okhttp3.OkHttpClient?=null;try{
         val qr=wire.decodeFromString(PairQr.serializer(),raw).validated();client=pinnedClient(qr.fingerprint)
         val nonce=ByteArray(32).also{SecureRandom().nextBytes(it)};val result=post(client,qr.endpoint.trimEnd('/')+"/api/v1/pair/request",buildJsonObject{put("token",qr.token);put("displayName","${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".take(80));put("nonce",Base64.encodeToString(nonce,Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))})
@@ -317,7 +341,7 @@ class DeckRepository(context:Context){
         val epoch=hostEpoch
         val connection=rpc()
         require(!mutable.value.stale&&mutable.value.capabilities?.supports("threadIndexRefresh")==true){"电脑端需要升级或重新连接才能同步会话"}
-        val result=connection.request("sessions.refreshIndex",buildJsonObject{put("contractVersion",1)})
+        val result=refreshExistingSessionIndex { connection.request("sessions.refreshIndex",buildJsonObject{put("contractVersion",1)}) }
         require(result["contractVersion"]?.jsonPrimitive?.intOrNull==1){"不支持的会话同步版本"}
         require(epoch==hostEpoch&&connection===transport&&!mutable.value.stale){"连接已变更，请重试同步"}
         refreshSnapshot(connection)
@@ -612,7 +636,7 @@ class DeckRepository(context:Context){
         put("answers",buildJsonObject{answers.forEach{(id,value)->put(id,buildJsonObject{put("answers",buildJsonArray{add(value)})})}})
     });refreshSnapshot()}}
     fun addProject(){action{rpc().request("projects.add");mutable.update{it.copy(error="请在 Windows 管理窗选择并确认目录")}}}
-    fun refresh(){action{refreshSnapshot();mutable.value.selectedSession?.let{refreshSession(it)}}}
+    fun refresh(){action{if(mutable.value.capabilities?.supports("threadIndexRefresh")==true)refreshNativeProjectSessions() else refreshSnapshot();mutable.value.selectedSession?.let{refreshSession(it)}}}
     fun refreshGit(){val epoch=hostEpoch;scope.launch{try{if(epoch!=hostEpoch)return@launch;val id=mutable.value.selectedProject?:return@launch;val git=wire.decodeFromJsonElement(GitStatus.serializer(),rpc().request("git.status",payload("projectId" to id)));mutable.update{if(epoch==hostEpoch&&it.selectedProject==id)it.copy(git=git)else it}}catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{if(epoch==hostEpoch)it.copy(error=errorMessage(e))else it}}}}
     fun selectFile(file:GitFile){action{val id=mutable.value.selectedProject?:return@action;val hostId=mutable.value.host?.hostId;val diff=wire.decodeFromJsonElement(Diff.serializer(),rpc().request("git.diff",payload("projectId" to id,"fileId" to file.fileId)));mutable.update{if(it.selectedProject==id&&it.host?.hostId==hostId)it.copy(diff=diff)else it}}}
     fun forgetHost(){action{
@@ -628,6 +652,23 @@ class DeckRepository(context:Context){
         if(!revoked)mutable.update{it.copy(error="已从平板移除此电脑，请在该 Windows 电脑撤销设备凭据")}
     }}
     fun clearError(){mutable.update{it.copy(error=null)}}
+    // A foreground/network change wakes retry backoff, or verifies the existing
+    // socket with a read-only hello. Never cancels an in-progress connection just
+    // because Android delivered another network callback.
+    fun checkConnection(){synchronized(this){
+        val host=mutable.value.host?:return
+        if(switchingHost)return
+        if(connectionJob?.isActive!=true){startConnection(host);return}
+        if(mutable.value.stale||mutable.value.connection!="已连接"){connectionRecovery.wake();return}
+        if(connectionProbeJob?.isActive==true)return
+        val current=transport?:return
+        connectionProbeJob=scope.launch{
+            try{current.probe()}
+            catch(e:CancellationException){throw e}
+            catch(_:DeckException){/* A protocol error response still proves the socket is alive. */}
+            catch(e:Exception){if(current===transport&&mutable.value.host==host)current.disconnect(e)}
+        }
+    }}
     fun reconnect(){mutable.value.host?.let{startConnection(it)}}
     fun setTheme(theme:String){require(theme in listOf("system","light","dark"));val next=mutable.value.preferences.copy(theme=theme);preferences.save(next);mutable.update{it.copy(preferences=next)}}
     fun setNotifications(enabled:Boolean){val permitted=enabled&&notifications.permitted();val next=mutable.value.preferences.copy(notifications=permitted);preferences.save(next);mutable.update{it.copy(preferences=next,error=if(enabled&&!permitted)"通知权限未授予，前台任务与审批仍可使用" else it.error)}}

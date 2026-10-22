@@ -40,7 +40,7 @@ impl Core {
         self.thread_index_changed.notify_one();
         Ok(())
     }
-    /// Attached runtimes reconcile on connect and validated metadata notifications.
+    /// Reconcile on connect, grants, notifications and while a phone is connected.
     /// This worker never blocks the RPC event reader or grants a new directory.
     pub(crate) async fn watch_thread_index(
         self: std::sync::Arc<Self>,
@@ -51,7 +51,12 @@ impl Core {
         let mut last_error = None;
         let mut failures = 0u32;
         loop {
-            self.thread_index_changed.notified().await;
+            tokio::select! {
+                _ = self.thread_index_changed.notified() => {},
+                _ = tokio::time::sleep(Duration::from_secs(15)) => {
+                    if self.connected.lock().unwrap().is_empty() { continue; }
+                },
+            }
             tokio::time::sleep(Duration::from_millis(250)).await;
             if self.stopping.load(Ordering::SeqCst)
                 || !rpc.alive.load(Ordering::SeqCst)
@@ -61,9 +66,12 @@ impl Core {
             {
                 break;
             }
-            let refreshed = async {
+            let refreshed: Result<()> = async {
                 self.sync_thread_index().await?;
-                self.restore_observations().await
+                if self.attached_runtime.load(Ordering::SeqCst) {
+                    self.restore_observations().await?;
+                }
+                Ok(())
             }
             .await;
             if let Err(error) = refreshed {
@@ -366,6 +374,68 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn managed_runtime_indexes_existing_threads_on_start_and_new_grants() {
+        use std::sync::{atomic::Ordering, Arc};
+        let directory = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::store::Store::open(&directory.path().join("test.db")).unwrap());
+        let tls = crate::security::Certificate::load(directory.path()).unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::channel(128);
+        let core = Core::new(store, tls, "127.0.0.1".into(), 18443, tx);
+        let node = crate::codex::sync_command("where.exe", &["node.exe"], None).unwrap();
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/appserver.mjs");
+        let (rpc, mut events) = crate::rpc::Rpc::start(
+            Path::new(node.lines().next().unwrap().trim()),
+            &[fixture.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+        let drain = tokio::spawn(async move { while events.recv().await.is_some() {} });
+        crate::codex::initialize(&rpc).await.unwrap();
+        *core.rpc.write().unwrap() = Some(rpc.clone());
+        core.ready.store(true, Ordering::SeqCst);
+        let granted = directory.path().join("granted");
+        let later = directory.path().join("later");
+        for root in [&granted, &later] {
+            std::fs::create_dir(root).unwrap();
+            rpc.request(
+                "thread/start",
+                json!({"cwd":root,"sandbox":"read-only","approvalPolicy":"on-request"}),
+            )
+            .await
+            .unwrap();
+        }
+        paths::add_local(&core.store, &granted).unwrap();
+        let worker = tokio::spawn(core.clone().watch_thread_index(rpc.clone()));
+        async fn wait_count(core: &Core, count: usize) {
+            tokio::time::timeout(Duration::from_secs(20), async {
+                while core.store.sessions(None).unwrap().len() != count {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        wait_count(&core, 1).await;
+        assert!(!core.attached_runtime.load(Ordering::SeqCst));
+        // Adding a local grant must trigger discovery without reconnecting.
+        core.local_action(json!({"action":"project.add","path":later}))
+            .await
+            .unwrap();
+        wait_count(&core, 2).await;
+        // A separate runtime's persisted additions have no local notification.
+        core.connected.lock().unwrap().insert("phone".into(), 1);
+        rpc.request(
+            "thread/start",
+            json!({"cwd":granted,"sandbox":"read-only","approvalPolicy":"on-request"}),
+        )
+        .await
+        .unwrap();
+        wait_count(&core, 3).await;
+        worker.abort();
+        let _ = worker.await;
+        rpc.stop();
+        drain.abort();
+    }
     #[test]
     fn authoritative_deletion_survives_restart_is_atomic_and_prevents_resurrection() {
         let directory = tempfile::tempdir().unwrap();

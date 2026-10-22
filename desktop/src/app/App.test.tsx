@@ -10,6 +10,8 @@ const mocked = vi.hoisted(() => ({
   localRequests: vi.fn(),
   quit: vi.fn(),
   pickProject: vi.fn(),
+  autostartEnabled: vi.fn(),
+  setAutostart: vi.fn(),
   push: undefined as undefined | ((v: View) => void),
 }));
 vi.mock('../bridge/host', async (importOriginal) => ({
@@ -34,6 +36,8 @@ function fixture(): View {
   };
 }
 beforeEach(() => {
+  mocked.autostartEnabled.mockReset().mockResolvedValue(false);
+  mocked.setAutostart.mockReset().mockImplementation(async (enabled: boolean) => enabled);
   mocked.action.mockReset().mockResolvedValue({});
   mocked.snapshot.mockResolvedValue(fixture());
   mocked.subscribe.mockImplementation(async (fn: (v: View) => void) => {
@@ -51,6 +55,30 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('desktop human interactions', () => {
+  it('reads autostart from Windows and only changes it after a click', async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '更多' }));
+    const toggle = await screen.findByRole('switch', { name: '开机自启动' });
+    await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false));
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(mocked.setAutostart).not.toHaveBeenCalled();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'));
+    expect(mocked.setAutostart).toHaveBeenCalledWith(true);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'));
+    expect(mocked.setAutostart).toHaveBeenLastCalledWith(false);
+  });
+  it('does not show autostart enabled when saving fails', async () => {
+    mocked.setAutostart.mockRejectedValue('拒绝访问');
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '更多' }));
+    const toggle = screen.getByRole('switch', { name: '开机自启动' });
+    await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(toggle);
+    await screen.findByRole('alert');
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+  });
   it('shows real state without starting sync or pairing automatically', async () => {
     render(<App />);
     await screen.findByText('1 个工作区');

@@ -46,6 +46,63 @@ export function presentDesktopError(code?: string | null, raw?: unknown): ErrorP
   }
 
   switch (normalizedCode) {
+    case 'LOW_INTEGRITY_HOST':
+      return {
+        title: '程序文件继承了低完整性安全标签',
+        detail:
+          'Windows 将 AgentDeck 及其子进程限制为低完整性，无法启动 MXC 或正常访问凭据；更换终端仍会失败。',
+        solution:
+          '关闭当前窗口，将 AgentDeck 便携 ZIP 用资源管理器解压到普通用户目录（例如下载目录下的新文件夹），再启动其中的 AgentDeck.exe。不要直接运行受限工作区里的 EXE。',
+        install: false,
+        retry: false,
+      };
+    case 'SANDBOX_EXECUTOR_UNAVAILABLE':
+      return {
+        title: '当前启动环境无法运行 Windows 隔离',
+        detail: 'Codex 已启动，但当前执行环境不支持 MXC，服务未能通过隔离检查。',
+        solution:
+          '检查程序文件是否带有低完整性标签；请使用在普通目录安装或解压的发行包。若仍失败，再检查 Windows 与 Codex 的 MXC 支持。',
+        install: false,
+        retry: true,
+      };
+    case 'DATA_DIRECTORY_ERROR':
+      return {
+        title: '本机数据目录不可用',
+        detail: 'AgentDeck 无法创建或保护服务数据目录。',
+        solution:
+          '从当前 Windows 用户的普通终端启动，并检查数据目录的写入权限及 whoami.exe、icacls.exe 是否可用。',
+        install: false,
+        retry: true,
+      };
+    case 'IO_ERROR':
+      return {
+        title: '本机文件或进程操作失败',
+        detail: '服务无法访问所需文件或创建子进程。',
+        solution:
+          '从普通 Windows Terminal 重新启动，检查数据目录和临时目录权限，以及安装组件是否完整。',
+        install: false,
+        retry: true,
+      };
+    case 'CONFLICT':
+    case 'PORT_UNAVAILABLE':
+      return {
+        title: '本机服务资源被占用',
+        detail: '服务数据目录或监听端口当前不可用，可能已有另一个 AgentDeck 实例运行。',
+        solution:
+          '从旧窗口的托盘菜单选择“停止并退出”，再重新检测；若仍失败，请检查端口占用和监听地址。',
+        install: false,
+        retry: true,
+      };
+    case 'DATABASE_ERROR':
+    case 'SECRET_STORE_ERROR':
+      return {
+        title: '本机服务数据无法读取',
+        detail: '数据库或 Windows 保护的凭据无法访问。',
+        solution:
+          '使用原 Windows 用户启动，并检查数据目录权限；请保留原数据，不要删除数据库或凭据文件。',
+        install: false,
+        retry: true,
+      };
     case 'UPSTREAM_VERSION_UNSUPPORTED':
       return {
         title: 'Codex CLI 版本不兼容',

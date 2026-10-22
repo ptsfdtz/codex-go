@@ -336,22 +336,24 @@ async fn connection(core: Arc<Core>, socket: WebSocket, device: String, credenti
     };
     let mut hello = false;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     heartbeat.tick().await;
-    let mut alive = true;
+    let mut last_received = Instant::now();
     loop {
         tokio::select! {
             incoming=reader.next()=>{match incoming{Some(Ok(Message::Text(text)))=>{
                 if Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device){break;}
+                last_received = Instant::now();
                 let request=serde_json::from_str::<Value>(&text).map_err(|_|Error::new("INVALID_REQUEST","Invalid JSON")).and_then(protocol::parse);let request=match request{Ok(v)=>v,Err(e)=>{if !send(&mut writer,e.packet(None)).await{break;}continue;}};
             if !hello&&request.action!="system.hello"{if !send(&mut writer,Error::new("VERSION_REQUIRED","Send system.hello first").packet(Some(&request.id))).await{break;}continue;}
             if request.action=="system.hello"{hello=true;}
                 if !core.rates.lock().unwrap().take(format!("rpc:{device}"),60.,20.){if !send(&mut writer,Error::new("RATE_LIMITED","Request rate limit").packet(Some(&request.id))).await{break;}continue;}
                 let permit=local_slots.clone().try_acquire_owned();let global=core.rpc_slots.clone().try_acquire_owned();if permit.is_err()||global.is_err(){if !send(&mut writer,Error::new("RATE_LIMITED","Too many concurrent requests").packet(Some(&request.id))).await{break;}continue;}
                 let owner=core.clone();let tx=responses.clone();let device=device.clone();tokio::spawn(async move{let _permit=permit;let _global=global;let packet=handle_request(&owner,&request,&device).await;let _=tx.try_send(packet);});
-            },Some(Ok(Message::Pong(_)))=>alive=true,Some(Ok(Message::Ping(bytes)))=>{if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Pong(bytes))).await,Ok(Ok(()))){break;}},Some(Ok(Message::Binary(_)))|Some(Ok(Message::Close(_)))|Some(Err(_))|None=>break}},
+            },Some(Ok(Message::Pong(_)))=>last_received=Instant::now(),Some(Ok(Message::Ping(bytes)))=>{last_received=Instant::now();if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Pong(bytes))).await,Ok(Ok(()))){break;}},Some(Ok(Message::Binary(_)))|Some(Ok(Message::Close(_)))|Some(Err(_))|None=>break}},
             result=result_rx.recv()=>{if let Some(v)=result{if !send(&mut writer,v).await{break;}}},
             event=events.recv()=>{match event{Ok(v) if hello=>{if Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device)||!send(&mut writer,v).await{break;}},Ok(_)=>{},Err(_)=>break}},
-            _=heartbeat.tick()=>{if !alive||core.stopping.load(std::sync::atomic::Ordering::SeqCst)||Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device){break;}alive=false;if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Ping(vec![].into()))).await,Ok(Ok(()))){break;}}
+            _=heartbeat.tick()=>{if peer_timed_out(last_received, Instant::now())||core.stopping.load(std::sync::atomic::Ordering::SeqCst)||Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device){break;}if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Ping(vec![].into()))).await,Ok(Ok(()))){break;}}
         }
     }
     let _ = tokio::time::timeout(Duration::from_secs(1), writer.close()).await;
@@ -369,6 +371,23 @@ async fn connection(core: Arc<Core>, socket: WebSocket, device: String, credenti
         let _ = core.invalidate_approvals(true);
     }
     core.publish();
+}
+fn peer_timed_out(last_received: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(last_received) >= Duration::from_secs(60)
+}
+
+#[cfg(test)]
+mod heartbeat_tests {
+    use super::*;
+    #[test]
+    fn late_heartbeat_is_tolerated_but_silent_peer_expires() {
+        let start = Instant::now();
+        assert!(!peer_timed_out(start, start + Duration::from_secs(30)));
+        assert!(!peer_timed_out(start, start + Duration::from_secs(59)));
+        assert!(peer_timed_out(start, start + Duration::from_secs(60)));
+        let resumed = start + Duration::from_secs(45);
+        assert!(!peer_timed_out(resumed, start + Duration::from_secs(75)));
+    }
 }
 pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) -> Value {
     let mutate = matches!(

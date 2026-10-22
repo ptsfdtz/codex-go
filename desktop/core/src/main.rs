@@ -30,6 +30,7 @@ async fn main() {
     }
 }
 async fn run() -> Result<()> {
+    security::verify_host_integrity()?;
     let runtime_target = agentdeck_service::runtime::RuntimeTarget::from_environment()?;
     ensure(
         cfg!(windows),
@@ -41,13 +42,20 @@ async fn run() -> Result<()> {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("LOCALAPPDATA").map(|v| PathBuf::from(v).join("AgentDeck")))
         .ok_or_else(|| Error::new("CONFIG_ERROR", "Data directory unavailable"))?;
-    security::restrict_directory(&directory)?;
+    security::restrict_directory(&directory)
+        .map_err(|e| Error::new(&e.code, &format!("准备服务数据目录失败：{}", e.message)))?;
     let lock = std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
         .write(true)
-        .open(directory.join("native-service.lock"))?;
+        .open(directory.join("native-service.lock"))
+        .map_err(|e| {
+            Error::new(
+                "DATA_DIRECTORY_ERROR",
+                &format!("无法打开服务锁（系统错误 {:?}）", e.raw_os_error()),
+            )
+        })?;
     lock.try_lock_exclusive()
         .map_err(|_| Error::new("CONFLICT", "Native service already uses this directory"))?;
     let store = Arc::new(Store::open(&directory.join("agentdeck.db"))?);
@@ -80,6 +88,7 @@ async fn run() -> Result<()> {
         }
     });
     core.publish();
+    eprintln!("AGENTDECK_DIAG published");
     let (commands, mut input) = tokio::sync::mpsc::channel::<Value>(8);
     let owner = core.clone();
     std::thread::spawn(move || {
@@ -133,9 +142,13 @@ async fn run() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+    eprintln!("AGENTDECK_DIAG finding codex");
     let exe = codex::find()?;
+    eprintln!("AGENTDECK_DIAG found codex {}", exe.display());
     codex::verify_for(&exe, runtime_target.protocol())?;
+    eprintln!("AGENTDECK_DIAG verified codex");
     let report = boundary(&exe).await?;
+    eprintln!("AGENTDECK_DIAG boundary done");
     std::fs::write(
         directory.join("sandbox-verification.json"),
         report.to_string(),
@@ -153,6 +166,7 @@ async fn run() -> Result<()> {
     let desktop_adapter =
         agentdeck_service::desktop_adapter::DesktopAdapter::from_environment(&runtime_target)
             .await?;
+    eprintln!("AGENTDECK_DIAG adapter done");
     if let Some(adapter) = &desktop_adapter {
         core.emit(
             "desktop.adapter.status",

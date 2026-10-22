@@ -4,6 +4,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -214,11 +215,21 @@ import androidx.compose.ui.platform.LocalContext
         if(showFind&&session!=null&&state.capabilities?.supports("upstreamHistoryPages")==true)TextButton(onClick={searchHistory=true},enabled=!state.stale){Text("搜索更早的已保存历史")}
         if(session!=null&&state.observationPendingSession==session.sessionId&&!state.stale)Text("当前可查看历史，电脑恢复此会话后将同步实时消息",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(horizontal=24.dp,vertical=4.dp))
         Box(Modifier.weight(1f).fillMaxWidth()){
-            if(session==null)Column(Modifier.align(Alignment.Center).padding(32.dp).widthIn(max=640.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(14.dp)){
-                Text("有什么可以帮忙的？",fontSize=28.sp,fontWeight=FontWeight.SemiBold)
-                Text(if(state.selectedProject==null)"先在会话列表中授权一个项目，再开始对话。" else maskDisplay(state.snapshot.projects.find{it.projectId==state.selectedProject}?.name.orEmpty(),state.displayMask),fontSize=14.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,lineHeight=23.sp)
-                if(state.selectedProject==null)OutlinedButton(onClick=repo::addProject,enabled=!state.stale){Text("在 Windows 选择项目")}
-            }else LazyColumn(Modifier.fillMaxSize().testTag("execution-timeline"),state=list,contentPadding=PaddingValues(horizontal=20.dp,vertical=20.dp),verticalArrangement=Arrangement.spacedBy(24.dp)){
+            if(session==null)Column(Modifier.align(Alignment.Center).padding(32.dp).widthIn(max=560.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)){
+                Text("有什么可以帮忙的？",fontSize=28.sp,lineHeight=34.sp,fontWeight=FontWeight.SemiBold,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                Text(if(state.selectedProject==null)"先在会话列表中授权一个项目，再开始对话。" else maskDisplay(state.snapshot.projects.find{it.projectId==state.selectedProject}?.name.orEmpty(),state.displayMask),fontSize=15.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,lineHeight=23.sp,textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+                if(state.selectedProject==null)TextButton(onClick=repo::addProject,enabled=!state.stale){Text("在 Windows 选择项目")}
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top=10.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    listOf("解释代码" to "这段逻辑做什么","审查改动" to "查看工作区差异","写测试" to "为当前项目补测试").forEach{(title,detail)->
+                        Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceContainer,modifier=Modifier.width(160.dp).clickable(enabled=state.selectedProject!=null&&!state.stale&&!state.busy){drafts.edit(draftKey){it.copy(text=title+"："+detail)}}){
+                            Column(Modifier.padding(horizontal=14.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(2.dp)){
+                                Text(title,fontSize=14.sp,fontWeight=FontWeight.SemiBold)
+                                Text(detail,fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,lineHeight=17.sp)
+                            }
+                        }
+                    }
+                }
+            }else LazyColumn(Modifier.fillMaxSize().testTag("execution-timeline"),state=list,contentPadding=PaddingValues(horizontal=20.dp,vertical=16.dp),verticalArrangement=Arrangement.spacedBy(22.dp)){
                 if(state.capabilities?.supports("upstreamHistoryOrdering")==true){
                     if(history?.loading==true)item{LinearProgressIndicator(Modifier.fillMaxWidth())}
                     history?.error?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error);TextButton(onClick=repo::refresh,enabled=!state.stale){Text("重新读取会话")}}}
@@ -243,33 +254,61 @@ import androidx.compose.ui.platform.LocalContext
             }
             if(!follow&&session!=null)FilledTonalIconButton(onClick={follow=true;scope.launch{list.animateScrollToItem((list.layoutInfo.totalItemsCount-1).coerceAtLeast(0))}},modifier=Modifier.align(Alignment.BottomCenter).padding(8.dp)){Icon(Icons.Outlined.ArrowDownward,"回到最新消息")}
         }
-        ChatWidth{Column(Modifier.imePadding().padding(start=12.dp,end=12.dp,bottom=8.dp)){
+        ChatWidth{Column(Modifier.imePadding().padding(start=12.dp,end=12.dp,bottom=6.dp)){
             if(commandMatches.isNotEmpty())ComposerCommandSuggestions(commandMatches,commandIndex.coerceIn(commandMatches.indices),::chooseCommand,{commandDismissed=text})
-            Surface(shape=RoundedCornerShape(28.dp),color=MaterialTheme.colorScheme.surfaceContainer){
-                Column(Modifier.padding(horizontal=8.dp,vertical=6.dp)){
-                    composerResources()
-                    TextField(value=text,onValueChange={if(it.length<=64000)drafts.edit(draftKey){old->old.copy(text=it)}},placeholder={Text(if(session==null)"向 Codex 描述任务…" else if(active)"向当前任务追加指令…" else "发送消息…",fontSize=16.sp)},modifier=Modifier.fillMaxWidth().heightIn(min=56.dp,max=180.dp).testTag("chat-input").onPreviewKeyEvent{event->if(event.type!=KeyEventType.KeyDown)false
-                        else if(commandMatches.isNotEmpty()&&!event.isCtrlPressed&&!event.isAltPressed&&!event.isShiftPressed)when(event.key){
-                            Key.DirectionDown->{commandIndex=(commandIndex+1)%commandMatches.size;true}
-                            Key.DirectionUp->{commandIndex=(commandIndex-1+commandMatches.size)%commandMatches.size;true}
-                            Key.Enter,Key.Tab->{chooseCommand(commandMatches[commandIndex.coerceIn(commandMatches.indices)]);true}
-                            Key.Escape->{commandDismissed=text;true}
-                            else->false
+            composerResources()
+            var inlineAdd by remember(draftKey){mutableStateOf(false)}
+            val inlineEnabled=!active&&!state.busy&&!state.stale&&session?.archived!=1
+            Row(Modifier.fillMaxWidth().padding(top=6.dp),verticalAlignment=Alignment.Bottom){
+                Box(Modifier.padding(bottom=2.dp)){
+                    IconButton(onClick={inlineAdd=true},enabled=!readingAttachments,modifier=Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceContainer,CircleShape)){Icon(Icons.Outlined.Add,"添加附件与工具",Modifier.size(22.dp))}
+                    DropdownMenu(expanded=inlineAdd,onDismissRequest={inlineAdd=false},shape=RoundedCornerShape(16.dp)){
+                        DropdownMenuItem(text={Column{Text("上传文件或图片");Text("最多 4 个 · 总计 512 KB",style=MaterialTheme.typography.bodySmall)}},leadingIcon={Icon(Icons.Outlined.AttachFile,null)},onClick={inlineAdd=false;pickingHost=draftKey.hostId;pickingConversation=draftKey.conversation;picker.launch(arrayOf("*/*"))},enabled=attachments.size<4&&!state.busy&&!state.stale&&(!active||state.capabilities?.supports("nativeQueueAttachments")==true))
+                        if(state.capabilities?.supports("composerSkills")==true)DropdownMenuItem(text={Text("选择技能")},onClick={inlineAdd=false;choosingSkill=true},enabled=!state.busy&&!state.stale&&session?.archived!=1&&(!active||state.capabilities?.supports("nativeQueueSkills")==true)&&state.selectedProject!=null&&skills.size<8)
+                        if(state.capabilities?.supports("projectFileBrowser")==true)DropdownMenuItem(text={Text("浏览项目文件")},onClick={inlineAdd=false;browsingFiles=true},enabled=state.selectedProject!=null&&!state.stale)
+                        HorizontalDivider()
+                        listOf("default" to "默认 · 直接执行","plan" to "Plan · 先制定计划","goal" to "Goal · 持续完成目标").forEach{(value,label)->
+                            DropdownMenuItem(text={Text(label)},trailingIcon={if(mode==value)Icon(Icons.Outlined.Check,null)},enabled=inlineEnabled,onClick={inlineAdd=false;drafts.edit(draftKey){it.copy(mode=value)}})
                         }
-                        else if(event.key==Key.Enter&&event.isCtrlPressed){if(canSubmit)submit();true}else false},maxLines=7,colors=TextFieldDefaults.colors(focusedContainerColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedContainerColor=androidx.compose.ui.graphics.Color.Transparent,focusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent))
-                    composerControls()
+                        HorizontalDivider()
+                        DropdownMenuItem(text={Text("全部权限 · 无需审批")},trailingIcon={if(state.fullAccess)Icon(Icons.Outlined.Check,null)},onClick={inlineAdd=false;repo.setFullAccess(true)},enabled=inlineEnabled)
+                        DropdownMenuItem(text={Text("工作区 · 按需审批")},trailingIcon={if(!state.fullAccess)Icon(Icons.Outlined.Check,null)},onClick={inlineAdd=false;repo.setFullAccess(false)},enabled=inlineEnabled)
+                        HorizontalDivider()
+                        DropdownMenuItem(text={Text("展开编辑任务内容")},onClick={inlineAdd=false;expandedComposer=true})
+                        DropdownMenuItem(text={Text("新对话")},onClick={inlineAdd=false;state.selectedProject?.let(repo::selectProject)},enabled=state.selectedProject!=null)
+                        DropdownMenuItem(text={Text("在 Windows 授权项目")},onClick={inlineAdd=false;repo.addProject()},enabled=!state.stale)
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Surface(Modifier.weight(1f),shape=RoundedCornerShape(26.dp),color=MaterialTheme.colorScheme.surfaceContainer){
+                    Column(Modifier.padding(start=16.dp,end=8.dp,top=4.dp,bottom=4.dp)){
+                        TextField(value=text,onValueChange={if(it.length<=64000)drafts.edit(draftKey){old->old.copy(text=it)}},placeholder={Text(if(session==null)"询问任何问题" else if(active)"向当前任务追加指令…" else "发送消息…",fontSize=16.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)},textStyle=androidx.compose.ui.text.TextStyle(fontSize=16.sp,lineHeight=24.sp),modifier=Modifier.fillMaxWidth().heightIn(min=48.dp,max=180.dp).testTag("chat-input").onPreviewKeyEvent{event->if(event.type!=KeyEventType.KeyDown)false
+                            else if(commandMatches.isNotEmpty()&&!event.isCtrlPressed&&!event.isAltPressed&&!event.isShiftPressed)when(event.key){
+                                Key.DirectionDown->{commandIndex=(commandIndex+1)%commandMatches.size;true}
+                                Key.DirectionUp->{commandIndex=(commandIndex-1+commandMatches.size)%commandMatches.size;true}
+                                Key.Enter,Key.Tab->{chooseCommand(commandMatches[commandIndex.coerceIn(commandMatches.indices)]);true}
+                                Key.Escape->{commandDismissed=text;true}
+                                else->false
+                            }
+                            else if(event.key==Key.Enter&&event.isCtrlPressed){if(canSubmit)submit();true}else false},maxLines=7,colors=TextFieldDefaults.colors(focusedContainerColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedContainerColor=androidx.compose.ui.graphics.Color.Transparent,disabledContainerColor=androidx.compose.ui.graphics.Color.Transparent,focusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent,disabledIndicatorColor=androidx.compose.ui.graphics.Color.Transparent))
+                    }
+                }
+                Spacer(Modifier.width(6.dp))
+                Column(Modifier.padding(bottom=2.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+                    if(active)FilledIconButton(onClick=onInterrupt,enabled=!state.stale&&!state.busy,modifier=Modifier.size(44.dp),colors=IconButtonDefaults.filledIconButtonColors(containerColor=MaterialTheme.colorScheme.onSurface,contentColor=MaterialTheme.colorScheme.surface,disabledContainerColor=MaterialTheme.colorScheme.surfaceContainerHigh,disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant)){Icon(Icons.Outlined.Stop,"中断任务",Modifier.size(18.dp))}
+                    if(!active||state.capabilities?.supports("activeTurnSteering")==true)FilledIconButton(onClick=submit,enabled=canSubmit,modifier=Modifier.size(44.dp),colors=IconButtonDefaults.filledIconButtonColors(containerColor=MaterialTheme.colorScheme.onSurface,contentColor=MaterialTheme.colorScheme.surface,disabledContainerColor=MaterialTheme.colorScheme.surfaceContainerHigh,disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant)){Icon(Icons.Outlined.ArrowUpward,if(active)"追加指令" else "发送消息",Modifier.size(20.dp))}
                 }
             }
-            if(state.stale)Text("离线 · 草稿已保留，连接恢复后可发送",modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=8.dp),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if(state.stale)"离线 · 草稿已保留，连接恢复后可发送" else "Codex 也可能会犯错，请核查重要信息。",modifier=Modifier.align(Alignment.CenterHorizontally).padding(top=6.dp,bottom=2.dp),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }}
     }
 }
-@Composable private fun ChatWidth(content:@Composable ()->Unit){Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.TopCenter){Column(Modifier.widthIn(max=840.dp).fillMaxWidth()){content()}}}
+@Composable private fun ChatWidth(content:@Composable ()->Unit){Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.TopCenter){Column(Modifier.widthIn(max=760.dp).fillMaxWidth()){content()}}}
 
 @Composable internal fun ChatMessage(entry:ChatEntry,mask:String){
     val text=maskDisplay(entry.text,mask)
     when(entry.kind){
-        "user"->BoxWithConstraints(Modifier.fillMaxWidth()){val bubbleWidth=minOf(640.dp,maxWidth*0.85f);Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){Surface(Modifier.widthIn(max=bubbleWidth),shape=RoundedCornerShape(24.dp),color=MaterialTheme.colorScheme.surfaceContainerHighest){SelectionContainer{Text(text,Modifier.padding(horizontal=18.dp,vertical=14.dp),fontSize=16.sp,lineHeight=25.sp)}}}}
+        "user"->BoxWithConstraints(Modifier.fillMaxWidth()){val bubbleWidth=minOf(640.dp,maxWidth*0.82f);Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){Surface(Modifier.widthIn(max=bubbleWidth),shape=RoundedCornerShape(24.dp),color=MaterialTheme.colorScheme.surfaceContainer){SelectionContainer{Text(text,Modifier.padding(horizontal=16.dp,vertical=12.dp),fontSize=16.sp,lineHeight=25.sp)}}}}
         "assistant","plan"->Column{
             if(entry.kind=="plan")Text("计划",fontSize=12.sp,fontWeight=FontWeight.Medium,color=MaterialTheme.colorScheme.onSurfaceVariant)
             MarkdownText(text)
@@ -278,7 +317,7 @@ import androidx.compose.ui.platform.LocalContext
         "tool"->{var expanded by rememberSaveable(entry.id){mutableStateOf(false)}
             var fullOutput by remember(entry.id){mutableStateOf(false)}
             if(fullOutput)MessageReader(entry,mask,title=entry.title.ifBlank{"工具输出"},allowRaw=true){fullOutput=false}
-            Surface(shape=RoundedCornerShape(10.dp),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)){
+            Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceContainerLow){
                 Column(Modifier.fillMaxWidth()){
                     Row(Modifier.fillMaxWidth().clickable{expanded=!expanded}.padding(12.dp),verticalAlignment=Alignment.CenterVertically){Icon(if(entry.title=="修改文件")Icons.Outlined.Difference else Icons.Outlined.Terminal,null,Modifier.size(16.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant);Spacer(Modifier.width(10.dp));Text(maskDisplay(entry.title,mask),maxLines=1,overflow=TextOverflow.Ellipsis,fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.weight(1f));Spacer(Modifier.width(8.dp));Text(statusLabel(entry.status),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant);Icon(if(expanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,"展开执行详情",Modifier.size(18.dp))}
                     if(expanded){HorizontalDivider();NativeToolBody(entry,mask);TextButton(onClick={fullOutput=true}){Text("查看已保留的完整输出")}}

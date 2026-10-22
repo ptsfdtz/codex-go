@@ -7,12 +7,14 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 import kotlin.coroutines.resume
@@ -33,7 +35,7 @@ class PinnedTrust(private val fingerprint:String):X509TrustManager {
 }
 fun pinnedClient(fingerprint:String):OkHttpClient {
     val trust=PinnedTrust(fingerprint);val context=SSLContext.getInstance("TLS").apply{init(null,arrayOf(trust),null)}
-    return OkHttpClient.Builder().sslSocketFactory(context.socketFactory,trust).connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS).callTimeout(25,TimeUnit.SECONDS).pingInterval(15,TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+    return OkHttpClient.Builder().sslSocketFactory(context.socketFactory,trust).connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS).callTimeout(25,TimeUnit.SECONDS).pingInterval(30,TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
 }
 suspend fun post(client:OkHttpClient,url:String,value:JsonObject):JsonObject=suspendCancellableCoroutine{continuation->
     val call=client.newCall(Request.Builder().url(url).post(value.toString().toRequestBody("application/json".toMediaType())).build())
@@ -43,12 +45,13 @@ suspend fun post(client:OkHttpClient,url:String,value:JsonObject):JsonObject=sus
         override fun onResponse(call:Call,response:Response){response.use{try{val text=it.body?.source()?.let{source->source.request(65537);require(source.buffer.size<=65536){"Bridge response too large"};source.buffer.readUtf8()}?:"{}";val result=wire.parseToJsonElement(text).jsonObject;if(!it.isSuccessful)throw DeckException(result["code"]?.jsonPrimitive?.content?:"PAIRING_FAILED",result["message"]?.jsonPrimitive?.content?:"配对失败");if(continuation.isActive)continuation.resume(result)}catch(e:Exception){if(continuation.isActive)continuation.resumeWithException(e)}}}
     })
 }
-class DeckTransport(private val host:Host){
+class DeckTransport internal constructor(private val host:Host,private val connectTimeoutMillis:Long=12000,private val requestTimeoutMillis:Long=45000){
     val events=Channel<JsonObject>(256)
     private val client=pinnedClient(host.fingerprint)
     private val pending=ConcurrentHashMap<String,CompletableDeferred<JsonObject>>()
     private var socket:WebSocket?=null
     private val opened=CompletableDeferred<Unit>()
+    private val failure=AtomicReference<Throwable?>(null)
     suspend fun connect(){
         socket=client.newWebSocket(Request.Builder().url(host.endpoint.trimEnd('/').replaceFirst("https://","wss://")+"/api/v1/ws").header("Authorization","Bearer ${host.credential}").build(),object:WebSocketListener(){
             override fun onOpen(webSocket:WebSocket,response:Response){opened.complete(Unit)}
@@ -64,12 +67,16 @@ class DeckTransport(private val host:Host){
             override fun onClosed(webSocket:WebSocket,code:Int,reason:String){fail(IOException("Bridge 已断开 ($code)"))}
             override fun onClosing(webSocket:WebSocket,code:Int,reason:String){webSocket.close(code,reason)}
         })
-        withTimeout(12000){opened.await()}
+        // A local I/O timeout is recoverable, not cancellation of the repository's
+        // reconnect coroutine. External cancellation still propagates normally.
+        if(withTimeoutOrNull(connectTimeoutMillis){opened.await();true}!=true)throw SocketTimeoutException("Bridge 连接超时")
     }
-    private fun fail(error:Throwable){opened.completeExceptionally(error);pending.values.forEach{it.completeExceptionally(error)};pending.clear();events.close(error)}
-    suspend fun request(action:String,payload:JsonObject=JsonObject(emptyMap())):JsonObject {
+    private fun fail(error:Throwable){if(!failure.compareAndSet(null,error))return;opened.completeExceptionally(error);pending.values.forEach{it.completeExceptionally(error)};pending.clear();events.close(error);socket?.cancel()}
+    internal fun disconnect(error:Throwable){fail(error)}
+    suspend fun probe(){request("system.hello",timeoutMillis=10000)}
+    suspend fun request(action:String,payload:JsonObject=JsonObject(emptyMap()),timeoutMillis:Long=requestTimeoutMillis):JsonObject {
         val id=UUID.randomUUID().toString();val result=CompletableDeferred<JsonObject>();pending[id]=result
-        try{check(socket?.send(buildJsonObject{put("v",1);put("type","request");put("id",id);put("action",action);put("payload",payload)}.toString())==true){"Bridge 连接不可用"};return withTimeout(45000){result.await()}}finally{pending.remove(id)}
+        try{failure.get()?.let{throw it};check(socket?.send(buildJsonObject{put("v",1);put("type","request");put("id",id);put("action",action);put("payload",payload)}.toString())==true){"Bridge 连接不可用"};return withTimeoutOrNull(timeoutMillis){result.await()}?:throw SocketTimeoutException("Bridge 请求超时，请核对操作结果") }finally{pending.remove(id)}
     }
-    fun close(){socket?.cancel();fail(CancellationException("Connection closed"));client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
+    fun close(){fail(IOException("Connection closed"));client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
 }

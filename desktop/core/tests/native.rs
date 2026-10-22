@@ -602,6 +602,25 @@ async fn imports_existing_thread_ids_with_archives_provenance_and_atomic_paginat
         own["upstreamThreadId"]
     );
     assert_eq!(imported["upstream"]["source"], "appServer");
+    // A phone can read source history and continue the imported original ID.
+    let history = h.core.upstream_history(&local_id, None, 20).await.unwrap();
+    assert_eq!(history["data"][0]["item"]["content"][0]["text"], "原始问题");
+    let continued = h
+        .core
+        .start_turn_options(
+            &local_id,
+            "continue original conversation",
+            Some("fixture-model"),
+            Some("high"),
+        )
+        .await
+        .unwrap();
+    h.wait(s(&continued, "turnId"), "completed").await;
+    assert_eq!(
+        h.core.store.session(&local_id).unwrap()["upstreamThreadId"],
+        child
+    );
+    assert_eq!(h.core.store.sessions(None).unwrap().len(), 4);
     assert_eq!(
         sessions
             .iter()

@@ -18,4 +18,5 @@ android/.kotlin/
 android/**/build/
 android/local.properties
 .idea/
+.tmp/
 .DS_Store

@@ -108,6 +108,8 @@ export function App() {
   const [view, setView] = useState(emptyView);
   const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState(false);
+  const [autostart, setAutostart] = useState<boolean | null>(null);
+  const [autostartLoading, setAutostartLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<ErrorPresentation | null>(null);
   const [installingCodex, setInstallingCodex] = useState(false);
@@ -235,6 +237,25 @@ export function App() {
     }
   };
   const send = (label: string, action: Action) => run(label, () => host.action(action));
+  const openMenu = () => {
+    setMenu(!menu);
+    if (menu) return;
+    setAutostartLoading(true);
+    void host.autostartEnabled().then(setAutostart).catch((error) => {
+      setAutostart(null);
+      setNotice(informationNotice('无法读取开机自启动设置', String(error)));
+    }).finally(() => setAutostartLoading(false));
+  };
+  const toggleAutostart = () => {
+    if (autostart === null) return;
+    void run('autostart', async () => {
+      try {
+        setAutostart(await host.setAutostart(!autostart));
+      } catch (error) {
+        throw new Error(`无法保存开机自启动设置：${String(error)}`);
+      }
+    });
+  };
   const pair = async () => {
     if (!effectiveAddress) {
       setNotice(informationNotice('未找到局域网地址', '请将电脑和平板连接同一 Wi-Fi 后重试。'));
@@ -300,7 +321,7 @@ export function App() {
               className="icon-button"
               aria-label="更多"
               aria-expanded={menu}
-              onClick={() => setMenu(!menu)}
+              onClick={openMenu}
             >
               <Ellipsis size={20} />
             </button>
@@ -321,6 +342,18 @@ export function App() {
                 <button onClick={() => choose('network')}>
                   <Wifi size={16} />
                   连接详情
+                </button>
+                <hr />
+                <button
+                  role="switch"
+                  aria-label="开机自启动"
+                  aria-checked={autostart === true}
+                  disabled={autostartLoading || autostart === null || !!busy}
+                  title="登录 Windows 后自动打开 AgentDeck；便携版移动位置后需重新开启"
+                  onClick={toggleAutostart}
+                >
+                  <RotateCw size={16} />
+                  开机自启动<span>{autostartLoading ? '读取中…' : autostart === null ? '不可用' : autostart ? '已开启' : '已关闭'}</span>
                 </button>
                 <hr />
                 <button className="danger-text" onClick={() => choose('quit')}>

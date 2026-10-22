@@ -87,6 +87,8 @@ export interface LocalRequest {
   payload: { projectId?: string };
 }
 export const host = {
+  autostartEnabled: () => invoke<boolean>('autostart_enabled'),
+  setAutostart: (enabled: boolean) => invoke<boolean>('set_autostart', { enabled }),
   snapshot: () => invoke<View>('host_snapshot'),
   subscribe: (callback: (view: View) => void) =>
     listen<View>('host-view', (event) => callback(event.payload)),

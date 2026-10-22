@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -81,7 +82,7 @@ internal val deckSettingsSections=listOf("general" to "通用","conversations" t
     Column(Modifier.weight(1f).fillMaxHeight()){
     Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
         if(wide)IconButton(onClick={navExpanded=!navExpanded}){Icon(if(navExpanded)Icons.Outlined.MenuOpen else Icons.Outlined.Menu,if(navExpanded)"收起设置导航" else "展开设置导航")}
-        OutlinedTextField(value=query,onValueChange={query=it.take(160)},label={Text("搜索设置")},singleLine=true,leadingIcon={Icon(Icons.Outlined.Search,null)},trailingIcon={if(query.isNotEmpty())IconButton(onClick={query=""}){Icon(Icons.Outlined.Close,"清除设置搜索")}},modifier=Modifier.weight(1f))
+        TextField(value=query,onValueChange={query=it.take(160)},placeholder={Text("搜索设置")},singleLine=true,leadingIcon={Icon(Icons.Outlined.Search,null)},trailingIcon={if(query.isNotEmpty())IconButton(onClick={query=""}){Icon(Icons.Outlined.Close,"清除设置搜索")}},shape=RoundedCornerShape(14.dp),colors=TextFieldDefaults.colors(focusedContainerColor=MaterialTheme.colorScheme.surfaceContainer,unfocusedContainerColor=MaterialTheme.colorScheme.surfaceContainer,focusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent,unfocusedIndicatorColor=androidx.compose.ui.graphics.Color.Transparent),modifier=Modifier.weight(1f))
     }
     if(!wide)Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=24.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
         visibleSections.forEach{(id,label)->FilterChip(selected=section==id,onClick={section=id;query="";targetIndex=0},label={Text(label)})}
@@ -99,7 +100,7 @@ internal val deckSettingsSections=listOf("general" to "通用","conversations" t
         Text("没有匹配的设置项")
         TextButton(onClick={query=""}){Text("清除筛选，查看全部设置")}
     }else key(section){LazyColumn(Modifier.weight(1f),state=settingsList,contentPadding=PaddingValues(24.dp),verticalArrangement=Arrangement.spacedBy(18.dp)){
-        item{Text(sections.firstOrNull{it.first==section}?.second?:"设置",fontSize=28.sp,fontWeight=FontWeight.SemiBold)}
+        item{Text(sections.firstOrNull{it.first==section}?.second?:"设置",fontSize=24.sp,fontWeight=FontWeight.SemiBold)}
         if(section=="shortcuts")item{OutlinedCard{Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
             Text("连接实体键盘后可用。快捷键在对应输入框或会话获得焦点时生效。",style=MaterialTheme.typography.bodySmall)
             listOf(

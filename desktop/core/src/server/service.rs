@@ -217,6 +217,7 @@ impl Core {
             }
             "project.add" => {
                 paths::add_local(&self.store, Path::new(s(&v, "path")))?;
+                self.thread_index_changed.notify_one();
             }
             "project.remove" => paths::remove_local(&self.store, s(&v, "projectId"))?,
             "pair.create" => self.create_pair(s(&v, "address")).await?,
@@ -369,13 +370,13 @@ impl Core {
                     return Err(e);
                 }
                 failures = 0;
-                let index_task = if target.attached() {
+                let index_task = {
                     let owner = self.clone();
                     let index_rpc = rpc.clone();
-                    Some(tokio::spawn(async move { owner.watch_thread_index(index_rpc).await }))
-                } else { None };
+                    tokio::spawn(async move { owner.watch_thread_index(index_rpc).await })
+                };
                 let _ = event_task.await;
-                if let Some(task) = index_task { task.abort(); let _ = task.await; }
+                index_task.abort(); let _ = index_task.await;
                 Ok(())
             }
             .await;
@@ -649,9 +650,15 @@ pub async fn boundary(exe: &Path) -> Result<Value> {
     boundary_runtime(exe, &std::env::current_exe()?).await
 }
 pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
+    // Keep the probe next to the app data instead of the system temp folder:
+    // restricted Windows sessions can make %TEMP% read-only for the service.
+    let base_root = std::env::var_os("AGENTDECK_DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    std::fs::create_dir_all(&base_root)?;
     let base = tempfile::Builder::new()
         .prefix("agentdeck-rust-boundary-")
-        .tempdir()?;
+        .tempdir_in(&base_root)?;
     let inside = base.path().join("authorized");
     let outside = base.path().join("unauthorized");
     std::fs::create_dir(&inside)?;
@@ -682,11 +689,19 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
         .kill_on_drop(true)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stderr(std::process::Stdio::piped());
     #[cfg(windows)]
     command.creation_flags(0x08000000);
     let mut child = command.spawn()?;
     use tokio::io::AsyncReadExt;
+    // Inspect only this local probe's bounded diagnostics. Never forward raw
+    // stderr, which may contain paths or configuration values, to clients/logs.
+    let stderr = child.stderr.take().unwrap();
+    let diagnostics = tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        let _ = stderr.take(8192).read_to_end(&mut bytes).await;
+        bytes
+    });
     let stdout = child.stdout.take().unwrap();
     let mut bytes = vec![];
     tokio::time::timeout(
@@ -703,8 +718,17 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
     let status = tokio::time::timeout(Duration::from_secs(2), child.wait())
         .await
         .map_err(|_| Error::new("SANDBOX_UNVERIFIED", "Boundary probe did not exit"))??;
-    let report: Value = serde_json::from_slice(&bytes)
-        .map_err(|_| Error::new("SANDBOX_UNVERIFIED", "Boundary probe did not return JSON"))?;
+    let mut diagnostics = diagnostics;
+    let diagnostic_bytes =
+        match tokio::time::timeout(Duration::from_secs(2), &mut diagnostics).await {
+            Ok(Ok(bytes)) => bytes,
+            _ => {
+                diagnostics.abort();
+                Vec::new()
+            }
+        };
+    let report: Value =
+        serde_json::from_slice(&bytes).map_err(|_| boundary_launch_error(&diagnostic_bytes))?;
     let passed = status.success()
         && report["insideRead"] == true
         && report["insideWrite"] == true
@@ -712,6 +736,36 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
         && report["outsideWriteDenied"] == true
         && !outside.join("written.txt").exists();
     Ok(json!({"passed":passed,"at":now(),"details":report}))
+}
+fn boundary_launch_error(stderr: &[u8]) -> Error {
+    let message = String::from_utf8_lossy(stderr).to_lowercase();
+    if message.contains("native mxc is unavailable on this executor") {
+        Error::new(
+            "SANDBOX_EXECUTOR_UNAVAILABLE",
+            "当前启动环境不支持 Windows MXC 隔离，请从普通 Windows Terminal 启动 AgentDeck",
+        )
+    } else {
+        Error::new(
+            "SANDBOX_UNVERIFIED",
+            "Windows 隔离检查未返回有效结果；请检查 Codex 隔离组件和启动环境",
+        )
+    }
+}
+
+#[cfg(test)]
+mod boundary_diagnostic_tests {
+    #[test]
+    fn classifies_executor_failure_without_exposing_diagnostics() {
+        let error = super::boundary_launch_error(
+            b"private-path secret=hidden native MXC is unavailable on this executor",
+        );
+        assert_eq!(error.code, "SANDBOX_EXECUTOR_UNAVAILABLE");
+        assert!(!error.message.contains("hidden"));
+        assert_eq!(
+            super::boundary_launch_error(b"unknown failure").code,
+            "SANDBOX_UNVERIFIED"
+        );
+    }
 }
 pub fn sandbox_probe(inside: &Path, outside: &Path) -> bool {
     let read = std::fs::read_to_string(inside.join("sentinel.txt")).is_ok_and(|v| v == "INSIDE");

@@ -96,11 +96,70 @@ pub fn addresses() -> Vec<String> {
     a.dedup();
     a
 }
+/// Inspect the host token without relabeling files or elevating the process.
+pub fn verify_host_integrity() -> Result<()> {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::{
+            Foundation::CloseHandle,
+            Security::{
+                GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation,
+                TokenIntegrityLevel, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+            },
+            System::Threading::{GetCurrentProcess, OpenProcessToken},
+        };
+        let failure = || Error::new("CONFIG_ERROR", "无法检查服务进程的 Windows 完整性级别");
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return Err(failure());
+        }
+        let mut needed = 0;
+        GetTokenInformation(
+            token,
+            TokenIntegrityLevel,
+            std::ptr::null_mut(),
+            0,
+            &mut needed,
+        );
+        let mut buffer = vec![0usize; (needed as usize).div_ceil(std::mem::size_of::<usize>())];
+        let ok = GetTokenInformation(
+            token,
+            TokenIntegrityLevel,
+            buffer.as_mut_ptr().cast(),
+            needed,
+            &mut needed,
+        );
+        CloseHandle(token);
+        if ok == 0 || buffer.is_empty() {
+            return Err(failure());
+        }
+        let label = &*buffer.as_ptr().cast::<TOKEN_MANDATORY_LABEL>();
+        let count = *GetSidSubAuthorityCount(label.Label.Sid);
+        if count == 0 {
+            return Err(failure());
+        }
+        let level = *GetSidSubAuthority(label.Label.Sid, u32::from(count - 1));
+        ensure(level >= 0x2000, "LOW_INTEGRITY_HOST",
+            "AgentDeck 以低完整性运行，无法保护凭据或启动 MXC；请将便携 ZIP 解压到普通用户目录后启动，勿直接运行受限工作区中的 EXE")?;
+    }
+    Ok(())
+}
 pub fn restrict_directory(path: &Path) -> Result<()> {
-    std::fs::create_dir_all(path)?;
+    std::fs::create_dir_all(path).map_err(|e| {
+        Error::new(
+            "DATA_DIRECTORY_ERROR",
+            &format!("无法创建服务数据目录（系统错误 {:?}）", e.raw_os_error()),
+        )
+    })?;
     #[cfg(windows)]
     {
-        let who = crate::codex::sync_command("whoami.exe", &["/user", "/fo", "csv", "/nh"], None)?;
+        let who = crate::codex::sync_command("whoami.exe", &["/user", "/fo", "csv", "/nh"], None)
+            .map_err(|_| {
+            Error::new(
+                "DATA_DIRECTORY_ERROR",
+                "无法运行 whoami.exe 确认数据目录所有者",
+            )
+        })?;
         let re = regex::Regex::new(r"S-1-5-[0-9-]+").unwrap();
         let sid = re
             .find(&who)
@@ -119,7 +178,13 @@ pub fn restrict_directory(path: &Path) -> Result<()> {
                 "*S-1-5-18:(OI)(CI)F",
             ],
             None,
-        )?;
+        )
+        .map_err(|_| {
+            Error::new(
+                "DATA_DIRECTORY_ERROR",
+                "无法运行 icacls.exe 设置服务数据目录权限",
+            )
+        })?;
     }
     Ok(())
 }

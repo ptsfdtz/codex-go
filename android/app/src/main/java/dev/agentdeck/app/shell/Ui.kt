@@ -5,6 +5,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -53,17 +54,17 @@ import java.time.Instant
         event.isAltPressed&&event.key==Key.DirectionRight&&canForward->{navigate(1);true}
         else->false
     }}){
-        val wide=maxWidth>=900.dp
+        val wide=maxWidth>=840.dp
         Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
-            if(wide&&sidebarExpanded&&state.host!=null){ChatSidebar(state,repo,panel,onChat={panel="chat"},onSettings={panel="settings"},onPair={showComputers=true},onCollapse={sidebarExpanded=false});VerticalDivider()}
+            if(wide&&sidebarExpanded&&state.host!=null){ChatGptSidebar(state,repo,panel,onChat={panel="chat"},onSettings={panel="settings"},onPair={showComputers=true},onCollapse={sidebarExpanded=false});VerticalDivider()}
             Column(Modifier.weight(1f).fillMaxHeight().windowInsetsPadding(WindowInsets.safeDrawing).testTag("workspace-content")){
                 ConversationTopBar(state,repo,panel,showNavigation=state.host!=null&&(!wide||!sidebarExpanded),
                     onNavigation={if(wide)sidebarExpanded=true else sidebar=true},onChat={panel="chat"},
                     onNew={state.selectedProject?.let(repo::selectProject);panel="chat"},onComputers={showComputers=true},
                     onSettings={panel="settings"},onSearch={showCommands=true},onDrafts={showDrafts=true},
                     onReview={panel="review";repo.refreshGit()},onConversationAction={conversationAction=it})
-                if(state.stale&&state.host!=null)Surface(color=MaterialTheme.colorScheme.surfaceContainerHighest){Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.CloudOff,null,Modifier.size(16.dp));Spacer(Modifier.width(8.dp));Text("连接已断开 · 当前显示缓存，恢复连接后可继续",fontSize=12.sp,modifier=Modifier.weight(1f));TextButton(onClick=repo::reconnect){Text("重连")}}}
-                state.error?.let{message->Surface(color=MaterialTheme.colorScheme.errorContainer){Row(Modifier.fillMaxWidth().padding(start=20.dp),verticalAlignment=Alignment.CenterVertically){Text(message,modifier=Modifier.weight(1f),fontSize=12.sp);IconButton(onClick=repo::clearError){Icon(Icons.Outlined.Close,"关闭提示")}}}}
+                if(state.stale&&state.host!=null)Surface(color=MaterialTheme.colorScheme.surfaceContainerLow){Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.CloudOff,null,Modifier.size(15.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant);Spacer(Modifier.width(8.dp));Text("连接已断开，显示缓存内容",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f));TextButton(onClick=repo::reconnect,contentPadding=PaddingValues(horizontal=8.dp)){Text("重连",fontSize=12.sp)}}}
+                state.error?.let{message->Surface(color=MaterialTheme.colorScheme.errorContainer){Row(Modifier.fillMaxWidth().padding(start=16.dp),verticalAlignment=Alignment.CenterVertically){Text(message,modifier=Modifier.weight(1f),fontSize=12.sp,color=MaterialTheme.colorScheme.onErrorContainer);IconButton(onClick=repo::clearError,modifier=Modifier.size(40.dp)){Icon(Icons.Outlined.Close,"关闭提示",Modifier.size(18.dp))}}}}
                 Box(Modifier.weight(1f)){
                     when {
                         panel=="settings"->workspaceState.SaveableStateProvider("settings"){
@@ -96,7 +97,7 @@ import java.time.Instant
                 }
             }
         }
-        if(sidebar&&!wide){val drawer=rememberDrawerState(DrawerValue.Open);LaunchedEffect(drawer.currentValue){if(drawer.currentValue==DrawerValue.Closed)sidebar=false};ModalNavigationDrawer(drawerState=drawer,drawerContent={ModalDrawerSheet(modifier=Modifier.widthIn(max=340.dp).fillMaxWidth(0.88f),windowInsets=WindowInsets(0),drawerContainerColor=MaterialTheme.colorScheme.surfaceContainerLow){ChatSidebar(state,repo,panel,onChat={panel="chat";sidebar=false},onSettings={panel="settings";sidebar=false},onPair={showComputers=true;sidebar=false},onCollapse={sidebar=false})}},content={Box(Modifier.fillMaxSize().clickable{sidebar=false})})}
+        if(sidebar&&!wide){val drawer=rememberDrawerState(DrawerValue.Open);LaunchedEffect(drawer.currentValue){if(drawer.currentValue==DrawerValue.Closed)sidebar=false};ModalNavigationDrawer(drawerState=drawer,drawerContent={ModalDrawerSheet(drawerShape=RectangleShape,modifier=Modifier.widthIn(max=320.dp).fillMaxWidth(0.88f),windowInsets=WindowInsets(0),drawerContainerColor=MaterialTheme.colorScheme.surface){ChatGptSidebar(state,repo,panel,onChat={panel="chat";sidebar=false},onSettings={panel="settings";sidebar=false},onPair={showComputers=true;sidebar=false},onCollapse={sidebar=false})}},content={Box(Modifier.fillMaxSize().clickable{sidebar=false})})}
     }
     }
     androidx.activity.compose.BackHandler(enabled=sidebar||panel!="chat"){if(sidebar)sidebar=false else panel="chat"}
@@ -147,10 +148,11 @@ import java.time.Instant
     if(confirmInterrupt)Confirm("停止当前任务？","将向 Codex 请求中断，收到确认后更新任务状态。",{confirmInterrupt=false},{confirmInterrupt=false;repo.interrupt()})
     if(confirmForget)Confirm("移除当前电脑？","仅移除此电脑的配对和缓存，其他电脑会保留。在线时撤销该电脑的设备凭据；离线时请随后在该 Windows 电脑撤销设备。",{confirmForget=false},{confirmForget=false;repo.forgetHost()})
 }
-@Composable private fun Welcome(onPair:()->Unit){Box(Modifier.fillMaxSize().padding(32.dp),contentAlignment=Alignment.Center){Column(Modifier.widthIn(max=460.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(20.dp)){
-    Icon(Icons.Outlined.Code,null,Modifier.size(48.dp));Text("随时继续你的工作。",fontSize=28.sp,fontWeight=FontWeight.SemiBold)
-    Text("连接你的 Windows，一起写代码、解决问题、查看改动。",color=MaterialTheme.colorScheme.onSurfaceVariant,lineHeight=24.sp)
-    Button(onClick=onPair,contentPadding=PaddingValues(horizontal=24.dp,vertical=14.dp)){Icon(Icons.Outlined.QrCodeScanner,null);Spacer(Modifier.width(10.dp));Text("配对 Windows 主机")}
+@Composable private fun Welcome(onPair:()->Unit){Box(Modifier.fillMaxSize().padding(32.dp),contentAlignment=Alignment.Center){Column(Modifier.widthIn(max=420.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(14.dp)){
+    Text("欢迎使用 AgentDeck",fontSize=28.sp,lineHeight=34.sp,fontWeight=FontWeight.SemiBold)
+    Text("连接你的 Windows，继续同一份 Codex 会话。",fontSize=15.sp,lineHeight=23.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(6.dp))
+    Button(onClick=onPair,modifier=Modifier.fillMaxWidth().height(50.dp),shape=RoundedCornerShape(14.dp)){Text("配对 Windows 主机",fontSize=16.sp)}
     Text("在 AgentDeck 中生成二维码，扫码并确认即可。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }}}
 @Composable private fun ChatSidebar(state:DeckState,repo:DeckRepository,panel:String,onChat:()->Unit,onSettings:()->Unit,onPair:()->Unit,onCollapse:()->Unit){
