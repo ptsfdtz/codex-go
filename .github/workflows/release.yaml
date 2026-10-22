@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    branches: [release]
+    tags: ['*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require tags to belong to main
+        if: github.ref_type == 'tag'
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}^{commit}" origin/main
+
+  build:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REF_TYPE: ${{ github.ref_type }}
+          SOURCE_REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="pre-${RUN_NUMBER}-${RUN_ATTEMPT}"
+          flags=(--prerelease --latest=false)
+          if [[ "$SOURCE_REF_TYPE" == tag ]]; then
+            tag="$SOURCE_REF_NAME"
+            flags=(--latest)
+          fi
+          cd release-assets
+          test -s AgentDeck-windows-x64-setup.exe
+          test -s AgentDeck-windows-x64-portable.zip
+          test -s AgentDeck-android-debug.apk
+          sha256sum *.exe *.zip *.apk > SHA256SUMS.txt
+          cat > ../release-notes.md <<EOF
+          AgentDeck 阶段测试版，尚未完成 Codex 全功能迁移。
+
+          - Windows x64：setup.exe 安装器或 portable.zip 便携包，需要 Windows 11、WebView2、Git。
+          - Android：debug.apk 可直接安装，使用 CI 临时 debug 签名；不同构建或本地安装之间可能无法覆盖升级，卸载会清除本地数据。正式签名尚未配置。
+          - SHA256SUMS.txt：下载文件的 SHA-256 校验值。
+
+          源码提交：${SOURCE_SHA}
+          应用内部版本号仍由源码构建配置决定，发布标签不自动修改版本号。
+          EOF
+          gh release create "$tag" --target "$SOURCE_SHA" "${flags[@]}" \
+            --title "AgentDeck $tag" --notes-file ../release-notes.md \
+            AgentDeck-windows-x64-setup.exe AgentDeck-windows-x64-portable.zip \
+            AgentDeck-android-debug.apk SHA256SUMS.txt

@@ -1,14 +1,17 @@
 name: AgentDeck CI
 on:
   push:
+    branches: ['**', '!release']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:
   desktop:
     runs-on: windows-latest
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
@@ -20,6 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           workspaces: |
             desktop/src-tauri
             desktop/core
@@ -39,6 +43,18 @@ jobs:
       - run: pnpm --filter @agentdeck/desktop exec playwright install msedge
       - run: pnpm --filter @agentdeck/desktop exec playwright test
       - run: pnpm desktop:build
+      - run: pnpm package:windows
+      - name: Prepare Windows downloads
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
+          Copy-Item artifacts/AgentDeck_0.3.0_x64-setup.exe release-assets/AgentDeck-windows-x64-setup.exe
+          Compress-Archive -Path artifacts/AgentDeck-0.3.0-windows -DestinationPath release-assets/AgentDeck-windows-x64-portable.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release-assets/*
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -49,18 +65,30 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - uses: gradle/actions/setup-gradle@v4
       - run: chmod +x gradlew
         working-directory: android
       - run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
         working-directory: android
+      - name: Prepare Android download
+        run: |
+          mkdir -p release-assets
+          cp android/app/build/outputs/apk/debug/app-debug.apk release-assets/AgentDeck-android-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: release-assets/*.apk
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:

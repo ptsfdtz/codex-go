@@ -1,0 +1,44 @@
+{
+  "packageLabel": "OpenAI.Codex 26.1016.6573.0",
+  "evidenceLevel": "static-bundled-definition-not-rendered-or-locked-parity",
+  "boundary": "Shared Codex/ChatGPT resources. Static file-link serialization and editor restoration only; no GUI or original locked-version acceptance. No user data accessed.",
+  "modules": [
+    {
+      "module": "webview/assets/app-shared-9cc135f1bdc1.js",
+      "sha256": "a530ffa50442439640d6d25227c10babc23e757812e827d0ca2e3ba0c613f7cb",
+      "snippets": [
+        {
+          "term": "function pfn(",
+          "byteOffset": 3554691,
+          "source": "name})}),JSON.stringify(t)}function ffn(e){return e.replaceAll(`](${yfn}`,`](`)}function pfn(e){return e.replaceAll(`\\\\`,`\\\\\\\\`).replaceAll(`[`,`\\\\[`).replaceAll(`](`,`]\\\\(`).replaceAll(`]`,`\\\\]`)}function mfn(e){return e.replaceAll(`\\\\`,`\\\\\\\\`).replaceAll(`)`,`\\\\)`)}function L6(e,t,n){return n==null?`[${pfn(e)}](${mfn(t)})`:xv({type:`link`,url:t,title:n,children:[{type:`text`,value:e}]},{resourceLink:!0,unsafe:[{character:`)`,inConstruct:`titleQuote`},{character:`\n`,inConstruct:`titleQuote`},{character:`\\r`,inConstruct:`titleQuote`}]}).trimEnd()}function hfn(e){return e.replace(/\\\\([\\\\[\\]()])/g,`$1`)}function gfn({fsPath:"
+        },
+        {
+          "term": "function mfn(",
+          "byteOffset": 3554808,
+          "source": "\\\\`,`\\\\\\\\`).replaceAll(`[`,`\\\\[`).replaceAll(`](`,`]\\\\(`).replaceAll(`]`,`\\\\]`)}function mfn(e){return e.replaceAll(`\\\\`,`\\\\\\\\`).replaceAll(`)`,`\\\\)`)}function L6(e,t,n){return n==null?`[${pfn(e)}](${mfn(t)})`:xv({type:`link`,url:t,title:n,children:[{type:`text`,value:e}]},{resourceLink:!0,unsafe:[{character:`)`,inConstruct:`titleQuote`},{character:`\n`,inConstruct:`titleQuote`},{character:`\\r`,inConstruct:`titleQuote`}]}).trimEnd()}function hfn(e){return e.replace(/\\\\([\\\\[\\]()])/g,`$1`)}function gfn({fsPath:e,path:t}){let n=e!=null&&e.length>0?e:t;return/[\\\\/]$/.test(t)&&!/[\\\\/]$/.test(n)?`${n}/`:n}function _fn({href:e,lab"
+        },
+        {
+          "term": "function L6(",
+          "byteOffset": 3554879,
+          "source": "`,`\\\\]`)}function mfn(e){return e.replaceAll(`\\\\`,`\\\\\\\\`).replaceAll(`)`,`\\\\)`)}function L6(e,t,n){return n==null?`[${pfn(e)}](${mfn(t)})`:xv({type:`link`,url:t,title:n,children:[{type:`text`,value:e}]},{resourceLink:!0,unsafe:[{character:`)`,inConstruct:`titleQuote`},{character:`\n`,inConstruct:`titleQuote`},{character:`\\r`,inConstruct:`titleQuote`}]}).trimEnd()}function hfn(e){return e.replace(/\\\\([\\\\[\\]()])/g,`$1`)}function gfn({fsPath:e,path:t}){let n=e!=null&&e.length>0?e:t;return/[\\\\/]$/.test(t)&&!/[\\\\/]$/.test(n)?`${n}/`:n}function _fn({href:e,label:t}){if(e!=null&&e.length!==0)return{[z6]:e,[R6]:t}}function vfn(e){l"
+        }
+      ]
+    },
+    {
+      "module": "webview/assets/app-initial-2b6b8063022d.js",
+      "sha256": "6cb0ab2a8d03a47f95c4df668aa8e5a3004e42614a7d596cb239442344f1a497",
+      "snippets": [
+        {
+          "term": "e.attrs.label,e.attrs.path)",
+          "byteOffset": 13311553,
+          "source": "ntion`&&typeof e.attrs.label==`string`&&typeof e.attrs.path==`string`&&i.set(Tc(e.attrs.label,e.attrs.path),e)}),j=e,V.dom.toggleAttribute(`data-composer-markdown`,x!=null&&!e),N=A&&!e;let a=x!=null&&!e?x.pmu.parse(t):NG({schema:V.state.schema,text:t,fileMentions:i,restoreMarkdownLinksAsTextLinks:m,restorePathLinksAsFileMentions:h,restoreRichLinks:!e});if(r!=null&&(a=iOa(a,r,t,n??[])),V.updateState(V.state.reconfigure({plugins:e?ee:U})),V.setProps({nodeViews:x?.pmu.nodeViews()}),V.state.doc.eq(a)){if(d!=null){let t=V.state.tr.setMeta(`addToHistory`,!1);e$u(t,e?r??[]:null,e?n??[]:null),V.dispatch(t)}f?.(V.state.doc,j);retur"
+        },
+        {
+          "term": "function VOa(",
+          "byteOffset": 6227424,
+          "source": "bleRichText:t=!1,schema:n,text:r}){return WOa(n,r,e=>e===``?null:n.text(e),t,e)}function VOa(e,t,{fileMentions:n,isChatGptSystemHintLiteral:r,restoreMarkdownLinksAsTextLinks:i=!1,restoreOnlyHttpMarkdownLinks:a=!1,restoreOnlySitesAndPluginMentions:o=!1,restorePathLinksAsFileMentions:s=!0,restoreRichLinks:c=!0}={}){let l=e.nodes.skillMention,u=e.nodes.appMention,d=e.nodes.pluginMention,f=e.nodes.chatGptSystemHint,p=e.nodes.atMention,m=e.nodes.agentMention,h=e.nodes.resourceMention,g=e.nodes.browserTabMention,_=e.nodes.chatGptConversationMention,v=e.nodes.chatGptLibraryFileMention,y=e.nodes.pageReferenceMention,b=e.nodes.site"
+        }
+      ]
+    }
+  ]
+}

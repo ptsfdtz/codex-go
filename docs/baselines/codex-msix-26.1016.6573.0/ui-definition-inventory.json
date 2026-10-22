@@ -1,0 +1,483 @@
+{
+  "packageLabel": "OpenAI.Codex 26.1016.6573.0",
+  "evidenceLevel": "static-bundled-definition-not-rendered-or-enabled",
+  "archiveSha256": "6f56542b508eea5b6e4d03e852dcd90afc2578aac7125baa3f25ebe85ebc7e25",
+  "boundary": "Contains shared Codex and ChatGPT resources. Definitions do not establish account, experiment, platform availability or locked-version parity. No bundled code executed; no profiles, credentials or conversation databases read.",
+  "modules": [
+    {
+      "module": "webview/assets/settings-page-bb2d8c726ea3.js",
+      "sha256": "47b0fb2f8730eb7f8cf0d65f9f57426aaa59130970b7e2633f1a06cb44cb0e00",
+      "size": 50998,
+      "messages": [
+        {
+          "id": "settings.teams.nav.createLabel",
+          "defaultMessageSource": "Create team",
+          "byteOffset": 12225
+        },
+        {
+          "id": "settings.teams.nav.loadError",
+          "defaultMessageSource": "Couldn’t load teams",
+          "byteOffset": 13199
+        },
+        {
+          "id": "settings.teams.nav.empty",
+          "defaultMessageSource": "Create your first team",
+          "byteOffset": 14423
+        },
+        {
+          "id": "settings.nav.notImplemented",
+          "defaultMessageSource": "[alpha] Not available in Alpha",
+          "byteOffset": 26488
+        },
+        {
+          "id": "settings.nav.externalTooltip",
+          "defaultMessageSource": "[alpha] Opens in browser",
+          "byteOffset": 26760
+        },
+        {
+          "id": "settings.nav.ariaLabel",
+          "defaultMessageSource": "Settings",
+          "byteOffset": 28203
+        },
+        {
+          "id": "settings.nav.title",
+          "defaultMessageSource": "Settings",
+          "byteOffset": 29305
+        },
+        {
+          "id": "settings.nav.clearHostFilter",
+          "defaultMessageSource": "Clear filter",
+          "byteOffset": 32112
+        },
+        {
+          "id": "settings.nav.clearHostFilterDescription",
+          "defaultMessageSource": "to view all settings",
+          "byteOffset": 32272
+        },
+        {
+          "id": "settings.search.clear",
+          "defaultMessageSource": "Clear settings search",
+          "byteOffset": 35055
+        },
+        {
+          "id": "settings.search.label",
+          "defaultMessageSource": "Search settings",
+          "byteOffset": 35238
+        },
+        {
+          "id": "settings.search.placeholder",
+          "defaultMessageSource": "Search",
+          "byteOffset": 35418
+        },
+        {
+          "id": "settings.search.noResults",
+          "defaultMessageSource": "No results found",
+          "byteOffset": 36419
+        },
+        {
+          "id": "settings.search.result.ariaLabel",
+          "defaultMessageSource": "{destination}, {panel}",
+          "byteOffset": 37555
+        },
+        {
+          "id": "settings.nav.back",
+          "defaultMessageSource": "Back to app",
+          "byteOffset": 39249
+        },
+        {
+          "id": "settings.nav.collapseSidebar",
+          "defaultMessageSource": "Collapse settings navigation",
+          "byteOffset": 39380
+        },
+        {
+          "id": "settings.nav.expandSidebar",
+          "defaultMessageSource": "Expand settings navigation",
+          "byteOffset": 39573
+        },
+        {
+          "id": "settings.nav.manageAccount",
+          "defaultMessageSource": "Manage account",
+          "byteOffset": 39760
+        },
+        {
+          "id": "settings.nav.heading.integrations",
+          "defaultMessageSource": "Integrations",
+          "byteOffset": 39973
+        },
+        {
+          "id": "settings.nav.heading.personal",
+          "defaultMessageSource": "Personal",
+          "byteOffset": 40704
+        },
+        {
+          "id": "settings.nav.heading.coding",
+          "defaultMessageSource": "Coding",
+          "byteOffset": 41447
+        },
+        {
+          "id": "settings.hostDropdown.allSettings",
+          "defaultMessageSource": "All settings",
+          "byteOffset": 44179
+        },
+        {
+          "id": "settings.documentTitle",
+          "defaultMessageSource": "Settings",
+          "byteOffset": 48195
+        }
+      ],
+      "routes": [
+        "/settings/:section/*",
+        "/settings/cloud-environments?tab=preferences",
+        "/settings/teams",
+        "/settings/teams/${encodeURIComponent(e)}",
+        "/settings/teams/:teamId"
+      ],
+      "sectionCandidates": [],
+      "visibilityCaseCandidates": [],
+      "settingsOrderCandidate": null
+    },
+    {
+      "module": "webview/assets/settings-command-menu-section-items-8f28fe958e35.js",
+      "sha256": "b3f87a8b04373b8e317d388dfc8a0720da04f4aca539a31640ea9c84f34e3e89",
+      "size": 4295,
+      "messages": [
+        {
+          "id": "codex.commandMenu.settingsGroup",
+          "defaultMessageSource": "Settings",
+          "byteOffset": 1657
+        }
+      ],
+      "routes": [
+        "/settings/${s.slug}"
+      ],
+      "sectionCandidates": [],
+      "visibilityCaseCandidates": [],
+      "settingsOrderCandidate": null
+    },
+    {
+      "module": "webview/assets/use-visible-settings-sections-57ea2a800d85.js",
+      "sha256": "2bf3c9915969b6da4bbcf8051675cfe382cdcf49e061f645e0457bff0b8da612",
+      "size": 45455,
+      "messages": [
+        {
+          "id": "settings.nav.chatSettings",
+          "defaultMessageSource": "Account",
+          "byteOffset": 3913
+        },
+        {
+          "id": "settings.nav.securitySettings",
+          "defaultMessageSource": "Security Settings",
+          "byteOffset": 4069
+        }
+      ],
+      "routes": [],
+      "sectionCandidates": [],
+      "visibilityCaseCandidates": [
+        "account",
+        "ads-controls",
+        "age",
+        "agent",
+        "agreements",
+        "analytics",
+        "appearance",
+        "appshots",
+        "archived-chats",
+        "billing",
+        "browser-use",
+        "chronicle",
+        "cloud-computer",
+        "cloud-environments",
+        "cloud-settings",
+        "code-review",
+        "codex-cloud",
+        "codex-micro",
+        "computer-use",
+        "connections",
+        "consumer-view",
+        "data-controls",
+        "debug",
+        "environments",
+        "extension",
+        "family",
+        "file-type-handlers",
+        "gateways",
+        "general-settings",
+        "git-settings",
+        "hooks-settings",
+        "import",
+        "keyboard-shortcuts",
+        "local-environments",
+        "mcp-settings",
+        "notifications",
+        "parental-controls",
+        "passwords",
+        "personalization",
+        "pets",
+        "plugins-settings",
+        "profile",
+        "rosalind",
+        "safety",
+        "security",
+        "skills-settings",
+        "storage",
+        "teams",
+        "time-management",
+        "trusted-contact",
+        "usage",
+        "usage-code-review",
+        "voice",
+        "work-settings",
+        "worktrees"
+      ],
+      "settingsOrderCandidate": [
+        "profile",
+        "agent",
+        "personalization",
+        "mcp-settings",
+        "plugins-settings",
+        "file-type-handlers",
+        "hooks-settings",
+        "gateways",
+        "local-environments",
+        "worktrees",
+        "storage",
+        "archived-chats",
+        "voice"
+      ]
+    },
+    {
+      "module": "webview/assets/settings-host-dropdown-1ff684da3017.js",
+      "sha256": "7b709da101e90cbee34835c519cb0db9627b78bd3fe65f6d80fd730438276a7a",
+      "size": 3716,
+      "messages": [
+        {
+          "id": "settings.hostDropdown.local",
+          "defaultMessageSource": "Local",
+          "byteOffset": 793
+        },
+        {
+          "id": "settings.hostDropdown.filter",
+          "defaultMessageSource": "Filter settings by host",
+          "byteOffset": 1186
+        },
+        {
+          "id": "settings.hostDropdown.title",
+          "defaultMessageSource": "Host",
+          "byteOffset": 2244
+        }
+      ],
+      "routes": [],
+      "sectionCandidates": [],
+      "visibilityCaseCandidates": [],
+      "settingsOrderCandidate": null
+    },
+    {
+      "module": "webview/assets/keyboard-shortcut-command-order-1dff431f5ad9.js",
+      "sha256": "f18e7abbdc2081ba52de87c709911ecc1f92e12a6c514814763e4dc06d258302",
+      "size": 2610,
+      "messages": [],
+      "routes": [],
+      "sectionCandidates": [],
+      "visibilityCaseCandidates": [],
+      "settingsOrderCandidate": null
+    },
+    {
+      "module": "webview/assets/keyboard-shortcuts-dialog-e3bd5c23b3fc.js",
+      "sha256": "88b42dd74fbdd8f5155dd3773586c1508f23f33aa72edf9ee7d79c01562f588c",
+      "size": 9198,
+      "messages": [
+        {
+          "id": "keyboardShortcutsDialog.title",
+          "defaultMessageSource": "Keyboard shortcuts",
+          "byteOffset": 4701
+        },
+        {
+          "id": "keyboardShortcutsDialog.loading",
+          "defaultMessageSource": "Loading shortcuts…",
+          "byteOffset": 5123
+        },
+        {
+          "id": "keyboardShortcutsDialog.empty",
+          "defaultMessageSource": "No active shortcuts",
+          "byteOffset": 5417
+        },
+        {
+          "id": "keyboardShortcutsDialog.noMatches",
+          "defaultMessageSource": "No matching shortcuts",
+          "byteOffset": 5575
+        },
+        {
+          "id": "keyboardShortcutsDialog.section.thread",
+          "defaultMessageSource": "Chat",
+          "byteOffset": 6743
+        },
+        {
+          "id": "keyboardShortcutsDialog.section.navigation",
+          "defaultMessageSource": "Navigation",
+          "byteOffset": 6985
+        },
+        {
+          "id": "keyboardShortcutsDialog.section.panels",
+          "defaultMessageSource": "Panels",
+          "byteOffset": 7239
+        },
+        {
+          "id": "keyboardShortcutsDialog.section.workspace",
+          "defaultMessageSource": "Project",
+          "byteOffset": 7483
+        },
+        {
+          "id": "keyboardShortcutsDialog.section.skills",
+          "defaultMessageSource": "Skills",
+          "byteOffset": 7730
+        },
+        {
+          "id": "keyboardShortcutsDialog.section.configure",
+          "defaultMessageSource": "Configure",
+          "byteOffset": 7974
+        },
+        {
+          "id": "keyboardShortcutsDialog.section.app",
+          "defaultMessageSource": "App",
+          "byteOffset": 8226
+        },
+        {
+          "id": "keyboardShortcutsDialog.section.general",
+          "defaultMessageSource": "General",
+          "byteOffset": 8460
+        }
+      ],
+      "routes": [],
+      "sectionCandidates": [],
+      "visibilityCaseCandidates": [],
+      "settingsOrderCandidate": null
+    },
+    {
+      "module": "webview/assets/sidebar-actions-861811421e92.js",
+      "sha256": "4dddc995ea3ee392f5b4517bafe633406af294614011c0b6fe081c6f138e967a",
+      "size": 12909,
+      "messages": [
+        {
+          "id": "chatgpt.entitySidebar.titleWithStatus",
+          "defaultMessageSource": "<title>{titleText}</title> · <status>{statusText}</status>",
+          "byteOffset": 4527
+        },
+        {
+          "id": "chatgptConversations.summaryPanel.sources.memory.feedback.relevant",
+          "defaultMessageSource": "Relevant",
+          "byteOffset": 6012
+        },
+        {
+          "id": "chatgptConversations.summaryPanel.sources.memory.feedback.notRelevant",
+          "defaultMessageSource": "Not relevant",
+          "byteOffset": 6600
+        },
+        {
+          "id": "chatgpt.localBusiness.dispute.action",
+          "defaultMessageSource": "Dispute profile ownership",
+          "byteOffset": 8380
+        },
+        {
+          "id": "chatgpt.localBusiness.report.options",
+          "defaultMessageSource": "Open place options",
+          "byteOffset": 8752
+        },
+        {
+          "id": "chatgpt.localBusiness.report.action",
+          "defaultMessageSource": "Report",
+          "byteOffset": 9374
+        }
+      ],
+      "routes": [],
+      "sectionCandidates": [],
+      "visibilityCaseCandidates": [],
+      "settingsOrderCandidate": null
+    },
+    {
+      "module": "webview/assets/app-settings-3cd331a0e3f8.js",
+      "sha256": "e8ca138e2753487eeaad5af79c7bcd8c6a9dfbfd6db297362930c42da113c828",
+      "size": 9190,
+      "messages": [
+        {
+          "id": "workspaceAgents.appSettings.connection",
+          "defaultMessageSource": "Connection",
+          "byteOffset": 2522
+        },
+        {
+          "id": "workspaceAgents.appSettings.shared",
+          "defaultMessageSource": "Shared account",
+          "byteOffset": 2763
+        },
+        {
+          "id": "workspaceAgents.appSettings.personal",
+          "defaultMessageSource": "Each person uses their own account",
+          "byteOffset": 2928
+        },
+        {
+          "id": "workspaceAgents.appSettings.chooseAccount",
+          "defaultMessageSource": "Choose shared account",
+          "byteOffset": 3348
+        },
+        {
+          "id": "workspaceAgents.appSettings.usePersonal",
+          "defaultMessageSource": "Use personal accounts",
+          "byteOffset": 3857
+        },
+        {
+          "id": "workspaceAgents.appSettings.switch",
+          "defaultMessageSource": "Switch",
+          "byteOffset": 4265
+        },
+        {
+          "id": "workspaceAgents.appSettings.permissions",
+          "defaultMessageSource": "Actions and approvals",
+          "byteOffset": 4727
+        },
+        {
+          "id": "workspaceAgents.appSettings.approval",
+          "defaultMessageSource": "Approval policy",
+          "byteOffset": 4992
+        },
+        {
+          "id": "workspaceAgents.appSettings.workspacePolicy",
+          "defaultMessageSource": "Your workspace may require stricter approvals",
+          "byteOffset": 5169
+        },
+        {
+          "id": "workspaceAgents.appSettings.done",
+          "defaultMessageSource": "Done",
+          "byteOffset": 6889
+        },
+        {
+          "id": "workspaceAgents.appSettings.always",
+          "defaultMessageSource": "Always ask",
+          "byteOffset": 7621
+        },
+        {
+          "id": "workspaceAgents.appSettings.writes",
+          "defaultMessageSource": "Ask before changes",
+          "byteOffset": 7892
+        },
+        {
+          "id": "workspaceAgents.appSettings.important",
+          "defaultMessageSource": "Review important actions",
+          "byteOffset": 8190
+        },
+        {
+          "id": "workspaceAgents.appSettings.full",
+          "defaultMessageSource": "Full access",
+          "byteOffset": 8483
+        },
+        {
+          "id": "workspaceAgents.appSettings.custom",
+          "defaultMessageSource": "Custom approvals",
+          "byteOffset": 8766
+        }
+      ],
+      "routes": [],
+      "sectionCandidates": [],
+      "visibilityCaseCandidates": [],
+      "settingsOrderCandidate": null
+    }
+  ]
+}

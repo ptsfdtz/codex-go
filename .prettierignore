@@ -8,4 +8,4 @@ android/gradle/wrapper/
 artifacts/
 verification/
 android/app/schemas/
-TECHNICAL_DESIGN.md
+docs/design/TECHNICAL_DESIGN.md

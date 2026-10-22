@@ -53,7 +53,7 @@ async fn install_supported_codex(
             .map_err(|_| "无法准备 Codex CLI 安装脚本".to_owned())?;
         script
             .write_all(include_bytes!(
-                "../../../scripts/install-supported-codex.ps1"
+                "../../../scripts/desktop/install-supported-codex.ps1"
             ))
             .map_err(|_| "无法写入 Codex CLI 安装脚本".to_owned())?;
         drop(script);

@@ -19,6 +19,363 @@ struct Harness {
     _output: tokio::task::JoinHandle<()>,
     worker: Option<tokio::task::JoinHandle<()>>,
 }
+
+#[tokio::test]
+async fn compaction_preserves_original_thread_and_deduplicates_submission() {
+    let h = Harness::fixture().await;
+    let session = h.session("compact-source").await;
+    let id = s(&session, "sessionId");
+    let turn = h
+        .core
+        .start_turn(id, "seed compaction history")
+        .await
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    let before = h.core.latest_upstream_turn(id).await.unwrap();
+    let stale = request(
+        "sessions.compact",
+        json!({"sessionId":id,"expectedLastTurnId":"stale"}),
+        "compact-stale",
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &stale, "compact-device").await["type"],
+        "error"
+    );
+    let call = request(
+        "sessions.compact",
+        json!({"sessionId":id,"expectedLastTurnId":before["turn"]["upstreamTurnId"]}),
+        "compact-once",
+    );
+    let response = transport::handle_request(&h.core, &call, "compact-device").await;
+    assert_eq!(response["type"], "response", "{response}");
+    assert_eq!(response["payload"]["accepted"], true);
+    assert_eq!(response["payload"]["completed"], false);
+    assert_eq!(
+        response["payload"]["upstreamThreadId"],
+        session["upstreamThreadId"]
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &call, "compact-device").await,
+        response
+    );
+    let records = h
+        .core
+        .store
+        .query(
+            "SELECT action FROM events WHERE sessionId=? AND action='session.compactionRequested'",
+            [id],
+        )
+        .unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(h.core.store.turns(Some(id)).unwrap().len(), 1);
+    assert_eq!(h.core.latest_upstream_turn(id).await.unwrap(), before);
+}
+
+#[tokio::test]
+async fn goal_resume_preserves_identity_and_deduplicates() {
+    let h = Harness::fixture().await;
+    let session = h.session("goal-resume").await;
+    let id = s(&session, "sessionId");
+    h.core.upstream().unwrap().request("thread/goal/set",json!({"threadId":session["upstreamThreadId"],"objective":"Preserve objective","status":"paused","tokenBudget":5000})).await.unwrap();
+    let before = h.core.session_goal(id).await.unwrap();
+    let stale = request(
+        "sessions.goal.resume",
+        json!({"sessionId":id,"expectedGoalRevision":"0".repeat(64)}),
+        "resume-stale",
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &stale, "goal-device").await["type"],
+        "error"
+    );
+    assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+    let call = request(
+        "sessions.goal.resume",
+        json!({"sessionId":id,"expectedGoalRevision":before["goalRevision"]}),
+        "resume-once",
+    );
+    let response = transport::handle_request(&h.core, &call, "goal-device").await;
+    assert_eq!(response["type"], "response", "{response}");
+    assert_eq!(
+        transport::handle_request(&h.core, &call, "goal-device").await,
+        response
+    );
+    let turns = h.core.store.turns(Some(id)).unwrap();
+    assert_eq!(turns.len(), 1);
+    assert!(!s(&turns[0], "upstreamTurnId").is_empty());
+    let after = h.core.session_goal(id).await.unwrap();
+    for key in [
+        "threadId",
+        "objective",
+        "tokenBudget",
+        "createdAt",
+        "tokensUsed",
+        "timeUsedSeconds",
+    ] {
+        assert_eq!(after["goal"][key], before["goal"][key], "{key}");
+    }
+    assert_eq!(after["goal"]["status"], "active");
+    assert_eq!(
+        h.core
+            .store
+            .meta(&format!("permissionMode:{id}"))
+            .unwrap()
+            .as_deref(),
+        Some("workspace")
+    );
+}
+
+#[tokio::test]
+async fn goal_clear_checks_revision_preserves_thread_and_deduplicates() {
+    let h = Harness::fixture().await;
+    let session = h.session("goal-clear").await;
+    let id = s(&session, "sessionId");
+    let rpc = h.core.upstream().unwrap();
+    rpc.request("thread/goal/set",json!({"threadId":session["upstreamThreadId"],"objective":"Keep thread","status":"paused","tokenBudget":5000})).await.unwrap();
+    let before = h.core.session_goal(id).await.unwrap();
+    let stale = request(
+        "sessions.goal.clear",
+        json!({"sessionId":id,"expectedGoalRevision":"0".repeat(64)}),
+        "clear-stale",
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &stale, "goal-device").await["type"],
+        "error"
+    );
+    assert_eq!(
+        h.core.session_goal(id).await.unwrap()["goal"],
+        before["goal"]
+    );
+    let call = request(
+        "sessions.goal.clear",
+        json!({"sessionId":id,"expectedGoalRevision":before["goalRevision"]}),
+        "clear-once",
+    );
+    let response = transport::handle_request(&h.core, &call, "goal-device").await;
+    assert_eq!(response["type"], "response", "{response}");
+    assert_eq!(
+        transport::handle_request(&h.core, &call, "goal-device").await,
+        response
+    );
+    let after = h.core.session_goal(id).await.unwrap();
+    assert!(after["goal"].is_null());
+    assert_eq!(after["upstreamThreadId"], session["upstreamThreadId"]);
+    assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+    rpc.request(
+        "thread/goal/set",
+        json!({"threadId":session["upstreamThreadId"],"objective":"Active","status":"active"}),
+    )
+    .await
+    .unwrap();
+    let active = h.core.session_goal(id).await.unwrap();
+    let denied = request(
+        "sessions.goal.clear",
+        json!({"sessionId":id,"expectedGoalRevision":active["goalRevision"]}),
+        "clear-active",
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &denied, "goal-device").await["type"],
+        "error"
+    );
+    assert_eq!(
+        h.core.session_goal(id).await.unwrap()["goal"]["objective"],
+        "Active"
+    );
+}
+
+#[tokio::test]
+async fn goal_edit_checks_revision_preserves_identity_and_deduplicates() {
+    let h = Harness::fixture().await;
+    let session = h.session("goal-edit").await;
+    let id = s(&session, "sessionId");
+    let rpc = h.core.upstream().unwrap();
+    rpc.request("thread/goal/set",json!({"threadId":session["upstreamThreadId"],"objective":"Before","status":"paused","tokenBudget":5000})).await.unwrap();
+    let before = h.core.session_goal(id).await.unwrap();
+    let call = request(
+        "sessions.goal.edit",
+        json!({"sessionId":id,"objective":"After","tokenBudget":6000,"expectedGoalRevision":before["goalRevision"]}),
+        "edit-goal-once",
+    );
+    let response = transport::handle_request(&h.core, &call, "goal-device").await;
+    assert_eq!(response["type"], "response", "{response}");
+    assert_eq!(
+        transport::handle_request(&h.core, &call, "goal-device").await,
+        response
+    );
+    let changed = h.core.session_goal(id).await.unwrap();
+    assert_eq!(changed["goal"]["threadId"], session["upstreamThreadId"]);
+    assert_eq!(changed["goal"]["objective"], "After");
+    assert_eq!(changed["goal"]["tokenBudget"], 6000);
+    assert_eq!(changed["goal"]["status"], "paused");
+    assert!(h.core.store.turns(Some(id)).unwrap().is_empty());
+    let stale = request(
+        "sessions.goal.edit",
+        call.payload.clone(),
+        "edit-goal-stale",
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &stale, "goal-device").await["type"],
+        "error"
+    );
+    let keep = request(
+        "sessions.goal.edit",
+        json!({"sessionId":id,"objective":"Keep budget","expectedGoalRevision":changed["goalRevision"]}),
+        "edit-goal-keep",
+    );
+    let kept = transport::handle_request(&h.core, &keep, "goal-device").await;
+    assert_eq!(kept["type"], "response", "{kept}");
+    assert_eq!(
+        h.core.session_goal(id).await.unwrap()["goal"]["tokenBudget"],
+        6000
+    );
+    rpc.request(
+        "thread/goal/set",
+        json!({"threadId":session["upstreamThreadId"],"status":"active"}),
+    )
+    .await
+    .unwrap();
+    let active = h.core.session_goal(id).await.unwrap();
+    let denied = request(
+        "sessions.goal.edit",
+        json!({"sessionId":id,"objective":"Denied","expectedGoalRevision":active["goalRevision"]}),
+        "edit-goal-active",
+    );
+    assert_eq!(
+        transport::handle_request(&h.core, &denied, "goal-device").await["type"],
+        "error"
+    );
+    assert_eq!(
+        h.core.session_goal(id).await.unwrap()["goal"]["objective"],
+        "Keep budget"
+    );
+}
+
+#[tokio::test]
+async fn goal_view_preserves_native_identity_and_rejects_changed_workspace() {
+    let h = Harness::fixture().await;
+    let session = h.session("goal-view").await;
+    let id = s(&session, "sessionId");
+    assert!(h.core.session_goal(id).await.unwrap()["goal"].is_null());
+    let rpc = h.core.upstream().unwrap();
+    rpc.request("thread/goal/set",json!({"threadId":session["upstreamThreadId"],"objective":"Original objective","status":"paused","tokenBudget":5000})).await.unwrap();
+    let view = h.core.session_goal(id).await.unwrap();
+    assert_eq!(view["sessionId"], session["sessionId"]);
+    assert_eq!(view["goal"]["threadId"], session["upstreamThreadId"]);
+    assert_eq!(view["goal"]["objective"], "Original objective");
+    assert_eq!(view["goal"]["tokenBudget"], 5000);
+    assert!(view.get("cwd").is_none());
+    h.core
+        .store
+        .exec(
+            "UPDATE projects SET enabled=0 WHERE projectId=?",
+            [s(&session, "projectId")],
+        )
+        .unwrap();
+    assert!(h.core.session_goal(id).await.is_err());
+}
+#[tokio::test]
+async fn token_usage_routes_observations_without_creating_turns() {
+    let h = Harness::fixture().await;
+    let session = h.session("context-usage").await;
+    let rpc = h.core.upstream().unwrap();
+    let breakdown = json!({"inputTokens":120,"cachedInputTokens":20,"outputTokens":30,"reasoningOutputTokens":10,"totalTokens":150});
+    let notification = json!({"method":"thread/tokenUsage/updated","params":{"threadId":session["upstreamThreadId"],"turnId":"external-usage-turn","tokenUsage":{"last":breakdown,"total":breakdown,"modelContextWindow":1000}}});
+    let before = h.core.store.cursor().unwrap();
+    let turns = h.core.store.turns(None).unwrap();
+    h.core.notification(&rpc, &notification).unwrap();
+    assert_eq!(h.core.store.turns(None).unwrap(), turns);
+    let events = h.core.store.replay(&before, 100).unwrap();
+    assert!(events.to_string().contains("session.tokenUsage"));
+    assert!(events.to_string().contains("external-usage-turn"));
+    let cursor = h.core.store.cursor().unwrap();
+    let mut unknown = notification.clone();
+    unknown["params"]["threadId"] = json!("unmapped-thread");
+    h.core.notification(&rpc, &unknown).unwrap();
+    assert_eq!(h.core.store.cursor().unwrap(), cursor);
+    unknown["params"]["tokenUsage"]["last"]["totalTokens"] = json!("invalid");
+    assert!(h.core.notification(&rpc, &unknown).is_err());
+}
+#[tokio::test]
+async fn model_defaults_write_checks_version_and_deduplicates() {
+    let h = Harness::fixture().await;
+    let before = h.core.execution_config(None).await.unwrap();
+    assert!(!before.to_string().contains("fixture-user.toml"));
+    let call = request(
+        "settings.modelDefaults",
+        json!({"model":"fixture-model","effort":"high","expectedUserRevision":before["userRevision"]}),
+        "model-default-once",
+    );
+    let response = transport::handle_request(&h.core, &call, "config-device").await;
+    assert_eq!(response["type"], "response", "{response}");
+    assert_eq!(
+        transport::handle_request(&h.core, &call, "config-device").await,
+        response
+    );
+    let changed = h.core.execution_config(None).await.unwrap();
+    assert_eq!(changed["values"]["model_reasoning_effort"], "high");
+    assert_ne!(changed["userRevision"], before["userRevision"]);
+    assert_eq!(
+        changed["values"]["default_permissions"],
+        before["values"]["default_permissions"]
+    );
+    let stale = request(
+        "settings.modelDefaults",
+        call.payload.clone(),
+        "model-default-stale",
+    );
+    let denied = transport::handle_request(&h.core, &stale, "config-device").await;
+    assert_eq!(denied["type"], "error", "{denied}");
+    let mut invalid = call.payload.clone();
+    invalid["model"] = json!("unknown-model");
+    invalid["expectedUserRevision"] = changed["userRevision"].clone();
+    assert!(h.core.write_model_defaults(&invalid).await.is_err());
+    assert_eq!(
+        h.core.execution_config(None).await.unwrap()["userRevision"],
+        changed["userRevision"]
+    );
+}
+#[tokio::test]
+async fn skill_configuration_checks_identity_expected_state_and_deduplicates_write() {
+    let h = Harness::fixture().await;
+    let session = h.session("skill-settings").await;
+    let project = s(&session, "projectId");
+    let catalog = h.core.skill_catalog(project).await.unwrap();
+    let skill = &catalog["skills"][0];
+    assert_eq!(skill["enabled"], true);
+    assert!(skill.get("path").is_none());
+    let call = request(
+        "skills.setEnabled",
+        json!({"projectId":project,"skillId":skill["id"],"enabled":false,"expectedEnabled":true}),
+        "skill-write-once",
+    );
+    let response = transport::handle_request(&h.core, &call, "skill-device").await;
+    assert_eq!(response["type"], "response", "{response}");
+    assert_eq!(response["payload"]["effectiveEnabled"], false);
+    assert_eq!(
+        transport::handle_request(&h.core, &call, "skill-device").await,
+        response
+    );
+    let changed = h.core.skill_catalog(project).await.unwrap();
+    assert_eq!(changed["skills"][0]["enabled"], false);
+    assert_eq!(
+        changed["skills"][0]["description"],
+        "fixture skill; writes 1"
+    );
+    let stale = request(
+        "skills.setEnabled",
+        call.payload.clone(),
+        "skill-write-stale",
+    );
+    let denied = transport::handle_request(&h.core, &stale, "skill-device").await;
+    assert_eq!(denied["type"], "error", "{denied}");
+    let mut invalid = call.payload.clone();
+    invalid["skillId"] = json!("0".repeat(64));
+    invalid["expectedEnabled"] = json!(false);
+    assert!(h.core.set_skill_enabled(&invalid).await.is_err());
+    assert_eq!(
+        h.core.skill_catalog(project).await.unwrap()["skills"][0]["description"],
+        "fixture skill; writes 1"
+    );
+}
 #[tokio::test]
 async fn descending_history_preserves_direction_across_pages_and_large_resources() {
     use base64::{engine::general_purpose::STANDARD, Engine};
@@ -1660,4 +2017,550 @@ async fn tls_websocket_auth_hello_replay_and_no_origin() {
     }
     ws.close(None).await.unwrap();
     h.core.shutdown().await;
+}
+
+#[tokio::test]
+async fn session_fork_preserves_original_identity_and_deduplicates_request() {
+    let h = Harness::fixture().await;
+    let source = h.session("fork-source").await;
+    let id = s(&source, "sessionId");
+    let r = protocol::parse(json!({"v":1,"type":"request","id":"fork-once","action":"sessions.fork","payload":{"sessionId":id}})).unwrap();
+    let first = transport::handle_request(&h.core, &r, "fork-device").await;
+    let again = transport::handle_request(&h.core, &r, "fork-device").await;
+    assert_eq!(first, again);
+    assert_eq!(
+        h.core.store.session(id).unwrap()["upstreamThreadId"],
+        source["upstreamThreadId"]
+    );
+    let sessions = h.core.store.sessions(None).unwrap();
+    assert_eq!(sessions.len(), 2, "{first}");
+    let fork = sessions.iter().find(|s| s["sessionId"] != id).unwrap();
+    assert_ne!(fork["upstreamThreadId"], source["upstreamThreadId"]);
+    assert_eq!(fork["upstream"]["forkedFromId"], source["upstreamThreadId"]);
+}
+
+#[tokio::test]
+async fn session_fork_rejects_active_source_without_creating_copy() {
+    let h = Harness::fixture().await;
+    let source = h.session("active-fork").await;
+    let id = s(&source, "sessionId");
+    let turn = h.core.start_turn(id, "WAIT").await.unwrap();
+    h.wait(s(&turn, "turnId"), "running").await;
+    assert_eq!(
+        h.core
+            .manage_session("sessions.fork", &json!({"sessionId":id}))
+            .await
+            .unwrap_err()
+            .code,
+        "CONFLICT"
+    );
+    assert_eq!(h.core.store.sessions(None).unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn session_fork_at_turn_uses_authoritative_boundary_and_rejects_unknown() {
+    let h = Harness::fixture().await;
+    let source = h.session("boundary-fork").await;
+    let id = s(&source, "sessionId");
+    let first = h.core.start_turn(id, "first").await.unwrap();
+    h.wait(s(&first, "turnId"), "completed").await;
+    let second = h.core.start_turn(id, "second").await.unwrap();
+    h.wait(s(&second, "turnId"), "completed").await;
+    let native = h
+        .core
+        .store
+        .one(
+            "SELECT upstreamTurnId FROM turns WHERE turnId=?",
+            [s(&first, "turnId")],
+        )
+        .unwrap();
+    let boundary = s(&native, "upstreamTurnId");
+    assert_eq!(
+        h.core
+            .manage_session(
+                "sessions.fork",
+                &json!({"sessionId":id,"lastTurnId":"not-in-source"})
+            )
+            .await
+            .unwrap_err()
+            .code,
+        "TURN_NOT_FOUND"
+    );
+    assert_eq!(h.core.store.sessions(None).unwrap().len(), 1);
+    let fork = h
+        .core
+        .manage_session(
+            "sessions.fork",
+            &json!({"sessionId":id,"lastTurnId":boundary}),
+        )
+        .await
+        .unwrap();
+    let latest = h
+        .core
+        .latest_upstream_turn(s(&fork["session"], "sessionId"))
+        .await
+        .unwrap();
+    assert_eq!(latest["turn"]["upstreamTurnId"], boundary);
+    let original = h.core.latest_upstream_turn(id).await.unwrap();
+    assert_ne!(original["turn"]["upstreamTurnId"], boundary);
+}
+
+#[tokio::test]
+async fn session_image_reads_source_identity_and_rejects_changed_or_outside_content() {
+    let h = Harness::fixture().await;
+    let (project, root) = h.project("image-root");
+    let session = h
+        .core
+        .create_session(s(&project, "projectId"), "HISTORY_IMAGE")
+        .await
+        .unwrap();
+    let id = s(&session, "sessionId");
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    bytes.resize(60000, 0);
+    std::fs::write(root.join("image.png"), &bytes).unwrap();
+    let first = h
+        .core
+        .session_image(id, "image-turn", "image-item", 0, 0, None)
+        .await
+        .unwrap();
+    assert_eq!(first["upstreamThreadId"], session["upstreamThreadId"]);
+    assert_eq!(first["mime"], "image/png");
+    assert_eq!(first["nextOffset"], 48 * 1024);
+    let next = h
+        .core
+        .session_image(
+            id,
+            "image-turn",
+            "image-item",
+            0,
+            48 * 1024,
+            first["sha256"].as_str(),
+        )
+        .await
+        .unwrap();
+    assert!(next["nextOffset"].is_null());
+    bytes[20] = 1;
+    std::fs::write(root.join("image.png"), &bytes).unwrap();
+    assert_eq!(
+        h.core
+            .session_image(
+                id,
+                "image-turn",
+                "image-item",
+                0,
+                48 * 1024,
+                first["sha256"].as_str()
+            )
+            .await
+            .unwrap_err()
+            .code,
+        "CONTENT_CHANGED"
+    );
+    assert_eq!(
+        h.core
+            .session_image(id, "wrong-turn", "image-item", 0, 0, None)
+            .await
+            .unwrap_err()
+            .code,
+        "CONTENT_CHANGED"
+    );
+    std::fs::write(root.parent().unwrap().join("outside.png"), &bytes).unwrap();
+    h.core
+        .manage_session(
+            "sessions.rename",
+            &json!({"sessionId":id,"title":"HISTORY_IMAGE_OUTSIDE"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        h.core
+            .session_image(id, "image-turn", "image-item", 0, 0, None)
+            .await
+            .unwrap_err()
+            .code,
+        "WORKSPACE_FORBIDDEN"
+    );
+}
+
+#[test]
+fn session_image_contract_has_no_caller_path_or_hashless_continuation() {
+    for payload in [
+        json!({"sessionId":"s","turnId":"t","itemId":"i","offset":1}),
+        json!({"sessionId":"s","turnId":"t","itemId":"i","offset":0,"path":"C:/secret.png"}),
+    ] {
+        assert!(protocol::parse(
+            json!({"v":1,"type":"request","id":"image","action":"sessions.image","payload":payload})
+        )
+        .is_err());
+    }
+}
+
+#[tokio::test]
+async fn native_queue_uses_source_state_and_deduplicates_mutations() {
+    native_queue_workflow(false).await;
+}
+#[tokio::test]
+async fn native_queue_start_checks_boundary_and_deduplicates_native_turn() {
+    native_queue_workflow(true).await;
+}
+async fn native_queue_workflow(start: bool) {
+    use agentdeck_service::rpc::ProtocolVersion;
+    let h = Harness::new();
+    let (project, root) = h.project("queue-root");
+    let samples: Value = serde_json::from_str(
+        include_str!("fixtures/protocol-samples.json").trim_start_matches('\u{feff}'),
+    )
+    .unwrap();
+    let mut thread = samples["threadStart"]["thread"].clone();
+    thread["id"] = json!("native-queue-thread");
+    thread["cwd"] = json!(root);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("ws://{}", listener.local_addr().unwrap());
+    let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let start_count = started.clone();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+        let mut entries: Vec<Value> = Vec::new();
+        let mut counter = 0;
+        while let Some(Ok(message)) = socket.next().await {
+            if !message.is_text() {
+                continue;
+            }
+            let packet: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            let p = &packet["params"];
+            let result = match s(&packet, "method") {
+                "thread/read" => json!({"thread":thread}),
+                "thread/queue/list" => json!({"data":entries,"nextCursor":null}),
+                "thread/queue/add" => {
+                    counter += 1;
+                    let entry = json!({"id":format!("q{counter}"),"clientUserMessageId":p["clientUserMessageId"],"input":p["input"]});
+                    entries.push(entry.clone());
+                    json!({"queuedSubmission":entry})
+                }
+                "thread/queue/update" => {
+                    let entry = entries
+                        .iter_mut()
+                        .find(|e| e["id"] == p["queuedSubmissionId"])
+                        .unwrap();
+                    entry["input"] = p["input"].clone();
+                    json!({"queuedSubmission":entry})
+                }
+                "thread/queue/delete" => {
+                    let count = entries.len();
+                    entries.retain(|e| e["id"] != p["queuedSubmissionId"]);
+                    json!({"deleted":entries.len()!=count})
+                }
+                "thread/queue/reorder" => {
+                    entries = p["queuedSubmissionIds"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|id| entries.iter().find(|e| e["id"] == *id).unwrap().clone())
+                        .collect();
+                    json!({})
+                }
+                "thread/turns/list" if start => {
+                    json!({"data":[],"nextCursor":null,"backwardsCursor":null})
+                }
+                "thread/goal/get" if start => json!({"goal":null}),
+                "config/read" if start => {
+                    json!({"config":{"default_permissions":"agentdeck","sandbox_mode":null,"permissions":{"agentdeck":{"extends":":workspace","filesystem":{":root":"deny",":minimal":"read",":tmpdir":"deny",":slash_tmp":"deny"},"network":{"enabled":false}}}},"origins":{},"layers":null})
+                }
+                "thread/resume" if start => {
+                    assert_eq!(p["approvalPolicy"], "on-request");
+                    assert_eq!(p["approvalsReviewer"], "user");
+                    assert_eq!(p["sandbox"], "workspace-write");
+                    assert_eq!(p["config"]["default_permissions"], "agentdeck");
+                    let mut resumed = samples["resume"].clone();
+                    resumed["cwd"] = json!(root);
+                    resumed["thread"] = thread.clone();
+                    resumed
+                }
+                "thread/queue/start" if start => {
+                    let entry = entries
+                        .iter()
+                        .position(|entry| entry["id"] == p["queuedSubmissionId"])
+                        .unwrap();
+                    entries.remove(entry);
+                    start_count.fetch_add(1, Ordering::SeqCst);
+                    let mut turn = samples["terminal"]["turn"].clone();
+                    turn["id"] = json!("native-queued-turn");
+                    turn["status"] = json!("completed");
+                    json!({"turn":turn})
+                }
+                method => panic!("Unexpected execution or configuration method: {method}"),
+            };
+            socket
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    json!({"id":packet["id"],"result":result})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+        }
+    });
+    let (rpc, _events) = Rpc::connect_local_websocket_profile(
+        &endpoint,
+        &"a".repeat(43),
+        ProtocolVersion::DesktopBaseline,
+    )
+    .await
+    .unwrap();
+    *h.core.rpc.write().unwrap() = Some(rpc.clone());
+    h.core.ready.store(true, Ordering::SeqCst);
+    h.core
+        .store
+        .exec(
+            "INSERT INTO sessions VALUES(?,?,?,?,?,?,?)",
+            rusqlite::params![
+                "queue-session",
+                s(&project, "projectId"),
+                "native-queue-thread",
+                "queue",
+                "idle",
+                now(),
+                now()
+            ],
+        )
+        .unwrap();
+    let add = request(
+        "queue.add",
+        json!({"sessionId":"queue-session","text":"one"}),
+        "queue-once",
+    );
+    let first = transport::handle_request(&h.core, &add, "queue-device").await;
+    assert_eq!(first["type"], "response", "{first}");
+    assert_eq!(
+        transport::handle_request(&h.core, &add, "queue-device").await,
+        first
+    );
+    h.core
+        .native_queue(
+            "queue.add",
+            &json!({"sessionId":"queue-session","text":"two"}),
+            "second",
+        )
+        .await
+        .unwrap();
+    h.core
+        .native_queue(
+            "queue.reorder",
+            &json!({"sessionId":"queue-session","submissionIds":["q2","q1"]}),
+            "reorder",
+        )
+        .await
+        .unwrap();
+    let state = h
+        .core
+        .native_queue("queue.list", &json!({"sessionId":"queue-session"}), "")
+        .await
+        .unwrap();
+    assert_eq!(state["data"].as_array().unwrap().len(), 2);
+    assert_eq!(state["data"][0]["id"], "q2");
+    h.core
+        .native_queue(
+            "queue.update",
+            &json!({"sessionId":"queue-session","submissionId":"q1","text":"changed"}),
+            "update",
+        )
+        .await
+        .unwrap();
+    h.core
+        .native_queue(
+            "queue.delete",
+            &json!({"sessionId":"queue-session","submissionId":"q2"}),
+            "delete",
+        )
+        .await
+        .unwrap();
+    let state = h
+        .core
+        .native_queue("queue.list", &json!({"sessionId":"queue-session"}), "")
+        .await
+        .unwrap();
+    assert_eq!(state["data"][0]["input"][0]["text"], "changed");
+    assert!(h
+        .core
+        .native_queue(
+            "queue.reorder",
+            &json!({"sessionId":"queue-session","submissionIds":["missing"]}),
+            ""
+        )
+        .await
+        .is_err());
+    assert!(h.core.store.turns(None).unwrap().is_empty());
+    let before = h.core.store.cursor().unwrap();
+    h.core
+        .notification(
+            &rpc,
+            &json!({"method":"thread/queue/changed","params":{"threadId":"native-queue-thread"}}),
+        )
+        .unwrap();
+    assert_ne!(before, h.core.store.cursor().unwrap());
+    if start {
+        let call = request(
+            "queue.start",
+            json!({"sessionId":"queue-session","submissionId":"q1"}),
+            "queue-start-once",
+        );
+        h.core.verified.store(false, Ordering::SeqCst);
+        assert_eq!(
+            h.core
+                .native_queue("queue.start", &call.payload, "denied")
+                .await
+                .unwrap_err()
+                .code,
+            "SANDBOX_UNVERIFIED"
+        );
+        assert_eq!(started.load(Ordering::SeqCst), 0);
+        h.core.verified.store(true, Ordering::SeqCst);
+        let response = transport::handle_request(&h.core, &call, "queue-device").await;
+        assert_eq!(response["type"], "response", "{response}");
+        assert_eq!(
+            transport::handle_request(&h.core, &call, "queue-device").await,
+            response
+        );
+        assert_eq!(started.load(Ordering::SeqCst), 1);
+        let turns = h.core.store.turns(Some("queue-session")).unwrap();
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0]["upstreamTurnId"], "native-queued-turn");
+        assert_eq!(turns[0]["status"], "completed");
+    }
+    rpc.stop();
+    server.abort();
+}
+
+#[tokio::test]
+async fn session_revert_preserves_identity_invalidates_previews_and_deduplicates() {
+    let h = Harness::fixture().await;
+    let source = h.session("history-revert").await;
+    let id = s(&source, "sessionId");
+    let first = h.core.start_turn(id, "first").await.unwrap();
+    h.wait(s(&first, "turnId"), "completed").await;
+    let first_native = h.core.store.turn(s(&first, "turnId")).unwrap()["upstreamTurnId"].clone();
+    let second = h.core.start_turn(id, "second").await.unwrap();
+    h.wait(s(&second, "turnId"), "completed").await;
+    let latest = h.core.latest_upstream_turn(id).await.unwrap();
+    let target = latest["turn"]["upstreamTurnId"].clone();
+    let invalid = json!({"sessionId":id,"beforeTurnId":target,"expectedLastTurnId":"stale"});
+    assert_eq!(
+        h.core
+            .manage_session("sessions.revert", &invalid)
+            .await
+            .unwrap_err()
+            .code,
+        "SYNC_CONFLICT"
+    );
+    let r = request(
+        "sessions.revert",
+        json!({"sessionId":id,"beforeTurnId":target,"expectedLastTurnId":target}),
+        "revert-once",
+    );
+    let result = transport::handle_request(&h.core, &r, "revert-device").await;
+    assert_eq!(result["type"], "response", "{result}");
+    assert_eq!(
+        transport::handle_request(&h.core, &r, "revert-device").await,
+        result
+    );
+    assert_eq!(
+        h.core.store.session(id).unwrap()["upstreamThreadId"],
+        source["upstreamThreadId"]
+    );
+    assert_eq!(
+        h.core.latest_upstream_turn(id).await.unwrap()["turn"]["upstreamTurnId"],
+        first_native
+    );
+    assert!(h
+        .core
+        .store
+        .query(
+            "SELECT * FROM events WHERE sessionId=? AND action='turn.queued'",
+            [id]
+        )
+        .unwrap()
+        .is_empty());
+    assert!(!h
+        .core
+        .store
+        .query(
+            "SELECT * FROM events WHERE sessionId=? AND action='session.historyChanged'",
+            [id]
+        )
+        .unwrap()
+        .is_empty());
+    assert!(h.core.store.meta("retentionFloor").unwrap().is_some());
+}
+
+#[tokio::test]
+async fn session_resource_revision_retains_native_image_and_deduplicates_replacement() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let h = Harness::fixture().await;
+    let session = h.session("REVISION_RESOURCES").await;
+    let id = s(&session, "sessionId");
+    let files = json!([{"name":"original.png","data":STANDARD.encode(b"\x89PNG\r\n\x1a\nimage")}]);
+    let original = h
+        .core
+        .start_turn_composer(id, "seed", None, None, "workspace", "default", Some(&files))
+        .await
+        .unwrap();
+    h.wait(s(&original, "turnId"), "completed").await;
+    let latest = h.core.latest_upstream_turn(id).await.unwrap();
+    let target = s(&latest["turn"], "upstreamTurnId");
+    let bad = json!({"sessionId":id,"beforeTurnId":target,"expectedLastTurnId":target,"itemId":"missing","text":"replacement"});
+    assert_eq!(
+        h.core
+            .manage_session("sessions.revise", &bad)
+            .await
+            .unwrap_err()
+            .code,
+        "CONTENT_CHANGED"
+    );
+    assert_eq!(
+        h.core.latest_upstream_turn(id).await.unwrap()["turn"]["upstreamTurnId"],
+        target
+    );
+    let r = request(
+        "sessions.revise",
+        json!({"sessionId":id,"beforeTurnId":target,"expectedLastTurnId":target,"itemId":format!("user-{target}"),"text":"CHECK_REVISION_RESOURCES","permissionMode":"workspace","mode":"default"}),
+        "resource-revision-once",
+    );
+    let result = transport::handle_request(&h.core, &r, "revision-device").await;
+    assert_eq!(result["type"], "response", "{result}");
+    assert_eq!(result["payload"]["retainedImages"], 1, "{result}");
+    assert_eq!(
+        transport::handle_request(&h.core, &r, "revision-device").await,
+        result
+    );
+    assert_eq!(
+        h.core.store.session(id).unwrap()["upstreamThreadId"],
+        session["upstreamThreadId"]
+    );
+    let turn = h.core.latest_upstream_turn(id).await.unwrap();
+    assert_ne!(turn["turn"]["upstreamTurnId"], target);
+}
+
+#[tokio::test]
+async fn account_status_projects_metadata_without_credentials_or_mutation_journal() {
+    let h = Harness::fixture().await;
+    let r = request("account.status", json!({}), "read-account-once");
+    let result = transport::handle_request(&h.core, &r, "account-device").await;
+    assert_eq!(result["type"], "response", "{result}");
+    assert_eq!(result["payload"]["account"]["type"], "apiKey");
+    assert_eq!(result["payload"]["usage"]["ordinaryUsageAllowed"], false);
+    assert_eq!(
+        result["payload"]["usage"]["buckets"][0]["primary"]["usedPercent"],
+        37
+    );
+    assert!(!result.to_string().contains("fixture-secret"));
+    assert!(h
+        .core
+        .store
+        .query(
+            "SELECT * FROM requests WHERE deviceId=?",
+            ["account-device"]
+        )
+        .unwrap()
+        .is_empty());
 }

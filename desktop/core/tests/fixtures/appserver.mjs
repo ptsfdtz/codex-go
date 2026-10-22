@@ -1,10 +1,16 @@
 import readline from 'node:readline';
+import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 const samples = JSON.parse(
   readFileSync(new URL('./protocol-samples.json', import.meta.url), 'utf8').replace(/^\uFEFF/, ''),
 );
 const threads = new Map();
+const skillStates = new Map();
+let skillWrites = 0;
+let configVersion = 0;
+let defaultModel = 'fixture-model';
+let defaultEffort = 'medium';
 let nextRequest = 50;
 const pending = new Map();
 const send = (m) => process.stdout.write(JSON.stringify(m) + '\n');
@@ -53,12 +59,28 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       return;
     case 'initialized':
       return;
+    case 'skills/list': {
+      const data = (p.cwds ?? []).map((cwd) => {
+        const path = join(cwd, '.fixture-skills', 'SKILL.md');
+        if (!skillStates.has(path)) skillStates.set(path, true);
+        return { cwd, errors: [], skills: [{ name: 'fixture-skill', path, scope: 'repo', enabled: skillStates.get(path), description: `fixture skill; writes ${skillWrites}` }] };
+      });
+      respond({ data });
+      return;
+    }
+    case 'skills/config/write':
+      skillWrites++;
+      skillStates.set(p.path, p.enabled);
+      respond({ effectiveEnabled: p.enabled });
+      return;
     case 'windowsSandbox/readiness':
       respond({ status: 'ready' });
       return;
     case 'config/read':
       respond({
         config: {
+          model: defaultModel,
+          model_reasoning_effort: defaultEffort,
           default_permissions: 'agentdeck',
           sandbox_mode: null,
           permissions: {
@@ -75,8 +97,18 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
           },
         },
         origins: {},
-        layers: null,
+        layers: [{ name: { type: 'user', file: join(process.cwd(), 'fixture-user.toml') }, version: String(configVersion), config: { model: defaultModel, model_reasoning_effort: defaultEffort } }],
       });
+      return;
+    case 'config/batchWrite':
+      if (p.filePath !== join(process.cwd(), 'fixture-user.toml') || p.expectedVersion !== String(configVersion) || p.edits.length !== 2 || p.edits[0].keyPath !== 'model' || p.edits[1].keyPath !== 'model_reasoning_effort' || p.edits.some(e => e.mergeStrategy !== 'replace')) {
+        send({ id: m.id, error: { code: -32602, message: 'Invalid fixture config write' } });
+        return;
+      }
+      defaultModel = p.edits[0].value;
+      defaultEffort = p.edits[1].value;
+      configVersion++;
+      respond({ filePath: p.filePath, status: 'ok', version: String(configVersion) });
       return;
     case 'model/list':
       respond({
@@ -188,13 +220,35 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       respond(result);
       return;
     }
+    case 'account/read':
+      respond({account:{type:'apiKey',apiKey:'fixture-secret-account-key'},requiresOpenaiAuth:true,refreshToken:'fixture-secret-refresh'});
+      return;
+    case 'account/rateLimits/read':
+      respond({rateLimits:{limitId:'codex',primary:{usedPercent:37,windowDurationMins:300,resetsAt:2000000000,accessToken:'fixture-secret-window'},credits:{hasCredits:true,unlimited:false,balance:'12'}},ordinaryUsageAllowed:false,rateLimitsByLimitId:null,accountId:'fixture-secret-account-id',rateLimitUpsell:{url:'fixture-secret-url'}});
+      return;
+    case 'thread/revert': {
+      const source=threads.get(p.threadId);
+      const turns=[...source.turns.entries()];
+      const boundary=turns.findIndex(([id])=>id===p.beforeTurnId);
+      if(boundary<0){send({id:m.id,error:{code:-1,message:'Unknown revert boundary'}});return;}
+      source.turns=new Map(turns.slice(0,boundary));
+      const result=clone(samples.threadStart);
+      result.thread.id=p.threadId;result.thread.cwd=source.root;result.thread.turns=[];
+      respond({thread:result.thread,itemsBackwardsCursor:null,turnsBackwardsCursor:null});
+      send({method:'thread/reverted',params:{threadId:p.threadId}});
+      return;
+    }
     case 'thread/fork': {
       const source = threads.get(p.threadId);
       const result = clone(samples.threadStart);
       result.thread.id = 'fixture_' + randomUUID();
       result.thread.cwd = source.root;
       result.cwd = source.root;
-      threads.set(result.thread.id, {root:source.root, turns:new Map(source.turns)});
+      const turns = [...source.turns.entries()];
+      const boundary = p.lastTurnId ? turns.findIndex(([id])=>id===p.lastTurnId) : turns.length-1;
+      if(p.lastTurnId && boundary<0){send({id:m.id,error:{code:-1,message:'Unknown fork boundary'}});return;}
+      result.thread.forkedFromId = p.threadId;
+      threads.set(result.thread.id, {root:source.root, turns:new Map(turns.slice(0,boundary+1))});
       respond(result);
       return;
     }
@@ -208,6 +262,16 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     }
     case 'thread/items/list': {
       const thread = threads.get(p.threadId);
+      if(thread?.name?.startsWith('HISTORY_IMAGE')){
+        const path = join(thread.root,thread.name==='HISTORY_IMAGE_OUTSIDE'?'../outside.png':'image.png');
+        respond({data:[{turnId:'image-turn',item:{type:'imageView',id:'image-item',path}}],nextCursor:null});
+        return;
+      }
+      if(thread?.name?.startsWith('REVISION_')){
+        const entries=[...thread.turns.keys()].map(id=>({turnId:id,item:{type:'userMessage',id:'user-'+id,content:thread.inputs?.get(id)??[]}}));
+        if(p.sortDirection==='desc')entries.reverse();
+        respond({data:entries,nextCursor:null});return;
+      }
       const large = thread?.name === 'HISTORY_LARGE';
       const text = large ? '完整历史😀'.repeat(90000) : '完整历史消息';
       const entries = [
@@ -228,9 +292,22 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         backwardsCursor: null,
       });
       return;
+    case 'thread/compact/start': {
+      const thread = threads.get(p.threadId);
+      thread.compactions = (thread.compactions ?? 0) + 1;
+      respond({});
+      return;
+    }
     case 'thread/goal/get':
       respond({goal:threads.get(p.threadId)?.goal ?? null});
       return;
+    case 'thread/goal/clear': {
+      const current = threads.get(p.threadId);
+      const cleared = !!current?.goal;
+      if(current) delete current.goal;
+      respond({cleared});
+      return;
+    }
     case 'thread/goal/set': {
       const current = threads.get(p.threadId);
       const now = Date.now();
@@ -246,6 +323,15 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       result.turn.completedAt = null;
       result.turn.items = [];
       const text = p.input[0].text;
+      const source=threads.get(p.threadId);
+      if(source.name?.startsWith('REVISION_')){
+        if(text==='CHECK_REVISION_RESOURCES' && (p.input.length!==2||p.input[1].type!=='localImage'||p.input[1].path!==source.revisionImage)){
+          send({id:m.id,error:{code:-1,message:'Original resource was not preserved'}});return;
+        }
+        source.inputs??=new Map();source.inputs.set(turnId,clone(p.input));
+        if(text!=='CHECK_REVISION_RESOURCES')source.revisionImage=p.input.find(part=>part.type==='localImage')?.path;
+      }
+
       const expectedMode = text === 'CHECK_PLAN' ? 'plan' : 'default';
       if(text.startsWith('CHECK_COMPOSER') || text === 'CHECK_PLAN') {
         const valid = p.collaborationMode?.mode === expectedMode && p.collaborationMode?.settings.model === 'fixture-model' &&

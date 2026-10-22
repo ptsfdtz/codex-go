@@ -5,7 +5,7 @@
 - Added Codex chat search, pin, rename, archive/restore and confirmed permanent deletion using generated stable contracts.
 - Added account model catalog, supported reasoning choices and validated turn parameters with persisted per-chat preferences.
 - Added independent Android HTTPS Chat Completions configuration, Keystore-encrypted local history, streamed text, stop and chat management.
-- Added deletion replay recovery, idempotency, real isolated Codex management smoke and HTTPS API fixtures. Scope and current limitations: docs/CONVERSATIONS_AND_API.md.
+- Added deletion replay recovery, idempotency, real isolated Codex management smoke and HTTPS API fixtures. Scope and current limitations: docs/features/android/CONVERSATIONS_AND_API.md.
 
 ## Simplified desktop appearance — 2026-10-20
 
@@ -33,7 +33,7 @@
 - Moved project/device/network management into the more menu; added custom drag, resize, minimize and tray controls.
 - Discover projects via validated config/read and paginated thread/list, canonicalize paths, skip temporary/missing directories and preserve IDs across repeated syncs.
 - Generate pairing QR after explicit local sync and reuse existing credentials; preserve human approval requirements.
-- Added pagination/security tests and real read-only Codex smoke. Scope: docs/DESKTOP_EXPERIENCE.md.
+- Added pagination/security tests and real read-only Codex smoke. Scope: docs/features/desktop/DESKTOP_EXPERIENCE.md.
 
 ## Windows management UX update — 2026-10-20
 
@@ -41,7 +41,7 @@
 - Added guided QR pairing with expiry and explicit device-code confirmation, complete project paths and live device presence.
 - Replaced truncated Yes/No approval prompts with full scrollable context, explicit actions, expiry checks and safe cancel defaults.
 - Preserved list selection during refresh, added inline feedback and guarded duplicate submissions.
-- Added 12 native layout checks plus Unicode, long approval context, expiry and selection regression checks. See docs/DESKTOP_EXPERIENCE.md.
+- Added 12 native layout checks plus Unicode, long approval context, expiry and selection regression checks. See docs/features/desktop/DESKTOP_EXPERIENCE.md.
 
 ## Conversation UX update — 2026-10-20
 
@@ -49,7 +49,7 @@
 - Projected real streaming events by item identity; completed text replaces deltas without duplicate echoes or replay messages.
 - Added inline human approval review, collapsed execution cards, basic Markdown/code copying, neutral themes and responsive session drawer.
 - Preserved separate drafts through rotation/recreation; clear only after acknowledged submission and dismiss the keyboard when sending.
-- Added real physical composer-to-Codex verification and regression coverage. See docs/CHAT_EXPERIENCE.md for evidence and limits.
+- Added real physical composer-to-Codex verification and regression coverage. See docs/features/android/CHAT_EXPERIENCE.md for evidence and limits.
 
 ## 0.1.0 — 2026-10-20 development build
 

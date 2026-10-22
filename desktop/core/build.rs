@@ -115,6 +115,68 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
     println!("cargo:rerun-if-changed={}", projects_lock_path.display());
+    let queue_lock_path = root.join("versions/0.163.0-alpha.10.2/queue-lock.json");
+    let queue_lock: serde_json::Value =
+        serde_json::from_slice(&fs::read(&queue_lock_path).expect("native queue schema lock"))
+            .unwrap();
+    assert_eq!(queue_lock["codexVersion"], "0.163.0-alpha.10.2");
+    assert_eq!(queue_lock["experimental"], true);
+    assert_eq!(queue_lock["files"].as_array().unwrap().len(), 10);
+    for operation in ["Add", "List", "Update", "Delete", "Reorder"] {
+        for kind in ["Params", "Response"] {
+            let name = format!("ThreadQueue{operation}{kind}");
+            let file = queue_lock["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|file| file["name"] == name)
+                .expect("queue contract");
+            let source = format!("versions/0.163.0-alpha.10.2/experimental/{name}.json");
+            assert_eq!(file["source"], source);
+            let path = root.join(source);
+            let bytes = fs::read(&path).expect("generated queue schema");
+            assert_eq!(
+                format!("{:x}", Sha256::digest(&bytes)),
+                file["sha256"].as_str().unwrap()
+            );
+            generated.push_str(&format!(
+                "{:?}=>Some(include_str!({:?})),\n",
+                format!("experimental/{name}"),
+                path.to_string_lossy()
+            ));
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
+    println!("cargo:rerun-if-changed={}", queue_lock_path.display());
+    let start_lock_path = root.join("versions/0.163.0-alpha.10.2/queue-start-lock.json");
+    let start_lock: serde_json::Value =
+        serde_json::from_slice(&fs::read(&start_lock_path).expect("queue start lock")).unwrap();
+    assert_eq!(start_lock["codexVersion"], "0.163.0-alpha.10.2");
+    assert_eq!(start_lock["experimental"], true);
+    assert_eq!(start_lock["files"].as_array().unwrap().len(), 2);
+    for kind in ["Params", "Response"] {
+        let name = format!("ThreadQueueStart{kind}");
+        let file = start_lock["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["name"] == name)
+            .expect("queue start contract");
+        let source = format!("versions/0.163.0-alpha.10.2/experimental/{name}.json");
+        assert_eq!(file["source"], source);
+        let path = root.join(source);
+        assert_eq!(
+            format!("{:x}", Sha256::digest(fs::read(&path).unwrap())),
+            file["sha256"].as_str().unwrap()
+        );
+        generated.push_str(&format!(
+            "{:?}=>Some(include_str!({:?})),\n",
+            format!("experimental/{name}"),
+            path.to_string_lossy()
+        ));
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    println!("cargo:rerun-if-changed={}", start_lock_path.display());
     generated.push_str("_=>None}}\n");
     println!("cargo:rerun-if-changed={}", composer_path.display());
     println!("cargo:rerun-if-changed={}", composer_lock_path.display());
