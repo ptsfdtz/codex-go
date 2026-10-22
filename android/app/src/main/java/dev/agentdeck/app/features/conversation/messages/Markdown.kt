@@ -20,7 +20,7 @@ import io.noties.markwon.LinkResolver
 import io.noties.markwon.ext.tables.TablePlugin
 
 @Composable
-internal fun MarkdownText(text: String, modifier: Modifier = Modifier, fontSizeSp: Float = 15f) {
+internal fun MarkdownText(text: String, modifier: Modifier = Modifier, fontSizeSp: Float = 16f) {
     val context = LocalContext.current
     val handler by rememberUpdatedState(LocalMessageLinkHandler.current)
     var pending by remember{mutableStateOf<String?>(null)}

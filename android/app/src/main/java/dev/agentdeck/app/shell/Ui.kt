@@ -28,12 +28,9 @@ import androidx.compose.ui.semantics.semantics
 import kotlinx.serialization.json.*
 import java.time.Instant
 
-@Composable fun DeckTheme(theme:String="system",content: @Composable () -> Unit){
-    val dark=theme=="dark"||theme=="system"&&isSystemInDarkTheme()
-    MaterialTheme(colorScheme=if(dark)darkColorScheme(primary=Color(0xFFE6E6E6),onPrimary=Color(0xFF171717),primaryContainer=Color(0xFF333333),onPrimaryContainer=Color(0xFFF5F5F5),background=Color(0xFF181818),surface=Color(0xFF181818),surfaceContainerLow=Color(0xFF212121),surfaceContainer=Color(0xFF252525),surfaceContainerHighest=Color(0xFF303030),secondaryContainer=Color(0xFF303030),onSecondaryContainer=Color(0xFFF0F0F0),outlineVariant=Color(0xFF373737))else lightColorScheme(primary=Color(0xFF202020),onPrimary=Color.White,primaryContainer=Color(0xFFEAEAEA),onPrimaryContainer=Color(0xFF202020),background=Color.White,surface=Color.White,surfaceContainerLow=Color(0xFFF8F8F8),surfaceContainer=Color(0xFFF3F3F3),surfaceContainerHighest=Color(0xFFEEEEEE),secondaryContainer=Color(0xFFEAEAEA),onSecondaryContainer=Color(0xFF202020),outlineVariant=Color(0xFFE8E8E8)),typography=Typography(),content=content)
-}
 @Composable fun DeckApp(state:DeckState,repo:DeckRepository){
     var panel by rememberSaveable{mutableStateOf("chat")}
+    var conversationAction by remember(state.host?.hostId,state.selectedSession){mutableStateOf<String?>(null)}
     var showPair by rememberSaveable{mutableStateOf(false)}
     var showComputers by rememberSaveable{mutableStateOf(false)}
     var sidebar by rememberSaveable{mutableStateOf(false)}
@@ -57,43 +54,14 @@ import java.time.Instant
         else->false
     }}){
         val wide=maxWidth>=900.dp
-        val compactToolbar=maxWidth<600.dp
         Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)){
             if(wide&&sidebarExpanded&&state.host!=null){ChatSidebar(state,repo,panel,onChat={panel="chat"},onSettings={panel="settings"},onPair={showComputers=true},onCollapse={sidebarExpanded=false});VerticalDivider()}
             Column(Modifier.weight(1f).fillMaxHeight().windowInsetsPadding(WindowInsets.safeDrawing).testTag("workspace-content")){
-                Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically){
-                    if(state.host!=null&&(!wide||!sidebarExpanded))IconButton(onClick={if(wide)sidebarExpanded=true else sidebar=true}){Icon(Icons.Outlined.Menu,"打开会话列表")}
-                    Column(Modifier.weight(1f).clickable(enabled=!state.busy){showComputers=true}.semantics{contentDescription="选择电脑"}){
-                        Text(if(panel=="settings")"设置" else state.snapshot.sessions.find{it.sessionId==state.selectedSession}?.title?:state.snapshot.projects.find{it.projectId==state.selectedProject}?.name?:"AgentDeck",fontSize=16.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                        if(state.host!=null)Row(verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Computer,null,Modifier.size(13.dp));Spacer(Modifier.width(4.dp));Text("${state.host.label} · ${state.connection}",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f,fill=false));Icon(Icons.Outlined.ExpandMore,null,Modifier.size(13.dp))}
-                    }
-                    if(!compactToolbar&&state.host!=null){
-                        IconButton(onClick={navigate(-1)},enabled=canBack){Icon(Icons.Outlined.ArrowBack,"后退到上一会话或项目")}
-                        IconButton(onClick={navigate(1)},enabled=canForward){Icon(Icons.Outlined.ArrowForward,"前进到下一会话或项目")}
-                    }
-                    if(!compactToolbar){
-                    if(panel!="chat")TextButton(onClick={panel="chat"}){Text("返回对话")}
-                    else if(state.host!=null){IconButton(onClick={panel="review";repo.refreshGit()},enabled=state.selectedProject!=null){Icon(Icons.Outlined.Difference,"审查")};IconButton(onClick={state.selectedProject?.let(repo::selectProject)},enabled=state.selectedProject!=null){Icon(Icons.Outlined.EditNote,"新对话")}}
-                    }
-                    if(state.host!=null)IconButton(onClick={showDrafts=true}){Icon(Icons.Outlined.Drafts,"未发送草稿")}
-                    IconButton(onClick={showCommands=true}){Icon(Icons.Outlined.Search,"搜索操作与会话")}
-                    if(!compactToolbar){
-                    DisplayMaskAction(state.displayMask,repo::setDisplayMask)
-                    }
-                    if(!wide||state.host==null)IconButton(onClick={panel="settings"},modifier=Modifier.testTag("codex-open-settings")){Icon(Icons.Outlined.Settings,"设置")}
-                }
-                if(compactToolbar)Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically){
-                    if(state.host!=null){
-                        IconButton(onClick={navigate(-1)},enabled=canBack){Icon(Icons.Outlined.ArrowBack,"后退到上一会话或项目")}
-                        IconButton(onClick={navigate(1)},enabled=canForward){Icon(Icons.Outlined.ArrowForward,"前进到下一会话或项目")}
-                    }
-                    if(panel!="chat")TextButton(onClick={panel="chat"}){Text("返回对话")}
-                    if(state.host!=null){
-                        TextButton(onClick={panel="review";repo.refreshGit()},enabled=state.selectedProject!=null){Icon(Icons.Outlined.Difference,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("审查")}
-                        TextButton(onClick={state.selectedProject?.let(repo::selectProject);panel="chat"},enabled=state.selectedProject!=null){Icon(Icons.Outlined.EditNote,null,Modifier.size(18.dp));Spacer(Modifier.width(6.dp));Text("新对话")}
-                    }
-                    DisplayMaskAction(state.displayMask,repo::setDisplayMask)
-                }
+                ConversationTopBar(state,repo,panel,showNavigation=state.host!=null&&(!wide||!sidebarExpanded),
+                    onNavigation={if(wide)sidebarExpanded=true else sidebar=true},onChat={panel="chat"},
+                    onNew={state.selectedProject?.let(repo::selectProject);panel="chat"},onComputers={showComputers=true},
+                    onSettings={panel="settings"},onSearch={showCommands=true},onDrafts={showDrafts=true},
+                    onReview={panel="review";repo.refreshGit()},onConversationAction={conversationAction=it})
                 if(state.stale&&state.host!=null)Surface(color=MaterialTheme.colorScheme.surfaceContainerHighest){Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.CloudOff,null,Modifier.size(16.dp));Spacer(Modifier.width(8.dp));Text("连接已断开 · 当前显示缓存，恢复连接后可继续",fontSize=12.sp,modifier=Modifier.weight(1f));TextButton(onClick=repo::reconnect){Text("重连")}}}
                 state.error?.let{message->Surface(color=MaterialTheme.colorScheme.errorContainer){Row(Modifier.fillMaxWidth().padding(start=20.dp),verticalAlignment=Alignment.CenterVertically){Text(message,modifier=Modifier.weight(1f),fontSize=12.sp);IconButton(onClick=repo::clearError){Icon(Icons.Outlined.Close,"关闭提示")}}}}
                 Box(Modifier.weight(1f)){
@@ -109,7 +77,7 @@ import java.time.Instant
                             Row(Modifier.fillMaxSize()){
                                 Box(Modifier.weight(1f).fillMaxHeight()){
                                     if(panel!="review"||splitReview)workspaceState.SaveableStateProvider("conversation"){
-                                        ChatWorkspace(state,repo,onInterrupt={confirmInterrupt=true})
+                                        ChatWorkspace(state,repo,onInterrupt={confirmInterrupt=true},requestedAction=conversationAction,onActionConsumed={conversationAction=null})
                                     }
                                 }
                                 if(panel=="review"){
@@ -128,7 +96,7 @@ import java.time.Instant
                 }
             }
         }
-        if(sidebar&&!wide){val drawer=rememberDrawerState(DrawerValue.Open);LaunchedEffect(drawer.currentValue){if(drawer.currentValue==DrawerValue.Closed)sidebar=false};ModalNavigationDrawer(drawerState=drawer,drawerContent={ModalDrawerSheet(modifier=Modifier.width(260.dp),windowInsets=WindowInsets(0),drawerContainerColor=MaterialTheme.colorScheme.surfaceContainerLow){ChatSidebar(state,repo,panel,onChat={panel="chat";sidebar=false},onSettings={panel="settings";sidebar=false},onPair={showComputers=true;sidebar=false},onCollapse={sidebar=false})}},content={Box(Modifier.fillMaxSize().clickable{sidebar=false})})}
+        if(sidebar&&!wide){val drawer=rememberDrawerState(DrawerValue.Open);LaunchedEffect(drawer.currentValue){if(drawer.currentValue==DrawerValue.Closed)sidebar=false};ModalNavigationDrawer(drawerState=drawer,drawerContent={ModalDrawerSheet(modifier=Modifier.widthIn(max=340.dp).fillMaxWidth(0.88f),windowInsets=WindowInsets(0),drawerContainerColor=MaterialTheme.colorScheme.surfaceContainerLow){ChatSidebar(state,repo,panel,onChat={panel="chat";sidebar=false},onSettings={panel="settings";sidebar=false},onPair={showComputers=true;sidebar=false},onCollapse={sidebar=false})}},content={Box(Modifier.fillMaxSize().clickable{sidebar=false})})}
     }
     }
     androidx.activity.compose.BackHandler(enabled=sidebar||panel!="chat"){if(sidebar)sidebar=false else panel="chat"}
@@ -180,83 +148,92 @@ import java.time.Instant
     if(confirmForget)Confirm("移除当前电脑？","仅移除此电脑的配对和缓存，其他电脑会保留。在线时撤销该电脑的设备凭据；离线时请随后在该 Windows 电脑撤销设备。",{confirmForget=false},{confirmForget=false;repo.forgetHost()})
 }
 @Composable private fun Welcome(onPair:()->Unit){Box(Modifier.fillMaxSize().padding(32.dp),contentAlignment=Alignment.Center){Column(Modifier.widthIn(max=460.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(20.dp)){
-    Icon(Icons.Outlined.Code,null,Modifier.size(48.dp));Text("在平板上，继续用 Codex。",fontSize=28.sp,fontWeight=FontWeight.SemiBold)
+    Icon(Icons.Outlined.Code,null,Modifier.size(48.dp));Text("随时继续你的工作。",fontSize=28.sp,fontWeight=FontWeight.SemiBold)
     Text("连接你的 Windows，一起写代码、解决问题、查看改动。",color=MaterialTheme.colorScheme.onSurfaceVariant,lineHeight=24.sp)
     Button(onClick=onPair,contentPadding=PaddingValues(horizontal=24.dp,vertical=14.dp)){Icon(Icons.Outlined.QrCodeScanner,null);Spacer(Modifier.width(10.dp));Text("配对 Windows 主机")}
-    Text("在 Windows Bridge 中生成二维码，扫码并确认即可。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("在 AgentDeck 中生成二维码，扫码并确认即可。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }}}
 @Composable private fun ChatSidebar(state:DeckState,repo:DeckRepository,panel:String,onChat:()->Unit,onSettings:()->Unit,onPair:()->Unit,onCollapse:()->Unit){
-    var showNativeProjects by remember(state.host?.hostId){mutableStateOf(false)}
-    if(showNativeProjects)NativeProjectsDialog(repo,state.host?.hostId,onClose={showNativeProjects=false},onOpenChat=onChat)
-
     var search by rememberSaveable(state.host?.hostId){mutableStateOf("")}
     var filter by rememberSaveable(state.host?.hostId){mutableStateOf("all")}
     var sort by rememberSaveable(state.host?.hostId){mutableStateOf("recent")}
-    var sortOpen by remember(state.host?.hostId){mutableStateOf(false)}
-    val pendingSessions=state.snapshot.approvals.filter{it.status=="pending"}.map{it.sessionId}.toSet()
-    val visible=state.snapshot.sessions.filter{session->when(filter){
-        "archived"->session.archived==1
-        "pinned"->session.archived==0&&session.pinned==1
-        "active"->session.archived==0&&(session.status in listOf("running","queued","waitingApproval","unknown")||session.sessionId in pendingSessions)
-        else->session.archived==0
-    }}
+    var filterMenu by remember{mutableStateOf(false)}
+    var projectsExpanded by rememberSaveable(state.host?.hostId){mutableStateOf(false)}
+    var showNativeProjects by remember(state.host?.hostId){mutableStateOf(false)}
+    var manageSession by remember(state.host?.hostId){mutableStateOf<String?>(null)}
+    if(showNativeProjects)NativeProjectsDialog(repo,state.host?.hostId,onClose={showNativeProjects=false},onOpenChat=onChat)
+    val pending=state.snapshot.approvals.filter{it.status=="pending"}.map{it.sessionId}.toSet()
     val terms=search.trim().split(Regex("\\s+")).filter{it.isNotBlank()}
-    fun matches(session:Session,project:Project)=terms.all{maskDisplay(session.title+" "+project.name,state.displayMask).contains(it,true)}
-    val ordering=when(sort){"title"->compareBy<Session>{maskDisplay(it.title,state.displayMask).lowercase()};else->compareByDescending<Session>{it.updatedAt}}
-    var collapsed by rememberSaveable(state.host?.hostId){mutableStateOf(emptyList<String>())}
-    Column(Modifier.width(260.dp).fillMaxHeight().testTag("chat-sidebar").background(MaterialTheme.colorScheme.surfaceContainerLow).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical+WindowInsetsSides.Start)).padding(12.dp)){
-        Row(Modifier.fillMaxWidth().height(48.dp).padding(start=8.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.Code,null,Modifier.size(22.dp));Spacer(Modifier.width(10.dp));Text("AgentDeck",modifier=Modifier.weight(1f),fontWeight=FontWeight.SemiBold,fontSize=17.sp);IconButton(onClick=onCollapse){Icon(Icons.Outlined.MenuOpen,"收起会话列表")}}
-        TextButton(onClick={state.selectedProject?.let(repo::selectProject);onChat()},enabled=state.selectedProject!=null,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.EditNote,null,Modifier.size(18.dp));Spacer(Modifier.width(10.dp));Text("新对话",modifier=Modifier.weight(1f))}
-        ConversationSearch(search,{search=it},"搜索已同步会话")
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)){
-            listOf("all" to "全部","active" to "活动","pinned" to "置顶","archived" to "归档").forEach{(key,label)->FilterChip(selected=filter==key,onClick={filter=key},label={Text(label)})}
+    val visible=state.snapshot.sessions.filter{session->
+        val project=state.snapshot.projects.find{it.projectId==session.projectId}
+        val matches=terms.all{maskDisplay(session.title+" "+project?.name.orEmpty(),state.displayMask).contains(it,true)}
+        matches&&when(filter){
+            "archived"->session.archived==1
+            "pinned"->session.archived==0&&session.pinned==1
+            "active"->session.archived==0&&(session.status in listOf("running","queued","waitingApproval","unknown")||session.sessionId in pending)
+            else->session.archived==0
         }
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-            Text("${visible.size} 个会话",Modifier.weight(1f),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            Box{
-                TextButton(onClick={sortOpen=true}){Text(if(sort=="title")"按名称" else "最近更新",fontSize=11.sp)}
-                DropdownMenu(expanded=sortOpen,onDismissRequest={sortOpen=false}){
-                    DropdownMenuItem(text={Text("最近更新")},onClick={sort="recent";sortOpen=false})
-                    DropdownMenuItem(text={Text("按名称")},onClick={sort="title";sortOpen=false})
+    }
+    val ordering=if(sort=="title")compareBy<Session>{maskDisplay(it.title,state.displayMask).lowercase()} else compareByDescending<Session>{it.updatedAt}
+    Column(Modifier.widthIn(max=340.dp).fillMaxWidth().fillMaxHeight().testTag("chat-sidebar").background(MaterialTheme.colorScheme.surfaceContainerLow).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical+WindowInsetsSides.Start)).padding(horizontal=12.dp)){
+        Row(Modifier.fillMaxWidth().height(56.dp),verticalAlignment=Alignment.CenterVertically){
+            Text("AgentDeck",Modifier.weight(1f).padding(start=12.dp),fontSize=20.sp,fontWeight=FontWeight.SemiBold)
+            IconButton(onClick=onCollapse){Icon(Icons.Outlined.MenuOpen,"收起会话列表")}
+        }
+        ConversationSearch(search,{search=it},"搜索会话")
+        TextButton(onClick={state.selectedProject?.let(repo::selectProject);onChat()},enabled=state.selectedProject!=null&&!state.busy,modifier=Modifier.fillMaxWidth(),contentPadding=PaddingValues(12.dp)){
+            Icon(Icons.Outlined.Edit,null,Modifier.size(22.dp));Spacer(Modifier.width(12.dp));Text("新对话",Modifier.weight(1f),fontSize=16.sp)
+        }
+        LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(bottom=16.dp)){
+            item{
+                Row(Modifier.fillMaxWidth().clickable{projectsExpanded=!projectsExpanded}.padding(horizontal=12.dp,vertical=16.dp),verticalAlignment=Alignment.CenterVertically){
+                    Icon(Icons.Outlined.FolderOpen,null,Modifier.size(21.dp));Spacer(Modifier.width(12.dp));Text("项目",Modifier.weight(1f),fontSize=15.sp)
+                    Icon(if(projectsExpanded)Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,null,Modifier.size(18.dp))
                 }
             }
-        }
-        if(state.capabilities?.supports("nativeProjectReadViews")==true)TextButton(onClick={showNativeProjects=true},enabled=!state.stale){Text("Codex 项目")}
-        LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp),contentPadding=PaddingValues(vertical=14.dp)){
-            item{Row(Modifier.fillMaxWidth().padding(start=10.dp),verticalAlignment=Alignment.CenterVertically){Text("项目",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f));IconButton(onClick=repo::addProject,enabled=!state.stale){Icon(Icons.Outlined.CreateNewFolder,"授权项目",Modifier.size(18.dp))}}}
-            if(state.snapshot.projects.isEmpty())item{Text("还没有授权项目，请在 Windows 选择目录。",Modifier.padding(10.dp),fontSize=12.sp)}
-            if(state.snapshot.projects.isNotEmpty()&&visible.none{session->state.snapshot.projects.find{it.projectId==session.projectId}?.let{matches(session,it)}==true})item{Column{Text("当前筛选没有匹配的已同步会话",Modifier.padding(10.dp),fontSize=12.sp);TextButton(onClick={search="";filter="all"}){Text("显示全部未归档会话")}}}
-            state.snapshot.projects.forEach{project->
-                val projectSessions=visible.filter{it.projectId==project.projectId}
-                val matches=projectSessions.filter{matches(it,project)}
-                val expanded=project.projectId !in collapsed||search.isNotBlank()||filter!="all"
-                if(matches.isNotEmpty()||(filter=="all"&&terms.all{maskDisplay(project.name,state.displayMask).contains(it,true)}))item(key="p:"+project.projectId){
-                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                        IconButton(onClick={collapsed=if(project.projectId in collapsed)collapsed-project.projectId else collapsed+project.projectId},modifier=Modifier.size(28.dp),enabled=search.isBlank()&&filter=="all"){
-                            Icon(if(expanded)Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight,if(expanded)"折叠项目 ${project.name}" else "展开项目 ${project.name}",Modifier.size(16.dp))
-                        }
-                        Row(Modifier.weight(1f).clickable(enabled=!state.busy){repo.selectProject(project.projectId);onChat()}.padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically){
-                            Icon(Icons.Outlined.FolderOpen,null,Modifier.size(17.dp));Spacer(Modifier.width(9.dp))
-                            Text(maskDisplay(project.name,state.displayMask),modifier=Modifier.weight(1f),fontSize=13.sp,fontWeight=if(project.projectId==state.selectedProject)FontWeight.SemiBold else FontWeight.Normal,maxLines=1,overflow=TextOverflow.Ellipsis)
-                            if(!expanded)Text(projectSessions.size.toString(),Modifier.padding(horizontal=6.dp),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(projectsExpanded){
+                items(state.snapshot.projects,key={"project:"+it.projectId}){project->
+                    TextButton(onClick={repo.selectProject(project.projectId);onChat()},enabled=!state.busy,modifier=Modifier.fillMaxWidth(),contentPadding=PaddingValues(start=44.dp,end=12.dp,top=10.dp,bottom=10.dp)){
+                        Text(maskDisplay(project.name,state.displayMask),Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)
+                        if(state.selectedProject==project.projectId)Icon(Icons.Outlined.Check,null,Modifier.size(16.dp))
+                    }
+                }
+                item{TextButton(onClick=repo::addProject,enabled=!state.stale){Icon(Icons.Outlined.CreateNewFolder,null,Modifier.size(18.dp));Spacer(Modifier.width(10.dp));Text("在 Windows 授权项目")}}
+                if(state.capabilities?.supports("nativeProjectReadViews")==true)item{TextButton(onClick={showNativeProjects=true},enabled=!state.stale){Text("Codex 项目")}}
+            }
+            item{
+                Row(Modifier.fillMaxWidth().padding(start=12.dp,top=8.dp),verticalAlignment=Alignment.CenterVertically){
+                    Text(when(filter){"active"->"活动任务";"pinned"->"置顶";"archived"->"归档";else->"对话"},Modifier.weight(1f),fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Box{
+                        IconButton(onClick={filterMenu=true}){Icon(Icons.Outlined.Tune,"筛选和排序会话",Modifier.size(18.dp))}
+                        DropdownMenu(expanded=filterMenu,onDismissRequest={filterMenu=false}){
+                            listOf("all" to "全部对话","active" to "活动任务","pinned" to "置顶","archived" to "归档").forEach{(id,label)->DropdownMenuItem(text={Text(label)},trailingIcon={if(filter==id)Icon(Icons.Outlined.Check,null)},onClick={filter=id;filterMenu=false})}
+                            HorizontalDivider()
+                            listOf("recent" to "最近更新","title" to "按名称").forEach{(id,label)->DropdownMenuItem(text={Text(label)},trailingIcon={if(sort==id)Icon(Icons.Outlined.Check,null)},onClick={sort=id;filterMenu=false})}
                         }
                     }
                 }
-                if(expanded)items(matches.sortedWith(compareByDescending<Session>{it.pinned}.then(ordering)),key={it.sessionId}){session->
-                    val pending=state.snapshot.approvals.any{it.sessionId==session.sessionId&&it.status=="pending"}
-                    Row(Modifier.fillMaxWidth().background(if(state.selectedSession==session.sessionId&&panel=="chat")MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent,RoundedCornerShape(8.dp)).clickable(enabled=!state.busy){repo.selectSession(session.sessionId);onChat()}.padding(start=35.dp,end=10.dp,top=11.dp,bottom=11.dp),verticalAlignment=Alignment.CenterVertically){
-                        if(session.pinned==1)Icon(Icons.Outlined.PushPin,null,Modifier.size(12.dp))
-                        Text(maskDisplay(session.title,state.displayMask),fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))
-                        if(pending)Icon(Icons.Outlined.Security,"等待审批",Modifier.size(14.dp),tint=MaterialTheme.colorScheme.error)
-                        else if(session.status in listOf("running","queued"))CircularProgressIndicator(Modifier.size(12.dp),strokeWidth=1.5.dp)
-                        SessionActions(session,state,repo)
+            }
+            if(visible.isEmpty())item{Text(if(search.isNotBlank())"没有匹配的会话" else "暂无会话",Modifier.padding(12.dp),fontSize=14.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            items(visible.sortedWith(compareByDescending<Session>{it.pinned}.then(ordering)),key={it.sessionId}){session->
+                Box{
+                    Row(Modifier.fillMaxWidth().background(if(state.selectedSession==session.sessionId&&panel=="chat")MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent,RoundedCornerShape(12.dp)).combinedClickable(enabled=!state.busy,onClick={repo.selectSession(session.sessionId);onChat()},onLongClickLabel="管理会话",onLongClick={manageSession=session.sessionId}).padding(horizontal=12.dp,vertical=15.dp),verticalAlignment=Alignment.CenterVertically){
+                        Text(maskDisplay(session.title,state.displayMask),fontSize=15.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))
+                        if(session.sessionId in pending)Icon(Icons.Outlined.Security,"等待审批",Modifier.padding(start=8.dp).size(16.dp),tint=MaterialTheme.colorScheme.error)
+                        else if(session.status in listOf("running","queued"))CircularProgressIndicator(Modifier.padding(start=8.dp).size(14.dp),strokeWidth=1.5.dp)
+                        else if(session.status=="unknown")Icon(Icons.Outlined.SyncProblem,"任务状态待核对",Modifier.padding(start=8.dp).size(16.dp))
+                        else if(session.pinned==1)Icon(Icons.Outlined.PushPin,"已置顶",Modifier.padding(start=8.dp).size(14.dp))
                     }
+                    SessionActions(session,state,repo,showButton=false,requestMenu=manageSession==session.sessionId,onMenuConsumed={manageSession=null})
                 }
             }
         }
-        HorizontalDivider()
-        TextButton(onClick=onSettings,modifier=Modifier.fillMaxWidth().testTag("codex-open-settings")){Icon(Icons.Outlined.Settings,null,Modifier.size(18.dp));Spacer(Modifier.width(10.dp));Text("设置",Modifier.weight(1f))}
-        TextButton(onClick=onPair,enabled=!state.busy,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.Computer,null,Modifier.size(18.dp));Spacer(Modifier.width(10.dp));Text("切换电脑",Modifier.weight(1f),fontSize=12.sp)}
+        Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
+            TextButton(onClick=onPair,enabled=!state.busy,modifier=Modifier.weight(1f)){
+                Icon(Icons.Outlined.Computer,null,Modifier.size(22.dp));Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f),horizontalAlignment=Alignment.Start){Text(maskDisplay(state.host?.label?:"连接电脑",state.displayMask),fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis);Text(state.connection,fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            }
+            IconButton(onClick=onSettings,modifier=Modifier.testTag("codex-open-settings")){Icon(Icons.Outlined.Settings,"设置")}
+        }
     }
 }
 @Composable internal fun Review(state:DeckState,repo:DeckRepository){LaunchedEffect(state.host?.hostId,state.selectedProject){if(state.selectedProject!=null&&!state.stale)repo.refreshGit()};BoxWithConstraints(Modifier.fillMaxSize().padding(20.dp)){val wide=maxWidth>=760.dp;var showDiff by rememberSaveable(state.host?.hostId){mutableStateOf(false)};if(wide)Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){GitFiles(state,repo,Modifier.width(280.dp),onFile={repo.selectFile(it)});DiffPane(state.diff,Modifier.weight(1f),state.displayMask)}else Column{if(!showDiff){GitFiles(state,repo,Modifier.fillMaxSize(),onFile={repo.selectFile(it);showDiff=true})}else{TextButton(onClick={showDiff=false}){Text("返回文件列表")};DiffPane(state.diff,Modifier.weight(1f),state.displayMask)}}}}

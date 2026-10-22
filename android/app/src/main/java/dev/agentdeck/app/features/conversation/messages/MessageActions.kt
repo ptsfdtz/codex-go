@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -39,8 +40,9 @@ import kotlinx.coroutines.*
         }catch(e:CancellationException){throw e}catch(e:Exception){repo.showMessage(e.message?:"无法读取消息正文")}finally{busy=false}}
     }
     Row(Modifier.fillMaxWidth(),horizontalArrangement=if(entry.kind=="user")Arrangement.End else Arrangement.Start){
+        if(entry.kind!="user")IconButton(onClick={load(true)},enabled=!busy,modifier=Modifier.size(48.dp)){Icon(Icons.Outlined.ContentCopy,"复制回复",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)}
         Box{
-            IconButton(onClick={menu=true},enabled=!busy,modifier=Modifier.size(30.dp)){Icon(Icons.Outlined.MoreHoriz,"消息操作",Modifier.size(18.dp))}
+            IconButton(onClick={menu=true},enabled=!busy,modifier=Modifier.size(48.dp)){Icon(Icons.Outlined.MoreHoriz,"消息操作",Modifier.size(18.dp))}
             DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
                 DropdownMenuItem(text={Text("复制已加载正文")},onClick={menu=false;load(true)})
                 DropdownMenuItem(text={Text("阅读与查找正文")},onClick={menu=false;reading=true})

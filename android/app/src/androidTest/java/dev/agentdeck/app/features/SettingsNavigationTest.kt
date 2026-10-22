@@ -25,13 +25,14 @@ class SettingsNavigationTest {
         compose.runOnUiThread { compose.activity.setContent { DeckTheme { DeckApp(fixture, repo) } } }
         compose.onNodeWithText("已归档").assertDoesNotExist()
         compose.onNodeWithText("Archived Codex fixture").assertDoesNotExist()
-        compose.onNodeWithTag("codex-open-settings").performClick()
+        compose.onNodeWithContentDescription("更多操作").performClick()
+        compose.onAllNodesWithTag("codex-open-settings").onLast().performClick()
         compose.onNodeWithText("查看已归档会话").performClick()
         compose.onNodeWithText("Archived Codex fixture").assertIsDisplayed()
         compose.onNodeWithText("恢复").assertIsNotEnabled()
         compose.onNodeWithText("关闭").performClick()
         compose.onNodeWithText("已归档会话").assertDoesNotExist()
-        compose.onNodeWithText("返回对话").performClick()
-        compose.onNodeWithText("返回对话").assertDoesNotExist()
+        compose.onNodeWithContentDescription("返回对话").performClick()
+        compose.onNodeWithContentDescription("返回对话").assertDoesNotExist()
     }
 }

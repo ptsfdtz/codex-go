@@ -35,7 +35,7 @@ class PhysicalComposerTest {
         val repo=(compose.activity.application as DeckApplication).repository
         compose.waitUntil(60000){!repo.state.value.stale&&repo.state.value.snapshot.projects.size==1}
         compose.runOnUiThread{repo.selectProject(repo.state.value.snapshot.projects.single().projectId);repo.setFullAccess(false)}
-        fun mode(label:String){compose.onNodeWithContentDescription("更多操作").performClick();compose.onNodeWithText(label).performClick()}
+        fun mode(label:String){compose.onNodeWithContentDescription("添加附件与工具").performClick();compose.onNodeWithText(label).performClick()}
         fun send(text:String){compose.onNodeWithTag("chat-input").performTextReplacement(text);compose.onNodeWithContentDescription("发送消息").performClick()}
         fun completed(marker:String){
             compose.waitUntil(180000){val s=repo.state.value;s.error!=null||(s.selectedSession!=null&&s.snapshot.sessions.any{it.sessionId==s.selectedSession&&it.status=="completed"}&&conversationEntries(s.events).any{it.kind=="assistant"&&it.text.contains(marker)})}
@@ -55,7 +55,7 @@ class PhysicalComposerTest {
             return find(instrumentation.uiAutomation.rootInActiveWindow)
         }
         // Real Android document picker -> ContentResolver -> production composer -> physical WSS.
-        compose.onNodeWithContentDescription("更多操作").performClick()
+        compose.onNodeWithContentDescription("添加附件与工具").performClick()
         compose.onNodeWithText("上传文件或图片").performClick()
         Thread.sleep(1200)
         if(!clickSystem("composer-note.txt")){

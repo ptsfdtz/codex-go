@@ -12,12 +12,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-@Composable fun SessionActions(session:Session,state:DeckState,repo:DeckRepository){
+@Composable fun SessionActions(session:Session,state:DeckState,repo:DeckRepository,showButton:Boolean=true,requestMenu:Boolean=false,onMenuConsumed:()->Unit={}){
     var menu by remember(state.host?.hostId,session.sessionId){mutableStateOf(false)}
     var operation by remember(state.host?.hostId,session.sessionId){mutableStateOf("")}
+    LaunchedEffect(requestMenu){if(requestMenu){menu=true;onMenuConsumed()}}
     val enabled=canManageSession(state,session)
     Box{
-        IconButton(onClick={menu=true}){Icon(Icons.Outlined.MoreHoriz,"管理会话 ${session.title}",Modifier.size(18.dp))}
+        if(showButton)IconButton(onClick={menu=true}){Icon(Icons.Outlined.MoreHoriz,"管理会话 ${session.title}",Modifier.size(18.dp))}
         DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
             DropdownMenuItem(text={Text("任务与同步状态")},onClick={menu=false;operation="activity"})
             DropdownMenuItem(text={Text("会话关系与来源")},onClick={menu=false;operation="relations"})
