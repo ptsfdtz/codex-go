@@ -16,7 +16,11 @@
 | 移动端 | Compose 手机抽屉/平板横屏常驻侧栏、单行顶栏、消息气泡、圆角输入栏与建议卡；配对、会话/历史、审批、草稿、通知及部分图片展示 | 仅 Android；网页/PWA 与浏览器认证未实现；未按指定 ChatGPT 版本逐屏及真机对照，设置、配对、会话详情页尚未完成重排；多电脑缓存已隔离但一次仅连接一台；通知依赖应用连接，休眠后不保证推送 |
 | 服务端 | Rust 服务；TLS WSS；配对；项目授权；会话与历史存储；审批；Codex 附着与执行                                                 | 原版 Codex 桌面同一会话完整共享（`sharedDesktopRuntime=false`）；自有中转；浏览器认证；`Store::replace_device` 会撤销旧设备，同一电脑的多客户端共存尚未实现                            |
 
+- Android UI (2026-10-23): composer now uses one rounded surface with text above a shared 44dp action row; model and reasoning effort use discrete sliders. Removed the mistake disclaimer; placed native token/context usage above the composer, aligned right (unknown values remain unreported). `compileDebugKotlin` passed; development watcher rebuilt and installed on the connected device. Dark-theme portrait screenshots confirmed the shared button row and usage above the composer on the right; keyboard layout was checked before the usage move. Slider interaction, multiline input, narrow screens and light theme remain unverified.
+
 - 移动端 UI：手机端改为抽屉会话列表、单行顶栏、ChatGPT 风格消息气泡/输入栏/建议卡，平板横屏使用常驻侧栏；仅改界面，协议与数据流未动。审批、未知结果、离线提示与发送约束保留，仍不能视为“完全一致”。
+- 运行区（2026-10-23）：默认收为“已工作… ›”，展开直接显示思考正文和运行步骤，圆角点击反馈；计划正文独立输出、不进入工作折叠，Plan/Goal 标记在加号右侧。输入框上方新增原生 Goal 状态、累计执行时间与完成结果摘要，可打开目标详情；仅选择草稿模式不创建目标。计时优先任务起止，历史回退使用公开条目时间，分页未齐标注范围。计划折叠回归单测及热重载构建安装通过，实机确认 Plan 标记和计划正文；Goal 真实任务状态/结果更新、明色/窄屏尚待验证。
+- 输入栏补充：Goal 改为贴合输入框的窄状态栏，token/上下文位于其上方；移除状态栏最小触摸尺寸导致的间隙。当前轮文件改动徽标独立居中放在输入框上方，点击查看原生修改步骤；文件去重，增删行数按成功步骤累计（非净差异），未加载完整时提示。统计和 Plan 折叠回归测试通过；最新布局 assembleDebug 构建、保留数据覆盖安装通过，实机确认改动徽标居中浮在输入框上方、详情可打开，Goal 状态栏与输入框无间隙，上下文显示在其上方。
 - 富内容缺口：完整图文内联、公式和代码高亮；附件合计上限 512 KiB，图片读取限授权项目内部分来源、8 MiB。现有 Diff 主要展示工作区差异，不等于历史任务 Diff。
 - 已有会话同步（2026-10-23）：服务端启动、重新连接上游和新增本地项目授权后自动读取原会话索引；手机连接后主动同步，列表新增“同步电脑已有对话”，在线时服务端每 15 秒核对授权项目索引，选中会话更新时间变化后刷新历史。沿用原线程 ID，通过公开历史/恢复接口续聊，不复制私有数据库。原版桌面仍持有写入权时保留占用提示；同一运行时双端实时操作仍未完成。
 - 会话同步验证：Rust 6 项定向测试（含自动发现/持续核对、授权边界、原 ID 历史与续聊、占用及缺失保护）通过；Android 主程序/设备测试源码编译及 3 项同步单测通过。未做真实桌面/手机续聊、真实模型与打包验收；下一步核验原版桌面同一运行时附着和双向可见性。
@@ -44,7 +48,8 @@
 
 ```powershell
 .\scripts\setup\setup-windows-dev.ps1   # 桌面端与服务端
-pnpm desktop:dev                        # 桌面端（同时拉起服务端）
+pnpm desktop:dev                        # 桌面开发：React/CSS 热更新，Tauri Rust 修改自动编译重启
+pnpm android:dev                        # 安卓开发预览：保存后增量构建、覆盖安装并重启
 pnpm --filter @agentdeck/desktop check  # 桌面端
 pnpm --filter @agentdeck/desktop test
 cargo test --locked --manifest-path desktop/core/Cargo.toml   # 服务端
@@ -60,11 +65,27 @@ pnpm package:windows
 
 启动诊断：低完整性、文件/目录、数据锁/端口、凭据和 MXC 失败有独立提示；隔离探针仅提取有界 stderr 中的已知错误。已验证同一 Codex 直接启动为 Medium 且隔离通过、经低标签 EXE 后为 Low 且 MXC 失败；新服务准确返回 `LOW_INTEGRITY_HOST`。桌面类型检查、16 项前端测试、Rust 定向测试及前后端 release 构建通过，ZIP 四项文件与构建产物哈希一致。便携包命令：`pnpm --filter @agentdeck/desktop tauri build --no-bundle` 后 `node scripts/desktop/package-desktop.mjs --portable`（先执行 `pnpm desktop:prepare`）；ZIP 在 `artifacts/AgentDeck-0.3.0-windows.zip`。下一步由用户解压到普通目录验收完整启动，工作区内不视为通过。
 
+隔离探针修复（2026-10-23）：MSIX 会重定向 AppData，探针使用逻辑路径时出现目录内可读但不可写；启动 MXC 前现将探针内外目录和服务 EXE 解析为真实路径，隔离规则及目录权限保持不变。同一 Codex/规则下真实路径四项读写边界检查通过，诊断分类单测及服务 release 构建通过；已更新本机安装的服务并确认桌面显示“Codex 已就绪”。未运行真实模型任务或手机续聊；本次已重新构建并覆盖安装 NSIS 安装包，包含此修复；旧便携 ZIP 尚未更新。
+
+会话同步修复（2026-10-23）：真实上游列表会重复返回同一 ID 的不同元数据，现通过公开 `thread/read` 核实后只索引一次，保留授权目录、归档冲突、分页限制与原子提交检查；桌面请求保留错误码并分类显示同步失败。Rust 会话索引 3 项定向测试（含重复记录核实）、前端 22 项测试、类型检查及完整 NSIS 构建通过；已覆盖安装，真实同步返回 17 个工作区、51 个会话索引成功，桌面再次点击同步时间更新且无错误，显示“Codex 已就绪”。未验证手机续聊或运行真实模型任务。
+
+工作区移除（2026-10-23）：再次“同步工作区”跳过本地已移除目录，全部被跳过时正常完成；可通过“添加目录”手动恢复授权。复用持久化停用状态，无协议或迁移变更。Rust 定向回归覆盖同步、移除、重复同步及手动恢复，格式检查通过；服务 release 编译并暂存、开发版启动完成。首次启动曾出现窗口未响应，结束该开发进程并重启后连续两次响应检查通过，新增托盘初始化阶段诊断；卡死根因尚未确认。未打包或验收已安装桌面端，下一步实测移除后同步并观察启动稳定性。
+
 移动端 APK：`android/app/build/outputs/apk/debug/app-debug.apk`；桌面端/服务端安装包：`artifacts/`。移动端 debug 签名不保证跨构建升级，勿为测试卸载用户应用。正式发布使用现有流水线；不自动改防火墙或绕过设备安装确认。
 
 本地使用：桌面端授权项目与 LAN 地址 → 移动端扫码、双端核对六位码并批准 → 选择项目/会话。服务端首次仅监听回环，不以管理员/SYSTEM 运行。关闭桌面端窗口收至托盘，“停止并退出”才结束服务端。
 
 桌面端右上角“更多 → 开机自启动”可开启/关闭当前用户的 Windows 登录启动项，无需管理员权限；便携版移动位置后需重新开启。已通过桌面类型检查、18 项前端测试和 Rust `cargo check --locked`；未实际重启登录验收，下一步在安装版/便携版验证登录启动与关闭后的行为。
+
+安卓开发预览：`pnpm android:dev` 首次构建并启动，监听主代码、debug 资源与 Gradle 配置，保存后合并连续修改、串行更新；构建失败后修复再保存可重试。需已授权 ADB 设备，多设备时先设置 `$env:ANDROID_SERIAL="设备序列号"`；`--once` 仅更新一次，Ctrl+C 结束监听。沿用现有应用 ID，使用 `adb install -r` 保留数据，签名冲突不会卸载；更新会重启进程，未发送界面状态可能重置，勿在执行任务/处理审批时开启。此命令是自动重建预览，不是 Compose Live Edit；真正的 Compose 实时替换需在 Android Studio 启用 Live Edit 并从 IDE 运行 debug 应用。
+
+开发预览验证（2026-10-23）：脚本 ESLint、debug 增量构建、已连接手机覆盖安装与 Activity 启动通过；文件变更事件触发自动重建已验证。未验收真实代码修改后的视觉效果或 Android Studio Live Edit；下一步在日常 UI 调整中核验预览与重连恢复。
+
+桌面开发热更新（2026-10-23）：`pnpm desktop:dev` 启动开发窗口，保存 `desktop/src` 下 React/CSS 即自动更新，React 组件兼容时保留状态；Tauri Rust 修改自动重编译并重启窗口。开发 CSP 仅允许回环地址的 Vite WebSocket 和刷新脚本，正式 CSP 不变；Vite 忽略 Rust 构建目录。类型检查、Vite HMR WebSocket 连接和样式变更事件推送通过。已安装的正式版窗口不热更新；独立服务 `desktop/core` 修改需退出开发进程后重新运行此命令，重新构建并暂存服务。
+
+桌面开发启动验证：debug 构建、格式检查通过，开发窗口进程已与已安装正式版同时启动；debug 跳过正式版单实例插件，避免开发启动被正式版接管，应用 ID 与正式版行为不变。开发服务仍使用隔离数据目录，未验收其配对/真实模型任务、窗口内视觉热替换或 Rust 自动重启；已有 Low Integrity 限制仍适用。
+
+开发环境修复（2026-10-23）：Windows setup 改为在用户 npm 目录安装 `package.json` 锁定的 pnpm，不再生成指向 fnm 特定 Node 目录的 Corepack shim。本机已修复，pnpm 12.3.4 在 Node 22/24 下入口验证通过；项目仍使用 `.node-version` 的 22.22.3。PowerShell 脚本解析、桌面类型检查、服务构建及 Vite 启动通过；未重跑完整环境安装。已有终端可执行 `fnm env --shell powershell | Out-String | Invoke-Expression`、`fnm use 22.22.3` 后启动开发。
 
 ## 必须保留的实现边界
 
