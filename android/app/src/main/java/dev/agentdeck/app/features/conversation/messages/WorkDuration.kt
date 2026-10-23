@@ -25,6 +25,10 @@ internal fun isReasoningEntry(entry:ChatEntry):Boolean = entry.kind=="tool"&&run
 internal fun isWorkEntry(entry:ChatEntry):Boolean = entry.kind=="tool"||
     entry.kind=="assistant"&&runCatching{wire.parseToJsonElement(entry.detail).jsonObject["phase"]?.jsonPrimitive?.contentOrNull=="commentary"}.getOrDefault(false)
 
+// Do not hide the process between turn completion and delivery of its final answer.
+internal fun defaultWorkExpanded(status:String,hasFinalAnswer:Boolean):Boolean =
+    status in listOf("queued","running","waitingApproval","unknown")||status=="completed"&&!hasFinalAnswer
+
 /** Only explicit turn boundaries supply timing; historical item order is not a clock. */
 @Composable internal fun WorkDuration(nativeTurn:String?,state:DeckState,expanded:Boolean,onToggle:()->Unit){
     val turn=state.snapshot.turns.lastOrNull{it.sessionId==state.selectedSession&&(it.upstreamTurnId==nativeTurn||it.turnId==nativeTurn)}

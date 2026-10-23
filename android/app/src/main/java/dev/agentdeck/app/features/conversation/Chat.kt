@@ -39,11 +39,21 @@ import androidx.compose.ui.platform.LocalContext
     val history=state.timelineHistory.takeIf{it.sessionId==state.selectedSession}
     val allEntries=remember(state.events,history?.entries,state.snapshot.turns,state.selectedSession){state.selectedSession?.let{conversationTimeline(it,state.events,history?.entries.orEmpty(),state.snapshot.turns).filterNot{row->row.kind=="status"&&row.status=="completed"}}?:emptyList()}
     var showFind by rememberSaveable(state.host?.hostId,state.selectedSession){mutableStateOf(false)}
-    var expandedWork by remember(state.host?.hostId,state.selectedSession){mutableStateOf(setOf<String>())}
+    var workOverrides by remember(state.host?.hostId,state.selectedSession){mutableStateOf(mapOf<Pair<String,Boolean>,Boolean>())}
     val workStarts=remember(allEntries){allEntries.filter{it.sourceTurn!=null&&isWorkEntry(it)}.groupBy{it.sourceTurn}.mapValues{it.value.first().id}}
+    val defaultExpandedWork=remember(allEntries,state.snapshot.turns,state.selectedSession){
+        val finalTurns=allEntries.filter(::isFinalAnswer).mapNotNull{it.sourceTurn}.toSet()
+        state.snapshot.turns.filter{it.sessionId==state.selectedSession&&defaultWorkExpanded(it.status,(it.upstreamTurnId?:it.turnId) in finalTurns)}.map{it.upstreamTurnId?:it.turnId}.toSet()
+    }
+    val expandedWork=workStarts.keys.filter{turn->workOverrides[turn!! to (turn in defaultExpandedWork)]?: (turn in defaultExpandedWork)}.toSet()
     // Keep one real item as the fold anchor; final answers and errors never collapse.
     val entries=remember(allEntries,expandedWork,showFind){allEntries.filter{showFind||!isWorkEntry(it)||it.sourceTurn==null||it.sourceTurn in expandedWork||workStarts[it.sourceTurn]==it.id}}
     val changesByTurn=remember(allEntries){allEntries.filter{it.sourceTurn!=null}.groupBy{it.sourceTurn}.mapValues{turnChanges(it.value)}}
+    val changeCardEnds=remember(entries,state.snapshot.turns,state.selectedSession){
+        val running=state.snapshot.turns.filter{it.sessionId==state.selectedSession&&it.status in listOf("queued","running","waitingApproval","unknown")}.map{it.upstreamTurnId?:it.turnId}.toSet()
+        val finished=state.snapshot.turns.filter{it.sessionId==state.selectedSession&&it.status in listOf("completed","failed","interrupted")}.map{it.upstreamTurnId?:it.turnId}.toSet()
+        entries.filter{it.sourceTurn!=null}.groupBy{it.sourceTurn}.filter{(turn,rows)->turn !in running&&(turn in finished||rows.any(::isFinalAnswer))}.mapValues{it.value.last().id}
+    }
     val approvals=state.snapshot.approvals.filter{it.sessionId==state.selectedSession&&it.status=="pending"}
     val active=session?.status in listOf("running","queued","waitingApproval","unknown")
     var showUpstreamHistory by remember(state.host?.hostId,state.selectedSession){mutableStateOf(false)}
@@ -244,7 +254,7 @@ import androidx.compose.ui.platform.LocalContext
                     if(history?.nextCursor!=null)item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderHistory,enabled=!state.stale&&history.loading!=true){Text("加载更早的消息",fontSize=12.sp)}}}
                 }else item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderEvents,enabled=!state.stale&&!state.busy){Text("加载更早的消息",fontSize=12.sp)}}}
                 items(entries,key={"${state.host?.hostId}:${it.id}"}){entry->ChatWidth{Column(if(showFind&&foundId==entry.id)Modifier.border(1.dp,MaterialTheme.colorScheme.primary,RoundedCornerShape(8.dp)).padding(8.dp) else Modifier){
-                    if(workStarts[entry.sourceTurn]==entry.id)WorkDuration(entry.sourceTurn,state,entry.sourceTurn in expandedWork){entry.sourceTurn?.let{turn->expandedWork=if(turn in expandedWork)expandedWork-turn else expandedWork+turn}}
+                    if(workStarts[entry.sourceTurn]==entry.id)WorkDuration(entry.sourceTurn,state,entry.sourceTurn in expandedWork){entry.sourceTurn?.let{turn->workOverrides=workOverrides+((turn to (turn in defaultExpandedWork)) to (turn !in expandedWork))}}
                     if(showFind||!isWorkEntry(entry)||entry.sourceTurn==null||entry.sourceTurn in expandedWork){
                     if(isReasoningEntry(entry))MarkdownText(maskDisplay(entry.text,state.displayMask),fontSizeSp=13f)
                     else NativeMessage(entry,state.displayMask,repo,session.sessionId){closeMenu->
@@ -261,6 +271,7 @@ import androidx.compose.ui.platform.LocalContext
                     if(entry.kind=="assistant"&&entry.sourceTurn!=null&&state.capabilities?.supports("sessionForkAtTurn")==true)DropdownMenuItem(text={Text("从这里分叉")},leadingIcon={Icon(Icons.Outlined.CallSplit,null)},onClick={closeMenu();forkBoundary=entry.sourceTurn},enabled=!state.stale&&!state.busy&&!active)
                     }
                     }
+                    if(changeCardEnds[entry.sourceTurn]==entry.id)changesByTurn[entry.sourceTurn]?.let{changes->TurnChangesCard(changes,state.displayMask,history?.nextCursor!=null)}
                 }}}
                 items(approvals,key={"${state.host?.hostId}:approval:"+it.approvalId}){approval->ChatWidth{if(approval.method=="item/tool/requestUserInput")QuestionCard(approval,state.stale||state.busy,repo::answerQuestions,{repo.decide(approval,"cancel")},state.displayMask)else ApprovalCard(approval,state.stale||state.busy,repo::decide,state.displayMask)}}
                 item{ChatWidth{if(active&&approvals.isEmpty())Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){if(!state.stale&&session.status!="unknown")CircularProgressIndicator(Modifier.size(13.dp),strokeWidth=1.5.dp);Text(if(state.stale)"连接恢复后核对任务状态" else statusLabel(session.status),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
@@ -272,7 +283,7 @@ import androidx.compose.ui.platform.LocalContext
             composerResources()
             var inlineAdd by remember(draftKey){mutableStateOf(false)}
             val inlineEnabled=!active&&!state.busy&&!state.stale&&session?.archived!=1
-            changesByTurn[allEntries.lastOrNull()?.sourceTurn]?.let{changes->
+            changesByTurn[allEntries.lastOrNull()?.sourceTurn]?.takeIf{allEntries.lastOrNull()?.sourceTurn !in changeCardEnds}?.let{changes->
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center){TurnChangesBadge(changes,state.displayMask,history?.nextCursor!=null)}
             }
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.End){

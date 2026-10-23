@@ -16,6 +16,10 @@ class TurnChangesTest {
         assertEquals(6,result.added)
         assertEquals(3,result.removed)
         assertEquals(3,result.records.size)
+        assertEquals(listOf("file.kt","other.kt"),result.details.map{it.path})
+        assertEquals(4,result.details.first().added)
+        assertEquals(2,result.details.first().removed)
+        assertEquals(2,result.details.first().diffs.size)
         assertNull(turnChanges(listOf(change("x","failed.kt","failed"))))
     }
 }
