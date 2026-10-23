@@ -663,6 +663,13 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
     let outside = base.path().join("unauthorized");
     std::fs::create_dir(&inside)?;
     std::fs::create_dir(&outside)?;
+    // Resolve MSIX AppData redirection before passing paths across the MXC
+    // process boundary. The sandbox does not share the host's virtualized
+    // namespace: a logical cwd can be readable but miss its writable grant.
+    // Keep `base` alive so its temporary directory still owns probe cleanup.
+    let inside = paths::canonical(&inside)?;
+    let outside = paths::canonical(&outside)?;
+    let runtime = paths::canonical(runtime)?;
     std::fs::write(inside.join("sentinel.txt"), "INSIDE")?;
     std::fs::write(outside.join("sentinel.txt"), "OUTSIDE")?;
     let executable = runtime.to_string_lossy().replace('\\', "/");
@@ -682,7 +689,7 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
         ])
         .arg(&inside)
         .arg("--")
-        .arg(runtime)
+        .arg(&runtime)
         .arg("--sandbox-probe")
         .arg(&inside)
         .arg(&outside)
