@@ -316,7 +316,11 @@ impl Host {
             if let Some(id) = payload["localRequestId"].as_str() {
                 if let Some(tx) = self.pending.lock().unwrap().remove(id) {
                     let result = if kind == "error" {
-                        Err(payload["message"].as_str().unwrap_or("操作失败").to_owned())
+                        Err(format!(
+                            "{}: {}",
+                            payload["code"].as_str().unwrap_or("SERVICE_ERROR"),
+                            payload["message"].as_str().unwrap_or("操作失败")
+                        ))
                     } else {
                         Ok(payload.clone())
                     };

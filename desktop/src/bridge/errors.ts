@@ -46,6 +46,16 @@ export function presentDesktopError(code?: string | null, raw?: unknown): ErrorP
   }
 
   switch (normalizedCode) {
+    case 'SYNC_CONFLICT':
+    case 'SYNC_LIMIT':
+    case 'THREAD_SYNC_FAILED':
+      return {
+        title: '会话同步尚未完成',
+        detail: '会话索引暂时无法完成核对，已保留上次成功同步的会话记录。',
+        solution: '等待当前会话操作完成后重新同步；若持续失败，请更新 AgentDeck 并重新检测。',
+        install: false,
+        retry: true,
+      };
     case 'LOW_INTEGRITY_HOST':
       return {
         title: '程序文件继承了低完整性安全标签',

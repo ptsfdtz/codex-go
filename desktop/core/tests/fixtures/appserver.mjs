@@ -182,6 +182,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       const offset = p.cursor ? Number(p.cursor) : 0;
       const next = offset + 1;
       data = data.slice(offset,next);
+      if (data[0]?.name === 'INDEX_DUPLICATE') {
+        data.push({...data[0], preview:'stale listing', name:'stale listing'});
+      }
       const total = [...threads.values()].filter((t) => Boolean(t.archived) === Boolean(p.archived))
         .filter((t) => t.name === 'INDEX_OUTSIDE' || !p.cwd || (Array.isArray(p.cwd) ? p.cwd : [p.cwd]).includes(t.root)).length;
       respond({data,nextCursor:next < total ? String(next) : null});
@@ -256,6 +259,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       const result = clone(samples.threadStart);
       result.thread.id = p.threadId;
       result.thread.cwd = threads.get(p.threadId)?.root ?? result.thread.cwd;
+      if (threads.get(p.threadId)?.name === 'INDEX_DUPLICATE') result.thread.name = 'authoritative title';
       result.thread.turns = [];
       respond({ thread: result.thread });
       return;

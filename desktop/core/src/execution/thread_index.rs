@@ -136,7 +136,8 @@ impl Core {
                 )
             })
             .collect();
-        let mut entries = BTreeMap::new();
+        let mut entries: BTreeMap<String, ThreadIndexEntry> = BTreeMap::new();
+        let mut resolved: HashMap<String, Value> = HashMap::new();
         let started = Instant::now();
         // Newly created loaded threads may not have a persisted rollout yet and
         // therefore be absent even from state-DB thread/list. Read them through
@@ -253,6 +254,57 @@ impl Core {
                     if self.store.thread_deleted(s(thread, "id"))? {
                         continue;
                     }
+                    let thread_id = s(thread, "id").to_owned();
+                    ensure(
+                        !thread_id.is_empty(),
+                        "UPSTREAM_PROTOCOL_ERROR",
+                        "Empty thread identity",
+                    )?;
+                    // Upstream can list both rollout and index versions of one ID.
+                    // Resolve metadata through public APIs, never select a stale copy.
+                    let mut authoritative = None;
+                    if let Some(previous) = entries.get(&thread_id) {
+                        ensure(
+                            previous.archived == archived,
+                            "SYNC_CONFLICT",
+                            "Thread archive membership changed; index unchanged",
+                        )?;
+                        let value = if let Some(value) = resolved.get(&thread_id) {
+                            value.clone()
+                        } else {
+                            ensure(
+                                started.elapsed() < Duration::from_secs(60),
+                                "SYNC_LIMIT",
+                                "Thread index sync timed out; index unchanged",
+                            )?;
+                            let response = rpc
+                                .request_timeout(
+                                    "thread/read",
+                                    json!({"threadId":thread_id,"includeTurns":false}),
+                                    Duration::from_secs(15),
+                                )
+                                .await?;
+                            rpc.validate("v2/ThreadReadResponse", &response)?;
+                            ensure(
+                                s(&response["thread"], "id") == thread_id,
+                                "UPSTREAM_PROTOCOL_ERROR",
+                                "Thread identity mismatch",
+                            )?;
+                            let value = response["thread"].clone();
+                            resolved.insert(thread_id.clone(), value.clone());
+                            value
+                        };
+                        let root = paths::canonical(Path::new(s(&value, "cwd")))?;
+                        ensure(
+                            authorized.iter().any(|(id, p)| {
+                                id == &previous.project_id && paths::equal(p, &root)
+                            }) && value["ephemeral"] != true,
+                            "SYNC_CONFLICT",
+                            "Thread authorization changed; index unchanged",
+                        )?;
+                        authoritative = Some(value);
+                    }
+                    let thread = authoritative.as_ref().unwrap_or(thread);
                     let Ok(root) = paths::canonical(Path::new(s(thread, "cwd"))) else {
                         continue;
                     };
@@ -264,12 +316,6 @@ impl Core {
                     if thread["ephemeral"] == true {
                         continue;
                     }
-                    let thread_id = s(thread, "id").to_owned();
-                    ensure(
-                        !thread_id.is_empty() && !entries.contains_key(&thread_id),
-                        "SYNC_CONFLICT",
-                        "Thread listing changed or repeated an identity; index unchanged",
-                    )?;
                     let title = thread["name"]
                         .as_str()
                         .filter(|n| !n.is_empty())
@@ -433,6 +479,23 @@ mod tests {
         wait_count(&core, 3).await;
         worker.abort();
         let _ = worker.await;
+        let session = core.store.sessions(None).unwrap().remove(0);
+        rpc.request(
+            "thread/name/set",
+            json!({"threadId":session["upstreamThreadId"],"name":"INDEX_DUPLICATE"}),
+        )
+        .await
+        .unwrap();
+        core.sync_thread_index().await.unwrap();
+        let sessions = core.store.sessions(None).unwrap();
+        assert_eq!(sessions.len(), 3);
+        assert_eq!(
+            sessions
+                .iter()
+                .find(|v| v["upstreamThreadId"] == session["upstreamThreadId"])
+                .unwrap()["title"],
+            "authoritative title"
+        );
         rpc.stop();
         drain.abort();
     }

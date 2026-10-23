@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { errorText, presentDesktopError } from './errors';
 
 describe('service startup failures', () => {
+  it('classifies rejected requests while hiding diagnostics', () => {
+    const error = presentDesktopError(null, 'SYNC_CONFLICT: private-path');
+    expect(error.title).toBe('会话同步尚未完成');
+    expect(errorText(error)).not.toContain('private-path');
+  });
   it('explains why retrying a low integrity binary in another terminal cannot fix startup', () => {
     const error = presentDesktopError('LOW_INTEGRITY_HOST', 'private diagnostic');
     expect(error.title).toContain('低完整性');
@@ -11,6 +16,9 @@ describe('service startup failures', () => {
   });
   it.each([
     'IO_ERROR',
+    'SYNC_CONFLICT',
+    'SYNC_LIMIT',
+    'THREAD_SYNC_FAILED',
     'DATA_DIRECTORY_ERROR',
     'CONFLICT',
     'PORT_UNAVAILABLE',
