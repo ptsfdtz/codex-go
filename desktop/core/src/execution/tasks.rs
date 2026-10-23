@@ -570,6 +570,14 @@ impl Core {
             "CONFLICT",
             "Turn is not active in this session",
         )?;
+        self.latest_upstream_turn(session_id).await?;
+        let current = self.store.turn(turn_id)?;
+        ensure(
+            terminal(s(&current, "status"))
+                || ["running", "waitingApproval", "unknown"].contains(&s(&current, "status")),
+            "CONFLICT",
+            "Turn is not active in this session",
+        )?;
         if self
             .store
             .meta(&format!("goalMode:{session_id}"))?
@@ -589,6 +597,10 @@ impl Core {
             rpc.validate("v2/ThreadGoalSetResponse", &response)?;
             self.store
                 .set_meta(&format!("goalMode:{session_id}"), "paused")?;
+        }
+        let current = self.store.turn(turn_id)?;
+        if terminal(s(&current, "status")) {
+            return Ok(json!({"requested":false,"status":current["status"]}));
         }
         self.store.append(
             "turn.interruptRequested",
@@ -617,6 +629,7 @@ impl Core {
                 Err(e)
                     if e.code == "UPSTREAM_ERROR" && e.message == "no active turn to interrupt" =>
                 {
+                    self.latest_upstream_turn(session_id).await?;
                     tokio::time::sleep(Duration::from_millis(100)).await
                 }
                 Err(e) => return Err(e),

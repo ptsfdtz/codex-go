@@ -185,6 +185,33 @@ impl Core {
             "UPSTREAM_UNAVAILABLE",
             "Runtime changed during turn read",
         )?;
+        // Notifications can be lost across a disconnect. Reconcile only the
+        // exact native identity returned by the authority, never an error message
+        // or an interrupt acknowledgement. Keep unbound/older unknown sends blocked.
+        if let Some(turn) = data
+            .first()
+            .filter(|turn| crate::tasks::terminal(s(turn, "status")))
+        {
+            let local = self.store.query(
+                "SELECT turnId FROM turns WHERE sessionId=? AND upstreamTurnId=? AND status IN ('running','waitingApproval','unknown')",
+                [session_id, s(turn, "id")],
+            )?;
+            if !local.is_empty() {
+                self.notification(&rpc, &json!({"method":"turn/completed","params":{"threadId":session["upstreamThreadId"],"turn":turn}}))?;
+            }
+        }
+        if ["idle", "notLoaded"].contains(&s(&thread["thread"]["status"], "type"))
+            && data
+                .first()
+                .is_none_or(|turn| crate::tasks::terminal(s(turn, "status")))
+        {
+            // Imported threads may have no local turn. Do not clear a queued,
+            // unbound or concurrently updated operation while repairing its cache.
+            self.store.exec(
+                "UPDATE sessions SET status='idle' WHERE sessionId=? AND upstreamThreadId=? AND updatedAt=? AND status IN ('unknown','running','waitingApproval') AND NOT EXISTS (SELECT 1 FROM turns WHERE sessionId=? AND status IN ('queued','running','waitingApproval','unknown'))",
+                rusqlite::params![session_id, session["upstreamThreadId"].as_str(), session["updatedAt"].as_str(), session_id],
+            )?;
+        }
         let latest = data
             .first()
             .map(|turn| json!({"upstreamTurnId":turn["id"],"status":turn["status"]}));

@@ -310,12 +310,24 @@ class DeckRepository(context:Context){
         if(record)recordNavigation(WorkspaceDestination(id))
         cancelTimelineRequests();restoreNavigation=false;selectionJob?.cancel();navigation.edit().remove("${mutable.value.host?.hostId}:session").apply();mutable.update{it.copy(selectedProject=id,selectedSession=null,events=emptyList(),timelineHistory=TimelineHistory(),git=null,diff=null)}}
     fun selectSession(id:String){selectSessionInternal(id,true)}
+    private suspend fun watchSessionTurn(id:String){
+        while(currentCoroutineContext().isActive){
+            delay(5000)
+            val state=mutable.value
+            val session=state.snapshot.sessions.find{it.sessionId==id}?:return
+            if(state.selectedSession!=id)return
+            if(state.stale||state.busy||state.capabilities?.supports("latestUpstreamTurn")!=true||session.status !in listOf("running","waitingApproval","unknown"))continue
+            try{readLatestSessionTurn(session);refreshSnapshot()}
+            catch(e:CancellationException){throw e}
+            catch(_:Exception){/* Keep unknown state until the authority can be read. */}
+        }
+    }
     private fun selectSessionInternal(id:String,record:Boolean){
         val state=mutable.value;val host=state.host?:return
         val session=state.snapshot.sessions.find{it.sessionId==id}?:return
         if(state.snapshot.projects.none{it.projectId==session.projectId&&it.enabled})return
         if(record)recordNavigation(WorkspaceDestination(session.projectId,id,session.upstreamThreadId))
-        cancelTimelineRequests();restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();mutable.update{it.copy(selectedSession=id,timelineHistory=TimelineHistory(sessionId=id),selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(events=events)else it}}}}
+        cancelTimelineRequests();restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();mutable.update{it.copy(selectedSession=id,timelineHistory=TimelineHistory(sessionId=id),selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{watchSessionTurn(id)};launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(events=events)else it}}}}
     private suspend fun refreshSession(id:String,before:String?=null){
         val host=mutable.value.host?:return
         val epoch=hostEpoch
@@ -338,6 +350,9 @@ class DeckRepository(context:Context){
         require(events.all{it.sessionId==id}){"会话消息身份不匹配"}
         cacheMutex.withLock{if(historyVersion==historyRevision.get()&&epoch==hostEpoch)dao.saveEvents(events.map{CachedEvent(host.hostId,it.eventId.toLong(),it.sessionId,wire.encodeToString(DeckEvent.serializer(),it))})}
         if(before==null&&mutable.value.selectedSession==id)loadTimelineHistory()
+        if(before==null&&mutable.value.capabilities?.supports("latestUpstreamTurn")==true){
+            mutable.value.snapshot.sessions.find{it.sessionId==id}?.let{readLatestSessionTurn(it);refreshSnapshot(connection)}
+        }
     }
     internal suspend fun refreshNativeProjectSessions(){
         val epoch=hostEpoch
@@ -617,12 +632,7 @@ class DeckRepository(context:Context){
         require(mutable.value.capabilities?.supports("activeTurnSteering")==true){"电脑端需要升级才能追加指令"}
         val id=mutable.value.selectedSession?:error("请选择会话")
         val connection=rpc()
-        val active=connection.request("turn.active",payload("sessionId" to id))
-        require(active["sessionId"]?.jsonPrimitive?.content==id){"会话身份不匹配"}
-        val expected=(active["upstreamTurnId"] as? JsonPrimitive)?.contentOrNull?:error("当前任务已经结束，请刷新后发送新消息")
-        val result=connection.request("turn.steer",payload("sessionId" to id,"expectedTurnId" to expected,"text" to text))
-        require(result["sessionId"]?.jsonPrimitive?.content==id&&result["upstreamTurnId"]?.jsonPrimitive?.content==expected&&result["accepted"]?.jsonPrimitive?.booleanOrNull==true){"追加结果需要核实，请勿重复发送"}
-        withContext(Dispatchers.Main){onAccepted()};refreshSnapshot()
+        steerActiveTurn(id,text,{method,params->connection.request(method,params)},refresh={refreshSnapshot(connection)},onAccepted={withContext(Dispatchers.Main){onAccepted()}})
     }}
     fun interrupt(){action{
         val id=mutable.value.selectedSession?:return@action
@@ -633,7 +643,9 @@ class DeckRepository(context:Context){
             require(mutable.value.capabilities?.supports("activeTurnInterruption")==true){"电脑端需要升级才能停止外部任务"}
             val active=connection.request("turn.active",payload("sessionId" to id))
             require(active["sessionId"]?.jsonPrimitive?.content==id){"会话身份不匹配"}
-            val expected=(active["upstreamTurnId"] as? JsonPrimitive)?.contentOrNull?:error("当前没有活动轮次，请刷新任务状态")
+            require(active.containsKey("upstreamTurnId")){"缺少活动轮次状态"}
+            if(active["upstreamTurnId"]==JsonNull){refreshSnapshot(connection);return@action}
+            val expected=(active["upstreamTurnId"] as? JsonPrimitive)?.contentOrNull?:error("活动轮次身份无效")
             val result=connection.request("turn.interruptActive",payload("sessionId" to id,"expectedTurnId" to expected))
             require(result["sessionId"]?.jsonPrimitive?.content==id&&result["upstreamTurnId"]?.jsonPrimitive?.content==expected&&result["requested"]?.jsonPrimitive?.booleanOrNull==true){"停止结果需要核实，请勿重复操作"}
         }

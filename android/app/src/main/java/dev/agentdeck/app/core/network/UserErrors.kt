@@ -15,6 +15,11 @@ internal fun userFacingError(code: String? = null, raw: String? = null): String 
     )
     val lower = message.lowercase()
     val copy = when {
+        normalizedCode == "TURN_FINISHED" -> ErrorCopy(
+            "任务已结束",
+            "当前轮次已结束，已重新核对任务状态；输入内容仍保留在草稿中。",
+            "确认后再次发送，开始下一轮对话。",
+        )
         normalizedCode in setOf("CONTEXT_WINDOW_EXCEEDED", "SESSION_BUDGET_EXCEEDED", "USAGE_LIMIT_EXCEEDED") -> ErrorCopy(
             "Codex 使用额度已用尽",
             message.ifBlank { "Codex 的上下文空间或本次任务额度已经用尽。" },

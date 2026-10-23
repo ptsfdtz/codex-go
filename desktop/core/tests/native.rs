@@ -833,6 +833,9 @@ impl Harness {
         }
     }
     async fn fixture() -> Self {
+        Self::fixture_dropping_terminals(false).await
+    }
+    async fn fixture_dropping_terminals(drop_terminals: bool) -> Self {
         let mut h = Self::new();
         let node = codex::sync_command("where.exe", &["node.exe"], None)
             .unwrap()
@@ -849,6 +852,9 @@ impl Harness {
         let worker_rpc = rpc.clone();
         h.worker = Some(tokio::spawn(async move {
             while let Some(v) = events.recv().await {
+                if drop_terminals && v["method"] == "turn/completed" {
+                    continue;
+                }
                 if v["method"] == "$lost" {
                     let _ = core.lost();
                     break;
@@ -1236,6 +1242,108 @@ fn latest_turn_contract_rejects_missing_version_and_scope_overrides() {
         "turn.latest",
         json!({"sessionId":"s","contractVersion":1}),
         "valid-latest",
+    );
+}
+
+#[tokio::test]
+async fn lost_terminal_notification_is_reconciled_before_stop_or_continue() {
+    for (text, expected) in [
+        ("FAIL", "failed"),
+        ("done", "completed"),
+        ("WAIT", "interrupted"),
+    ] {
+        let h = Harness::fixture_dropping_terminals(true).await;
+        let session = h.session("lost-terminal").await;
+        let id = s(&session, "sessionId");
+        let turn = h.core.start_turn(id, text).await.unwrap();
+        let local = s(&turn, "turnId");
+        let native = h.core.store.turn(local).unwrap()["upstreamTurnId"].clone();
+        let rpc = h.core.upstream().unwrap();
+        if text == "WAIT" {
+            rpc.request(
+                "turn/interrupt",
+                json!({"threadId":session["upstreamThreadId"],"turnId":native}),
+            )
+            .await
+            .unwrap();
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let response = rpc
+                    .request(
+                        "thread/turns/list",
+                        json!({"threadId":session["upstreamThreadId"],"limit":1}),
+                    )
+                    .await
+                    .unwrap();
+                if response["data"][0]["status"] == expected {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        h.core
+            .store
+            .status(id, Some(local), "unknown", None)
+            .unwrap();
+        let stopped = h.core.interrupt(id, local).await.unwrap();
+        assert_eq!(stopped["requested"], false);
+        assert_eq!(stopped["status"], expected);
+        assert_eq!(h.core.store.turn(local).unwrap()["status"], expected);
+        assert_eq!(h.core.store.session(id).unwrap()["status"], expected);
+        let cursor = h.core.store.cursor().unwrap();
+        assert!(h.core.active_upstream_turn(id).await.unwrap()["upstreamTurnId"].is_null());
+        assert_eq!(h.core.store.cursor().unwrap(), cursor);
+        // The existing thread can accept the user's next explicit submission.
+        h.core
+            .start_turn(id, "WAIT next explicit message")
+            .await
+            .unwrap();
+        assert_eq!(h.core.store.turns(Some(id)).unwrap().len(), 2);
+    }
+}
+
+#[tokio::test]
+async fn latest_turn_repairs_imported_status_but_preserves_unbound_unknown_send() {
+    let h = Harness::fixture().await;
+    let session = h.session("imported-stale").await;
+    let id = s(&session, "sessionId");
+    h.core.attached_runtime.store(true, Ordering::SeqCst);
+    h.core.store.status(id, None, "unknown", None).unwrap();
+    h.core.latest_upstream_turn(id).await.unwrap();
+    assert_eq!(h.core.store.session(id).unwrap()["status"], "idle");
+    let started = h.core.upstream().unwrap().request("turn/start", json!({"threadId":session["upstreamThreadId"],"input":[{"type":"text","text":"WAIT","text_elements":[]}]})).await.unwrap();
+    h.core.store.status(id, None, "unknown", None).unwrap();
+    h.core.latest_upstream_turn(id).await.unwrap();
+    assert_eq!(h.core.store.session(id).unwrap()["status"], "unknown");
+    h.core
+        .upstream()
+        .unwrap()
+        .request(
+            "turn/interrupt",
+            json!({"threadId":session["upstreamThreadId"],"turnId":started["turn"]["id"]}),
+        )
+        .await
+        .unwrap();
+    h.core
+        .store
+        .exec(
+            "INSERT INTO turns VALUES(?,?,NULL,'unknown',?,NULL,NULL)",
+            rusqlite::params!["unbound-send", id, now()],
+        )
+        .unwrap();
+    h.core.store.status(id, None, "unknown", None).unwrap();
+    h.core.latest_upstream_turn(id).await.unwrap();
+    assert_eq!(h.core.store.session(id).unwrap()["status"], "unknown");
+    assert_eq!(
+        h.core
+            .start_turn(id, "must not resend")
+            .await
+            .unwrap_err()
+            .code,
+        "CONFLICT"
     );
 }
 
