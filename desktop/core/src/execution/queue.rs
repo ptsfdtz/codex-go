@@ -352,16 +352,14 @@ impl Core {
             self.store.append("queue.changed",json!({"sessionId":id}),Some(id),None)?;
             Ok(json!({"sessionId":id,"upstreamThreadId":session["upstreamThreadId"],"result":{"turn":self.store.turn(&local)?,"queuedSubmissionId":entry["id"]}}))
         }.await;
-        if result.is_err() {
-            if !crate::tasks::terminal(s(&self.store.turn(&local)?, "status")) {
-                self.store.status(id, Some(&local), "unknown", None)?;
-                self.store.append(
-                    "session.updated",
-                    json!({"status":"unknown"}),
-                    Some(id),
-                    Some(&local),
-                )?;
-            }
+        if result.is_err() && !crate::tasks::terminal(s(&self.store.turn(&local)?, "status")) {
+            self.store.status(id, Some(&local), "unknown", None)?;
+            self.store.append(
+                "session.updated",
+                json!({"status":"unknown"}),
+                Some(id),
+                Some(&local),
+            )?;
         }
         result.map_err(|_| {
             Error::new(

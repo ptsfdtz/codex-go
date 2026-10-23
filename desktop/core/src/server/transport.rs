@@ -353,7 +353,8 @@ async fn connection(core: Arc<Core>, socket: WebSocket, device: String, credenti
             },Some(Ok(Message::Pong(_)))=>last_received=Instant::now(),Some(Ok(Message::Ping(bytes)))=>{last_received=Instant::now();if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Pong(bytes))).await,Ok(Ok(()))){break;}},Some(Ok(Message::Binary(_)))|Some(Ok(Message::Close(_)))|Some(Err(_))|None=>break}},
             result=result_rx.recv()=>{if let Some(v)=result{if !send(&mut writer,v).await{break;}}},
             event=events.recv()=>{match event{Ok(v) if hello=>{if Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device)||!send(&mut writer,v).await{break;}},Ok(_)=>{},Err(_)=>break}},
-            _=heartbeat.tick()=>{if peer_timed_out(last_received, Instant::now())||core.stopping.load(std::sync::atomic::Ordering::SeqCst)||Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device){break;}if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Ping(vec![].into()))).await,Ok(Ok(()))){break;}}
+            _=heartbeat.tick()=>{if peer_timed_out(last_received, Instant::now())||core.stopping.load(std::sync::atomic::Ordering::SeqCst)||Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device){break;}
+                if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Ping(vec![].into()))).await,Ok(Ok(()))){break;}}
         }
     }
     let _ = tokio::time::timeout(Duration::from_secs(1), writer.close()).await;
@@ -376,19 +377,6 @@ fn peer_timed_out(last_received: Instant, now: Instant) -> bool {
     now.saturating_duration_since(last_received) >= Duration::from_secs(60)
 }
 
-#[cfg(test)]
-mod heartbeat_tests {
-    use super::*;
-    #[test]
-    fn late_heartbeat_is_tolerated_but_silent_peer_expires() {
-        let start = Instant::now();
-        assert!(!peer_timed_out(start, start + Duration::from_secs(30)));
-        assert!(!peer_timed_out(start, start + Duration::from_secs(59)));
-        assert!(peer_timed_out(start, start + Duration::from_secs(60)));
-        let resumed = start + Duration::from_secs(45);
-        assert!(!peer_timed_out(resumed, start + Duration::from_secs(75)));
-    }
-}
 pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) -> Value {
     let mutate = matches!(
         r.action.as_str(),
@@ -447,5 +435,19 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
             }
             e.packet(Some(&r.id))
         }
+    }
+}
+
+#[cfg(test)]
+mod heartbeat_tests {
+    use super::*;
+    #[test]
+    fn late_heartbeat_is_tolerated_but_silent_peer_expires() {
+        let start = Instant::now();
+        assert!(!peer_timed_out(start, start + Duration::from_secs(30)));
+        assert!(!peer_timed_out(start, start + Duration::from_secs(59)));
+        assert!(peer_timed_out(start, start + Duration::from_secs(60)));
+        let resumed = start + Duration::from_secs(45);
+        assert!(!peer_timed_out(resumed, start + Duration::from_secs(75)));
     }
 }

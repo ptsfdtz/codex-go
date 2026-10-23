@@ -759,6 +759,18 @@ fn boundary_launch_error(stderr: &[u8]) -> Error {
     }
 }
 
+pub fn sandbox_probe(inside: &Path, outside: &Path) -> bool {
+    let read = std::fs::read_to_string(inside.join("sentinel.txt")).is_ok_and(|v| v == "INSIDE");
+    let write = std::fs::write(inside.join("written.txt"), "OK").is_ok();
+    let denied_read = std::fs::read(outside.join("sentinel.txt")).is_err();
+    let denied_write = std::fs::write(outside.join("written.txt"), "BAD").is_err();
+    println!(
+        "{}",
+        json!({"insideRead":read,"insideWrite":write,"outsideReadDenied":denied_read,"outsideWriteDenied":denied_write})
+    );
+    read && write && denied_read && denied_write
+}
+
 #[cfg(test)]
 mod boundary_diagnostic_tests {
     #[test]
@@ -773,15 +785,4 @@ mod boundary_diagnostic_tests {
             "SANDBOX_UNVERIFIED"
         );
     }
-}
-pub fn sandbox_probe(inside: &Path, outside: &Path) -> bool {
-    let read = std::fs::read_to_string(inside.join("sentinel.txt")).is_ok_and(|v| v == "INSIDE");
-    let write = std::fs::write(inside.join("written.txt"), "OK").is_ok();
-    let denied_read = std::fs::read(outside.join("sentinel.txt")).is_err();
-    let denied_write = std::fs::write(outside.join("written.txt"), "BAD").is_err();
-    println!(
-        "{}",
-        json!({"insideRead":read,"insideWrite":write,"outsideReadDenied":denied_read,"outsideWriteDenied":denied_write})
-    );
-    read && write && denied_read && denied_write
 }
