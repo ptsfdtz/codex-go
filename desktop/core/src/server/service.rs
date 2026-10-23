@@ -20,6 +20,8 @@ use std::{
 };
 use tokio::sync::{mpsc, Notify, Semaphore};
 pub struct Core {
+    pub cloud: crate::cloud::Cloud,
+    pub(crate) discovery: Mutex<Option<crate::server::discovery::Advertisement>>,
     pub store: Arc<Store>,
     pub pairing: Pairing,
     pub tls: Certificate,
@@ -37,6 +39,7 @@ pub struct Core {
     pub(crate) thread_index_pending: Mutex<HashMap<String, String>>,
     pub task_limit: Semaphore,
     pub connected: Mutex<HashMap<String, usize>>,
+    pub authorization_changed: Notify,
     pub address: RwLock<String>,
     pub port: u16,
     pub stop: Notify,
@@ -65,6 +68,8 @@ impl Core {
         local: mpsc::Sender<Value>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            cloud: crate::cloud::Cloud::default(),
+            discovery: Mutex::new(None),
             store,
             pairing: Pairing::default(),
             tls,
@@ -82,6 +87,7 @@ impl Core {
             thread_index_pending: Mutex::new(HashMap::new()),
             task_limit: Semaphore::new(2),
             connected: Mutex::new(HashMap::new()),
+            authorization_changed: Notify::new(),
             address: RwLock::new(address),
             port,
             stop: Notify::new(),
@@ -89,7 +95,7 @@ impl Core {
             local,
             network: tokio::sync::Mutex::new(None),
             rpc_slots: Arc::new(Semaphore::new(32)),
-            ws_slots: Arc::new(Semaphore::new(8)),
+            ws_slots: Arc::new(Semaphore::new(64)),
             device_slots: Mutex::new(HashMap::new()),
             rates: Mutex::new(crate::transport::Buckets::default()),
             project_views: Mutex::new(Vec::new()),
@@ -137,9 +143,9 @@ impl Core {
                 .map(|v| v["title"].clone())
                 .unwrap_or(Value::Null);
         }
-        Ok(
-            json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.projects()?,"devices":devices,"approvals":approvals,"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() }),
-        )
+        let mut state = json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.projects()?,"devices":devices,"approvals":approvals,"pairings":self.pairing.pending_all(),"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() });
+        state["cloud"] = json!(self.cloud.status());
+        Ok(state)
     }
     pub fn publish(&self) {
         match self.state() {
@@ -148,21 +154,42 @@ impl Core {
         }
     }
     pub async fn create_pair(self: &Arc<Self>, address: &str) -> Result<()> {
+        self.create_pair_versioned(address, 1).await
+    }
+    pub async fn create_pair_versioned(self: &Arc<Self>, address: &str, version: u8) -> Result<()> {
         ensure(
             address == "127.0.0.1" || security::addresses().contains(&address.to_owned()),
             "CONFIG_ERROR",
             "Choose a private address assigned to this PC",
         )?;
         ensure(
-            self.tls.supports(address),
+            self.tls
+                .supports(if version >= 2 { "127.0.0.1" } else { address }),
             "CERTIFICATE_ADDRESS_MISMATCH",
             "Address changed; renew certificate locally and pair again",
         )?;
         self.listen(address).await?;
+        if address != "127.0.0.1" {
+            self.store.set_meta("lanEnabled", "true")?;
+        }
         self.store.set_meta("listenAddress", address)?;
-        let mut qr = self
-            .pairing
-            .create(&self.store, &self.endpoint(), &self.tls.fingerprint)?;
+        let mut qr = if version == 3 {
+            let (issuer, account) = self.cloud.pairing_account()?;
+            self.pairing.create_remote(
+                &self.store,
+                &self.endpoint(),
+                &self.tls.fingerprint,
+                &issuer,
+                &account,
+            )?
+        } else {
+            self.pairing.create_versioned(
+                &self.store,
+                &self.endpoint(),
+                &self.tls.fingerprint,
+                version,
+            )?
+        };
         let code = qrcode::QrCode::new(qr.to_string().as_bytes())
             .map_err(|_| Error::new("PAIRING_ERROR", "Cannot render QR"))?;
         let image = code
@@ -184,7 +211,10 @@ impl Core {
             "workspaces.sync" | "stop" => &[],
             "project.add" => &["path"],
             "project.remove" => &["projectId"],
-            "pair.create" => &["address"],
+            "pair.create" | "pair.createStable" | "pair.createRemote" => &["address"],
+            "cloud.login" => &["origin", "username", "password"],
+            "cloud.password" => &["oldPassword", "newPassword"],
+            "cloud.logout" => &["unbind"],
             "pair.confirm" => &["requestId", "approve"],
             "device.revoke" => &["deviceId"],
             "approval.decide" => &["sessionId", "turnId", "approvalId", "decision"],
@@ -197,11 +227,37 @@ impl Core {
             protocol::text(&v, "localRequestId", 1, 100)?;
         }
         for k in allowed {
-            if *k != "approve" {
-                protocol::text(&v, k, 1, if *k == "path" { 32768 } else { 160 })?;
+            if !matches!(*k, "approve" | "unbind") {
+                protocol::text(
+                    &v,
+                    k,
+                    1,
+                    match *k {
+                        "path" => 32768,
+                        "password" | "oldPassword" | "newPassword" => 1024,
+                        "origin" => 2048,
+                        _ => 160,
+                    },
+                )?;
             }
         }
         match action {
+            "cloud.login" => {
+                self.cloud_login(s(&v, "origin"), s(&v, "username"), s(&v, "password"))
+                    .await?
+            }
+            "cloud.password" => {
+                self.cloud_password(s(&v, "oldPassword"), s(&v, "newPassword"))
+                    .await?
+            }
+            "cloud.logout" => {
+                ensure(
+                    v["unbind"].is_boolean(),
+                    "INVALID_REQUEST",
+                    "Boolean unbind required",
+                )?;
+                self.cloud_logout(v["unbind"] == true).await?;
+            }
             "workspaces.sync" => {
                 let result = self.sync_workspaces().await?;
                 self.emit("workspaces.synced", result);
@@ -221,6 +277,8 @@ impl Core {
             }
             "project.remove" => paths::remove_local(&self.store, s(&v, "projectId"))?,
             "pair.create" => self.create_pair(s(&v, "address")).await?,
+            "pair.createStable" => self.create_pair_versioned(s(&v, "address"), 2).await?,
+            "pair.createRemote" => self.create_pair_versioned(s(&v, "address"), 3).await?,
             "pair.confirm" => {
                 ensure(
                     v["approve"].is_boolean(),
@@ -229,11 +287,9 @@ impl Core {
                 )?;
                 self.pairing
                     .confirm(&self.store, s(&v, "requestId"), v["approve"] == true)?;
-                self.invalidate_approvals(true)?;
             }
             "device.revoke" => {
-                Pairing::revoke(&self.store, s(&v, "deviceId"))?;
-                self.invalidate_approvals(true)?;
+                self.revoke_device(s(&v, "deviceId"))?;
             }
             "approval.decide" => {
                 self.decide(
@@ -580,14 +636,33 @@ impl Core {
                 p["limit"].as_u64().unwrap_or(100) as usize,
             ),
             "devices.revokeSelf" => {
-                Pairing::revoke(&self.store, device)?;
-                self.invalidate_approvals(true)?;
+                self.revoke_device(device)?;
                 Ok(json!({"revoked":true}))
             }
             _ => Err(Error::new("INVALID_REQUEST", "Unsupported action")),
         }
     }
+    pub fn revoke_device(&self, device: &str) -> Result<()> {
+        Pairing::revoke(&self.store, device)?;
+        self.authorization_changed.notify_waiters();
+        let authorized = self
+            .store
+            .query("SELECT deviceId FROM devices WHERE revokedAt IS NULL", [])?;
+        let any_connected = {
+            let connected = self.connected.lock().unwrap();
+            authorized
+                .iter()
+                .any(|row| connected.get(s(row, "deviceId")).copied().unwrap_or(0) > 0)
+        };
+        if !any_connected {
+            self.invalidate_approvals(true)?;
+        }
+        self.publish();
+        Ok(())
+    }
     pub async fn shutdown(&self) {
+        self.cloud.stop();
+        self.discovery.lock().unwrap().take();
         self.request_stop();
         let _ = self.invalidate_approvals(true);
         if let Some(rpc) = self.rpc.read().unwrap().clone() {

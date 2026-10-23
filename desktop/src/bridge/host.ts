@@ -22,6 +22,7 @@ export interface Approval {
   allowedDecisions: string[];
 }
 export interface HostState {
+  cloud?: CloudState;
   codexReady: boolean;
   sandboxVerified: boolean;
   endpoint?: string;
@@ -31,6 +32,15 @@ export interface HostState {
   devices: Device[];
   approvals: Approval[];
   addresses: string[];
+}
+export interface CloudState {
+  origin: string;
+  username: string;
+  accountId: string;
+  signedIn: boolean;
+  online: boolean;
+  mustChangePassword: boolean;
+  error: string | null;
 }
 export interface Invitation {
   image: string;
@@ -72,6 +82,11 @@ export const emptyView: View = {
 export type Action =
   | { action: 'workspaces.sync' }
   | { action: 'pair.create'; address: string }
+  | { action: 'pair.createStable'; address: string }
+  | { action: 'pair.createRemote'; address: string }
+  | { action: 'cloud.login'; origin: string; username: string; password: string }
+  | { action: 'cloud.password'; oldPassword: string; newPassword: string }
+  | { action: 'cloud.logout'; unbind: boolean }
   | { action: 'pair.confirm'; requestId: string; approve: boolean }
   | { action: 'device.revoke'; deviceId: string }
   | { action: 'project.remove'; projectId: string }

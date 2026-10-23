@@ -87,6 +87,7 @@ async fn run() -> Result<()> {
             }
         }
     });
+    agentdeck_service::cloud::Cloud::start(&core).await?;
     core.publish();
     eprintln!("AGENTDECK_DIAG published");
     let (commands, mut input) = tokio::sync::mpsc::channel::<Value>(8);
@@ -136,6 +137,9 @@ async fn run() -> Result<()> {
             let _ = owner.expire_due();
             owner.publish();
             count += 1;
+            if count % 5 == 0 {
+                let _ = owner.refresh_network().await;
+            }
             if count % 300 == 0 {
                 let _ = owner.store.retain();
             }

@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.sp
 
 @Composable internal fun ComputerPickerDialog(state:DeckState,onSelect:(String)->Unit,onAdd:()->Unit,onDismiss:()->Unit,onRename:(String,String)->Unit){
     AlertDialog(onDismissRequest=onDismiss,title={Text("选择电脑")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
-        Text("每次连接一台电脑。切换后显示所选电脑的项目和会话，原电脑待处理的审批可能失效。",fontSize=13.sp)
+        Text("已配对电脑保持独立连接。切换后显示所选电脑的项目和会话，其他电脑继续同步任务与审批。",fontSize=13.sp)
         ComputerList(state,onSelect,onRename)
     }},confirmButton={TextButton(onClick=onAdd,enabled=!state.busy){Text("添加电脑")}},dismissButton={TextButton(onClick=onDismiss){Text("关闭")}})
 }
@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
                 Column(Modifier.weight(1f)){
                     Text(host.label,fontWeight=FontWeight.Medium)
                     if(selected)Text("当前电脑",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    state.computerConnections[host.hostId]?.let{status->Text(status.error?:listOf(status.connection,status.route).filter{it.isNotBlank()}.joinToString(" · "),fontSize=11.sp,color=if(status.error==null)MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)}
                 }
                 IconButton(onClick={alias=host.name;editing=host},enabled=!state.busy){Icon(Icons.Outlined.Edit,"编辑 ${host.label} 的别名")}
             }

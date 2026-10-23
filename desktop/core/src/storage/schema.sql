@@ -23,3 +23,6 @@ INSERT OR IGNORE INTO migrations VALUES(4,datetime('now'));
 
 CREATE TABLE IF NOT EXISTS thread_deletions(threadId TEXT PRIMARY KEY,observedAt TEXT NOT NULL);
 INSERT OR IGNORE INTO migrations VALUES(5,datetime('now'));
+
+CREATE TABLE IF NOT EXISTS device_cloud_grants(deviceId TEXT PRIMARY KEY REFERENCES devices(deviceId),issuer TEXT NOT NULL,accountId TEXT NOT NULL,cloudDeviceId TEXT NOT NULL);
+INSERT OR IGNORE INTO migrations VALUES(6,datetime('now'));

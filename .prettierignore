@@ -7,4 +7,6 @@ pnpm-lock.yaml
 android/gradle/wrapper/
 artifacts/
 verification/
+server/target/
+packages/connection-protocol/target/
 android/app/schemas/

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import agentdeckMark from '../../../assets/branding/agentdeck-mark.svg';
+import { CloudSettings } from '../features/connections/CloudSettings';
 import {
   errorText,
   informationNotice,
@@ -119,6 +120,8 @@ export function App() {
   const [localRequest, setLocalRequest] = useState<LocalRequest | null>(null);
   const [selectedApproval, setSelectedApproval] = useState<string | null>(null);
   const [address, setAddress] = useState('');
+  const [legacyPair, setLegacyPair] = useState(false);
+  const [remotePair, setRemotePair] = useState(true);
   const [showPair, setShowPair] = useState(false);
   const [dismissedPair, setDismissedPair] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -191,6 +194,9 @@ export function App() {
     : (state.addresses.find((a) => a === state.listenAddress && a !== '127.0.0.1') ??
       state.addresses.find((a) => a !== '127.0.0.1') ??
       '');
+  const useCloudPair =
+    remotePair && !legacyPair && state.cloud?.signedIn && !state.cloud.mustChangePassword;
+  const pairAddress = effectiveAddress || (useCloudPair ? '127.0.0.1' : '');
   const choose = (p: Panel) => {
     setMenu(false);
     setSearch('');
@@ -262,11 +268,21 @@ export function App() {
     });
   };
   const pair = async () => {
-    if (!effectiveAddress) {
+    if (!pairAddress) {
       setNotice(informationNotice('未找到局域网地址', '请将电脑和平板连接同一 Wi-Fi 后重试。'));
       return;
     }
-    if (await send('pair', { action: 'pair.create', address: effectiveAddress })) setShowPair(true);
+    if (
+      await send('pair', {
+        action: useCloudPair
+          ? 'pair.createRemote'
+          : legacyPair
+            ? 'pair.create'
+            : 'pair.createStable',
+        address: pairAddress,
+      })
+    )
+      setShowPair(true);
   };
   const confirmApproval = (a: Approval, decision: 'approve' | 'reject') =>
     setConfirmation({
@@ -524,10 +540,16 @@ export function App() {
                 </>
               ) : (
                 <>
-                  <p>{view.qr && seconds === 0 ? '配对码已过期' : '电脑和平板需连接同一 Wi-Fi'}</p>
+                  <p>
+                    {view.qr && seconds === 0
+                      ? '配对码已过期'
+                      : useCloudPair
+                        ? '移动端登录同一账户后扫码配对'
+                        : '电脑和移动端需连接同一局域网'}
+                  </p>
                   <button
                     className="button primary"
-                    disabled={!ready || busy !== null || !effectiveAddress}
+                    disabled={!ready || busy !== null || !pairAddress}
                     onClick={() => void pair()}
                   >
                     {busy === 'pair' ? (
@@ -583,7 +605,9 @@ export function App() {
             {view.pairing.displayName}
           </div>
           <div className="match-code">{view.pairing.code}</div>
-          <p className="modal-hint">仅当设备属于你且配对码一致时确认。新的配对会替换此前设备。</p>
+          <p className="modal-hint">
+            仅当设备属于你且配对码一致时确认。每台设备独立授权，可分别撤销。
+          </p>
           <div className="modal-actions">
             <button
               className="button secondary"
@@ -797,7 +821,7 @@ export function App() {
         <Modal
           error={visibleError}
           title="连接详情"
-          description="使用可信局域网。配对证书会在平板端固定验证。"
+          description="局域网与公网共用电脑身份，移动端始终验证配对证书。"
           onClose={() => setPanel(null)}
         >
           <dl className="network-details">
@@ -822,6 +846,38 @@ export function App() {
                   ))}
               </select>
             </dd>
+            {state.cloud?.signedIn && !state.cloud.mustChangePassword && (
+              <>
+                <dt>配对方式</dt>
+                <dd>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={remotePair}
+                      onChange={(event) => {
+                        setRemotePair(event.target.checked);
+                        setLegacyPair(false);
+                      }}
+                    />
+                    允许通过云端配对和连接
+                  </label>
+                </dd>
+              </>
+            )}
+            <dt>兼容模式</dt>
+            <dd>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={legacyPair}
+                  onChange={(event) => {
+                    setLegacyPair(event.target.checked);
+                    if (event.target.checked) setRemotePair(false);
+                  }}
+                />
+                为旧版移动端生成配对码
+              </label>
+            </dd>
           </dl>
           {view.qr && (
             <div className="fingerprint">
@@ -832,13 +888,19 @@ export function App() {
           <div className="modal-actions">
             <button
               className="button primary"
-              disabled={!ready || !!busy || !effectiveAddress}
+              disabled={!ready || !!busy || !pairAddress}
               onClick={() => void pair().then(() => setPanel(null))}
             >
               <QrCode size={16} />
               更新配对码
             </button>
           </div>
+          <CloudSettings
+            state={state.cloud}
+            busy={!!busy}
+            available={view.running}
+            send={(action) => send('cloud', action)}
+          />
         </Modal>
       ) : panel === 'approvals' ? (
         <Modal

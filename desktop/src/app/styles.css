@@ -739,3 +739,33 @@ h1 {
     gap: 8px;
   }
 }
+.cloud-settings {
+  margin-top: 24px;
+  border-top: 1px solid var(--border, #d9d9d9);
+  padding-top: 16px;
+}
+.cloud-settings p {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.cloud-settings form,
+.cloud-settings label {
+  display: grid;
+  gap: 8px;
+}
+.cloud-settings form {
+  gap: 12px;
+}
+.cloud-settings input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 8px;
+  padding: 10px;
+}
+.cloud-settings .modal-actions {
+  flex-wrap: wrap;
+}

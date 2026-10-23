@@ -660,6 +660,27 @@ impl Store {
         tx.commit()?;
         Ok(None)
     }
+    /// Add one independently revocable device without changing existing grants.
+    pub fn add_device(&self, id: &str, name: &str, hash: &str) -> Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM devices WHERE revokedAt IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        ensure(
+            count < 64,
+            "DEVICE_LIMIT",
+            "Revoke an unused device before pairing another",
+        )?;
+        tx.execute(
+            "INSERT INTO devices(deviceId,displayName,credentialHash,createdAt,revokedAt) VALUES(?,?,?,?,NULL)",
+            params![id, name, hash, now()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
     pub fn replace_device(&self, id: &str, name: &str, hash: &str) -> Result<()> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction()?;

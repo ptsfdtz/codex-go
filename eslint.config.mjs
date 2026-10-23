@@ -39,6 +39,21 @@ export default tseslint.config(
     },
   },
   {
+    files: ['server/admin/*.js', 'server/tests/admin-browser.mjs'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+        innerWidth: 'readonly',
+        navigator: 'readonly',
+        Node: 'readonly',
+        FormData: 'readonly',
+        fetch: 'readonly',
+        setInterval: 'readonly',
+      },
+    },
+  },
+  {
     files: ['**/*.cjs'],
     languageOptions: {
       globals: { require: 'readonly' },

@@ -3,8 +3,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <application android:name=".DeckApplication" android:allowBackup="false" android:label="AgentDeck" android:icon="@drawable/ic_agentdeck_launcher" android:theme="@style/Theme.AgentDeck" android:usesCleartextTraffic="false" android:supportsRtl="true">
+        <service android:name=".ConnectionService" android:exported="false" android:foregroundServiceType="connectedDevice" />
         <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>

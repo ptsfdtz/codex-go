@@ -33,9 +33,12 @@ class PinnedTrust(private val fingerprint:String):X509TrustManager {
         leaf.verify(leaf.publicKey)
     }
 }
-fun pinnedClient(fingerprint:String):OkHttpClient {
+fun pinnedClient(fingerprint:String,endpoint:String?=null,tlsServerName:String?=null,routeFactory:javax.net.SocketFactory?=null):OkHttpClient {
     val trust=PinnedTrust(fingerprint);val context=SSLContext.getInstance("TLS").apply{init(null,arrayOf(trust),null)}
-    return OkHttpClient.Builder().sslSocketFactory(context.socketFactory,trust).connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS).callTimeout(25,TimeUnit.SECONDS).pingInterval(30,TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).build()
+    val builder=OkHttpClient.Builder().sslSocketFactory(context.socketFactory,trust).connectTimeout(10,TimeUnit.SECONDS).readTimeout(20,TimeUnit.SECONDS).callTimeout(25,TimeUnit.SECONDS).pingInterval(30,TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false)
+    if(tlsServerName!=null){serviceOrigin(requireNotNull(endpoint),tlsServerName);builder.socketFactory(ServiceSocketFactory(endpoint)).proxy(java.net.Proxy.NO_PROXY)}
+    if(routeFactory!=null){require(tlsServerName=="127.0.0.1"){"云端连接需要稳定的电脑证书身份"};builder.socketFactory(routeFactory).proxy(java.net.Proxy.NO_PROXY)}
+    return builder.build()
 }
 suspend fun post(client:OkHttpClient,url:String,value:JsonObject):JsonObject=suspendCancellableCoroutine{continuation->
     val call=client.newCall(Request.Builder().url(url).post(value.toString().toRequestBody("application/json".toMediaType())).build())
@@ -45,15 +48,16 @@ suspend fun post(client:OkHttpClient,url:String,value:JsonObject):JsonObject=sus
         override fun onResponse(call:Call,response:Response){response.use{try{val text=it.body?.source()?.let{source->source.request(65537);require(source.buffer.size<=65536){"Bridge response too large"};source.buffer.readUtf8()}?:"{}";val result=wire.parseToJsonElement(text).jsonObject;if(!it.isSuccessful)throw DeckException(result["code"]?.jsonPrimitive?.content?:"PAIRING_FAILED",result["message"]?.jsonPrimitive?.content?:"配对失败");if(continuation.isActive)continuation.resume(result)}catch(e:Exception){if(continuation.isActive)continuation.resumeWithException(e)}}}
     })
 }
-class DeckTransport internal constructor(private val host:Host,private val connectTimeoutMillis:Long=12000,private val requestTimeoutMillis:Long=45000){
+class DeckTransport internal constructor(private val host:Host,private val connectTimeoutMillis:Long=12000,private val requestTimeoutMillis:Long=45000,routeFactory:javax.net.SocketFactory?=null){
     val events=Channel<JsonObject>(256)
-    private val client=pinnedClient(host.fingerprint)
+    private val client=pinnedClient(host.fingerprint,host.endpoint,host.tlsServerName,routeFactory)
     private val pending=ConcurrentHashMap<String,CompletableDeferred<JsonObject>>()
     private var socket:WebSocket?=null
     private val opened=CompletableDeferred<Unit>()
     private val failure=AtomicReference<Throwable?>(null)
+    internal val hasPendingRequests:Boolean get()=pending.isNotEmpty()
     suspend fun connect(){
-        socket=client.newWebSocket(Request.Builder().url(host.endpoint.trimEnd('/').replaceFirst("https://","wss://")+"/api/v1/ws").header("Authorization","Bearer ${host.credential}").build(),object:WebSocketListener(){
+        socket=client.newWebSocket(Request.Builder().url(serviceOrigin(host.endpoint,host.tlsServerName).replaceFirst("https://","wss://")+"/api/v1/ws").header("Authorization","Bearer ${host.credential}").build(),object:WebSocketListener(){
             override fun onOpen(webSocket:WebSocket,response:Response){opened.complete(Unit)}
             override fun onMessage(webSocket:WebSocket,text:String){try{
                 require(text.length<=1024*1024){"Message too large"};val p=wire.parseToJsonElement(text).jsonObject;require(p["v"]?.jsonPrimitive?.int==1){"Unsupported protocol version"}
@@ -73,10 +77,24 @@ class DeckTransport internal constructor(private val host:Host,private val conne
     }
     private fun fail(error:Throwable){if(!failure.compareAndSet(null,error))return;opened.completeExceptionally(error);pending.values.forEach{it.completeExceptionally(error)};pending.clear();events.close(error);socket?.cancel()}
     internal fun disconnect(error:Throwable){fail(error)}
+    // Serialize the route handover with request registration. A new mutation
+    // either keeps this connection alive or fails locally before being sent.
+    @Synchronized internal fun disconnectIfIdle(error:Throwable):Boolean {
+        if(pending.isNotEmpty())return false
+        fail(error);return true
+    }
     suspend fun probe(){request("system.hello",timeoutMillis=10000)}
     suspend fun request(action:String,payload:JsonObject=JsonObject(emptyMap()),timeoutMillis:Long=requestTimeoutMillis):JsonObject {
-        val id=UUID.randomUUID().toString();val result=CompletableDeferred<JsonObject>();pending[id]=result
-        try{failure.get()?.let{throw it};check(socket?.send(buildJsonObject{put("v",1);put("type","request");put("id",id);put("action",action);put("payload",payload)}.toString())==true){"Bridge 连接不可用"};return withTimeoutOrNull(timeoutMillis){result.await()}?:throw SocketTimeoutException("Bridge 请求超时，请核对操作结果") }finally{pending.remove(id)}
+        val id=UUID.randomUUID().toString();val result=CompletableDeferred<JsonObject>()
+        val packet=buildJsonObject{put("v",1);put("type","request");put("id",id);put("action",action);put("payload",payload)}.toString()
+        try{
+            synchronized(this){
+                failure.get()?.let{throw it}
+                pending[id]=result
+                check(socket?.send(packet)==true){"Bridge 连接不可用"}
+            }
+            return withTimeoutOrNull(timeoutMillis){result.await()}?:throw SocketTimeoutException("Bridge 请求超时，请核对操作结果")
+        }finally{pending.remove(id)}
     }
     fun close(){fail(IOException("Connection closed"));client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
 }

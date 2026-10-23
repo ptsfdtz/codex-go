@@ -63,6 +63,7 @@ internal val deckSettingsSections=listOf("general" to "通用","conversations" t
     var confirmRetention by remember(state.host?.hostId){mutableStateOf(false)}
     val valid=days.toIntOrNull() in 1..365 && size.toIntOrNull() in 16..1024
     val notificationPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){granted->repo.setNotifications(granted);if(!granted)repo.showMessage("通知权限未授予，前台任务与审批仍可使用")}
+    val backgroundPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){granted->repo.setBackgroundConnections(true);if(!granted)repo.showMessage("后台连接已开启，通知权限未授予；可在系统的活动应用中管理")}
     val diagnosticText=remember(state.diagnostics,state.connection,state.snapshot.cursor){state.diagnostics?.let{bridge->diagnosticJson.encodeToString(JsonObject.serializer(),buildJsonObject{put("androidVersion",Build.VERSION.RELEASE);put("appVersion",BuildConfig.VERSION_NAME);put("connection",state.connection);put("cacheCursor",state.snapshot.cursor);put("bridge",bridge)})}}
     val export=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")){uri->if(uri!=null&&diagnosticText!=null)scope.launch{try{withContext(Dispatchers.IO){checkNotNull(context.contentResolver.openOutputStream(uri)).use{it.write(diagnosticText.toByteArray(Charsets.UTF_8))}};repo.showMessage("诊断已导出")}catch(_:Exception){repo.showMessage("无法导出诊断，请重新选择保存位置")}}}
     if(renameComputer)AlertDialog(onDismissRequest={renameComputer=false},title={Text("重命名电脑")},text={OutlinedTextField(value=computerName,onValueChange={computerName=it.take(80)},label={Text("电脑名称")},singleLine=true)},confirmButton={TextButton(onClick={state.host?.let{repo.renameHost(it.hostId,computerName)};renameComputer=false},enabled=computerName.isNotBlank()&&!state.busy){Text("保存")}},dismissButton={TextButton(onClick={renameComputer=false}){Text("取消")}})
@@ -128,10 +129,13 @@ internal val deckSettingsSections=listOf("general" to "通用","conversations" t
             ThemeOptions(state.preferences.theme,repo::setTheme)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Column(Modifier.weight(1f)){Text("任务与审批通知");Text("默认关闭。仅提示新事件，不显示提示词或命令内容。",fontSize=12.sp)};Switch(modifier=Modifier.semantics{contentDescription="任务与审批通知"},checked=state.preferences.notifications,onCheckedChange={enabled->if(enabled&&Build.VERSION.SDK_INT>=33)notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)else repo.setNotifications(enabled)})}
             Text("通知依赖应用连接。系统休眠或结束进程后不保证后台推送；重新打开会同步真实状态。",fontSize=12.sp)
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Column(Modifier.weight(1f)){Text("后台保持电脑连接");Text("显示持续通知，维护多台电脑的连接。系统仍可能限制后台运行。",fontSize=12.sp)};Switch(checked=state.preferences.backgroundConnections,onCheckedChange={enabled->if(enabled&&Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)backgroundPermission.launch(Manifest.permission.POST_NOTIFICATIONS)else repo.setBackgroundConnections(enabled)})}
         }}}
+        if(section=="computers")item{CloudSettings(state,repo)}
         if(section=="computers")item{OutlinedCard{Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
             Text("我的电脑",fontWeight=FontWeight.SemiBold)
             ComputerList(state,repo::selectHost,repo::renameHost)
+            RouteSettings(state,repo)
             TextButton(onClick=onPair,enabled=!state.busy){Text("添加电脑")}
             Text("当前电脑",fontWeight=FontWeight.SemiBold);Text(state.host?.label?:"未配对")
             TextButton(onClick={renameComputer=true},enabled=state.host!=null&&!state.busy){Text("重命名当前电脑")}

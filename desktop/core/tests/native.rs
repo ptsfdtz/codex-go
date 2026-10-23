@@ -20,6 +20,109 @@ struct Harness {
     worker: Option<tokio::task::JoinHandle<()>>,
 }
 
+#[test]
+fn remote_pairing_pins_account_and_mobile_without_consuming_wrong_scope_invitation() {
+    use agentdeck_service::pairing::{Pairing, RemoteIdentity};
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("paired.db");
+    let store = Store::open(&database).unwrap();
+    let pairing = Pairing::default();
+    let identity = RemoteIdentity {
+        issuer: "https://connect.example.com".into(),
+        account_id: "account-a".into(),
+        device_id: "mobile-a".into(),
+    };
+    let qr = pairing
+        .create_remote(
+            &store,
+            "https://127.0.0.1:49321",
+            &"a".repeat(64),
+            &identity.issuer,
+            &identity.account_id,
+        )
+        .unwrap();
+    assert_eq!(qr["v"], 3);
+    let input =
+        json!({"token":qr["token"],"displayName":"Remote mobile","nonce":security::token()});
+    assert!(pairing.request(&input).is_err());
+    assert!(pairing
+        .request_scoped(
+            &input,
+            Some(&RemoteIdentity {
+                account_id: "account-b".into(),
+                ..identity.clone()
+            })
+        )
+        .is_err());
+    assert!(pairing
+        .request_scoped(
+            &input,
+            Some(&RemoteIdentity {
+                issuer: "https://other.example.com".into(),
+                ..identity.clone()
+            })
+        )
+        .is_err());
+    let (request, _) = pairing.request_scoped(&input, Some(&identity)).unwrap();
+    pairing
+        .confirm(&store, s(&request, "requestId"), true)
+        .unwrap();
+    let claim = json!({"requestId":request["requestId"],"claimToken":request["claimToken"]});
+    assert!(pairing.claim(&store, &claim).is_err());
+    assert!(pairing
+        .claim_scoped(
+            &store,
+            &claim,
+            Some(&RemoteIdentity {
+                device_id: "mobile-b".into(),
+                ..identity.clone()
+            })
+        )
+        .is_err());
+    let grant = pairing
+        .claim_scoped(&store, &claim, Some(&identity))
+        .unwrap();
+    let credential = s(&grant, "credential");
+    assert_eq!(
+        Pairing::authenticate_scoped(&store, credential, Some(&identity))
+            .unwrap()
+            .as_deref(),
+        grant["deviceId"].as_str()
+    );
+    assert!(Pairing::authenticate_scoped(
+        &store,
+        credential,
+        Some(&RemoteIdentity {
+            device_id: "mobile-b".into(),
+            ..identity.clone()
+        })
+    )
+    .unwrap()
+    .is_none());
+    let lan = security::token();
+    store
+        .add_device("standalone-lan", "LAN", &digest(&lan))
+        .unwrap();
+    assert!(Pairing::authenticate(&store, &lan).unwrap().is_some());
+    assert!(Pairing::authenticate_scoped(&store, &lan, Some(&identity))
+        .unwrap()
+        .is_none());
+    drop(store);
+    let reopened = Store::open(&database).unwrap();
+    assert!(
+        Pairing::authenticate_scoped(&reopened, credential, Some(&identity))
+            .unwrap()
+            .is_some()
+    );
+    Pairing::revoke(&reopened, s(&grant, "deviceId")).unwrap();
+    assert!(
+        Pairing::authenticate_scoped(&reopened, credential, Some(&identity))
+            .unwrap()
+            .is_none()
+    );
+    assert!(Pairing::authenticate(&reopened, &lan).unwrap().is_some());
+}
+
 #[tokio::test]
 async fn compaction_preserves_original_thread_and_deduplicates_submission() {
     let h = Harness::fixture().await;
@@ -1828,6 +1931,174 @@ async fn junction_cannot_escape() {
     assert!(paths::file(&h.core.store, s(&p, "projectId"), "escape/secret.txt").is_err());
 }
 #[tokio::test]
+async fn multiple_pairing_invitations_and_devices_remain_independent() {
+    let h = Harness::new();
+    let first = h
+        .core
+        .pairing
+        .create(&h.core.store, &h.core.endpoint(), &h.core.tls.fingerprint)
+        .unwrap();
+    let second = h
+        .core
+        .pairing
+        .create_versioned(
+            &h.core.store,
+            &h.core.endpoint(),
+            &h.core.tls.fingerprint,
+            2,
+        )
+        .unwrap();
+    assert_eq!(first["v"], 1);
+    assert!(first.get("tlsServerName").is_none());
+    assert_eq!(second["tlsServerName"], "127.0.0.1");
+    let mut replies = Vec::new();
+    for qr in [&first, &second] {
+        let (reply, _) = h.core.pairing.request(&json!({"token":qr["token"],"displayName":"Independent device","nonce":security::token()})).unwrap();
+        replies.push(reply);
+    }
+    assert_eq!(h.core.pairing.pending_all().len(), 2);
+    let mut devices = Vec::new();
+    for reply in &replies {
+        h.core
+            .local_action(
+                json!({"action":"pair.confirm","requestId":reply["requestId"],"approve":true}),
+            )
+            .await
+            .unwrap();
+        devices.push(
+            h.core
+                .pairing
+                .claim(
+                    &h.core.store,
+                    &json!({"requestId":reply["requestId"],"claimToken":reply["claimToken"]}),
+                )
+                .unwrap(),
+        );
+    }
+    assert!(h.core.pairing.pending_all().is_empty());
+    for device in &devices {
+        assert_eq!(
+            pairing::Pairing::authenticate(&h.core.store, s(device, "credential"))
+                .unwrap()
+                .as_deref(),
+            Some(s(device, "deviceId"))
+        );
+    }
+    // Requests and independent authorization must survive a service restart.
+    h.core
+        .store
+        .reserve(
+            s(&devices[1], "deviceId"),
+            "known-operation",
+            "turn.start",
+            &json!({"text":"do not repeat"}),
+        )
+        .unwrap();
+    h.core.revoke_device(s(&devices[0], "deviceId")).unwrap();
+    assert!(
+        pairing::Pairing::authenticate(&h.core.store, s(&devices[0], "credential"))
+            .unwrap()
+            .is_none()
+    );
+    let reopened = Store::open(&h._directory.path().join("test.db")).unwrap();
+    assert!(
+        pairing::Pairing::authenticate(&reopened, s(&devices[1], "credential"))
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        reopened
+            .reserve(
+                s(&devices[1], "deviceId"),
+                "known-operation",
+                "turn.start",
+                &json!({"text":"do not repeat"})
+            )
+            .unwrap_err()
+            .code,
+        "OUTCOME_UNKNOWN"
+    );
+}
+
+#[tokio::test]
+async fn pairing_and_revoking_one_device_preserves_other_devices_approval() {
+    let h = Harness::fixture().await;
+    for id in ["first-device", "second-device"] {
+        h.core
+            .store
+            .add_device(id, id, &digest(security::token()))
+            .unwrap();
+        h.core.connected.lock().unwrap().insert(id.into(), 1);
+    }
+    let session = h.session("multiple-approval").await;
+    let turn = h
+        .core
+        .start_turn(s(&session, "sessionId"), "APPROVAL")
+        .await
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "waitingApproval").await;
+    let approval = h.core.store.approvals(None).unwrap().remove(0);
+    let qr = h
+        .core
+        .pairing
+        .create(&h.core.store, &h.core.endpoint(), &h.core.tls.fingerprint)
+        .unwrap();
+    let (reply, _) = h
+        .core
+        .pairing
+        .request(
+            &json!({"token":qr["token"],"displayName":"Third device","nonce":security::token()}),
+        )
+        .unwrap();
+    h.core
+        .local_action(
+            json!({"action":"pair.confirm","requestId":reply["requestId"],"approve":true}),
+        )
+        .await
+        .unwrap();
+    h.core.revoke_device("first-device").unwrap();
+    assert_eq!(
+        h.core.store.approvals(None).unwrap()[0]["approvalId"],
+        approval["approvalId"]
+    );
+    h.core
+        .decide(
+            s(&session, "sessionId"),
+            s(&turn, "turnId"),
+            s(&approval, "approvalId"),
+            "approve",
+        )
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+}
+
+#[tokio::test]
+async fn pairing_queue_is_bounded_without_invalidating_previous_invitations() {
+    let h = Harness::new();
+    let mut invites = Vec::new();
+    for _ in 0..16 {
+        invites.push(
+            h.core
+                .pairing
+                .create(&h.core.store, &h.core.endpoint(), &h.core.tls.fingerprint)
+                .unwrap(),
+        );
+    }
+    assert_eq!(
+        h.core
+            .pairing
+            .create(&h.core.store, &h.core.endpoint(), &h.core.tls.fingerprint)
+            .unwrap_err()
+            .code,
+        "RATE_LIMITED"
+    );
+    for qr in invites {
+        h.core.pairing.request(&json!({"token":qr["token"],"displayName":"Queued device","nonce":security::token()})).unwrap();
+    }
+    assert_eq!(h.core.pairing.pending_all().len(), 16);
+}
+
+#[tokio::test]
 async fn pair_requires_human_and_single_claim() {
     let h = Harness::new();
     let qr = h
@@ -2093,6 +2364,75 @@ async fn git_status_rename_parser() {
     assert_eq!(values[0]["path"], "new name");
     assert_eq!(values[1]["untracked"], true);
 }
+#[tokio::test]
+async fn revocation_closes_only_the_revoked_idle_websocket() {
+    use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+    let h = Harness::new();
+    h.core.listen("127.0.0.1").await.unwrap();
+    let (_, pem) = x509_parser::pem::parse_x509_pem(h.core.tls.cert.as_bytes()).unwrap();
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(rustls::pki_types::CertificateDer::from(pem.contents))
+        .unwrap();
+    let config = Arc::new(
+        rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    );
+    let mut sockets = Vec::new();
+    for id in ["first-device", "second-device"] {
+        let credential = security::token();
+        h.core
+            .store
+            .add_device(id, id, &digest(&credential))
+            .unwrap();
+        let mut request = format!("wss://127.0.0.1:{}/api/v1/ws", h.core.port)
+            .into_client_request()
+            .unwrap();
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {credential}").parse().unwrap(),
+        );
+        let (mut socket, _) = tokio_tungstenite::connect_async_tls_with_config(
+            request,
+            None,
+            false,
+            Some(tokio_tungstenite::Connector::Rustls(config.clone())),
+        )
+        .await
+        .unwrap();
+        socket.send(Message::Text(json!({"v":1,"type":"request","id":"hello","action":"system.hello","payload":{"client":"multiple-devices-test","version":1}}).to_string().into())).await.unwrap();
+        let response = socket.next().await.unwrap().unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(response.to_text().unwrap()).unwrap()["type"],
+            "response"
+        );
+        sockets.push(socket);
+    }
+    h.core.revoke_device("first-device").unwrap();
+    // No extra request/event/heartbeat is required to observe revocation.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(Ok(message)) = sockets[0].next().await {
+            if matches!(message, Message::Close(_)) {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    sockets[1].send(Message::Text(json!({"v":1,"type":"request","id":"still-authorized","action":"snapshot.get","payload":{}}).to_string().into())).await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), sockets[1].next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(response.to_text().unwrap()).unwrap()["id"],
+        "still-authorized"
+    );
+    h.core.shutdown().await;
+}
+
 #[tokio::test]
 async fn tls_websocket_auth_hello_replay_and_no_origin() {
     let h = Harness::new();

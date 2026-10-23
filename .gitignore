@@ -1,6 +1,8 @@
 node_modules/
 desktop/src-tauri/target/
 desktop/core/target/
+server/target/
+packages/connection-protocol/target/
 desktop/src-tauri/resources/
 desktop/src-tauri/gen/
 desktop/test-results/

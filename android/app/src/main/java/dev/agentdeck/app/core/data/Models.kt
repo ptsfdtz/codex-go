@@ -6,11 +6,15 @@ import java.net.URI
 import java.time.Instant
 
 val wire = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-@Serializable data class Host(val endpoint:String,val fingerprint:String,val hostId:String,val deviceId:String,val credential:String,val name:String="")
-@Serializable data class PairQr(val v:Int,val endpoint:String,val fingerprint:String,val token:String,val expiresAt:String,val hostId:String) {
+@Serializable data class Host(val endpoint:String,val fingerprint:String,val hostId:String,val deviceId:String,val credential:String,val name:String="",val tlsServerName:String?=null,val cloud:CloudBinding?=null,val routePolicy:String="auto")
+@Serializable data class PairQr(val v:Int,val endpoint:String,val fingerprint:String,val token:String,val expiresAt:String,val hostId:String,val tlsServerName:String?=null,val cloud:CloudBinding?=null) {
     fun validated():PairQr {
         val uri=URI(endpoint)
-        require(v==1 && uri.scheme=="https" && !uri.host.isNullOrBlank() && uri.userInfo==null && uri.query==null && uri.fragment==null && (uri.path.isNullOrEmpty()||uri.path=="/")) { "无效的 Bridge HTTPS 地址" }
+        require(v in 1..3 && uri.scheme=="https" && !uri.host.isNullOrBlank() && uri.userInfo==null && uri.query==null && uri.fragment==null && (uri.path.isNullOrEmpty()||uri.path=="/") && (uri.port==-1||uri.port in 1..65535)) { "无效的 Bridge HTTPS 地址" }
+        require((v==1&&tlsServerName==null)||(v>=2&&tlsServerName=="127.0.0.1")){"不支持的配对证书身份"}
+        require((v==3)==(cloud!=null)){"配对账户信息缺失或版本不兼容"}
+        cloud?.let{require(cloudOrigin(it.origin)==it.origin&&it.accountId.isNotBlank()&&it.accountId.length<=160){"云端配对身份无效"}}
+        require(hostId.isNotBlank()&&hostId.length<=160){"无效的电脑身份"}
         require(Regex("[a-f0-9]{64}").matches(fingerprint) && Regex("[A-Za-z0-9_-]{43}").matches(token)) { "配对信息格式错误" }
         require(Instant.parse(expiresAt).isAfter(Instant.now())) { "二维码已过期，请在 Windows 重新生成" }
         return this
@@ -29,7 +33,9 @@ val wire = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 @Serializable data class GitStatus(val available:Boolean=false,val files:List<GitFile> = emptyList(),val truncated:Boolean=false,val attribution:String="working-tree",val baseline:String?=null)
 @Serializable data class Diff(val path:String="",val text:String="",val binary:Boolean=false,val truncated:Boolean=false,val attribution:String="working-tree",val untracked:Boolean=false)
 @Serializable data class Retention(val days:Int=30,val maxMiB:Int=256)
-data class DeckState(val historyGeneration:Long=0,val notificationNavigation:String="",val connection:String="未配对",val host:Host?=null,val hosts:List<Host> = emptyList(),val snapshot:Snapshot=Snapshot(),val selectedProject:String?=null,val selectedSession:String?=null,val events:List<DeckEvent> = emptyList(),val git:GitStatus?=null,val diff:Diff?=null,val error:String?=null,val busy:Boolean=false,val stale:Boolean=true,val pairingCode:String?=null,val pairingName:String?=null,val lastSynced:String?=null,val preferences:DeckPreferences=DeckPreferences(),val retention:Retention=Retention(),val diagnostics:JsonObject?=null,val displayMask:String="",val models:List<CodexModel> = emptyList(),val selectedModel:String="",val selectedEffort:String="",val fullAccess:Boolean=true,val capabilities:BridgeCapabilities?=null,val observationPendingSession:String?=null,val timelineHistory:TimelineHistory=TimelineHistory())
+data class ComputerStatus(val connection:String,val error:String?=null,val route:String="")
+
+data class DeckState(val cloud:CloudAccountState=CloudAccountState(),val computerConnections:Map<String,ComputerStatus> = emptyMap(),val historyGeneration:Long=0,val notificationNavigation:String="",val connection:String="未配对",val host:Host?=null,val hosts:List<Host> = emptyList(),val snapshot:Snapshot=Snapshot(),val selectedProject:String?=null,val selectedSession:String?=null,val events:List<DeckEvent> = emptyList(),val git:GitStatus?=null,val diff:Diff?=null,val error:String?=null,val busy:Boolean=false,val stale:Boolean=true,val pairingCode:String?=null,val pairingName:String?=null,val lastSynced:String?=null,val preferences:DeckPreferences=DeckPreferences(),val retention:Retention=Retention(),val diagnostics:JsonObject?=null,val displayMask:String="",val models:List<CodexModel> = emptyList(),val selectedModel:String="",val selectedEffort:String="",val fullAccess:Boolean=true,val capabilities:BridgeCapabilities?=null,val observationPendingSession:String?=null,val timelineHistory:TimelineHistory=TimelineHistory())
 class DeckException(val code:String,override val message:String):Exception(message)
 fun payload(vararg pairs:Pair<String,String>):JsonObject=buildJsonObject { pairs.forEach { (key,value)->put(key,value) } }
 fun statusLabel(status:String):String=when(status){"saved"->"已保存";"idle"->"就绪";"queued"->"正在提交";"running","inProgress"->"执行中";"waitingApproval"->"等待审批";"completed"->"已完成";"failed"->"失败";"interrupted"->"已中断";"unknown"->"状态未知 · 等待核对";else->status}

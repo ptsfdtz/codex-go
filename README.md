@@ -3,22 +3,66 @@
 自己的 Codex 对话客户端，按桌面端、移动端、服务端三端组织：
 
 - 桌面端（`desktop/src/`、`desktop/src-tauri/`）：电脑上的 React/Tauri 管理与控制界面，负责项目授权、设备与网络、审批和托盘常驻；仅 Windows，不呈现对话。
-- 移动端（`android/`）：Android Compose 客户端，收发文字与图片、同步历史、显示工具结果与任务状态、处理审批和追问。当前仅 Android，免安装网页/PWA 尚未实现。
+- 移动端（`android/`）：Android Compose 客户端，收发文字与图片、同步历史、显示工具结果与任务状态、处理审批和追问；同时连接多台已配对电脑。
 - 服务端 `agentdeck-service`（源码在 `desktop/core/`）：当前随桌面端安装、在电脑后台运行。保存凭据与权威会话，附着并执行 Codex，提供 TLS WebSocket、六位码配对、审批、未知结果核对和重连恢复；仅 Windows。
 
-目标连接：`移动端 / 浏览器 → 自有 VPS（仅转发 TCP）→ 服务端（电脑）→ Codex`。电脑主动建立反向隧道，TLS 在服务端终止；网页与 API 优先由服务端同源提供。VPS 不存聊天/媒体、不持有 OpenAI 凭据、不运行模型。此路线尚未落地。
+- 云端连接服务（`server/`）：Linux VPS 上独立部署，保存账户、设备归属、登录会话、配额和管理记录，提供管理网页与 WSS 转发。电脑上的服务仍是 Codex 会话、项目授权和审批的权威源。
+
+连接：`Android → 局域网直连电脑`，或 `Android → 云端 WSS 转发 → 电脑 → Codex`。公网的内层标准 TLS 在电脑终止；VPS 只看到加密业务字节，不存聊天/媒体，不持有 OpenAI 凭据，不运行模型。本轮客户端为 Windows 和 Android；网页只用于云端管理，不提供网页/PWA 对话客户端。
 
 - Logo（2026-10-23）：采用纯黑白三重交织标记，表达三端共享同一会话；SVG、透明 PNG 与预览位于 `assets/branding/`，已用于桌面标题栏、窗口/托盘图标、favicon 和 Android 自适应/主题图标及单色通知图标。桌面前端构建、Android 资源编译及跨端路径一致性检查通过；安装后系统图标、通知栏和主题图标实机展示待验证，下一步核对系统裁切与小尺寸显示。
 
 - Android timeline (2026-10-23): infer native turn identity from live events and preserve history merge direction; pagination explicitly pauses following live output, and layout changes no longer re-enable it. TimelineHistory/Conversation unit tests, assembleDebug and device data-preserving install passed. On the connected real session, two older-page clicks retained the visible answer/question and viewport while output continued; automated real-session pagination assertions compiled, but helper installation was blocked by Android USB-install restrictions. Immediate post-completion pagination remains unverified.
 
+## 多用户远程连接（2026-10-23）
+
+- 管理员创建用户名/临时密码账户；首次登录必须改密。支持重置密码、停用账户、撤销设备、电脑解绑、设备/连接/带宽配额与管理记录；账户彼此隔离，不提供跨账户分享。
+- Windows 与 Android 登录同一服务器、同一账户；手机扫描桌面 v3 公网二维码，核对六位码并在电脑批准。账户归属不代替电脑的本地授权；每个移动设备独立授权，可定向撤销。同一账户可绑定多台电脑与手机，每部手机同时维护多台电脑的连接、缓存、游标、任务与审批通知。
+- 独立 LAN 配对无需账户、互联网或 VPS；v1/v2 二维码仍兼容，原证书与设备身份保留。公网配对可选择自动（LAN 优先、云端备用）、仅 LAN、仅云端。mDNS 只为已配对身份提供新地址，证书固定与主机身份校验始终保留。云端恢复 LAN 时先核验身份，切换决策与请求登记互斥，避开待确认请求；任何路径切换均不自动重发变更操作。
+- 云端使用认证外层 WSS、一次性短期连接票据、有界二进制转发与心跳；内层为原电脑 TLS/授权协议，不为每台电脑开放公网端口。Windows 使用 DPAPI、Android 使用 Vault 加密保存登录凭据；云端刷新凭据轮换并检测重复使用。退出账户立即隔离该账户的移动端连接与界面，独立 LAN 电脑保留。
+- Android 可自愿开启前台服务保持连接，显示持续通知和停止入口；通知权限独立申请。系统休眠、强制结束或省电限制仍需真机验收，不承诺离线推送。
+- 已验证：7 项真实 PostgreSQL/HTTPS/浏览器集成，覆盖账户、刷新竞争与重放、账户隔离、票据、内层 TLS、定向撤销、配额、管理网页和实际 pg_dump/pg_restore；恢复保留账户/设备/电脑身份并使旧访问及刷新凭据失效。Windows 原生服务与真实 HTTPS 云端的登录→扫码请求→电脑批准→RPC→定向撤销→解绑闭环通过。100 账户、200 电脑、200 手机、400 同时在线隧道及 12.5 MiB 本地转发通过；这不等于公网性能或持续压测结论。
+- 构建检查：Rust native 64 项及其余默认回归、Clippy、桌面前端 22 项、Tauri 4 项、浏览器 4 项、314 份基线及版本化 schema 校验通过；Android 116 项 JVM 测试、设备测试代码编译、lint（0 错误）及 APK 构建通过。真实套接字/TLS 测试覆盖 LAN→云端→LAN、待确认发送阻止切换、并发发送与切换、证书错误阻止回退、仅云端策略和不重发变更。
+- 本地包验收：Windows NSIS/ZIP 哈希一致；ZIP 解压至工作区外独立目录，分别启动随包服务和桌面主程序，均通过 DPAPI、Windows 隔离边界及 Codex 0.159.2 初始化，无模型任务、无已有安装/数据变更。APK 签名有效，包名 `dev.agentdeck.app`、版本 `0.3.0`（2）保持不变。交付：`artifacts/AgentDeck_0.3.0_x64-setup.exe`、`artifacts/AgentDeck-0.3.0-windows.zip`、`android/app/build/outputs/apk/debug/app-debug.apk`；验收结果在 `artifacts/package-acceptance.json`。Windows 包未做代码签名，APK 为 debug 签名；本轮未执行 NSIS 安装、APK 真机安装或桌面界面人工验收。
+- 未验证：实际 VPS/Docker/Caddy 与备份脚本部署、公网蜂窝网络、真机多设备、IP 变化发现、休眠与路由切换、真实模型任务、生产备份恢复。按用户要求先完成代码与安装包本地验收；公网部署待有域名/VPS 后继续，设备验收另行进行。
+
+云端部署（仓库根目录；Linux Docker Compose，域名 A/AAAA 指向 VPS，开放 80/443）：
+
+```sh
+cd server/deploy
+cp .env.example .env
+# 编辑 .env：域名不带协议或路径；两个秘密分别用 openssl rand -hex 32 生成
+chmod 600 .env
+docker compose up -d --build --wait
+docker compose exec cloud agentdeck-cloud create-admin admin
+# 终端交互输入临时密码，然后访问 https://你的域名/admin 修改并创建普通账户
+curl --fail https://你的域名/health/ready
+sh backup.sh /安全备份目录/agentdeck.dump
+# 仅在空数据库的停止/替换部署上恢复；会撤销备份中的登录会话，客户端重新登录
+sh restore.sh /安全备份目录/agentdeck.dump
+```
+
+PostgreSQL 与 cloud 端口只在 Compose 网络中可达；Caddy 自动申请公网证书。备份还需另存 `.env`、部署版本与 Caddy 数据卷；云端数据库不包含电脑上的 Codex 数据、项目或本地配对授权。迁移电脑需另行保留本机数据与证书，不可用云端备份代替。
+
+云端验收（隔离测试 PostgreSQL；测试创建并删除随机数据库，账户需具备 CREATEDB）：
+
+```powershell
+$env:AGENTDECK_TEST_DATABASE_URL='host=127.0.0.1 port=5432 user=测试用户 dbname=postgres'
+# pg_dump/pg_restore 使用匹配 PostgreSQL 版本的 PATH，或指定 AGENTDECK_TEST_PG_BIN
+cargo test --locked --manifest-path server/Cargo.toml
+cargo test --locked --manifest-path server/Cargo.toml --test cloud -- --ignored --test-threads=2
+cargo test --locked --manifest-path desktop/core/Cargo.toml --lib actual_cloud_and_pc_login_pair_rpc_revoke_and_unbind -- --ignored
+```
+
+浏览器验收需 `pnpm install --frozen-lockfile` 和 Playwright 浏览器；Windows 默认 Edge，Linux 默认 Chromium（`pnpm --filter @agentdeck/desktop exec playwright install --with-deps chromium`）。管理界面验收截图在 `artifacts/cloud-admin/`。
+
 ## 三端现状与下一步（2026-10-22）
 
-| 端     | 已有                                                                                                                       | 缺口 / 风险                                                                                                                                                                            |
-| ------ | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 桌面端 | React/Tauri 管理界面：项目授权、设备撤销、配对网络地址、待审批、Codex 安装检查、托盘与进程监督                             | 仅 Windows；不呈现对话；终端/编辑器/扩展管理界面不在本轮目标内，其对话结果仍需呈现                                                                                                     |
-| 移动端 | Compose 手机抽屉/平板横屏常驻侧栏、单行顶栏、消息气泡、圆角输入栏与建议卡；配对、会话/历史、审批、草稿、通知及部分图片展示 | 仅 Android；网页/PWA 与浏览器认证未实现；未按指定 ChatGPT 版本逐屏及真机对照，设置、配对、会话详情页尚未完成重排；多电脑缓存已隔离但一次仅连接一台；通知依赖应用连接，休眠后不保证推送 |
-| 服务端 | Rust 服务；TLS WSS；配对；项目授权；会话与历史存储；审批；Codex 附着与执行                                                 | 原版 Codex 桌面同一会话完整共享（`sharedDesktopRuntime=false`）；自有中转；浏览器认证；`Store::replace_device` 会撤销旧设备，同一电脑的多客户端共存尚未实现                            |
+| 端     | 已有                                                                                                       | 缺口 / 风险                                                                                      |
+| ------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 桌面端 | React/Tauri 管理界面：项目授权、设备撤销、配对网络地址、待审批、Codex 安装检查、托盘与进程监督             | 仅 Windows；不呈现对话；终端/编辑器/扩展管理界面不在本轮目标内，其对话结果仍需呈现               |
+| 移动端 | Compose 手机/平板界面；会话/历史、审批、草稿、图片；云端账户、独立多电脑连接与缓存、LAN/云端路径、后台保持 | 仅 Android；真实网络切换与后台行为待验收，富内容与部分设置布局仍有缺口                           |
+| 服务端 | 电脑 Rust 服务负责 Codex 权威状态、TLS、配对授权与审批；Linux 云端负责多用户账户、管理网页与加密转发       | 原版 Codex 桌面同一运行时完整共享（`sharedDesktopRuntime=false`）；实际 VPS 与三端真机闭环待验收 |
 
 - Android reconnect UI (2026-10-23): ordinary disconnects and timeouts now show only subtle gray reconnecting text; certificate, authorization and protocol errors retain error prompts. compileDebugKotlin passed; device reconnect recovery and light/dark appearance remain unverified.
 
@@ -42,7 +86,7 @@
 - 已有会话同步（2026-10-23）：服务端启动、重新连接上游和新增本地项目授权后自动读取原会话索引；手机连接后主动同步，列表新增“同步电脑已有对话”，在线时服务端每 15 秒核对授权项目索引，选中会话更新时间变化后刷新历史。沿用原线程 ID，通过公开历史/恢复接口续聊，不复制私有数据库。原版桌面仍持有写入权时保留占用提示；同一运行时双端实时操作仍未完成。
 - 会话同步验证：Rust 6 项定向测试（含自动发现/持续核对、授权边界、原 ID 历史与续聊、占用及缺失保护）通过；Android 主程序/设备测试源码编译及 3 项同步单测通过。未做真实桌面/手机续聊、真实模型与打包验收；下一步核验原版桌面同一运行时附着和双向可见性。
 - 清理：删除旧设计/迁移/历史/盘点文档、独立 API 聊天、高级配置/账户/技能管理页面和一次性桌面盘点脚本。保留对话内模型/权限选择、技能引用、资源预览、Diff、核心协议及兼容接口。
-- 下一步：按参考截图完成移动端设置、配对、会话详情页与平板细排，再在真机做明暗主题、键盘、横竖屏逐屏对照；之后推进原生会话共享 → 中转与浏览器认证/多设备 → Web 对话与移动端富内容。
+- 下一步：完成远程连接三端集中构建和实际部署/真机验收；原生同一运行时共享、移动端富内容与布局另行推进，网页对话不在本轮范围。
 - 本次验证：移动端 UI 重构后 Android `compileDebugKotlin`、`compileDebugAndroidTestKotlin`、`assembleDebug` 通过，JVM 单测通过；未安装真机/模拟器，未做逐像素视觉、真实上游或部署验收。
 - 连接恢复：修复手机端将连接/请求超时误作取消、导致重连循环退出的问题；断线首次立即重试，持续失败退避至 30 秒，网络变化/回到前台主动探测并唤醒重试。手机心跳 30 秒，服务端保留 15 秒探测、允许 60 秒无入站数据；旧协议兼容，证书固定、授权、历史回放和未知发送结果约束保留，不自动重发消息。Android JVM 单测、设备测试编译及 APK 构建、Rust 心跳测试和 WSS 鉴权/回放回归通过；下一步在真机验证短断网、锁屏恢复和 Wi‑Fi 切换。
 
@@ -55,6 +99,8 @@
 | 移动端 | `android/app/src/test/`、`android/app/src/androidTest/` | JVM 与设备测试，按同功能归类                                                                                              |
 | 服务端 | `desktop/core/src/`                                     | Rust：`execution` 会话；`upstream` Codex；`server` 协议与 TLS 服务；`storage` 缓存；`projects`/`authorization`/`settings` |
 | 服务端 | `desktop/core/tests/`                                   | Rust 协议、安全、会话与真实源检查                                                                                         |
+| 云端   | `server/src/`、`server/admin/`、`server/deploy/`        | 账户与加密转发、管理员网页、Docker/Caddy/PostgreSQL 与备份恢复                                                            |
+| 共用   | `packages/connection-protocol/`                         | 云端设备身份、控制消息与隧道票据协议（不改上游 Codex schema）                                                             |
 | 共用   | `packages/codex-protocol/`                              | 锁定版本、导出 schema、能力锁；大文件用 `rg --no-ignore` 指定目录搜索                                                     |
 | 工具   | `scripts/`                                              | `setup` 环境；`desktop` 构建；`protocol` 导出/校验；`codex` 共享接入诊断；`checks`/`android` 验收工具                     |
 | 工具   | `.github/workflows/`                                    | 桌面端/服务端与移动端构建发布                                                                                             |
@@ -82,9 +128,9 @@ pnpm package:windows
 
 `pnpm desktop:dev` 使用 `.tmp/webview2` 与 `.tmp/agentdeck-data` 保存开发态 WebView2/服务数据，删除 `.tmp` 即重置开发状态。若构建工作区带有继承的 Low Integrity 标签，生成的桌面端和服务 EXE 会以低完整性运行；换普通终端仍然失败。服务在访问数据前检查完整性级别，不更改安全标签或提权。使用便携 ZIP，由资源管理器解压到工作区外的普通用户目录后运行；开发需使用正常开发目录。
 
-启动诊断：低完整性、文件/目录、数据锁/端口、凭据和 MXC 失败有独立提示；隔离探针仅提取有界 stderr 中的已知错误。已验证同一 Codex 直接启动为 Medium 且隔离通过、经低标签 EXE 后为 Low 且 MXC 失败；新服务准确返回 `LOW_INTEGRITY_HOST`。桌面类型检查、16 项前端测试、Rust 定向测试及前后端 release 构建通过，ZIP 四项文件与构建产物哈希一致。便携包命令：`pnpm --filter @agentdeck/desktop tauri build --no-bundle` 后 `node scripts/desktop/package-desktop.mjs --portable`（先执行 `pnpm desktop:prepare`）；ZIP 在 `artifacts/AgentDeck-0.3.0-windows.zip`。下一步由用户解压到普通目录验收完整启动，工作区内不视为通过。
+启动诊断：低完整性、文件/目录、数据锁/端口、凭据和 MXC 失败有独立提示；隔离探针仅提取有界 stderr 中的已知错误。已验证同一 Codex 直接启动为 Medium 且隔离通过、经低标签 EXE 后为 Low 且 MXC 失败；新服务准确返回 `LOW_INTEGRITY_HOST`。桌面类型检查、16 项前端测试、Rust 定向测试及前后端 release 构建通过，ZIP 四项文件与构建产物哈希一致。便携包命令：`pnpm --filter @agentdeck/desktop tauri build --no-bundle` 后 `node scripts/desktop/package-desktop.mjs --portable`（先执行 `pnpm desktop:prepare`）；ZIP 在 `artifacts/AgentDeck-0.3.0-windows.zip`。最新包在普通目录的启动验证见上方“多用户远程连接”；工作区内运行不作为此项验收依据。
 
-隔离探针修复（2026-10-23）：MSIX 会重定向 AppData，探针使用逻辑路径时出现目录内可读但不可写；启动 MXC 前现将探针内外目录和服务 EXE 解析为真实路径，隔离规则及目录权限保持不变。同一 Codex/规则下真实路径四项读写边界检查通过，诊断分类单测及服务 release 构建通过；已更新本机安装的服务并确认桌面显示“Codex 已就绪”。未运行真实模型任务或手机续聊；本次已重新构建并覆盖安装 NSIS 安装包，包含此修复；旧便携 ZIP 尚未更新。
+隔离探针修复（2026-10-23）：MSIX 会重定向 AppData，探针使用逻辑路径时出现目录内可读但不可写；启动 MXC 前现将探针内外目录和服务 EXE 解析为真实路径，隔离规则及目录权限保持不变。同一 Codex/规则下真实路径四项读写边界检查通过，诊断分类单测及服务 release 构建通过；已更新本机安装的服务并确认桌面显示“Codex 已就绪”。未运行真实模型任务或手机续聊；此前已重新构建并覆盖安装包含此修复的 NSIS 包，当前 NSIS 与便携 ZIP 均已重新生成。
 
 会话同步修复（2026-10-23）：真实上游列表会重复返回同一 ID 的不同元数据，现通过公开 `thread/read` 核实后只索引一次，保留授权目录、归档冲突、分页限制与原子提交检查；桌面请求保留错误码并分类显示同步失败。Rust 会话索引 3 项定向测试（含重复记录核实）、前端 22 项测试、类型检查及完整 NSIS 构建通过；已覆盖安装，真实同步返回 17 个工作区、51 个会话索引成功，桌面再次点击同步时间更新且无错误，显示“Codex 已就绪”。未验证手机续聊或运行真实模型任务。
 

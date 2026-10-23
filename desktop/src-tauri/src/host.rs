@@ -45,13 +45,32 @@ impl Default for View {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(tag = "action", deny_unknown_fields)]
 pub enum Action {
     #[serde(rename = "workspaces.sync")]
     Sync {},
     #[serde(rename = "pair.create")]
     Pair { address: String },
+    #[serde(rename = "pair.createStable")]
+    PairStable { address: String },
+    #[serde(rename = "pair.createRemote")]
+    PairRemote { address: String },
+    #[serde(rename = "cloud.login")]
+    CloudLogin {
+        origin: String,
+        username: String,
+        password: String,
+    },
+    #[serde(rename = "cloud.password")]
+    CloudPassword {
+        #[serde(rename = "oldPassword")]
+        old_password: String,
+        #[serde(rename = "newPassword")]
+        new_password: String,
+    },
+    #[serde(rename = "cloud.logout")]
+    CloudLogout { unbind: bool },
     #[serde(rename = "pair.confirm")]
     Confirm {
         #[serde(rename = "requestId")]
@@ -329,15 +348,26 @@ impl Host {
             }
         }
         match kind {
-            "state" => self.change(|v| v.state = payload),
+            "state" => self.change(|v| {
+                if let Some(pairings) = payload["pairings"].as_array() {
+                    let current = v.pairing.as_ref().and_then(|p| p["requestId"].as_str());
+                    v.pairing = pairings
+                        .iter()
+                        .find(|p| p["requestId"].as_str() == current)
+                        .or_else(|| pairings.first())
+                        .cloned();
+                }
+                v.state = payload;
+            }),
             "pair.qr" => self.change(|v| {
                 v.qr = Some(payload);
-                v.pairing = None;
                 v.error = None;
             }),
             "pair.confirm" => {
                 self.change(|v| {
-                    v.pairing = Some(payload);
+                    if v.pairing.is_none() {
+                        v.pairing = Some(payload);
+                    }
                     v.qr = None;
                 });
                 if let Some(window) = tauri::Manager::get_webview_window(&self.app, "main") {
@@ -410,7 +440,11 @@ impl Host {
             self.change(|v| {
                 v.error_code = None;
                 v.error = None;
-                if value["action"] == "pair.confirm" {
+                if value["action"] == "pair.confirm"
+                    && v.pairing
+                        .as_ref()
+                        .is_some_and(|p| p["requestId"] == value["requestId"])
+                {
                     v.pairing = None;
                 }
             });
@@ -453,6 +487,8 @@ fn validate_action(action: &Action, view: &View) -> Result<(), String> {
             Err("请等待 Codex 和工作区隔离检查就绪".into())
         }
         Action::Pair { address }
+        | Action::PairStable { address }
+        | Action::PairRemote { address }
             if !view.state["addresses"]
                 .as_array()
                 .is_some_and(|items| items.iter().any(|v| v.as_str() == Some(address))) =>

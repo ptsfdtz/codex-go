@@ -10,11 +10,11 @@ import java.time.Instant
 import java.time.Duration
 import kotlinx.serialization.json.*
 
-data class DeckPreferences(val theme:String="system",val notifications:Boolean=false)
+data class DeckPreferences(val theme:String="system",val notifications:Boolean=false,val backgroundConnections:Boolean=false)
 class PreferenceStore(context:Context){
     private val prefs=context.getSharedPreferences("agentdeck_preferences",Context.MODE_PRIVATE)
-    fun read()=DeckPreferences(prefs.getString("theme","system")?.takeIf{it in listOf("system","light","dark")}?:"system",prefs.getBoolean("notifications",false))
-    fun save(value:DeckPreferences){require(value.theme in listOf("system","light","dark"));prefs.edit().putString("theme",value.theme).putBoolean("notifications",value.notifications).apply()}
+    fun read()=DeckPreferences(prefs.getString("theme","system")?.takeIf{it in listOf("system","light","dark")}?:"system",prefs.getBoolean("notifications",false),prefs.getBoolean("backgroundConnections",false))
+    fun save(value:DeckPreferences){require(value.theme in listOf("system","light","dark"));prefs.edit().putString("theme",value.theme).putBoolean("notifications",value.notifications).putBoolean("backgroundConnections",value.backgroundConnections).apply()}
 }
 class DeckNotifications(private val application:DeckApplication){
     private val manager=application.getSystemService(NotificationManager::class.java)
@@ -47,6 +47,9 @@ class DeckNotifications(private val application:DeckApplication){
         val active=snapshot.approvals.filter{notificationApprovalActive(it,now)}.map{it.approvalId}.toSet()
         cancelApprovals(hostId){it !in active}
     }
+    fun visibleHosts(allowed:Set<String>){try{manager.activeNotifications.forEach{notification->
+        notification.tag?.let{tag->val uri=android.net.Uri.parse(tag);if(uri.scheme=="agentdeck"&&uri.host=="notification"&&uri.pathSegments.firstOrNull() !in allowed)manager.cancel(tag,notification.id)}
+    }}catch(_:SecurityException){}}
     private fun cancelApprovals(hostId:String,remove:(String)->Boolean){
         try{manager.activeNotifications.forEach{notification->
             val extras=notification.notification.extras

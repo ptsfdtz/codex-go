@@ -28,5 +28,13 @@ class Vault(context:Context,prefsName:String="agentdeck_secure"){
     }
     @Synchronized fun save(host:Host){saveBook(readBook().paired(host))}
     fun read():Host?=readBook().active
+    @Synchronized internal fun readCloud():String?=prefs.getString("cloud",null)?.let{decrypt(it,requireNotNull(prefs.getString("cloud_iv",null)))}
+    @Synchronized internal fun cloudInstallation():String=prefs.getString("cloud_installation",null)?:connectionToken().also{check(prefs.edit().putString("cloud_installation",it).commit())}
+    @Synchronized internal fun saveCloud(value:String?){
+        if(value==null){check(prefs.edit().remove("cloud").remove("cloud_iv").commit());return}
+        val cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key())
+        val encrypted=cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+        check(prefs.edit().putString("cloud_iv",Base64.encodeToString(cipher.iv,Base64.NO_WRAP)).putString("cloud",Base64.encodeToString(encrypted,Base64.NO_WRAP)).commit())
+    }
     @Synchronized fun clear(){check(prefs.edit().clear().commit())}
 }
