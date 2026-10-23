@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import agentdeckMark from '../../../assets/branding/agentdeck-mark.svg';
 import {
   errorText,
   informationNotice,
@@ -313,6 +314,7 @@ export function App() {
     <div className="app-shell">
       <header className="topbar" onPointerDown={drag}>
         <div className="brand">
+          <img className="brand-mark" src={agentdeckMark} alt="" aria-hidden="true" />
           <span>AgentDeck</span>
         </div>
         <div className="window-actions">

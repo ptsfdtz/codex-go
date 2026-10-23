@@ -77,8 +77,16 @@ p {
   flex-shrink: 0;
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 16px;
   font-weight: 600;
+}
+.brand-mark {
+  display: block;
+  width: 28px;
+  height: 28px;
 }
 .window-actions {
   display: flex;
@@ -659,6 +667,9 @@ h1 {
   }
 }
 @media (prefers-color-scheme: dark) {
+  .brand-mark {
+    filter: invert(1);
+  }
   :root {
     color: #f0f0f0;
     background: #181818;

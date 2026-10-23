@@ -8,6 +8,8 @@
 
 目标连接：`移动端 / 浏览器 → 自有 VPS（仅转发 TCP）→ 服务端（电脑）→ Codex`。电脑主动建立反向隧道，TLS 在服务端终止；网页与 API 优先由服务端同源提供。VPS 不存聊天/媒体、不持有 OpenAI 凭据、不运行模型。此路线尚未落地。
 
+- Logo（2026-10-23）：采用纯黑白三重交织标记，表达三端共享同一会话；SVG、透明 PNG 与预览位于 `assets/branding/`，已用于桌面标题栏、窗口/托盘图标、favicon 和 Android 自适应/主题图标及单色通知图标。桌面前端构建、Android 资源编译及跨端路径一致性检查通过；安装后系统图标、通知栏和主题图标实机展示待验证，下一步核对系统裁切与小尺寸显示。
+
 - Android timeline (2026-10-23): infer native turn identity from live events and preserve history merge direction; pagination explicitly pauses following live output, and layout changes no longer re-enable it. TimelineHistory/Conversation unit tests, assembleDebug and device data-preserving install passed. On the connected real session, two older-page clicks retained the visible answer/question and viewport while output continued; automated real-session pagination assertions compiled, but helper installation was blocked by Android USB-install restrictions. Immediate post-completion pagination remains unverified.
 
 ## 三端现状与下一步（2026-10-22）
