@@ -1017,7 +1017,18 @@ impl Core {
             }
         }
         let mut synced = 0;
+        let mut removed = 0;
         for root in roots.values() {
+            // Removal is a persistent local decision; only explicit add may restore it.
+            let disabled = self.store.query(
+                "SELECT projectId FROM projects WHERE canonicalPath=? COLLATE NOCASE AND enabled=0",
+                [root.to_string_lossy().as_ref()],
+            )?;
+            if !disabled.is_empty() {
+                removed += 1;
+                skipped += 1;
+                continue;
+            }
             if paths::add_local(&self.store, root).is_ok() {
                 synced += 1;
             } else {
@@ -1025,7 +1036,7 @@ impl Core {
             }
         }
         ensure(
-            synced > 0,
+            synced > 0 || removed > 0,
             "NO_WORKSPACES",
             "未找到可同步项目，请在 Codex 建立会话，或从更多菜单添加目录",
         )?;

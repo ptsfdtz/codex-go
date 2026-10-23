@@ -1653,6 +1653,35 @@ async fn dpapi_and_certificate_roundtrip() {
     assert_eq!(cert.restore(Some("203.0.113.12".into())), "127.0.0.1");
 }
 #[tokio::test]
+async fn workspace_sync_preserves_removal_until_explicit_add() {
+    let h = Harness::fixture().await;
+    // Sync intentionally excludes the OS temp tree.
+    let directory = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).unwrap();
+    let project = paths::add_local(&h.core.store, directory.path()).unwrap();
+    let session = h
+        .core
+        .create_session(s(&project, "projectId"), "removed-workspace")
+        .await
+        .unwrap();
+    let id = s(&session, "projectId");
+    let root = paths::root(&h.core.store, id).unwrap();
+    assert_eq!(h.core.sync_workspaces().await.unwrap()["synced"], 1);
+    paths::remove_local(&h.core.store, id).unwrap();
+
+    for _ in 0..2 {
+        let result = h.core.sync_workspaces().await.unwrap();
+        assert_eq!(result["synced"], 0);
+        assert_eq!(result["skipped"], 1);
+        assert!(h.core.store.projects().unwrap().is_empty());
+        assert!(h.core.store.sessions(None).unwrap().is_empty());
+    }
+
+    let restored = paths::add_local(&h.core.store, &root).unwrap();
+    assert_eq!(restored["projectId"], id);
+    assert_eq!(h.core.sync_workspaces().await.unwrap()["synced"], 1);
+}
+
+#[tokio::test]
 async fn project_identity_and_path_boundary() {
     let h = Harness::new();
     let (p, root) = h.project("project");
