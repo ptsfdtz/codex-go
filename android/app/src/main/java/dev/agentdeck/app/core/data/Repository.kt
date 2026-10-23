@@ -436,7 +436,14 @@ class DeckRepository(context:Context){
         return UpstreamHistoryPage(entries,(result["nextCursor"] as? JsonPrimitive)?.contentOrNull)
     }
     private fun cancelTimelineRequests(){synchronized(this){timelineRevision.incrementAndGet();timelineJob?.cancel();timelineRefreshJob?.cancel()}}
-    private fun scheduleTimelineHistory(){synchronized(this){timelineRefreshJob?.cancel();timelineRefreshJob=scope.launch{delay(250);loadTimelineHistory()}}}
+    private fun scheduleTimelineHistory(){synchronized(this){timelineRefreshJob?.cancel();timelineRefreshJob=scope.launch{
+        delay(250)
+        // Let an in-flight older page commit before extending the head. A turn
+        // finishing must not cancel the user's pagination request.
+        val pending=synchronized(this@DeckRepository){timelineJob}
+        pending?.join()
+        loadTimelineHistory()
+    }}}
     fun olderHistory(){loadTimelineHistory(older=true)}
     private fun loadTimelineHistory(older:Boolean=false){synchronized(this){
         val state=mutable.value
@@ -452,8 +459,8 @@ class DeckRepository(context:Context){
         mutable.update{if(current(it))it.copy(timelineHistory=existing.copy(loading=true,error=null))else it}
         timelineJob=scope.launch{
             try{
-                val page=readUpstreamHistory(id,target,"desc")
-                val loaded=historyPageLoaded(existing,page,older)
+                val loaded=if(older)historyPageLoaded(existing,readUpstreamHistory(id,target,"desc"),true)
+                    else refreshTimelineHistory(existing){cursor->readUpstreamHistory(id,cursor,"desc")}
                 mutable.update{if(current(it))it.copy(timelineHistory=loaded)else it}
             }catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{if(current(it))it.copy(timelineHistory=existing.copy(loading=false,error=errorMessage(e)))else it}}
         }

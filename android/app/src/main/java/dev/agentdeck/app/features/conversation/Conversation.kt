@@ -2,7 +2,7 @@ package dev.agentdeck.app
 
 import kotlinx.serialization.json.*
 
-data class ChatEntry(val id:String,val kind:String,val text:String,val title:String="",val status:String="",val detail:String="",val truncated:Boolean=false,val sourceTurn:String?=null,val sourceItem:String?=null,val errorCode:String="")
+data class ChatEntry(val id:String,val kind:String,val text:String,val title:String="",val status:String="",val detail:String="",val truncated:Boolean=false,val sourceTurn:String?=null,val sourceItem:String?=null,val errorCode:String="",val startedAtMs:Long?=null)
 
 private fun JsonObject.rawText(key:String)=(get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 
@@ -36,8 +36,9 @@ internal fun turnFailure(p:JsonObject):Pair<String,String> {
 /** Project durable bridge events into messages; completed items replace their streamed preview. */
 fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):List<ChatEntry> {
     val nativeTurns=turns.filter{!it.upstreamTurnId.isNullOrBlank()}.associate{it.turnId to it.upstreamTurnId!!}.toMutableMap()
-    for(e in events){val p=e.payload as? JsonObject?:continue;val t=p["turn"] as? JsonObject;val native=(t?.get("upstreamTurnId") as? JsonPrimitive)?.contentOrNull?:if((p["method"] as? JsonPrimitive)?.contentOrNull=="turn/started")(t?.get("id") as? JsonPrimitive)?.contentOrNull else null;if(e.turnId!=null&&!native.isNullOrBlank())nativeTurns[e.turnId]=native}
+    for(e in events){val p=e.payload as? JsonObject?:continue;val t=p["turn"] as? JsonObject;val native=(p["upstreamTurnId"] as? JsonPrimitive)?.contentOrNull?.takeIf{it.isNotBlank()}?:(t?.get("upstreamTurnId") as? JsonPrimitive)?.contentOrNull?:if((p["method"] as? JsonPrimitive)?.contentOrNull=="turn/started")(t?.get("id") as? JsonPrimitive)?.contentOrNull else null;if(e.turnId!=null&&!native.isNullOrBlank())nativeTurns[e.turnId]=native}
     val identities=mutableMapOf<String,Pair<String?,String?>>()
+    val firstObserved=mutableMapOf<String,Long>()
     val rows=linkedMapOf<String,ChatEntry>()
     val seen=hashSetOf<String>()
     val reasoningParts=mutableMapOf<String,MutableMap<Pair<Boolean,Int>,String>>()
@@ -46,6 +47,7 @@ fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):L
         val p=e.payload as? JsonObject?:continue
         fun identify(id:String,turn:String?,item:String?){
             identities[id]=turn to item
+            runCatching{java.time.Instant.parse(e.ts).toEpochMilli()}.getOrNull()?.let{firstObserved.putIfAbsent(id,it)}
         }
         fun JsonObject.string(key:String)=(get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
         val native=p.string("upstreamTurnId").ifBlank{nativeTurns[e.turnId].orEmpty()}
@@ -166,5 +168,5 @@ fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):L
             }
         }
     }
-    return rows.values.filter(::hasVisibleMessageContent).map{row->identities[row.id]?.let{row.copy(sourceTurn=it.first,sourceItem=it.second)}?:row}
+    return rows.values.filter(::hasVisibleMessageContent).map{row->identities[row.id]?.let{row.copy(sourceTurn=it.first,sourceItem=it.second,startedAtMs=firstObserved[row.id])}?:row}
 }

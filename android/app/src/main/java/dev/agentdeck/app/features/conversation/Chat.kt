@@ -126,7 +126,8 @@ import androidx.compose.ui.platform.LocalContext
     }
     DisposableEffect(draftKey){onDispose{saveViewport()}}
     LaunchedEffect(list){snapshotFlow{Triple(list.firstVisibleItemIndex,list.firstVisibleItemScrollOffset,list.isScrollInProgress)}.collect{(_,_,moving)->
-        if(restored){if(moving)follow=!list.canScrollForward else if(!list.canScrollForward)follow=true;saveViewport()}
+        // Layout changes during pagination must not re-enable following the live tail.
+        if(restored){if(moving)follow=!list.canScrollForward;saveViewport()}
     }}
     LaunchedEffect(draftKey,entries,history?.loading){
         if(!restored&&entries.isNotEmpty()){
@@ -251,7 +252,7 @@ import androidx.compose.ui.platform.LocalContext
                 if(state.capabilities?.supports("upstreamHistoryOrdering")==true){
                     if(history?.loading==true)item{LinearProgressIndicator(Modifier.fillMaxWidth())}
                     history?.error?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error);TextButton(onClick=repo::refresh,enabled=!state.stale){Text("重新读取会话")}}}
-                    if(history?.nextCursor!=null)item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderHistory,enabled=!state.stale&&history.loading!=true){Text("加载更早的消息",fontSize=12.sp)}}}
+                    if(history?.nextCursor!=null)item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick={follow=false;repo.olderHistory()},enabled=!state.stale&&history.loading!=true){Text("加载更早的消息",fontSize=12.sp)}}}
                 }else item{Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center){TextButton(onClick=repo::olderEvents,enabled=!state.stale&&!state.busy){Text("加载更早的消息",fontSize=12.sp)}}}
                 items(entries,key={"${state.host?.hostId}:${it.id}"}){entry->ChatWidth{Column(if(showFind&&foundId==entry.id)Modifier.border(1.dp,MaterialTheme.colorScheme.primary,RoundedCornerShape(8.dp)).padding(8.dp) else Modifier){
                     if(workStarts[entry.sourceTurn]==entry.id)WorkDuration(entry.sourceTurn,state,entry.sourceTurn in expandedWork){entry.sourceTurn?.let{turn->workOverrides=workOverrides+((turn to (turn in defaultExpandedWork)) to (turn !in expandedWork))}}

@@ -8,6 +8,8 @@
 
 目标连接：`移动端 / 浏览器 → 自有 VPS（仅转发 TCP）→ 服务端（电脑）→ Codex`。电脑主动建立反向隧道，TLS 在服务端终止；网页与 API 优先由服务端同源提供。VPS 不存聊天/媒体、不持有 OpenAI 凭据、不运行模型。此路线尚未落地。
 
+- Android timeline (2026-10-23): infer native turn identity from live events and preserve history merge direction; pagination explicitly pauses following live output, and layout changes no longer re-enable it. TimelineHistory/Conversation unit tests, assembleDebug and device data-preserving install passed. On the connected real session, two older-page clicks retained the visible answer/question and viewport while output continued; automated real-session pagination assertions compiled, but helper installation was blocked by Android USB-install restrictions. Immediate post-completion pagination remains unverified.
+
 ## 三端现状与下一步（2026-10-22）
 
 | 端     | 已有                                                                                                                       | 缺口 / 风险                                                                                                                                                                            |
