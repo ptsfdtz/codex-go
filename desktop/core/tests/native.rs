@@ -867,6 +867,7 @@ impl Harness {
     fn project(&self, name: &str) -> (Value, PathBuf) {
         let path = self._directory.path().join(name);
         std::fs::create_dir(&path).unwrap();
+        let path = paths::canonical(&path).unwrap();
         (paths::add_local(&self.core.store, &path).unwrap(), path)
     }
     async fn session(&self, name: &str) -> Value {

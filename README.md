@@ -42,7 +42,7 @@
 | 工具   | `scripts/`                                              | `setup` 环境；`desktop` 构建；`protocol` 导出/校验；`codex` 共享接入诊断；`checks`/`android` 验收工具                     |
 | 工具   | `.github/workflows/`                                    | 桌面端/服务端与移动端构建发布                                                                                             |
 
-发布构建修复（2026-10-23）：补齐 CommonJS 测试夹具的 ESLint 环境、排除开发临时文件并统一格式；Compose 按订阅状态更新消息操作，Rust 测试使用规范授权路径以兼容 Windows runner 短路径临时目录。桌面检查、22 项前端测试及 Android 单测/lint/APK 构建通过；线上 Android 通过，Windows 完整发布仍在复验。后续默认在 `release` 开发，提交与推送按用户授权执行。
+发布构建修复（2026-10-23）：补齐 CommonJS 测试夹具的 ESLint 环境、排除开发临时文件并统一格式；Compose 按订阅状态更新消息操作，Rust 测试使用规范授权路径以兼容 Windows runner 短路径临时目录。桌面检查、22 项前端测试、4 项浏览器回归、Rust 测试与 Clippy、Android 单测/lint/APK 构建通过；线上构建与发布结果见 release 提交对应的 Actions，未做真机或真实模型验收。后续默认在 `release` 开发，提交与推送按用户授权执行。
 
 ## 开发命令
 
