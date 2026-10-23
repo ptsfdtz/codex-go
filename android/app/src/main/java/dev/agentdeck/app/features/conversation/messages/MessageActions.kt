@@ -16,7 +16,8 @@ import kotlinx.coroutines.*
 
 /** Message actions operate only on loaded text and this original session's local draft. */
 @Composable internal fun MessageActions(entry:ChatEntry,mask:String,repo:DeckRepository,sessionId:String,extraActions:@Composable (()->Unit)->Unit = {}){
-    val host=repo.state.value.host?.hostId.orEmpty()
+    val current by repo.state.collectAsState()
+    val host=current.host?.hostId.orEmpty()
     val key=ComposerKey(host,sessionId)
     var menu by remember(key,entry.id,mask){mutableStateOf(false)}
     var reading by remember(key,entry.id,mask){mutableStateOf(false)}
@@ -25,7 +26,6 @@ import kotlinx.coroutines.*
     var error by remember(key,entry.id,mask){mutableStateOf<String?>(null)}
     val scope=rememberCoroutineScope()
     val clipboard=LocalClipboardManager.current
-    val current=repo.state.value
     val canQuote=current.host?.hostId==host&&current.snapshot.sessions.any{it.sessionId==sessionId&&it.archived!=1}
     fun load(copy:Boolean){
         if(busy)return

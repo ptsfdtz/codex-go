@@ -54,7 +54,7 @@ internal fun projectMessageLink(link:String,root:String):ProjectLink?{
 }
 
 @Composable internal fun NativeMessageLinks(repo:DeckRepository,sessionId:String,content:@Composable ()->Unit){
-    val state=repo.state.value
+    val state by repo.state.collectAsState()
     var preview by remember(state.host?.hostId,sessionId){mutableStateOf<ProjectLink?>(null)}
     val session=state.snapshot.sessions.find{it.sessionId==sessionId}
     val project=state.snapshot.projects.find{it.projectId==session?.projectId}

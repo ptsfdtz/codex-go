@@ -24,7 +24,8 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 
 @Composable internal fun NativeMessage(entry:ChatEntry,mask:String,repo:DeckRepository,sessionId:String,extraActions:@Composable (()->Unit)->Unit = {}){
-    var viewing by remember(repo.state.value.host?.hostId,sessionId,entry.id){mutableStateOf<Int?>(null)}
+    val state by repo.state.collectAsState()
+    var viewing by remember(state.host?.hostId,sessionId,entry.id){mutableStateOf<Int?>(null)}
     val parts=remember(entry.detail){
         val item=runCatching{wire.parseToJsonElement(entry.detail).jsonObject}.getOrNull()
         when((item?.get("type") as? JsonPrimitive)?.contentOrNull){
@@ -39,8 +40,8 @@ import kotlinx.serialization.json.*
         AssistantSources(entry,mask)
         AssistantQuestions(entry,mask,repo,sessionId)
         if(entry.kind=="user")NativeUserReferences(entry,mask)
-        if(entry.sourceTurn!=null&&entry.sourceItem!=null&&repo.state.value.capabilities?.supports("sessionImages")==true)parts.forEachIndexed{index,part->
-            TextButton(onClick={viewing=part},enabled=!repo.state.value.stale){Text(if(parts.size==1)"查看图片" else "查看图片 ${index+1}")}
+        if(entry.sourceTurn!=null&&entry.sourceItem!=null&&state.capabilities?.supports("sessionImages")==true)parts.forEachIndexed{index,part->
+            TextButton(onClick={viewing=part},enabled=!state.stale){Text(if(parts.size==1)"查看图片" else "查看图片 ${index+1}")}
         }
     }}
     viewing?.let{part->SessionImageDialog(repo,sessionId,entry.sourceTurn!!,entry.sourceItem!!,part){viewing=null}}

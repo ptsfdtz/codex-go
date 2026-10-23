@@ -9,6 +9,7 @@ export default tseslint.config(
       'packages/codex-protocol/**',
       'android/**',
       'desktop/src-tauri/**',
+      '.tmp/**',
     ],
   },
   eslint.configs.recommended,
@@ -24,7 +25,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.mjs'],
+    files: ['**/*.mjs', '**/*.cjs'],
     languageOptions: {
       globals: {
         process: 'readonly',
@@ -35,6 +36,15 @@ export default tseslint.config(
         URL: 'readonly',
         structuredClone: 'readonly',
       },
+    },
+  },
+  {
+    files: ['**/*.cjs'],
+    languageOptions: {
+      globals: { require: 'readonly' },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
 );

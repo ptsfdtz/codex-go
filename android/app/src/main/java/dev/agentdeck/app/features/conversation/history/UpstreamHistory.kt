@@ -49,9 +49,9 @@ internal data class UpstreamHistoryPage(val entries:List<JsonObject>,val nextCur
                     itemsIndexed(page?.entries.orEmpty()){_,entry->
                         var raw by remember(entry){mutableStateOf(false)}
                         Column{
-                            NativeMessage(persistedChatEntry(sessionId,entry),repo.state.value.displayMask,repo,sessionId)
+                            NativeMessage(persistedChatEntry(sessionId,entry),state.displayMask,repo,sessionId)
                             TextButton(onClick={raw=!raw}){Text(if(raw)"收起完整记录" else "查看完整记录")}
-                            if(raw)SelectionContainer{Text(maskDisplay(entry.toString(),repo.state.value.displayMask),style=MaterialTheme.typography.bodySmall)}
+                            if(raw)SelectionContainer{Text(maskDisplay(entry.toString(),state.displayMask),style=MaterialTheme.typography.bodySmall)}
                         }
                     }
                 }

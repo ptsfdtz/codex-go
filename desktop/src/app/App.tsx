@@ -241,10 +241,14 @@ export function App() {
     setMenu(!menu);
     if (menu) return;
     setAutostartLoading(true);
-    void host.autostartEnabled().then(setAutostart).catch((error) => {
-      setAutostart(null);
-      setNotice(informationNotice('无法读取开机自启动设置', String(error)));
-    }).finally(() => setAutostartLoading(false));
+    void host
+      .autostartEnabled()
+      .then(setAutostart)
+      .catch((error) => {
+        setAutostart(null);
+        setNotice(informationNotice('无法读取开机自启动设置', String(error)));
+      })
+      .finally(() => setAutostartLoading(false));
   };
   const toggleAutostart = () => {
     if (autostart === null) return;
@@ -353,7 +357,16 @@ export function App() {
                   onClick={toggleAutostart}
                 >
                   <RotateCw size={16} />
-                  开机自启动<span>{autostartLoading ? '读取中…' : autostart === null ? '不可用' : autostart ? '已开启' : '已关闭'}</span>
+                  开机自启动
+                  <span>
+                    {autostartLoading
+                      ? '读取中…'
+                      : autostart === null
+                        ? '不可用'
+                        : autostart
+                          ? '已开启'
+                          : '已关闭'}
+                  </span>
                 </button>
                 <hr />
                 <button className="danger-text" onClick={() => choose('quit')}>

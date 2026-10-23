@@ -14,7 +14,7 @@ import kotlinx.serialization.json.*
     if(entry.kind!="assistant")return
     val questions=remember(entry.detail){runCatching{(wire.parseToJsonElement(entry.detail) as? JsonObject)?.get("questions") as? JsonArray}.getOrNull()}.orEmpty()
     if(questions.isEmpty())return
-    val state=repo.state.value
+    val state by repo.state.collectAsState()
     val key=ComposerKey(state.host?.hostId.orEmpty(),sessionId)
     var answers by remember(key,entry.id,questions){mutableStateOf(mapOf<Int,String>())}
     var current by remember(key,entry.id,questions){mutableIntStateOf(0)}
