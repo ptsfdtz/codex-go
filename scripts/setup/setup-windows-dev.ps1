@@ -250,11 +250,13 @@ if ($propertyMatch.Success) {
 }
 [IO.File]::WriteAllText($localProperties, $localContents, [Text.UTF8Encoding]::new($false))
 
-$corepack = Get-Command corepack -ErrorAction SilentlyContinue
-if (-not $corepack) { throw "Corepack was not found with Node.js 22.22.3." }
+# Keep the pnpm shim independent of fnm's version-specific Corepack directory.
+$npm = Get-Command npm.cmd -ErrorAction Stop
+$packageManager = (Get-Content (Join-Path $repositoryRoot "package.json") -Raw | ConvertFrom-Json).packageManager
+if ($packageManager -notmatch '^pnpm@\d+\.\d+\.\d+$') { throw "Expected an exact pnpm version in package.json." }
 $pnpmShimDirectory = Join-Path $env:APPDATA "npm"
-& $corepack.Source enable pnpm --install-directory $pnpmShimDirectory
-if ($LASTEXITCODE -ne 0) { throw "Corepack could not enable the pinned pnpm command." }
+& $npm.Source install --global --prefix $pnpmShimDirectory $packageManager --force
+if ($LASTEXITCODE -ne 0) { throw "Could not install the pinned pnpm command in the user directory." }
 Add-UserPath $pnpmShimDirectory
 $pnpmCommand = Join-Path $pnpmShimDirectory "pnpm.cmd"
 & $pnpmCommand install --frozen-lockfile
