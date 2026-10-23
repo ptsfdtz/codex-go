@@ -14,7 +14,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.serialization.json.*
 import java.text.NumberFormat
 
-private fun goalStatus(value:String)=when(value){"active"->"持续推进中";"paused"->"已暂停";"blocked"->"受阻";"usageLimited"->"达到用量限制";"budgetLimited"->"达到预算限制";"complete"->"已完成";else->value}
+internal fun goalStatus(value:String)=when(value){"active"->"持续推进中";"paused"->"已暂停";"blocked"->"受阻";"usageLimited"->"达到用量限制";"budgetLimited"->"达到预算限制";"complete"->"已完成";else->value}
 
 @Composable internal fun SessionGoalDialog(session:Session,state:DeckState,repo:DeckRepository,onClose:()->Unit){
     var resuming by remember{mutableStateOf(false)}

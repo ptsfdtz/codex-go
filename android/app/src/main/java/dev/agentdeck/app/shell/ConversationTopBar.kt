@@ -41,8 +41,6 @@ import androidx.compose.ui.unit.sp
                     if(state.host!=null){
                         Text(state.connection,Modifier.padding(horizontal=16.dp),style=MaterialTheme.typography.labelSmall)
                         HorizontalDivider()
-                        CodexModelPicker(state,repo,enabled=!state.stale&&!state.busy&&session?.archived!=1&&session?.status !in listOf("running","queued","waitingApproval","unknown"))
-                        ContextUsage(state)
                         HorizontalDivider()
                         state.snapshot.projects.forEach{item->DropdownMenuItem(text={Text(maskDisplay(item.name,state.displayMask))},leadingIcon={Icon(Icons.Outlined.FolderOpen,null)},trailingIcon={if(item.projectId==state.selectedProject)Icon(Icons.Outlined.Check,null)},enabled=!state.busy,onClick={workspaceMenu=false;repo.selectProject(item.projectId);onChat()})}
                     }

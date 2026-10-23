@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 
 /** Message actions operate only on loaded text and this original session's local draft. */
-@Composable internal fun MessageActions(entry:ChatEntry,mask:String,repo:DeckRepository,sessionId:String){
+@Composable internal fun MessageActions(entry:ChatEntry,mask:String,repo:DeckRepository,sessionId:String,extraActions:@Composable (()->Unit)->Unit = {}){
     val host=repo.state.value.host?.hostId.orEmpty()
     val key=ComposerKey(host,sessionId)
     var menu by remember(key,entry.id,mask){mutableStateOf(false)}
@@ -44,6 +44,7 @@ import kotlinx.coroutines.*
         Box{
             IconButton(onClick={menu=true},enabled=!busy,modifier=Modifier.size(36.dp)){Icon(Icons.Outlined.MoreHoriz,"消息操作",Modifier.size(16.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)}
             DropdownMenu(expanded=menu,onDismissRequest={menu=false}){
+                extraActions{menu=false}
                 DropdownMenuItem(text={Text("复制已加载正文")},onClick={menu=false;load(true)})
                 DropdownMenuItem(text={Text("阅读与查找正文")},onClick={menu=false;reading=true})
                 DropdownMenuItem(text={Text("引用到本会话草稿")},enabled=canQuote,onClick={menu=false;load(false)})

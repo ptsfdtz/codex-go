@@ -23,7 +23,7 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 
-@Composable internal fun NativeMessage(entry:ChatEntry,mask:String,repo:DeckRepository,sessionId:String){
+@Composable internal fun NativeMessage(entry:ChatEntry,mask:String,repo:DeckRepository,sessionId:String,extraActions:@Composable (()->Unit)->Unit = {}){
     var viewing by remember(repo.state.value.host?.hostId,sessionId,entry.id){mutableStateOf<Int?>(null)}
     val parts=remember(entry.detail){
         val item=runCatching{wire.parseToJsonElement(entry.detail).jsonObject}.getOrNull()
@@ -35,7 +35,7 @@ import kotlinx.serialization.json.*
     }
     NativeMessageLinks(repo,sessionId){Column{
         ChatMessage(entry,mask)
-        if(entry.kind in listOf("user","assistant","plan"))MessageActions(entry,mask,repo,sessionId)
+        if(entry.kind in listOf("user","assistant","plan"))MessageActions(entry,mask,repo,sessionId,extraActions)
         AssistantSources(entry,mask)
         AssistantQuestions(entry,mask,repo,sessionId)
         if(entry.kind=="user")NativeUserReferences(entry,mask)

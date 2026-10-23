@@ -22,7 +22,9 @@ import java.text.NumberFormat
     val total=usage?.get("total") as? JsonObject
     val window=number(usage?.get("modelContextWindow"))?.takeIf{it>0}
     val used=number(last?.get("totalTokens"))
-    val label=if(used!=null&&window!=null)"最近用量 ${count(last?.get("totalTokens"))} / ${NumberFormat.getIntegerInstance().format(window)}" else if(used!=null)"最近用量 ${count(last?.get("totalTokens"))} tokens" else "上下文用量未报告"
+    val percent=if(used!=null&&window!=null)(used.toDouble()/window*100).coerceIn(0.0,100.0) else null
+    val cumulative=count(total?.get("totalTokens"))
+    val label="Token $cumulative · 上下文 "+if(percent!=null)"${String.format(java.util.Locale.ROOT,"%.1f",percent)}% · ${count(last?.get("totalTokens"))} / ${NumberFormat.getIntegerInstance().format(window)}" else "未报告"
     TextButton(onClick={expanded=true},contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)){Text(label,style=MaterialTheme.typography.labelSmall)}
     if(expanded)AlertDialog(onDismissRequest={expanded=false},title={Text("上下文与 token 用量")},text={
         Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)){

@@ -13,12 +13,6 @@ import kotlinx.serialization.json.*
 @Composable internal fun AssistantSources(entry:ChatEntry,mask:String){
     if(entry.kind!="assistant")return
     val item=remember(entry.detail){runCatching{wire.parseToJsonElement(entry.detail) as? JsonObject}.getOrNull()}?:return
-    val phase=(item["phase"] as? JsonPrimitive)?.contentOrNull
-    when(phase){
-        "commentary"->Text("过程说明",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        "partial_answer"->Text("阶段回复",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        "final_answer"->Text("最终回复",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-    }
     val citation=item["memoryCitation"] as? JsonObject?:return
     val sources=(citation["entries"] as? JsonArray).orEmpty()
     val threads=(citation["threadIds"] as? JsonArray).orEmpty().mapNotNull{(it as? JsonPrimitive)?.contentOrNull}.distinct()

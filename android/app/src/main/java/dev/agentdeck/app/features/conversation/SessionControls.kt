@@ -53,14 +53,35 @@ internal fun canManageSession(state:DeckState,session:Session)=
 fun effortLabel(value:String)=when(value){"none"->"无";"minimal"->"最少";"low"->"低";"medium"->"中";"high"->"高";"xhigh"->"超高";else->value}
 
 @Composable fun CodexModelPicker(state:DeckState,repo:DeckRepository,enabled:Boolean){
-    var modelsOpen by remember(state.host?.hostId){mutableStateOf(false)}
-    var effortOpen by remember(state.host?.hostId){mutableStateOf(false)}
+    var open by remember(state.host?.hostId){mutableStateOf(false)}
     val selected=state.models.find{it.model==state.selectedModel}?:state.models.firstOrNull{state.selectedModel.isEmpty()&&it.isDefault}
-    Row(Modifier.horizontalScroll(rememberScrollState())){
-        Box{TextButton(onClick={modelsOpen=true},enabled=enabled){Text(selected?.displayName?:state.selectedModel.ifEmpty{"默认模型"},fontSize=12.sp,maxLines=1);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))}
+    val effort=state.selectedEffort.ifEmpty{selected?.defaultReasoningEffort.orEmpty()}
+    Box{
+        TextButton(onClick={open=true},enabled=enabled,contentPadding=PaddingValues(horizontal=8.dp)){
+            Text(maskDisplay(selected?.displayName?:state.selectedModel.ifEmpty{"默认模型"},state.displayMask),fontSize=12.sp,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis,modifier=Modifier.weight(1f,fill=false).widthIn(max=140.dp))
+            if(effort.isNotEmpty())Text(" · "+effortLabel(effort),fontSize=12.sp,maxLines=1)
+            Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))
         }
-        if(modelsOpen)ModelSelection(state.models,selected?.model.orEmpty(),enabled&&!state.stale,state.displayMask,repo::selectModel,repo::refreshModels){modelsOpen=false}
-        if(selected!=null&&selected.supportedReasoningEfforts.isNotEmpty())Box{TextButton(onClick={effortOpen=true},enabled=enabled){Text(effortLabel(state.selectedEffort.ifEmpty{selected.defaultReasoningEffort}),fontSize=12.sp,maxLines=1);Icon(Icons.Outlined.ExpandMore,null,Modifier.size(16.dp))}
-            DropdownMenu(expanded=effortOpen,onDismissRequest={effortOpen=false}){selected.supportedReasoningEfforts.forEach{option->DropdownMenuItem(text={ReasoningOptionLabel(option,option.reasoningEffort==state.selectedEffort.ifEmpty{selected.defaultReasoningEffort},state.displayMask)},onClick={effortOpen=false;repo.selectEffort(option.reasoningEffort)})}}}
+        DropdownMenu(expanded=open,onDismissRequest={open=false},shape=androidx.compose.foundation.shape.RoundedCornerShape(20.dp)){
+            Column(Modifier.width(280.dp).padding(horizontal=16.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+                Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                    Text("模型与思维强度",style=MaterialTheme.typography.labelMedium)
+                    IconButton(onClick=repo::refreshModels,enabled=enabled,modifier=Modifier.size(40.dp)){Icon(Icons.Outlined.Refresh,"刷新模型",Modifier.size(18.dp))}
+                }
+                val models=state.models
+                if(models.isEmpty())Text("尚未获取模型",style=MaterialTheme.typography.bodySmall)
+                else DiscreteComposerSlider("模型",models.map{maskDisplay(it.displayName,state.displayMask)},models.indexOfFirst{it.model==selected?.model},enabled){repo.selectModel(models[it])}
+                val efforts=selected?.supportedReasoningEfforts.orEmpty()
+                if(efforts.isNotEmpty())DiscreteComposerSlider("思维强度",efforts.map{effortLabel(it.reasoningEffort)},efforts.indexOfFirst{it.reasoningEffort==effort},enabled){repo.selectEffort(efforts[it].reasoningEffort)}
+            }
+        }
     }
+}
+
+@Composable private fun DiscreteComposerSlider(label:String,options:List<String>,selected:Int,enabled:Boolean,onSelect:(Int)->Unit){
+    var position by remember(options,selected){mutableFloatStateOf(selected.coerceAtLeast(0).toFloat())}
+    val index=kotlin.math.round(position).toInt().coerceIn(options.indices)
+    Text(label,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(options[index],style=MaterialTheme.typography.titleSmall,modifier=Modifier.fillMaxWidth(),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
+    Slider(value=position,onValueChange={position=it},onValueChangeFinished={onSelect(index)},enabled=enabled&&options.size>1,valueRange=0f..(options.size-1).coerceAtLeast(1).toFloat(),steps=(options.size-2).coerceAtLeast(0),modifier=Modifier.fillMaxWidth())
 }
