@@ -52,17 +52,16 @@ import androidx.compose.ui.unit.sp
         Box{
             IconButton(onClick={toolsMenu=true}){Icon(Icons.Outlined.MoreHoriz,"更多操作",Modifier.size(24.dp))}
             DropdownMenu(expanded=toolsMenu,onDismissRequest={toolsMenu=false},shape=RoundedCornerShape(16.dp)){
-                DropdownMenuItem(text={Text("搜索操作与会话")},leadingIcon={Icon(Icons.Outlined.Search,null)},onClick={toolsMenu=false;onSearch()})
                 if(state.host!=null){
                     DropdownMenuItem(text={Text("未发送草稿")},leadingIcon={Icon(Icons.Outlined.Drafts,null)},onClick={toolsMenu=false;onDrafts()})
                     DropdownMenuItem(text={Text("审查工作区改动")},leadingIcon={Icon(Icons.Outlined.Difference,null)},enabled=state.selectedProject!=null,onClick={toolsMenu=false;onReview()})
                 }
                 if(session!=null&&panel=="chat"){
                     HorizontalDivider()
-                    DropdownMenuItem(text={Text("在会话中查找")},onClick={toolsMenu=false;onConversationAction("find")})
-                    if(state.capabilities?.supports("upstreamHistoryPages")==true)DropdownMenuItem(text={Text("会话历史")},enabled=!state.stale,onClick={toolsMenu=false;onConversationAction("history")})
-                    if(state.capabilities?.supports("nativeQueue")==true)DropdownMenuItem(text={Text("待发送消息")},enabled=!state.stale,onClick={toolsMenu=false;onConversationAction("queue")})
-                    DropdownMenuItem(text={Text("管理当前会话")},onClick={toolsMenu=false;onConversationAction("manage")})
+                    DropdownMenuItem(text={Text("在会话中查找")},leadingIcon={Icon(Icons.Outlined.FindInPage,null)},onClick={toolsMenu=false;onConversationAction("find")})
+                    if(state.capabilities?.supports("upstreamHistoryPages")==true)DropdownMenuItem(text={Text("会话历史")},leadingIcon={Icon(Icons.Outlined.History,null)},enabled=!state.stale,onClick={toolsMenu=false;onConversationAction("history")})
+                    if(state.capabilities?.supports("nativeQueue")==true)DropdownMenuItem(text={Text("待发送消息")},leadingIcon={Icon(Icons.Outlined.ScheduleSend,null)},enabled=!state.stale,onClick={toolsMenu=false;onConversationAction("queue")})
+                    DropdownMenuItem(text={Text("管理当前会话")},leadingIcon={Icon(Icons.Outlined.MoreVert,null)},onClick={toolsMenu=false;onConversationAction("manage")})
                 }
                 HorizontalDivider()
                 DisplayMaskAction(state.displayMask,repo::setDisplayMask)

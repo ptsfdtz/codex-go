@@ -1,12 +1,11 @@
 package dev.agentdeck.app
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -39,7 +38,7 @@ import kotlinx.serialization.json.*
     val duration=seconds?.let{if(it>=60)"${it/60} 分 ${it%60} 秒" else "$it 秒"}?:"时间未报告"
     val result=if(value("status")=="complete"&&session.mode=="goal")entries.lastOrNull{isFinalAnswer(it)}?.text else null
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp){
-    Surface(onClick={details=true},shape=RoundedCornerShape(topStart=18.dp,topEnd=18.dp),color=MaterialTheme.colorScheme.surfaceContainerHigh,border=BorderStroke(0.5.dp,MaterialTheme.colorScheme.outlineVariant),modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp)){
+    Surface(onClick={details=true},shape=RectangleShape,color=MaterialTheme.colorScheme.surfaceContainerHigh,modifier=Modifier.fillMaxWidth()){
         Row(Modifier.heightIn(min=36.dp).padding(horizontal=12.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
             Icon(Icons.Outlined.TrackChanges,null,Modifier.size(14.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
             Text(goalStatus(value("status")),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurface)

@@ -24,6 +24,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -196,7 +198,7 @@ import androidx.compose.ui.platform.LocalContext
                             }
                         }
                         Spacer(Modifier.weight(1f))
-                        if(active)FilledIconButton(onClick=onInterrupt,enabled=!state.stale&&!state.busy,modifier=Modifier.size(48.dp).padding(4.dp)){Icon(Icons.Outlined.Stop,"中断任务",Modifier.size(18.dp))}
+                        if(active)FilledIconButton(onClick=onInterrupt,enabled=!state.stale&&!state.busy,modifier=Modifier.size(48.dp).padding(4.dp)){StopTaskGlyph()}
                         if(!active||state.capabilities?.supports("activeTurnSteering")==true)FilledIconButton(onClick=submit,enabled=canSubmit,modifier=Modifier.size(48.dp).padding(4.dp)){Icon(Icons.Outlined.ArrowUpward,if(active)"追加指令" else "发送消息",Modifier.size(20.dp))}
                     }
     }
@@ -277,8 +279,9 @@ import androidx.compose.ui.platform.LocalContext
                 if(state.stale)Text("离线 · 草稿已保留",Modifier.weight(1f),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 ContextUsage(state)
             }
-            if(session!=null)key(state.host?.hostId,session.sessionId){GoalComposerSummary(session,state,repo,allEntries)}
             Surface(shape=RoundedCornerShape(26.dp),color=MaterialTheme.colorScheme.surfaceContainer){
+            Column{
+            if(session!=null)key(state.host?.hostId,session.sessionId){GoalComposerSummary(session,state,repo,allEntries)}
             Column(Modifier.padding(8.dp)){
                         BasicTextField(value=text,onValueChange={if(it.length<=64000)drafts.edit(draftKey){old->old.copy(text=it)}},textStyle=androidx.compose.ui.text.TextStyle(fontSize=16.sp,lineHeight=24.sp,color=MaterialTheme.colorScheme.onSurface),modifier=Modifier.fillMaxWidth().heightIn(min=44.dp,max=180.dp).testTag("chat-input").onPreviewKeyEvent{event->if(event.type!=KeyEventType.KeyDown)false
                             else if(commandMatches.isNotEmpty()&&!event.isCtrlPressed&&!event.isAltPressed&&!event.isShiftPressed)when(event.key){
@@ -310,7 +313,7 @@ import androidx.compose.ui.platform.LocalContext
                     }
                 }
                 if(mode in listOf("plan","goal"))TextButton(onClick={inlineAdd=true},enabled=inlineEnabled,contentPadding=PaddingValues(horizontal=6.dp)){
-                    Icon(if(mode=="plan")Icons.Outlined.LightMode else Icons.Outlined.Flag,null,Modifier.size(16.dp))
+                    Icon(if(mode=="plan")Icons.Outlined.LightMode else Icons.Outlined.TrackChanges,null,Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(if(mode=="plan")"Plan" else "Goal",fontSize=12.sp)
                 }
@@ -318,11 +321,11 @@ import androidx.compose.ui.platform.LocalContext
                 Box(Modifier.weight(1f),contentAlignment=Alignment.CenterEnd){CodexModelPicker(state,repo,enabled=inlineEnabled)}
                 Spacer(Modifier.width(6.dp))
                 Row(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically){
-                    if(active)FilledIconButton(onClick=onInterrupt,enabled=!state.stale&&!state.busy,modifier=Modifier.size(44.dp),colors=IconButtonDefaults.filledIconButtonColors(containerColor=MaterialTheme.colorScheme.onSurface,contentColor=MaterialTheme.colorScheme.surface,disabledContainerColor=MaterialTheme.colorScheme.surfaceContainerHigh,disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant)){Icon(Icons.Outlined.Stop,"中断任务",Modifier.size(18.dp))}
+                    if(active)FilledIconButton(onClick=onInterrupt,enabled=!state.stale&&!state.busy,modifier=Modifier.size(44.dp),colors=IconButtonDefaults.filledIconButtonColors(containerColor=MaterialTheme.colorScheme.onSurface,contentColor=MaterialTheme.colorScheme.surface,disabledContainerColor=MaterialTheme.colorScheme.surfaceContainerHigh,disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant)){StopTaskGlyph()}
                     if(!active||state.capabilities?.supports("activeTurnSteering")==true)FilledIconButton(onClick=submit,enabled=canSubmit,modifier=Modifier.size(44.dp),colors=IconButtonDefaults.filledIconButtonColors(containerColor=MaterialTheme.colorScheme.onSurface,contentColor=MaterialTheme.colorScheme.surface,disabledContainerColor=MaterialTheme.colorScheme.surfaceContainerHigh,disabledContentColor=MaterialTheme.colorScheme.onSurfaceVariant)){Icon(Icons.Outlined.ArrowUpward,if(active)"追加指令" else "发送消息",Modifier.size(20.dp))}
                 }
             }
-            }}
+            }}}
         }}
     }
 }
@@ -359,4 +362,8 @@ import androidx.compose.ui.platform.LocalContext
 
         else->Column{Text(if(entry.status=="failed")userFacingError(raw=entry.detail) else text,fontSize=12.sp,color=if(entry.status=="failed")MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant);if(entry.detail.isNotBlank()&&entry.status!="failed")SelectionContainer{Text(maskDisplay(entry.detail,mask),fontSize=12.sp)}}
     }
+}
+
+@Composable private fun StopTaskGlyph(){
+    Box(Modifier.size(14.dp).background(LocalContentColor.current,RoundedCornerShape(3.dp)).semantics{contentDescription="中断任务"})
 }

@@ -6,6 +6,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.TrackChanges
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -27,6 +32,7 @@ internal fun goalStatus(value:String)=when(value){"active"->"持续推进中";"p
     var expected by remember{mutableStateOf("")}
     var attempted by remember{mutableStateOf(false)}
     var confirm by remember{mutableStateOf(false)}
+    var actionsOpen by remember{mutableStateOf(false)}
     val scope=rememberCoroutineScope()
     var result by remember{mutableStateOf<JsonObject?>(null)}
     var error by remember{mutableStateOf<String?>(null)}
@@ -37,7 +43,14 @@ internal fun goalStatus(value:String)=when(value){"active"->"持续推进中";"p
         result=null;error=null;loading=false
         if(!state.stale){loading=true;try{result=repo.readSessionGoal(session)}catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"无法读取目标"}finally{loading=false}}
     }
-    AlertDialog(onDismissRequest={if(!writing)onClose()},title={Text("会话目标")},text={Column(Modifier.heightIn(max=500.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
+    val muted=MaterialTheme.colorScheme.onSurfaceVariant
+    AlertDialog(onDismissRequest={if(!writing)onClose()},title={
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            Icon(Icons.Outlined.TrackChanges,null,Modifier.size(20.dp),tint=muted)
+            Text("会话目标",style=MaterialTheme.typography.titleMedium,modifier=Modifier.weight(1f))
+            IconButton(onClick={revision++},enabled=!state.stale&&!loading&&!writing,modifier=Modifier.size(32.dp)){Icon(Icons.Outlined.Refresh,"刷新目标",Modifier.size(18.dp))}
+        }
+    },text={Column(Modifier.fillMaxWidth().heightIn(max=500.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){
         if(loading)LinearProgressIndicator(Modifier.fillMaxWidth())
         if(state.stale)Text("连接电脑后读取目标。")
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
@@ -47,28 +60,46 @@ internal fun goalStatus(value:String)=when(value){"active"->"持续推进中";"p
             if(goal==null)Text("此会话当前没有持续目标。")else{
                 fun value(key:String)=(goal[key] as? JsonPrimitive)?.contentOrNull.orEmpty()
                 fun count(key:String)=(goal[key] as? JsonPrimitive)?.longOrNull?.takeIf{it>=0}?.let{NumberFormat.getIntegerInstance().format(it)}?:"未报告"
-                Text(goalStatus(value("status")),style=MaterialTheme.typography.titleMedium)
-                MarkdownText(maskDisplay(value("objective"),state.displayMask),fontSizeSp=14f)
-                if(state.capabilities?.supports("sessionGoalEdit")==true)TextButton(onClick={
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                Surface(shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.surfaceContainerHigh){Text(goalStatus(value("status")),Modifier.padding(horizontal=10.dp,vertical=5.dp),style=MaterialTheme.typography.labelMedium)}
+                Spacer(Modifier.weight(1f))
+                if(listOf("sessionGoalEdit","sessionGoalResume","sessionGoalClear").any{state.capabilities?.supports(it)==true})Box{
+                IconButton(onClick={actionsOpen=true},enabled=!loading&&!writing,modifier=Modifier.size(32.dp)){Icon(Icons.Outlined.MoreHoriz,"目标操作",Modifier.size(20.dp))}
+                DropdownMenu(expanded=actionsOpen,onDismissRequest={actionsOpen=false}){
+                if(state.capabilities?.supports("sessionGoalEdit")==true)DropdownMenuItem(text={Text("编辑目标与预算")},onClick={
+                    actionsOpen=false
                     objective=value("objective");budget=(goal["tokenBudget"] as? JsonPrimitive)?.longOrNull?.toString().orEmpty();expected=data["goalRevision"]?.jsonPrimitive?.contentOrNull.orEmpty();attempted=false;editing=true
-                },enabled=!loading&&!writing&&!state.stale&&canManageSession(state,session)&&session.archived!=1&&value("status")!="active"&&data["goalRevision"] is JsonPrimitive){Text("编辑目标与预算")}
-                if(state.capabilities?.supports("sessionGoalResume")==true&&value("status") in listOf("paused","blocked"))TextButton(onClick={
+                },enabled=!loading&&!writing&&!state.stale&&canManageSession(state,session)&&session.archived!=1&&value("status")!="active"&&data["goalRevision"] is JsonPrimitive)
+                if(state.capabilities?.supports("sessionGoalResume")==true&&value("status") in listOf("paused","blocked"))DropdownMenuItem(text={Text("恢复已有目标")},onClick={
+                    actionsOpen=false
                     expected=data["goalRevision"]?.jsonPrimitive?.contentOrNull.orEmpty();attempted=false;message=null;resuming=true
-                },enabled=!loading&&!writing&&!state.stale&&canManageSession(state,session)&&session.archived!=1&&data["goalRevision"] is JsonPrimitive){Text("恢复已有目标")}
-                if(state.capabilities?.supports("sessionGoalClear")==true)TextButton(onClick={
+                },enabled=!loading&&!writing&&!state.stale&&canManageSession(state,session)&&session.archived!=1&&data["goalRevision"] is JsonPrimitive)
+                if(state.capabilities?.supports("sessionGoalClear")==true)DropdownMenuItem(text={Text("删除目标",color=MaterialTheme.colorScheme.error)},onClick={
+                    actionsOpen=false
                     expected=data["goalRevision"]?.jsonPrimitive?.contentOrNull.orEmpty();attempted=false;clearing=true
-                },enabled=!loading&&!writing&&!state.stale&&canManageSession(state,session)&&session.archived!=1&&value("status")!="active"&&data["goalRevision"] is JsonPrimitive){Text("删除会话目标",color=MaterialTheme.colorScheme.error)}
+                },enabled=!loading&&!writing&&!state.stale&&canManageSession(state,session)&&session.archived!=1&&value("status")!="active"&&data["goalRevision"] is JsonPrimitive)
+                }}}
+                Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerHigh){Box(Modifier.fillMaxWidth().padding(12.dp)){MarkdownText(maskDisplay(value("objective"),state.displayMask),fontSizeSp=14f)}}
+                val seconds=(goal["timeUsedSeconds"] as? JsonPrimitive)?.longOrNull?.takeIf{it>=0}
+                val duration=seconds?.let{when{it>=3600->"${it/3600} 时 ${it%3600/60} 分";it>=60->"${it/60} 分 ${it%60} 秒";else->"$it 秒"}}?:"—"
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(16.dp)){
+                    listOf("已用 tokens" to count("tokensUsed"),"执行时长" to duration).forEach{(label,value)->
+                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)){
+                            Text(label,style=MaterialTheme.typography.labelSmall,color=muted)
+                            Text(value,style=MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                }
                 HorizontalDivider()
-                Text("已用 tokens：${count("tokensUsed")}")
-                Text("Token 预算：${if(goal["tokenBudget"]==null||goal["tokenBudget"]==JsonNull)"未设置" else count("tokenBudget")}")
-                Text("累计执行时间：${count("timeUsedSeconds")} 秒")
-                Text("目标状态与统计来自电脑原生服务；不等同于当前轮次是否正在执行。运行中的目标可通过现有中断任务操作暂停并停止当前轮次。",style=MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                    Text("Token 预算",style=MaterialTheme.typography.bodySmall,color=muted)
+                    Text(if(goal["tokenBudget"]==null||goal["tokenBudget"]==JsonNull)"未设置" else count("tokenBudget"),style=MaterialTheme.typography.bodySmall)
+                }
             }
-            Text("读取时间：${data["readAt"]?.jsonPrimitive?.content.orEmpty()}",style=MaterialTheme.typography.labelSmall)
         }
-    }},confirmButton={TextButton(onClick=onClose,enabled=!writing){Text("关闭")}},dismissButton={TextButton(onClick={revision++},enabled=!state.stale&&!loading&&!writing){Text("刷新目标")}})
-    if(editing)AlertDialog(onDismissRequest={if(!writing)editing=false},title={Text("编辑原生会话目标")},text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Text("只修改现有目标正文和预算，不恢复目标或启动任务。预算留空表示保留原值，不会清除预算。",style=MaterialTheme.typography.bodySmall)
+    }},confirmButton={TextButton(onClick=onClose,enabled=!writing){Text("关闭")}})
+    if(editing)AlertDialog(onDismissRequest={if(!writing)editing=false},title={Text("编辑目标",style=MaterialTheme.typography.titleMedium)},text={Column(Modifier.heightIn(max=480.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Text("保存后不自动恢复执行；预算留空保留原值。",style=MaterialTheme.typography.bodySmall,color=muted)
         OutlinedTextField(objective,{if(it.toByteArray(Charsets.UTF_8).size<=128000)objective=it},Modifier.fillMaxWidth(),label={Text("目标正文")},minLines=4,maxLines=10,enabled=!writing&&!attempted)
         OutlinedTextField(budget,{if(it.length<=19&&it.all(Char::isDigit))budget=it},Modifier.fillMaxWidth(),label={Text("Token 预算（正整数）")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number),enabled=!writing&&!attempted)
         if(writing)LinearProgressIndicator(Modifier.fillMaxWidth())

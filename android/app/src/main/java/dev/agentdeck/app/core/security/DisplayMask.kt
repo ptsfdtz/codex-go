@@ -16,7 +16,7 @@ fun maskDisplay(text:String,mask:String):String=if(mask.length in 3..256)text.re
 
 @Composable internal fun DisplayMaskAction(mask:String,onChange:(String)->Unit){
     var open by remember{mutableStateOf(false)}
-    IconButton(onClick={open=true}){Icon(Icons.Outlined.VisibilityOff,if(mask.isEmpty())"临时遮盖敏感文字" else "管理已启用的临时遮盖",tint=if(mask.isEmpty())MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)}
+    DropdownMenuItem(text={Text(if(mask.isEmpty())"遮盖敏感文字" else "管理文字遮盖")},leadingIcon={Icon(Icons.Outlined.VisibilityOff,null)},onClick={open=true})
     if(open){
         // Do not use rememberSaveable: a user-entered sensitive fragment must not enter saved state.
         var draft by remember{mutableStateOf("")}
