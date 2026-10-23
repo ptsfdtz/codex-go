@@ -215,9 +215,11 @@ fn main() {
                 }
             });
             let tray = (|| -> tauri::Result<()> {
+                eprintln!("AgentDeck: creating tray menu");
                 let show = MenuItem::with_id(app, "show", "打开 AgentDeck", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "停止并退出", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show, &quit])?;
+                eprintln!("AgentDeck: creating tray icon");
                 TrayIconBuilder::new()
                     .icon(app.default_window_icon().expect("application icon").clone())
                     .tooltip("AgentDeck · 平板工作区")
@@ -253,6 +255,7 @@ fn main() {
                 eprintln!("AgentDeck tray unavailable, continuing without it: {error}");
             }
             app.manage(TrayAvailable(tray.is_ok()));
+            eprintln!("AgentDeck: setup complete");
             Ok(())
         })
         .on_window_event(|window, event| {
