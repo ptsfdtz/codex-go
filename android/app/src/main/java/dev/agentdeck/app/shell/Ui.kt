@@ -143,7 +143,7 @@ import java.time.Instant
         else LaunchedEffect(id){sessionCommand=null}
     }
     if(showDrafts)ComposerDraftList(state,repo,onOpen={showDrafts=false;panel="chat";sidebar=false},onClose={showDrafts=false})
-    if(showComputers)ComputerPickerDialog(state,onSelect={id->showComputers=false;sidebar=false;panel="chat";repo.selectHost(id)},onAdd={showComputers=false;showPair=true},onDismiss={showComputers=false})
+    if(showComputers)ComputerPickerDialog(state,onSelect={id->showComputers=false;sidebar=false;panel="chat";repo.selectHost(id)},onAdd={showComputers=false;showPair=true},onDismiss={showComputers=false},onRename=repo::renameHost)
     if(showPair)AlertDialog(onDismissRequest={showPair=false;repo.cancelPair()},confirmButton={},dismissButton={TextButton(onClick={showPair=false;repo.cancelPair()}){Text("关闭")}},title={Text("安全配对 Windows")},text={PairContent(state,repo,onDone={showPair=false})})
     if(confirmInterrupt)Confirm("停止当前任务？","将向 Codex 请求中断，收到确认后更新任务状态。",{confirmInterrupt=false},{confirmInterrupt=false;repo.interrupt()})
     if(confirmForget)Confirm("移除当前电脑？","仅移除此电脑的配对和缓存，其他电脑会保留。在线时撤销该电脑的设备凭据；离线时请随后在该 Windows 电脑撤销设备。",{confirmForget=false},{confirmForget=false;repo.forgetHost()})

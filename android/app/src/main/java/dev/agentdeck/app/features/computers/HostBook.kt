@@ -12,7 +12,7 @@ data class HostBook(val hosts:List<Host> = emptyList(),val activeHostId:String?=
     fun renamed(id:String,name:String):HostBook{require(name.trim().length in 1..80);return copy(hosts=hosts.map{if(it.hostId==id)it.copy(name=name.trim())else it})}
 }
 
-val Host.label:String get()=name.ifBlank{endpoint.removePrefix("https://")}
+val Host.label:String get()=name.ifBlank{"电脑 · ${hostId.take(6)}"}
 
 /** A host change clears every piece of transient data belonging to the old computer. */
 fun DeckState.forHost(book:HostBook)=DeckState(host=book.active,hosts=book.hosts,connection=if(book.active==null)"未配对" else "正在连接",preferences=preferences,busy=busy)

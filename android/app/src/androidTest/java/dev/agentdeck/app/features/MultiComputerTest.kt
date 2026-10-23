@@ -30,7 +30,7 @@ class MultiComputerTest{
 
     @Test fun pickerSelectsSavedComputerAndCanAddAnother(){
         val selected=mutableStateOf(one);var adding=false
-        compose.runOnUiThread{compose.activity.setContent{DeckTheme{ComputerPickerDialog(DeckState(host=selected.value,hosts=listOf(one,two)),onSelect={id->selected.value=listOf(one,two).first{it.hostId==id}},onAdd={adding=true},onDismiss={})}}}
+        compose.runOnUiThread{compose.activity.setContent{DeckTheme{ComputerPickerDialog(DeckState(host=selected.value,hosts=listOf(one,two)),onSelect={id->selected.value=listOf(one,two).first{it.hostId==id}},onAdd={adding=true},onDismiss={},onRename={id,name->if(selected.value.hostId==id)selected.value=selected.value.copy(name=name)})}}}
         compose.onNodeWithText("办公室电脑").assertIsDisplayed()
         compose.onNodeWithText("家里电脑").assertIsDisplayed()
         compose.onNodeWithTag("computer-multi-one").assertIsSelected()

@@ -60,6 +60,6 @@ class HostBookTest{
         val old="""{"endpoint":"https://localhost:49321","fingerprint":"fp","hostId":"legacy","deviceId":"d","credential":"c"}"""
         val host=wire.decodeFromString(Host.serializer(),old)
         assertEquals("",host.name)
-        assertEquals("localhost:49321",host.label)
+        assertEquals("电脑 · legacy",host.label)
     }
 }

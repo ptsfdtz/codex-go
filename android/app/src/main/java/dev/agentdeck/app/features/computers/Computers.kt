@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -15,14 +17,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-@Composable internal fun ComputerPickerDialog(state:DeckState,onSelect:(String)->Unit,onAdd:()->Unit,onDismiss:()->Unit){
+@Composable internal fun ComputerPickerDialog(state:DeckState,onSelect:(String)->Unit,onAdd:()->Unit,onDismiss:()->Unit,onRename:(String,String)->Unit){
     AlertDialog(onDismissRequest=onDismiss,title={Text("选择电脑")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)){
         Text("每次连接一台电脑。切换后显示所选电脑的项目和会话，原电脑待处理的审批可能失效。",fontSize=13.sp)
-        ComputerList(state,onSelect)
+        ComputerList(state,onSelect,onRename)
     }},confirmButton={TextButton(onClick=onAdd,enabled=!state.busy){Text("添加电脑")}},dismissButton={TextButton(onClick=onDismiss){Text("关闭")}})
 }
 
-@Composable internal fun ComputerList(state:DeckState,onSelect:(String)->Unit){
+@Composable internal fun ComputerList(state:DeckState,onSelect:(String)->Unit,onRename:(String,String)->Unit){
+    var editing by remember{mutableStateOf<Host?>(null)}
+    var alias by remember{mutableStateOf("")}
+    editing?.let{host->AlertDialog(onDismissRequest={editing=null},title={Text("电脑别名")},text={OutlinedTextField(value=alias,onValueChange={alias=it.take(80)},label={Text("例如：办公室、家里的电脑")},singleLine=true)},confirmButton={TextButton(onClick={onRename(host.hostId,alias.trim());editing=null},enabled=alias.isNotBlank()&&!state.busy){Text("保存")}},dismissButton={TextButton(onClick={editing=null}){Text("取消")}})}
     val hosts=state.hosts.ifEmpty{listOfNotNull(state.host)}
     if(hosts.isEmpty())Text("还没有已配对的电脑")
     else LazyColumn(Modifier.fillMaxWidth().heightIn(max=280.dp).selectableGroup(),verticalArrangement=Arrangement.spacedBy(4.dp)){
@@ -33,9 +38,9 @@ import androidx.compose.ui.unit.sp
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)){
                     Text(host.label,fontWeight=FontWeight.Medium)
-                    Text("${host.endpoint} · ${host.hostId.take(8)}",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    if(selected)Text("当前电脑 · ${state.connection}",fontSize=11.sp,color=MaterialTheme.colorScheme.primary)
+                    if(selected)Text("当前电脑",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                IconButton(onClick={alias=host.name;editing=host},enabled=!state.busy){Icon(Icons.Outlined.Edit,"编辑 ${host.label} 的别名")}
             }
         }
     }

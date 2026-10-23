@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
     onPair:()->Unit,onCollapse:()->Unit,
 ){
     var search by rememberSaveable(state.host?.hostId){mutableStateOf("")}
+    var searchOpen by rememberSaveable(state.host?.hostId){mutableStateOf(false)}
     var filter by rememberSaveable(state.host?.hostId){mutableStateOf("all")}
     var sort by rememberSaveable(state.host?.hostId){mutableStateOf("recent")}
     var filterMenu by remember{mutableStateOf(false)}
@@ -60,19 +61,22 @@ import androidx.compose.ui.unit.sp
     }
     val ordering=if(sort=="title")compareBy<Session>{maskDisplay(it.title,state.displayMask).lowercase()} else compareByDescending<Session>{it.updatedAt}
     Column(Modifier.widthIn(max=320.dp).fillMaxWidth().fillMaxHeight().testTag("chat-sidebar").background(MaterialTheme.colorScheme.surface).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical+WindowInsetsSides.Start)).padding(horizontal=12.dp)){
-        Row(Modifier.fillMaxWidth().height(64.dp),verticalAlignment=Alignment.CenterVertically){
+        Row(Modifier.fillMaxWidth().height(52.dp),verticalAlignment=Alignment.CenterVertically){
             Text("AgentDeck",Modifier.weight(1f).padding(start=8.dp),fontSize=22.sp,fontWeight=FontWeight.Bold)
             IconButton(onClick=onCollapse,modifier=Modifier.size(40.dp)){Icon(Icons.Outlined.Close,"收起会话列表",Modifier.size(22.dp))}
         }
-        DrawerSearch(search,{search=it.take(160)}){}
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(enabled=state.selectedProject!=null&&!state.busy){state.selectedProject?.let(repo::selectProject);onChat()}.padding(horizontal=8.dp,vertical=13.dp),verticalAlignment=Alignment.CenterVertically){
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)){
+        Row(Modifier.weight(1f).heightIn(min=48.dp).clip(RoundedCornerShape(12.dp)).clickable(enabled=state.selectedProject!=null&&!state.busy){state.selectedProject?.let(repo::selectProject);onChat()}.padding(horizontal=8.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
             Icon(Icons.Outlined.Edit,null,Modifier.size(21.dp))
             Spacer(Modifier.width(14.dp))
             Text("新对话",fontSize=16.sp)
         }
+        IconButton(onClick={searchOpen=!searchOpen;if(!searchOpen)search=""},modifier=Modifier.size(48.dp)){Icon(if(searchOpen)Icons.Outlined.Close else Icons.Outlined.Search,if(searchOpen)"关闭搜索" else "搜索会话",Modifier.size(22.dp))}
+        }
+        if(searchOpen)DrawerSearch(search,{search=it.take(160)}){}
         LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(bottom=12.dp)){
             item{
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable{projectsExpanded=!projectsExpanded}.padding(horizontal=8.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){
+                Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clip(RoundedCornerShape(10.dp)).clickable{projectsExpanded=!projectsExpanded}.padding(horizontal=8.dp,vertical=8.dp),verticalAlignment=Alignment.CenterVertically){
                     Icon(Icons.Outlined.FolderOpen,null,Modifier.size(20.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(14.dp))
                     Text("项目",Modifier.weight(1f),fontSize=15.sp)
@@ -90,7 +94,7 @@ import androidx.compose.ui.unit.sp
                 if(state.capabilities?.supports("nativeProjectReadViews")==true)item{TextButton(onClick={showNativeProjects=true},enabled=!state.stale,modifier=Modifier.padding(start=34.dp)){Text("Codex 项目",fontSize=14.sp)}}
             }
             item{
-                Row(Modifier.fillMaxWidth().padding(start=8.dp,top=10.dp,end=2.dp),verticalAlignment=Alignment.CenterVertically){
+                Row(Modifier.fillMaxWidth().padding(start=8.dp,top=4.dp,end=2.dp),verticalAlignment=Alignment.CenterVertically){
                     Text(when(filter){"active"->"活动任务";"pinned"->"置顶";"archived"->"归档";else->"对话"},Modifier.weight(1f),fontSize=13.sp,fontWeight=FontWeight.Medium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     IconButton(onClick=repo::refresh,enabled=!state.stale&&!state.busy,modifier=Modifier.size(36.dp)){Icon(Icons.Outlined.Refresh,"同步电脑已有对话",Modifier.size(18.dp))}
                     Box{
@@ -105,11 +109,11 @@ import androidx.compose.ui.unit.sp
             }
             if(visible.isEmpty())item{Text(if(search.isNotBlank())"没有匹配的会话" else if(state.snapshot.projects.isEmpty())"请先在 Windows 授权项目，再同步已有对话" else "暂无会话，点击刷新同步电脑已有对话",Modifier.padding(horizontal=8.dp,vertical=20.dp),fontSize=14.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
             visible.sortedWith(compareByDescending<Session>{it.pinned}.then(ordering)).groupBy{sessionDateLabel(it.updatedAt)}.forEach{(label,sessions)->
-                item{Text(label,Modifier.padding(start=8.dp,top=12.dp,bottom=4.dp),fontSize=12.sp,fontWeight=FontWeight.Medium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                item{Text(label,Modifier.padding(start=8.dp,top=8.dp,bottom=2.dp),fontSize=12.sp,fontWeight=FontWeight.Medium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                 items(sessions,key={it.sessionId}){session->
                     Box{
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if(state.selectedSession==session.sessionId&&panel=="chat")MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent).combinedClickable(enabled=!state.busy,onClick={repo.selectSession(session.sessionId);onChat()},onLongClickLabel="管理会话",onLongClick={manageSession=session.sessionId}).padding(horizontal=10.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){
-                            Text(maskDisplay(session.title,state.displayMask),fontSize=15.sp,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))
+                        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clip(RoundedCornerShape(10.dp)).background(if(state.selectedSession==session.sessionId&&panel=="chat")MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent).combinedClickable(enabled=!state.busy,onClick={repo.selectSession(session.sessionId);onChat()},onLongClickLabel="管理会话",onLongClick={manageSession=session.sessionId}).padding(horizontal=10.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically){
+                            Text(maskDisplay(session.title,state.displayMask),fontSize=15.sp,fontWeight=if(state.selectedSession==session.sessionId&&panel=="chat")FontWeight.SemiBold else FontWeight.Normal,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.weight(1f))
                             when{
                                 session.sessionId in pending->Icon(Icons.Outlined.Security,"等待审批",Modifier.padding(start=8.dp).size(16.dp),tint=MaterialTheme.colorScheme.error)
                                 session.status in listOf("running","queued")->CircularProgressIndicator(Modifier.padding(start=8.dp).size(14.dp),strokeWidth=1.5.dp)
@@ -129,7 +133,6 @@ import androidx.compose.ui.unit.sp
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)){
                     Text(maskDisplay(state.host?.label?:"连接电脑",state.displayMask),fontSize=14.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Text(state.connection,fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
             }
             IconButton(onClick=onSettings,modifier=Modifier.size(44.dp).testTag("codex-open-settings")){Icon(Icons.Outlined.Settings,"设置",Modifier.size(21.dp))}

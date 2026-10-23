@@ -18,6 +18,8 @@
 
 - Android UI (2026-10-23): composer now uses one rounded surface with text above a shared 44dp action row; model and reasoning effort use discrete sliders. Removed the mistake disclaimer; placed native token/context usage above the composer, aligned right (unknown values remain unreported). `compileDebugKotlin` passed; development watcher rebuilt and installed on the connected device. Dark-theme portrait screenshots confirmed the shared button row and usage above the composer on the right; keyboard layout was checked before the usage move. Slider interaction, multiline input, narrow screens and light theme remain unverified.
 
+- 侧边栏（2026-10-23）：新对话使用无背景普通样式，搜索收为同行图标、按需展开，压缩顶部与分组留白，当前会话加粗；底部移除连接状态。电脑列表逐台编辑别名并沿用加密持久化，未命名显示简短电脑标识，常规列表与设置不再直接显示 IP。HostBook 定向测试、assembleDebug、保留数据安装与启动存活检查通过；明暗主题、窄屏和别名编辑实机交互待验证。
+
 - 移动端 UI：手机端改为抽屉会话列表、单行顶栏、ChatGPT 风格消息气泡/输入栏/建议卡，平板横屏使用常驻侧栏；仅改界面，协议与数据流未动。审批、未知结果、离线提示与发送约束保留，仍不能视为“完全一致”。
 - 运行区（2026-10-23）：默认收为“已工作… ›”，展开直接显示思考正文和运行步骤，圆角点击反馈；计划正文独立输出、不进入工作折叠，Plan/Goal 标记在加号右侧。输入框上方新增原生 Goal 状态、累计执行时间与完成结果摘要，可打开目标详情；仅选择草稿模式不创建目标。计时优先任务起止，历史回退使用公开条目时间，分页未齐标注范围。计划折叠回归单测及热重载构建安装通过，实机确认 Plan 标记和计划正文；Goal 真实任务状态/结果更新、明色/窄屏尚待验证。
 - 输入栏补充：Goal 改为贴合输入框的窄状态栏，token/上下文位于其上方；移除状态栏最小触摸尺寸导致的间隙。当前轮文件改动徽标独立居中放在输入框上方，点击查看原生修改步骤；文件去重，增删行数按成功步骤累计（非净差异），未加载完整时提示。统计和 Plan 折叠回归测试通过；最新布局 assembleDebug 构建、保留数据覆盖安装通过，实机确认改动徽标居中浮在输入框上方、详情可打开，Goal 状态栏与输入框无间隙，上下文显示在其上方。
