@@ -90,7 +90,7 @@ class DeckRepository(context:Context){
             var indexRefresh:Job?=null
             val replayNotifications=NotificationReplay()
             try{
-                mutable.update{it.copy(connection=if(attempt==0)"正在连接" else "重新连接中",stale=true)}
+                mutable.update{it.copy(connection=if(attempt==0)"正在连接" else "正在尝试重连",stale=true)}
                 current.connect();current.request("system.hello",buildJsonObject{put("client","AgentDeck Android/${BuildConfig.VERSION_NAME}");put("version",1)})
                 val capabilities=wire.decodeFromJsonElement(BridgeCapabilities.serializer(),current.request("system.capabilities"))
                 if(capabilities.protocolVersion!=1)throw DeckException("PROTOCOL_VERSION","电脑端协议不兼容，请更新客户端")
@@ -115,8 +115,10 @@ class DeckRepository(context:Context){
                 throw java.io.IOException("Bridge 连接已结束")
             }catch(e:CancellationException){throw e}catch(e:Exception){
                 val previousConnectionError=connectionError
-                connectionError=errorMessage(e)
-                mutable.update{it.copy(connection="重新连接中",stale=true,error=if(it.error==null||it.error==previousConnectionError)connectionError else it.error)}
+                val transientDisconnect=(e is java.io.IOException&&e !is javax.net.ssl.SSLException&&e !is java.net.ProtocolException)||
+                    (e is IllegalStateException&&e.message=="Bridge 连接不可用")
+                connectionError=if(transientDisconnect)null else errorMessage(e)
+                mutable.update{it.copy(connection="正在尝试重连",stale=true,error=if(it.error==null||it.error==previousConnectionError)connectionError else it.error)}
                 if(connectedAt?.let{System.nanoTime()-it>=30_000_000_000L}==true)attempt=0
                 attempt++
             }

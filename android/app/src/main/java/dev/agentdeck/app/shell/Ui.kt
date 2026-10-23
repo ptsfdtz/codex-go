@@ -63,7 +63,7 @@ import java.time.Instant
                     onNew={state.selectedProject?.let(repo::selectProject);panel="chat"},onComputers={showComputers=true},
                     onSettings={panel="settings"},onSearch={showCommands=true},onDrafts={showDrafts=true},
                     onReview={panel="review";repo.refreshGit()},onConversationAction={conversationAction=it})
-                if(state.stale&&state.host!=null)Surface(color=MaterialTheme.colorScheme.surfaceContainerLow){Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.CloudOff,null,Modifier.size(15.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant);Spacer(Modifier.width(8.dp));Text("连接已断开，显示缓存内容",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f));TextButton(onClick=repo::reconnect,contentPadding=PaddingValues(horizontal=8.dp)){Text("重连",fontSize=12.sp)}}}
+                if(state.stale&&state.host!=null)Surface(color=MaterialTheme.colorScheme.surfaceContainerLow){Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically){Text("正在尝试重连",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}
                 state.error?.let{message->Surface(color=MaterialTheme.colorScheme.errorContainer){Row(Modifier.fillMaxWidth().padding(start=16.dp),verticalAlignment=Alignment.CenterVertically){Text(message,modifier=Modifier.weight(1f),fontSize=12.sp,color=MaterialTheme.colorScheme.onErrorContainer);IconButton(onClick=repo::clearError,modifier=Modifier.size(40.dp)){Icon(Icons.Outlined.Close,"关闭提示",Modifier.size(18.dp))}}}}
                 Box(Modifier.weight(1f)){
                     when {

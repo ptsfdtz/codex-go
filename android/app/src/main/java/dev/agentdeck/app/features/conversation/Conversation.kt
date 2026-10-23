@@ -2,7 +2,36 @@ package dev.agentdeck.app
 
 import kotlinx.serialization.json.*
 
-data class ChatEntry(val id:String,val kind:String,val text:String,val title:String="",val status:String="",val detail:String="",val truncated:Boolean=false,val sourceTurn:String?=null,val sourceItem:String?=null)
+data class ChatEntry(val id:String,val kind:String,val text:String,val title:String="",val status:String="",val detail:String="",val truncated:Boolean=false,val sourceTurn:String?=null,val sourceItem:String?=null,val errorCode:String="")
+
+private fun JsonObject.rawText(key:String)=(get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
+
+internal fun codexErrorKind(value:JsonElement?):String=when(value){
+    is JsonPrimitive->value.contentOrNull.orEmpty()
+    is JsonObject->value.keys.firstOrNull().orEmpty()
+    else->""
+}
+
+internal fun JsonObject.codexErrorCode():String=codexErrorKind(get("codexErrorInfo"))
+
+/** Keep the upstream message that Codex desktop shows, compacting only its duplicate summary. */
+internal fun JsonObject.codexErrorMessage(includeAdditional:Boolean):String {
+    val message=rawText("message")
+    val additional=rawText("additionalDetails")
+    return when {
+        message.isBlank()->additional
+        includeAdditional&&additional.isNotBlank()&&!message.contains(additional)->"$message\n$additional"
+        else->message
+    }
+}
+
+/** The local turn row may only retain the message; the upstream turn keeps the richer error object. */
+internal fun turnFailure(p:JsonObject):Pair<String,String> {
+    val row=p["turn"] as? JsonObject
+    val upstream=(p["upstream"] as? JsonObject)?.get("error") as? JsonObject
+    return if(upstream!=null)upstream.codexErrorMessage(true) to upstream.codexErrorCode()
+    else row?.rawText("error").orEmpty() to row?.codexErrorCode().orEmpty()
+}
 
 /** Project durable bridge events into messages; completed items replace their streamed preview. */
 fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):List<ChatEntry> {
@@ -15,6 +44,9 @@ fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):L
     for(e in events){
         if(!seen.add(e.eventId))continue
         val p=e.payload as? JsonObject?:continue
+        fun identify(id:String,turn:String?,item:String?){
+            identities[id]=turn to item
+        }
         fun JsonObject.string(key:String)=(get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
         val native=p.string("upstreamTurnId").ifBlank{nativeTurns[e.turnId].orEmpty()}
         val prefix=if(native.isNotBlank())"${e.sessionId}:upstream:$native:" else "${e.sessionId}:${e.turnId}:"
@@ -23,12 +55,12 @@ fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):L
             val files=(p["attachments"] as? JsonArray).orEmpty().mapNotNull{(it as? JsonPrimitive)?.contentOrNull}
             val skills=(p["skills"] as? JsonArray).orEmpty().mapNotNull{(it as? JsonPrimitive)?.contentOrNull}
             val text=p.string("text")+(if(files.isEmpty())"" else "\n\n附件："+files.joinToString("、"))+(if(skills.isEmpty())"" else "\n\n技能："+skills.joinToString("、"))
-            identities[prefix+"user"]=native.ifBlank{null} to null
+            identify(prefix+"user",native.ifBlank{null},null)
             if(text.isNotBlank())rows[prefix+"user"]=ChatEntry(prefix+"user","user",text)
             continue
         }
         if(e.action=="turn.steered"){
-            identities[prefix+"steer:"+e.eventId]=native.ifBlank{null} to null
+            identify(prefix+"steer:"+e.eventId,native.ifBlank{null},null)
             rows[prefix+"steer:"+e.eventId]=ChatEntry(prefix+"steer:"+e.eventId,"user",p.string("text"),title="已追加")
             continue
         }
@@ -36,7 +68,7 @@ fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):L
             val native=p.string("upstreamTurnId")
             if(native.isNotBlank()){
                 val key="${e.sessionId}:upstream:$native:result"
-                identities[key]=native to null
+                identify(key,native,null)
                 if(e.action=="upstream.turn.completed"){
                     val status=p.string("status")
                     if(status in listOf("completed","failed","interrupted"))rows[key]=ChatEntry(key,"status",statusLabel(status),status=status,detail=p.string("error"))
@@ -47,8 +79,9 @@ fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):L
         if(e.action in listOf("turn.completed","turn.failed","turn.interrupted")){
             val turn=p["turn"] as? JsonObject
             val status=turn?.string("status")?.ifBlank{null}?:e.action.substringAfter('.')
-            identities[prefix+"result"]=native.ifBlank{null} to null
-            rows[prefix+"result"]=ChatEntry(prefix+"result","status",statusLabel(status),status=status,detail=turn?.string("error").orEmpty())
+            val failure=turnFailure(p)
+            identify(prefix+"result",native.ifBlank{null},null)
+            rows[prefix+"result"]=ChatEntry(prefix+"result","status",statusLabel(status),status=status,detail=failure.first,errorCode=failure.second)
             continue
         }
         val method=p.string("method")
@@ -58,20 +91,20 @@ fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):L
             val body=steps.joinToString("\n"){step->val marker=when(step.string("status")){"completed"->"✓";"inProgress"->"→";else->"○"};"$marker ${step.string("step")}"}
             val explanation=p.string("explanation")
             val text=listOf(explanation,body).filter{it.isNotBlank()}.joinToString("\n\n")
-            identities[key]=native.ifBlank{null} to null
+            identify(key,native.ifBlank{null},null)
             rows[key]=ChatEntry(key,"tool",text.take(128000),"计划进度 · ${steps.count{it.string("status")=="completed"}}/${steps.size}",if(steps.isNotEmpty()&&steps.all{it.string("status")=="completed"})"completed" else "inProgress",p.toString(),text.length>128000)
             continue
         }
         if(method=="turn/diff/updated"){
             val key=prefix+"turn-diff"
             val diff=p.string("diff")
-            identities[key]=native.ifBlank{null} to null
+            identify(key,native.ifBlank{null},null)
             rows[key]=ChatEntry(key,"tool",diff.take(128000),"本轮累计改动","",p.toString(),diff.length>128000)
             continue
         }
         val item=p["item"] as? JsonObject
         val id=prefix+(item?.string("id")?.ifBlank{null}?:p.string("itemId").ifBlank{e.eventId})
-        identities[id]=native.ifBlank{null} to (item?.string("id")?.ifBlank{null}?:p.string("itemId").ifBlank{null})
+        identify(id,native.ifBlank{null},item?.string("id")?.ifBlank{null}?:p.string("itemId").ifBlank{null})
         val old=rows[id]
         if(method.startsWith("item/reasoning/")&&method in listOf("item/reasoning/summaryTextDelta","item/reasoning/textDelta","item/reasoning/summaryPartAdded")){
             if(old?.status=="completed")continue
@@ -117,7 +150,20 @@ fun conversationEntries(events:List<DeckEvent>,turns:List<Turn> = emptyList()):L
                 }
             }
         }else if(method=="error"){
-            rows[id]=ChatEntry(id,"status","执行遇到错误",status="failed",detail=p.toString())
+            val error=p["error"] as? JsonObject
+            val message=error?.codexErrorMessage(false).orEmpty().ifBlank{p.rawText("message").ifBlank{p.rawText("error")}}
+            val code=error?.codexErrorCode().orEmpty()
+            val willRetry=(p["willRetry"] as? JsonPrimitive)?.booleanOrNull==true
+            if(willRetry){
+                val key=prefix+"retry:"+e.eventId
+                identify(key,native.ifBlank{null},null)
+                rows[key]=ChatEntry(key,"status",message.ifBlank{"Codex 正在重试"},status="retrying")
+            }else{
+                // The terminal error notification and turn.failed describe the same failure.
+                val key=prefix+"result"
+                identify(key,native.ifBlank{null},null)
+                rows[key]=ChatEntry(key,"status","任务失败",status="failed",detail=error?.codexErrorMessage(true).orEmpty().ifBlank{message},errorCode=code)
+            }
         }
     }
     return rows.values.filter(::hasVisibleMessageContent).map{row->identities[row.id]?.let{row.copy(sourceTurn=it.first,sourceItem=it.second)}?:row}

@@ -44,6 +44,20 @@ class ConversationTest {
         assertEquals(listOf("Original","Additional"),rows.map{it.text})
         assertEquals(listOf("user","user"),rows.map{it.kind})
     }
+    @Test fun codexRetriesAndFailureKeepDesktopDiagnostics(){
+        val retry=event(10,"""{"method":"error","error":{"message":"Reconnecting... 1/5","additionalDetails":"stream disconnected before completion: Our servers are currently overloaded. Please try again later.","codexErrorInfo":{"responseStreamDisconnected":{"httpStatusCode":null}},"misalignment":null},"willRetry":true}""")
+        val retryAgain=event(11,"""{"method":"error","error":{"message":"Reconnecting... 2/5","additionalDetails":"stream disconnected before completion: Our servers are currently overloaded. Please try again later.","codexErrorInfo":{"responseStreamDisconnected":{"httpStatusCode":null}},"misalignment":null},"willRetry":true}""")
+        val terminal=event(12,"""{"method":"error","error":{"message":"stream disconnected before completion: Our servers are currently overloaded. Please try again later.","additionalDetails":null,"codexErrorInfo":"other","misalignment":null},"willRetry":false}""")
+        val failed=event(13,"""{"turn":{"status":"failed","error":"stream disconnected before completion: Our servers are currently overloaded. Please try again later."},"upstream":{"error":{"message":"stream disconnected before completion: Our servers are currently overloaded. Please try again later.","additionalDetails":null,"codexErrorInfo":"other","misalignment":null}}}""",action="turn.failed")
+        val rows=conversationEntries(listOf(retry,retryAgain,terminal,failed))
+        assertEquals(3,rows.size)
+        assertEquals(listOf("retrying","retrying","failed"),rows.map{it.status})
+        assertTrue(rows[0].text.contains("Reconnecting... 1/5"))
+        assertTrue(rows[1].text.contains("Reconnecting... 2/5"))
+        assertEquals("other",rows[2].errorCode)
+        assertTrue(rows[2].detail.contains("Our servers are currently overloaded"))
+        assertEquals(1,rows.count{it.status=="failed"})
+    }
     private fun event(id:Int,payload:String,turn:String="t",action:String="turn.progress")=DeckEvent(eventId="$id",seq=id.toLong(),sessionId="s",turnId=turn,action=action,payload=wire.parseToJsonElement(payload),ts="now")
     @Test fun streamIsReplacedByCompleteMessageAndReplayIsDeduplicated(){
         val a=event(1,"""{"method":"item/agentMessage/delta","itemId":"a","delta":"Hello"}""")

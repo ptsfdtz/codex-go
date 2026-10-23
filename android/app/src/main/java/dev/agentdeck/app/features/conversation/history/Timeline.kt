@@ -23,12 +23,13 @@ fun eventText(event:DeckEvent):String {
     val failureAction=event.action.contains("error",true)||event.action.endsWith(".failed")
     val p=event.payload as? JsonObject?:return if(failureAction)userFacingError(raw=event.payload.toString()) else event.payload.toString()
     if(event.action=="turn.failed"){
-        val turn=p["turn"] as? JsonObject
-        return "任务失败\n"+userFacingError(raw=(turn?.get("error") as? JsonPrimitive)?.contentOrNull)
+        val (detail,code)=turnFailure(p)
+        return "任务失败\n"+userFacingError(code,detail)
     }
     if(failureAction||(p["method"] as? JsonPrimitive)?.contentOrNull=="error"||p.containsKey("error")){
-        val message=(p["message"] as? JsonPrimitive)?.contentOrNull?: (p["error"] as? JsonPrimitive)?.contentOrNull?:p.toString()
-        return userFacingError((p["code"] as? JsonPrimitive)?.contentOrNull,message)
+        val error=p["error"] as? JsonObject
+        val message=error?.codexErrorMessage(false).orEmpty().ifBlank{(p["message"] as? JsonPrimitive)?.contentOrNull?: (p["error"] as? JsonPrimitive)?.contentOrNull?:p.toString()}
+        return userFacingError(error?.codexErrorCode() ?: (p["code"] as? JsonPrimitive)?.contentOrNull,message)
     }
     for(key in listOf("delta","text","message"))p[key]?.jsonPrimitive?.contentOrNull?.let{return it}
     val item=p["item"] as? JsonObject

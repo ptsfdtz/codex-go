@@ -4,12 +4,52 @@ private data class ErrorCopy(val title: String, val reason: String, val action: 
     fun display() = listOfNotNull(title, "原因：$reason", action.takeIf(String::isNotBlank)?.let { "建议：$it" }).joinToString("\n")
 }
 
+/** Codex reports camelCase error kinds; AgentDeck errors are already UPPER_SNAKE_CASE. */
+private fun normalizeErrorCode(value: String): String =
+    value.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2").uppercase()
+
 internal fun userFacingError(code: String? = null, raw: String? = null): String {
-    val message = raw.orEmpty()
-    val normalizedCode = (code ?: Regex("\\b([A-Z][A-Z0-9_]{2,})\\s*:").find(message)?.groupValues?.getOrNull(1))
-        .orEmpty().uppercase()
+    val message = raw.orEmpty().trim()
+    val normalizedCode = normalizeErrorCode(
+        (code ?: Regex("\\b([A-Z][A-Z0-9_]{2,})\\s*:").find(message)?.groupValues?.getOrNull(1)).orEmpty()
+    )
     val lower = message.lowercase()
     val copy = when {
+        normalizedCode in setOf("CONTEXT_WINDOW_EXCEEDED", "SESSION_BUDGET_EXCEEDED", "USAGE_LIMIT_EXCEEDED") -> ErrorCopy(
+            "Codex 使用额度已用尽",
+            message.ifBlank { "Codex 的上下文空间或本次任务额度已经用尽。" },
+            "开始新对话或等待额度恢复后重试；先核对当前任务状态。",
+        )
+        normalizedCode == "RATE_LIMIT_EXCEEDED" || "rate limit" in lower || "too many requests" in lower -> ErrorCopy(
+            "Codex 请求过于频繁",
+            message.ifBlank { "Codex 服务限制了当前的请求频率。" },
+            "稍后重试，并检查账户额度与速率限制。",
+        )
+        normalizedCode == "SERVER_OVERLOADED" || "overloaded" in lower -> ErrorCopy(
+            "Codex 服务暂时过载",
+            message.ifBlank { "Codex 服务当前过载，响应在完成前中断。" },
+            "稍后重试；若任务已提交，请先核对会话状态。",
+        )
+        normalizedCode in setOf("RESPONSE_STREAM_DISCONNECTED", "RESPONSE_STREAM_CONNECTION_FAILED", "HTTP_CONNECTION_FAILED", "RESPONSE_TOO_MANY_FAILED_ATTEMPTS") || "stream disconnected before completion" in lower -> ErrorCopy(
+            "Codex 响应连接中断",
+            message.ifBlank { "与 Codex 服务的响应流在完成前中断。" },
+            "检查网络后重试；若任务已提交，请先核对会话状态。",
+        )
+        normalizedCode == "UNAUTHORIZED" -> ErrorCopy(
+            "Codex 鉴权失败",
+            message.ifBlank { "Codex 未接受当前的登录状态或凭据。" },
+            "检查 Codex 登录或 API 密钥后重试。",
+        )
+        normalizedCode == "SANDBOX_ERROR" -> ErrorCopy(
+            "Codex 隔离环境执行失败",
+            message.ifBlank { "任务在 Windows 隔离环境中执行失败。" },
+            "检查 Windows 隔离环境后重试，不要关闭隔离保护。",
+        )
+        normalizedCode == "ACTIVE_TURN_NOT_STEERABLE" -> ErrorCopy(
+            "当前任务不支持追加指令",
+            message.ifBlank { "当前任务类型不能接收同一轮次的追加指令。" },
+            "等待当前任务结束或新建对话后重试。",
+        )
         normalizedCode == "REVISION_SEND_FAILED" -> ErrorCopy(
             "历史已回退，重发尚未确认",
             "原轮次及之后的历史已经移除，替代消息的发送或执行状态还需要核对；工作区文件没有回退。",
@@ -152,7 +192,7 @@ internal fun userFacingError(code: String? = null, raw: String? = null): String 
         message == "无法导出诊断，请重新选择保存位置" -> ErrorCopy("诊断导出失败", "Android 未能写入所选位置。", "重新选择一个可写入的保存位置。")
         else -> ErrorCopy(
             "操作未完成",
-            "AgentDeck 遇到未分类的错误，原始诊断信息已隐藏。",
+            message.take(4000).ifBlank { "AgentDeck 遇到未分类的错误，未收到更具体的诊断信息。" },
             "检查连接和运行环境后重试；若涉及任务提交，请先核对会话状态。",
         )
     }
