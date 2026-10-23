@@ -8,6 +8,7 @@
     "node": ">=22.22.0 <23"
   },
   "scripts": {
+    "android:dev": "node scripts/android/dev-android.mjs",
     "desktop:dev": "pnpm desktop:prepare && node scripts/desktop/dev-desktop.mjs",
     "desktop:prepare": "node scripts/desktop/prepare-native-desktop.mjs",
     "desktop:build": "pnpm desktop:prepare && pnpm --filter @agentdeck/desktop desktop:build",
