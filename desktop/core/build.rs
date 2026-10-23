@@ -1,6 +1,9 @@
 use sha2::{Digest, Sha256};
 use std::{env, fs, path::PathBuf};
 fn main() {
+    // Explicit rerun directives disable Cargo's default package-wide tracking.
+    // Keep generated schema entry points in sync with this generator as well.
+    println!("cargo:rerun-if-changed=build.rs");
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
         .join("../../packages/codex-protocol");
     let lock: serde_json::Value = serde_json::from_slice(

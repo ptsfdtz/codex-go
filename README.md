@@ -87,7 +87,11 @@ pnpm package:windows
 
 桌面开发启动验证：debug 构建、格式检查通过，开发窗口进程已与已安装正式版同时启动；debug 跳过正式版单实例插件，避免开发启动被正式版接管，应用 ID 与正式版行为不变。开发服务仍使用隔离数据目录，未验收其配对/真实模型任务、窗口内视觉热替换或 Rust 自动重启；已有 Low Integrity 限制仍适用。
 
+开发构建修复（2026-10-23）：schema 构建脚本显式监听自身变更，避免旧生成文件缺失 `desktop_schema` 阻断编译。服务 release 构建、格式检查、`desktop:prepare` 及 `desktop:dev` 通过，桌面进程输出 `setup complete`；未验收窗口交互或真实模型任务。
+
 开发环境修复（2026-10-23）：Windows setup 改为在用户 npm 目录安装 `package.json` 锁定的 pnpm，不再生成指向 fnm 特定 Node 目录的 Corepack shim。本机已修复，pnpm 12.3.4 在 Node 22/24 下入口验证通过；项目仍使用 `.node-version` 的 22.22.3。PowerShell 脚本解析、桌面类型检查、服务构建及 Vite 启动通过；未重跑完整环境安装。已有终端可执行 `fnm env --shell powershell | Out-String | Invoke-Expression`、`fnm use 22.22.3` 后启动开发。
+
+安卓启动修复（2026-10-23）：安装包因缺失 `androidx.startup.R$string` 在初始化阶段闪退；停用监听后 clean assembleDebug --no-build-cache 完整重建并保留数据覆盖安装，连续两次冷启动、前台 Activity 与进程存活核对通过，当前进程无崩溃日志。开发监听新增启动后 2.5 秒存活检查，脚本 ESLint 通过；构建产物异常的具体触发原因未完全确认，后续编译与监听需串行运行。
 
 ## 必须保留的实现边界
 

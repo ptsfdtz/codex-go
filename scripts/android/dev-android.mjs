@@ -81,6 +81,13 @@ async function refresh() {
       '-n',
       'dev.agentdeck.app/.MainActivity',
     ]);
+    // ActivityManager may report success before an initialization crash.
+    await new Promise((accept) => setTimeout(accept, 2500));
+    const pid = execFileSync(adb, ['-s', serial, 'shell', 'pidof', 'dev.agentdeck.app'], {
+      encoding: 'utf8',
+      windowsHide: true,
+    }).trim();
+    if (!pid) throw new Error('Android app exited after launch; inspect adb logcat crash logs');
     console.log('Preview updated. Waiting for Android source changes…');
   } catch (error) {
     console.error(
