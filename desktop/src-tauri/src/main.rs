@@ -146,8 +146,12 @@ fn reveal(app: &tauri::AppHandle) {
     }
 }
 fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| reveal(app)))
+    let builder = tauri::Builder::default();
+    // The installed release must not absorb the isolated development window.
+    // Dev launches are already serialized by Vite's strict port and the data lock.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| reveal(app)));
+    builder
         .invoke_handler(tauri::generate_handler![
             autostart::autostart_enabled,
             autostart::set_autostart,
