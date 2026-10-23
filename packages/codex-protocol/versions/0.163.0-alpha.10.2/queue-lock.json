@@ -1,0 +1,56 @@
+{
+  "codexVersion": "0.163.0-alpha.10.2",
+  "experimental": true,
+  "files": [
+    {
+      "name": "ThreadQueueAddParams",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueAddParams.json",
+      "sha256": "60f25b7d3e3357c215bef9d2fe7047200f545e030dca9e00527ac0620cd0c88f"
+    },
+    {
+      "name": "ThreadQueueAddResponse",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueAddResponse.json",
+      "sha256": "c11b9772788427b19c9f9decf0765e2b41cbdead1aa9c3d39f42fdd70b339314"
+    },
+    {
+      "name": "ThreadQueueListParams",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueListParams.json",
+      "sha256": "b4c889089eee8a0f785ff85e0128a4d3f347353870fa848221096a472223773b"
+    },
+    {
+      "name": "ThreadQueueListResponse",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueListResponse.json",
+      "sha256": "be4e0bfa6fc776101f96582543605d2eff6186309a08903203512b99c5005926"
+    },
+    {
+      "name": "ThreadQueueUpdateParams",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueUpdateParams.json",
+      "sha256": "98e958a2e980413274c71dd0e287e51e349ffa073428160eb1652d7c7cc38f27"
+    },
+    {
+      "name": "ThreadQueueUpdateResponse",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueUpdateResponse.json",
+      "sha256": "77161ef691c18e249115acf63a25967afe0ac9e946a856634d02c3f3cca09557"
+    },
+    {
+      "name": "ThreadQueueDeleteParams",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueDeleteParams.json",
+      "sha256": "35d17cc17897a7f560250d0148ec9df0482ba3d33bdcca039dde8391d3b4edbe"
+    },
+    {
+      "name": "ThreadQueueDeleteResponse",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueDeleteResponse.json",
+      "sha256": "5983c0a94e89f93340caecfe96e16d8f535edca39142920bc0ba60ec90a52919"
+    },
+    {
+      "name": "ThreadQueueReorderParams",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueReorderParams.json",
+      "sha256": "524bc69a166160f234c7f7de9f6386ace09ce8165b1409504c5164fbaf9267a6"
+    },
+    {
+      "name": "ThreadQueueReorderResponse",
+      "source": "versions/0.163.0-alpha.10.2/experimental/ThreadQueueReorderResponse.json",
+      "sha256": "161491f6310bcdeac60cd7cb0594cebc51857e9caccb592b7f96cefaa5f4a061"
+    }
+  ]
+}

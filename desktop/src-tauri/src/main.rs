@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod autostart;
 mod host;
 use host::{Action, Host, View};
 use std::{fs::OpenOptions, io::Write, path::PathBuf, process::Command, sync::Arc};
@@ -7,6 +8,11 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, State,
 };
+
+/// Tray creation can be denied by the Windows shell in restricted sessions.
+/// Keep the main window usable instead of aborting startup, and only hide to
+/// tray when one actually exists.
+struct TrayAvailable(bool);
 
 #[tauri::command]
 fn host_snapshot(host: State<'_, Arc<Host>>) -> View {
@@ -53,7 +59,7 @@ async fn install_supported_codex(
             .map_err(|_| "无法准备 Codex CLI 安装脚本".to_owned())?;
         script
             .write_all(include_bytes!(
-                "../../../scripts/install-supported-codex.ps1"
+                "../../../scripts/desktop/install-supported-codex.ps1"
             ))
             .map_err(|_| "无法写入 Codex CLI 安装脚本".to_owned())?;
         drop(script);
@@ -140,9 +146,15 @@ fn reveal(app: &tauri::AppHandle) {
     }
 }
 fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| reveal(app)))
+    let builder = tauri::Builder::default();
+    // The installed release must not absorb the isolated development window.
+    // Dev launches are already serialized by Vite's strict port and the data lock.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| reveal(app)));
+    builder
         .invoke_handler(tauri::generate_handler![
+            autostart::autostart_enabled,
+            autostart::set_autostart,
             host_snapshot,
             host_action,
             host_restart,
@@ -151,52 +163,112 @@ fn main() {
             quit_app
         ])
         .setup(|app| {
+            let requested_webview_dir =
+                std::env::var_os("AGENTDECK_WEBVIEW_DATA_DIR").map(PathBuf::from);
+            let mut webview_dir = requested_webview_dir
+                .clone()
+                .or_else(|| {
+                    std::env::var_os("LOCALAPPDATA")
+                        .map(|path| PathBuf::from(path).join("AgentDeck").join("WebView2"))
+                })
+                .unwrap_or_else(|| std::env::temp_dir().join("AgentDeck-WebView2"));
+            if std::fs::create_dir_all(&webview_dir).is_err() {
+                if requested_webview_dir.is_some() {
+                    return Err(std::io::Error::other(format!(
+                        "无法创建 WebView2 数据目录 {}",
+                        webview_dir.display()
+                    ))
+                    .into());
+                }
+                webview_dir = std::env::temp_dir().join("AgentDeck-WebView2");
+                std::fs::create_dir_all(&webview_dir).map_err(|error| {
+                    std::io::Error::other(format!(
+                        "无法创建 WebView2 数据目录 {}: {error}",
+                        webview_dir.display()
+                    ))
+                })?;
+                eprintln!(
+                    "AgentDeck: LOCALAPPDATA is not writable, using {} for WebView2",
+                    webview_dir.display()
+                );
+            }
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .cloned()
+                .ok_or_else(|| std::io::Error::other("安装配置缺少主窗口"))?;
+            tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)
+                .map_err(|error| std::io::Error::other(format!("无法读取主窗口配置: {error}")))?
+                .data_directory(webview_dir)
+                .build()
+                .map_err(|error| std::io::Error::other(format!("无法创建应用窗口: {error}")))?;
             let host = Host::new(app.handle().clone());
             app.manage(Arc::clone(&host));
             let root = runtime(app.handle());
             std::thread::spawn(move || {
                 if let Err(e) = host.start(root) {
+                    eprintln!("AgentDeck service failed to start: {e}");
                     host.error(e);
                 }
             });
-            let show = MenuItem::with_id(app, "show", "打开 AgentDeck", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "停止并退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().expect("application icon").clone())
-                .tooltip("AgentDeck · 平板工作区")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_tray_icon_event(|tray, event| {
-                    if matches!(
-                        event,
-                        TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
+            let tray = (|| -> tauri::Result<()> {
+                eprintln!("AgentDeck: creating tray menu");
+                let show = MenuItem::with_id(app, "show", "打开 AgentDeck", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "停止并退出", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show, &quit])?;
+                eprintln!("AgentDeck: creating tray icon");
+                TrayIconBuilder::new()
+                    .icon(app.default_window_icon().expect("application icon").clone())
+                    .tooltip("AgentDeck · 平板工作区")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_tray_icon_event(|tray, event| {
+                        if matches!(
+                            event,
+                            TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            }
+                        ) {
+                            reveal(tray.app_handle());
                         }
-                    ) {
-                        reveal(tray.app_handle());
-                    }
-                })
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => reveal(app),
-                    "quit" => {
-                        let app = app.clone();
-                        std::thread::spawn(move || {
-                            app.state::<Arc<Host>>().shutdown();
-                            app.exit(0);
-                        });
-                    }
-                    _ => {}
-                })
-                .build(app)?;
+                    })
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => reveal(app),
+                        "quit" => {
+                            let app = app.clone();
+                            std::thread::spawn(move || {
+                                app.state::<Arc<Host>>().shutdown();
+                                app.exit(0);
+                            });
+                        }
+                        _ => {}
+                    })
+                    .build(app)?;
+                Ok(())
+            })();
+            if let Err(error) = &tray {
+                eprintln!("AgentDeck tray unavailable, continuing without it: {error}");
+            }
+            app.manage(TrayAvailable(tray.is_ok()));
+            eprintln!("AgentDeck: setup complete");
             Ok(())
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                let has_tray = window
+                    .app_handle()
+                    .try_state::<TrayAvailable>()
+                    .map(|state| state.0)
+                    .unwrap_or(false);
+                if has_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .build(tauri::generate_context!())

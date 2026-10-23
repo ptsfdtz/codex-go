@@ -1,14 +1,17 @@
-// Node is a build tool only. The distributed UI host and Bridge run in Rust.
+// Stage the native Rust service consumed by Tauri in development and bundles.
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
+
 if (process.platform !== 'win32') throw new Error('Package on Windows');
+
 const manifest = 'desktop/core/Cargo.toml';
 execFileSync('cargo', ['build', '--release', '--locked', '--manifest-path', manifest], {
   stdio: 'inherit',
   windowsHide: true,
 });
+
 const metadata = JSON.parse(
   execFileSync(
     'cargo',
@@ -16,16 +19,19 @@ const metadata = JSON.parse(
     { encoding: 'utf8', windowsHide: true },
   ),
 );
+
 const root = resolve('desktop/src-tauri/resources/native-runtime');
 mkdirSync(root, { recursive: true });
 const source = join(metadata.target_directory, 'release/agentdeck-service.exe');
 const target = join(root, 'agentdeck-service.exe');
 cpSync(source, target);
+
 const extra = readdirSync(root).filter(
-  (n) => !['agentdeck-service.exe', 'runtime-manifest.json'].includes(n),
+  (name) => !['agentdeck-service.exe', 'runtime-manifest.json'].includes(name),
 );
 if (extra.length)
   throw new Error('Unexpected files in native runtime staging; inspect before packaging');
+
 writeFileSync(
   join(root, 'runtime-manifest.json'),
   JSON.stringify(

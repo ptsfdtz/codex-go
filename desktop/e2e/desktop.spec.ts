@@ -8,6 +8,7 @@ const fixture = {
   revision: 2,
   running: true,
   error: null,
+  errorCode: null,
   pairing: null,
   qr: null as null | Record<string, string>,
   state: {
@@ -28,7 +29,7 @@ const fixture = {
   },
 };
 async function setup(page: Page, value = fixture) {
-  await page.route('**/src/host.ts', async (route) =>
+  await page.route('**/src/bridge/host.ts', async (route) =>
     route.fulfill({
       contentType: 'application/javascript',
       body: `
@@ -121,8 +122,8 @@ test('connected tablet replaces pairing and service loss removes live status', a
         codexReady: false,
         devices: [{ ...v.state.devices[0], connected: false }],
       },
-      errorCode: 'SERVICE_DISCONNECTED',
       error: '连接中断 · 测试替身',
+      errorCode: 'SERVICE_DISCONNECTED',
     },
   );
   await expect(page.getByRole('banner').getByText('服务未连接', { exact: true })).toBeVisible();
