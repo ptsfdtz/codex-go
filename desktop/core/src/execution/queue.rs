@@ -561,17 +561,18 @@ mod resource_tests {
     fn queued_images_require_granted_resource_and_supported_format() {
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        let image = root.path().join("image.png");
+        let granted = paths::canonical(root.path()).unwrap();
+        let image = granted.join("image.png");
         std::fs::write(&image, b"\x89PNG\r\n\x1a\nimage").unwrap();
         let entry = |path: &std::path::Path| json!({"input":[{"type":"localImage","path":path}]});
-        assert!(authorize_queue_input(root.path(), &entry(&image)).is_ok());
+        assert!(authorize_queue_input(&granted, &entry(&image)).is_ok());
         let external = outside.path().join("image.png");
         std::fs::copy(&image, &external).unwrap();
-        assert!(authorize_queue_input(root.path(), &entry(&external)).is_err());
+        assert!(authorize_queue_input(&granted, &entry(&external)).is_err());
         std::fs::write(&image, b"not an image").unwrap();
-        assert!(authorize_queue_input(root.path(), &entry(&image)).is_err());
+        assert!(authorize_queue_input(&granted, &entry(&image)).is_err());
         assert!(authorize_queue_input(
-            root.path(),
+            &granted,
             &json!({"input":[{"type":"image","url":"https://example.com/image.png"}]})
         )
         .is_err());

@@ -424,7 +424,8 @@ mod tests {
     async fn managed_runtime_indexes_existing_threads_on_start_and_new_grants() {
         use std::sync::{atomic::Ordering, Arc};
         let directory = tempfile::tempdir().unwrap();
-        let store = Arc::new(crate::store::Store::open(&directory.path().join("test.db")).unwrap());
+        let canonical = paths::canonical(directory.path()).unwrap();
+        let store = Arc::new(crate::store::Store::open(&canonical.join("test.db")).unwrap());
         let tls = crate::security::Certificate::load(directory.path()).unwrap();
         let (tx, _rx) = tokio::sync::mpsc::channel(128);
         let core = Core::new(store, tls, "127.0.0.1".into(), 18443, tx);
@@ -439,8 +440,8 @@ mod tests {
         crate::codex::initialize(&rpc).await.unwrap();
         *core.rpc.write().unwrap() = Some(rpc.clone());
         core.ready.store(true, Ordering::SeqCst);
-        let granted = directory.path().join("granted");
-        let later = directory.path().join("later");
+        let granted = canonical.join("granted");
+        let later = canonical.join("later");
         for root in [&granted, &later] {
             std::fs::create_dir(root).unwrap();
             rpc.request(
