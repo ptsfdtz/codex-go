@@ -80,6 +80,7 @@ pub fn parse(v: Value) -> Result<Request> {
         | "projects.add"
         | "settings.get"
         | "devices.revokeSelf" => (&[], &[]),
+        "requests.status" => (&["requestId"], &[]),
         "sessions.refreshIndex" => (&["contractVersion"], &[]),
         "projects.nativePage" => (&["contractVersion"], &["cursor", "limit"]),
         "settings.update" => (&["days", "maxMiB"], &[]),
@@ -222,6 +223,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "lastTurnId",
         "beforeTurnId",
         "expectedLastTurnId",
+        "requestId",
     ] {
         if p.get(key).is_some() {
             text(p, key, 1, 160)?;

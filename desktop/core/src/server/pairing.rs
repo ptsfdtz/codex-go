@@ -170,6 +170,18 @@ impl Pairing {
         Ok((response, confirmation))
     }
     pub fn confirm(&self, store: &Store, id: &str, approve: bool) -> Result<()> {
+        self.confirm_checked(store, id, approve, None)
+    }
+    pub fn confirm_with_code(&self, store: &Store, id: &str, code: &str) -> Result<()> {
+        self.confirm_checked(store, id, true, Some(code))
+    }
+    fn confirm_checked(
+        &self,
+        store: &Store,
+        id: &str,
+        approve: bool,
+        code: Option<&str>,
+    ) -> Result<()> {
         let mut state = self.inner.lock().unwrap();
         state.prune();
         let pending = state
@@ -181,6 +193,13 @@ impl Pairing {
             "PAIRING_EXPIRED",
             "Request expired or handled",
         )?;
+        if let Some(code) = code {
+            ensure(
+                code == pending.code,
+                "UNAUTHORIZED",
+                "Pairing code does not match",
+            )?;
+        }
         if !approve {
             pending.status = "rejected".into();
             return Ok(());

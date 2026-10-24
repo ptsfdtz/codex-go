@@ -8,7 +8,7 @@ pub(crate) use projects::native_project_views;
 pub use projects::{git, paths};
 mod server;
 mod settings;
-pub use server::{capabilities, cloud, pairing, protocol, service, transport};
+pub use server::{capabilities, cloud, management, pairing, protocol, service, transport};
 mod storage;
 pub use storage::store;
 mod authorization;

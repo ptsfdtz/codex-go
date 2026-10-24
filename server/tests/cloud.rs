@@ -33,6 +33,9 @@ impl TestServer {
         Self::new_for_origin("https://cloud.test".into()).await
     }
     async fn new_for_origin(public_origin: String) -> Self {
+        Self::new_with_web_origins(public_origin, vec![]).await
+    }
+    async fn new_with_web_origins(public_origin: String, web_origins: Vec<String>) -> Self {
         let database_url = std::env::var("AGENTDECK_TEST_DATABASE_URL")
             .expect("Set AGENTDECK_TEST_DATABASE_URL to an isolated PostgreSQL test instance");
         let config: tokio_postgres::Config = database_url.parse().unwrap();
@@ -54,6 +57,7 @@ impl TestServer {
             database_url: database_url_for(&test_config),
             listen: address,
             public_origin,
+            web_origins,
             max_tunnels: 1024,
             proxy_token: None,
         })
@@ -95,6 +99,42 @@ impl TestServer {
         })).send().await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         response.json().await.unwrap()
+    }
+    async fn web_login(&self, name: &str, password: &str, origin: &str) -> (String, String) {
+        let response = self
+            .client
+            .post(format!("{}/api/v1/web/login", self.base))
+            .header("Origin", origin)
+            .json(&json!({
+                "username": name,
+                "password": password,
+                "installationId": security::token(),
+                "deviceName": "Browser",
+                "kind": "web"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut pairs = Vec::new();
+        let mut csrf = String::new();
+        for value in response.headers().get_all("set-cookie") {
+            let value = value.to_str().unwrap();
+            assert!(
+                value.contains("Secure")
+                    && value.contains("SameSite=None")
+                    && value.contains("Partitioned")
+            );
+            let pair = value.split(';').next().unwrap();
+            if let Some(token) = pair.strip_prefix("__Host-agentdeck_web_csrf=") {
+                csrf = token.to_owned();
+            } else {
+                assert!(value.contains("HttpOnly"));
+            }
+            pairs.push(pair.to_owned());
+        }
+        assert!(!csrf.is_empty());
+        (pairs.join("; "), csrf)
     }
     async fn ready(&self, name: &str, role: &str, kind: &str) -> Value {
         self.account(name, role).await;
@@ -179,6 +219,49 @@ impl TestServer {
             .send()
             .await
             .unwrap()
+    }
+    async fn web_offer(&self, cookie: &str, origin: &str, host: &str) -> Response {
+        let csrf = cookie
+            .split(';')
+            .find_map(|value| value.trim().strip_prefix("__Host-agentdeck_web_csrf="))
+            .unwrap();
+        self.client
+            .post(format!("{}/api/v1/relay/tunnels", self.base))
+            .header("Origin", origin)
+            .header("Cookie", cookie)
+            .header("X-CSRF-Token", csrf)
+            .json(&json!({"hostId":host}))
+            .send()
+            .await
+            .unwrap()
+    }
+    async fn web_socket(
+        &self,
+        path: &str,
+        cookie: &str,
+        origin: &str,
+        ticket: &str,
+    ) -> Result<Socket, StatusCode> {
+        let mut request = format!("{}{}", self.base.replace("http:", "ws:"), path)
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert("Origin", origin.parse().unwrap());
+        request
+            .headers_mut()
+            .insert("Cookie", cookie.parse().unwrap());
+        request.headers_mut().insert(
+            "Sec-WebSocket-Protocol",
+            format!("agentdeck-relay-v1, {ticket}").parse().unwrap(),
+        );
+        match connect_async(request).await {
+            Ok((socket, _)) => Ok(socket),
+            Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+                Err(StatusCode::from_u16(response.status().as_u16()).unwrap())
+            }
+            Err(_) => panic!("WebSocket connection failed"),
+        }
     }
     async fn sql(&self, query: &str) {
         let url = std::env::var("AGENTDECK_TEST_DATABASE_URL").unwrap();
@@ -547,6 +630,273 @@ async fn admin_browser_uses_real_https_accounts_and_database() {
         .replace("browser-changed-password", "[redacted]");
     test.finish().await;
     assert!(success, "Admin browser acceptance failed: {detail}");
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL; run the cloud integration check"]
+async fn web_browser_first_login_password_change_requires_csrf_and_revokes_session() {
+    let origin = "https://ptsfdtz.github.io";
+    let test =
+        TestServer::new_with_web_origins("https://cloud.test".into(), vec![origin.into()]).await;
+    test.account("web-password", "user").await;
+    let (jar, csrf) = test.web_login("web-password", INITIAL, origin).await;
+    let account = test
+        .client
+        .get(format!("{}/api/v1/web/session", test.base))
+        .header("Origin", origin)
+        .header("Cookie", &jar)
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(account["mustChangePassword"], true);
+    let change = || {
+        test.client
+            .post(format!("{}/api/v1/web/password", test.base))
+            .header("Origin", origin)
+            .header("Cookie", &jar)
+            .json(&json!({"oldPassword":INITIAL,"newPassword":CHANGED}))
+    };
+    assert_eq!(
+        change().send().await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        change()
+            .header("X-CSRF-Token", &csrf)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        test.client
+            .get(format!("{}/api/v1/web/session", test.base))
+            .header("Origin", origin)
+            .header("Cookie", &jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let (new_jar, _) = test.web_login("web-password", CHANGED, origin).await;
+    let account = test
+        .client
+        .get(format!("{}/api/v1/web/session", test.base))
+        .header("Origin", origin)
+        .header("Cookie", new_jar)
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(account["mustChangePassword"], false);
+    test.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL; run the cloud integration check"]
+async fn web_browser_session_origin_csrf_and_device_scope() {
+    let origin = "https://ptsfdtz.github.io";
+    let test =
+        TestServer::new_with_web_origins("https://cloud.test".into(), vec![origin.into()]).await;
+    let desktop = test.ready("web-user", "user", "desktop").await;
+    let mobile = test
+        .login("web-user", CHANGED, "mobile", &security::token())
+        .await;
+    assert_eq!(
+        test.register(&desktop, "web_host_auth").await,
+        StatusCode::OK
+    );
+    let (jar, csrf) = test.web_login("web-user", CHANGED, origin).await;
+    let recovered = test
+        .client
+        .get(format!("{}/api/v1/web/csrf", test.base))
+        .header("Origin", origin)
+        .header("Cookie", &jar)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(recovered.status(), StatusCode::OK);
+    assert_eq!(recovered.json::<Value>().await.unwrap()["csrfToken"], csrf);
+    assert_eq!(
+        test.client
+            .get(format!("{}/api/v1/web/csrf", test.base))
+            .header("Origin", "https://evil.example")
+            .header("Cookie", &jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        test.client
+            .delete(format!(
+                "{}/api/v1/devices/{}",
+                test.base,
+                mobile["cloudDeviceId"].as_str().unwrap()
+            ))
+            .header("Origin", origin)
+            .header("Cookie", &jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_ne!(desktop["cloudDeviceId"], mobile["cloudDeviceId"]);
+    assert_ne!(desktop["cloudDeviceId"], Value::Null);
+    assert_eq!(
+        test.client
+            .get(format!("{}/api/v1/web/session", test.base))
+            .header("Origin", origin)
+            .header("Cookie", &jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        test.client
+            .get(format!("{}/api/v1/hosts", test.base))
+            .header("Origin", origin)
+            .header("Cookie", &jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        test.client
+            .get(format!("{}/api/v1/web/session", test.base))
+            .header("Origin", "https://evil.example")
+            .header("Cookie", &jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        test.client
+            .post(format!("{}/api/v1/web/refresh", test.base))
+            .header("Origin", origin)
+            .header("Cookie", &jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let refreshed = test
+        .client
+        .post(format!("{}/api/v1/web/refresh", test.base))
+        .header("Origin", origin)
+        .header("Cookie", &jar)
+        .header("X-CSRF-Token", &csrf)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let (new_jar, new_csrf) = {
+        let mut pairs = Vec::new();
+        let mut token = String::new();
+        for value in refreshed.headers().get_all("set-cookie") {
+            let value = value.to_str().unwrap();
+            let pair = value.split(';').next().unwrap();
+            if let Some(value) = pair.strip_prefix("__Host-agentdeck_web_csrf=") {
+                token = value.to_owned();
+            }
+            pairs.push(pair.to_owned());
+        }
+        (pairs.join("; "), token)
+    };
+    assert!(!new_csrf.is_empty());
+    assert_eq!(
+        test.client
+            .post(format!("{}/api/v1/web/logout", test.base))
+            .header("Origin", origin)
+            .header("Cookie", &new_jar)
+            .header("X-CSRF-Token", &new_csrf)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        test.client
+            .get(format!("{}/api/v1/web/session", test.base))
+            .header("Origin", origin)
+            .header("Cookie", &new_jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    test.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL; run the cloud integration check"]
+async fn web_browser_relay_uses_cookie_origin_and_one_time_ticket() {
+    let origin = "https://ptsfdtz.github.io";
+    let test =
+        TestServer::new_with_web_origins("https://cloud.test".into(), vec![origin.into()]).await;
+    let desktop = test.ready("web-relay", "user", "desktop").await;
+    let (cookie, _) = test.web_login("web-relay", CHANGED, origin).await;
+    assert_eq!(test.register(&desktop, "web_host").await, StatusCode::OK);
+    let mut control = test.control(&desktop).await;
+    let response = test.web_offer(&cookie, origin, "web_host").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let offer: Value = response.json().await.unwrap();
+    let notification = next_json(&mut control).await;
+    let path = format!(
+        "/api/v1/relay/tunnels/{}/client",
+        offer["tunnelId"].as_str().unwrap()
+    );
+    let client = test
+        .web_socket(
+            &path,
+            &cookie,
+            origin,
+            offer["clientTicket"].as_str().unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        test.web_socket(
+            &path,
+            &cookie,
+            origin,
+            offer["clientTicket"].as_str().unwrap()
+        )
+        .await
+        .err(),
+        Some(StatusCode::FORBIDDEN)
+    );
+    let host = test
+        .socket(
+            &format!(
+                "/api/v1/relay/tunnels/{}/host",
+                offer["tunnelId"].as_str().unwrap()
+            ),
+            &desktop,
+            notification["hostTicket"].as_str(),
+        )
+        .await
+        .unwrap();
+    verify_inner_tls(client, host).await;
+    test.finish().await;
 }
 
 #[tokio::test]

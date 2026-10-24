@@ -91,6 +91,22 @@ pub(crate) fn read_local_credential(token_file: &std::path::Path) -> Result<Stri
         "CONFIG_ERROR",
         "Credential file must be absolute",
     )?;
+    let metadata = std::fs::metadata(token_file)
+        .map_err(|_| Error::new("CONFIG_ERROR", "Cannot open local runtime credential"))?;
+    ensure(
+        metadata.is_file(),
+        "CONFIG_ERROR",
+        "Runtime credential must be a regular file",
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        ensure(
+            metadata.permissions().mode() & 0o077 == 0,
+            "CONFIG_ERROR",
+            "Runtime credential file must be private (0600)",
+        )?;
+    }
     let mut bytes = Vec::new();
     std::fs::File::open(token_file)
         .map_err(|_| Error::new("CONFIG_ERROR", "Cannot open local runtime credential"))?
@@ -129,11 +145,23 @@ mod tests {
         )
         .unwrap();
         std::fs::write(&file, format!("{}\r\n", "x".repeat(43))).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         assert_eq!(target.credential().unwrap(), "x".repeat(43));
         std::fs::write(&file, "x".repeat(4097)).unwrap();
         assert!(target.credential().is_err());
         std::fs::write(&file, "bad secret").unwrap();
         assert!(target.credential().is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::write(&file, format!("{}\n", "x".repeat(43))).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(target.credential().is_err());
+        }
     }
     #[test]
     fn runtime_identity_requires_the_exact_pinned_version() {

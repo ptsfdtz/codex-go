@@ -7,7 +7,7 @@ use crate::{
 use agentdeck_connection_protocol::DeviceKind;
 use axum::{
     extract::{ConnectInfo, DefaultBodyLimit, Path, Request, State as AppState},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -21,12 +21,19 @@ use std::{
 };
 
 pub fn router(state: Arc<State>) -> Router {
+    let web_origins = state.config.web_origins.clone();
     Router::new()
         .route("/health/live", get(|| async { Json(json!({"ok":true})) }))
         .route("/health/ready", get(health))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/refresh", post(refresh))
         .route("/api/v1/auth/logout", post(logout))
+        .route("/api/v1/web/login", post(web_login))
+        .route("/api/v1/web/refresh", post(web_refresh))
+        .route("/api/v1/web/logout", post(web_logout))
+        .route("/api/v1/web/session", get(web_session))
+        .route("/api/v1/web/csrf", get(browser_csrf))
+        .route("/api/v1/web/password", post(browser_password))
         .route("/api/v1/auth/password", post(password))
         .route("/api/v1/account", get(account))
         .route("/api/v1/devices", get(devices))
@@ -90,8 +97,60 @@ pub fn router(state: Arc<State>) -> Router {
         )
         .fallback(|| async { Error::new(StatusCode::NOT_FOUND, "NOT_FOUND", "地址不存在") })
         .layer(DefaultBodyLimit::max(16 * 1024))
+        .layer(middleware::from_fn(move |request, next| {
+            browser_headers(request, next, web_origins.clone())
+        }))
         .layer(middleware::from_fn(response_headers))
         .with_state(state)
+}
+async fn browser_headers(request: Request, next: Next, origins: Vec<String>) -> Response {
+    if request.method() == Method::OPTIONS {
+        let mut response = StatusCode::NO_CONTENT.into_response();
+        let origin = request
+            .headers()
+            .get(header::ORIGIN)
+            .and_then(|v| v.to_str().ok());
+        if origin.is_some_and(|value| origins.iter().any(|allowed| allowed == value)) {
+            let headers = response.headers_mut();
+            headers.insert(
+                "Access-Control-Allow-Origin",
+                HeaderValue::from_str(origin.unwrap()).unwrap(),
+            );
+            headers.insert(
+                "Access-Control-Allow-Credentials",
+                HeaderValue::from_static("true"),
+            );
+            headers.insert(
+                "Access-Control-Allow-Methods",
+                HeaderValue::from_static("GET,POST,PUT,DELETE,OPTIONS"),
+            );
+            headers.insert(
+                "Access-Control-Allow-Headers",
+                HeaderValue::from_static("content-type,x-csrf-token"),
+            );
+            headers.insert("Vary", HeaderValue::from_static("Origin"));
+        }
+        return response;
+    }
+    let origin = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let mut response = next.run(request).await;
+    if let Some(origin) = origin.filter(|value| origins.iter().any(|allowed| allowed == value)) {
+        let headers = response.headers_mut();
+        headers.insert(
+            "Access-Control-Allow-Origin",
+            HeaderValue::from_str(&origin).unwrap(),
+        );
+        headers.insert(
+            "Access-Control-Allow-Credentials",
+            HeaderValue::from_static("true"),
+        );
+        headers.insert("Vary", HeaderValue::from_static("Origin"));
+    }
+    response
 }
 async fn response_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
@@ -119,6 +178,21 @@ fn origin(state: &State, headers: &HeaderMap) -> Result<()> {
     }
     Ok(())
 }
+fn web_origin(state: &State, headers: &HeaderMap) -> Result<()> {
+    let value = headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(Error::forbidden)?;
+    if !state
+        .config
+        .web_origins
+        .iter()
+        .any(|allowed| allowed == value)
+    {
+        return Err(Error::forbidden());
+    }
+    Ok(())
+}
 pub async fn native_auth(state: &State, headers: &HeaderMap) -> Result<Auth> {
     no_origin(headers)?;
     let access = headers
@@ -127,7 +201,7 @@ pub async fn native_auth(state: &State, headers: &HeaderMap) -> Result<Auth> {
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or_else(Error::unauthorized)?;
     let auth = state.store.authenticate(access).await?;
-    if auth.kind == "adminWeb" {
+    if auth.kind == "adminWeb" || auth.kind == "web" {
         return Err(Error::forbidden());
     }
     Ok(auth)
@@ -148,7 +222,12 @@ fn csrf_header(headers: &HeaderMap) -> Result<&str> {
         .filter(|v| security::valid_token(v))
         .ok_or_else(Error::forbidden)
 }
-async fn web_auth(state: &State, headers: &HeaderMap, write: bool, ready: bool) -> Result<Auth> {
+pub(crate) async fn web_auth(
+    state: &State,
+    headers: &HeaderMap,
+    write: bool,
+    ready: bool,
+) -> Result<Auth> {
     if write {
         origin(state, headers)?;
     }
@@ -225,6 +304,7 @@ async fn perform_login(
     let kind = match input.kind {
         DeviceKind::Desktop => "desktop",
         DeviceKind::Mobile => "mobile",
+        DeviceKind::Web => "web",
         DeviceKind::AdminWeb => "adminWeb",
     };
     if admin && (account.role != "admin" || kind != "adminWeb") || !admin && kind == "adminWeb" {
@@ -283,6 +363,158 @@ async fn logout(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -> Re
     state.hub.disconnect_session(&auth.session_id);
     Ok(Json(json!({"ok":true})))
 }
+fn browser_cookie(name: &str, value: &str, max_age: u64, http_only: bool) -> HeaderValue {
+    let http_only = if http_only { "; HttpOnly" } else { "" };
+    HeaderValue::from_str(&format!(
+        "{name}={value}; Max-Age={max_age}; Path=/; Secure; SameSite=None; Partitioned{http_only}"
+    ))
+    .expect("cookie value is a validated token")
+}
+fn browser_response(tokens: &SessionTokens) -> Response {
+    let csrf = tokens.csrf_token.clone().unwrap_or_else(security::token);
+    let mut headers = HeaderMap::new();
+    headers.append(
+        header::SET_COOKIE,
+        browser_cookie(
+            "__Host-agentdeck_web_access",
+            &tokens.access_token,
+            tokens.access_expires_in,
+            true,
+        ),
+    );
+    headers.append(
+        header::SET_COOKIE,
+        browser_cookie(
+            "__Host-agentdeck_web_refresh",
+            &tokens.refresh_token,
+            2_592_000,
+            true,
+        ),
+    );
+    headers.append(
+        header::SET_COOKIE,
+        browser_cookie("__Host-agentdeck_web_csrf", &csrf, 2_592_000, false),
+    );
+    (
+        headers,
+        Json(json!({
+            "accountId": tokens.account_id,
+            "username": tokens.username,
+            "role": tokens.role,
+            "cloudDeviceId": tokens.cloud_device_id,
+            "mustChangePassword": tokens.must_change_password,
+            "accessExpiresIn": tokens.access_expires_in,
+            "csrfToken": csrf,
+        })),
+    )
+        .into_response()
+}
+pub(crate) async fn browser_auth(
+    state: &State,
+    headers: &HeaderMap,
+    write: bool,
+    ready: bool,
+) -> Result<Auth> {
+    web_origin(state, headers)?;
+    let auth = state
+        .store
+        .authenticate(
+            cookie(headers, "__Host-agentdeck_web_access").ok_or_else(Error::unauthorized)?,
+        )
+        .await?;
+    if auth.kind != "web" {
+        return Err(Error::forbidden());
+    }
+    if write
+        && !auth.csrf_hash.as_ref().is_some_and(|hash| {
+            csrf_header(headers).is_ok_and(|token| security::equal(hash, &security::digest(token)))
+        })
+    {
+        return Err(Error::forbidden());
+    }
+    if ready {
+        auth.ready()?;
+    }
+    Ok(auth)
+}
+pub(crate) async fn client_auth(state: &State, headers: &HeaderMap, ready: bool) -> Result<Auth> {
+    if headers.contains_key(header::ORIGIN) {
+        browser_auth(state, headers, false, ready).await
+    } else {
+        let auth = native_auth(state, headers).await?;
+        if ready {
+            auth.ready()?;
+        }
+        Ok(auth)
+    }
+}
+async fn web_login(
+    AppState(state): AppState<Arc<State>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(mut input): Json<Login>,
+) -> Result<Response> {
+    web_origin(&state, &headers)?;
+    input.kind = DeviceKind::Web;
+    let tokens = perform_login(&state, &headers, peer, input, false).await?;
+    Ok(browser_response(&tokens))
+}
+async fn web_refresh(
+    AppState(state): AppState<Arc<State>>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    web_origin(&state, &headers)?;
+    let csrf = csrf_header(&headers)?;
+    let refresh =
+        cookie(&headers, "__Host-agentdeck_web_refresh").ok_or_else(Error::unauthorized)?;
+    match state.store.refresh(refresh, Some(csrf), false).await? {
+        Refreshed::Issued(tokens) => Ok(browser_response(&tokens)),
+        Refreshed::Reused(session) => {
+            state.hub.disconnect_session(&session);
+            Err(Error::unauthorized())
+        }
+    }
+}
+async fn web_session(
+    AppState(state): AppState<Arc<State>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    Ok(Json(public_account(
+        &browser_auth(&state, &headers, false, false).await?,
+    )))
+}
+async fn browser_csrf(
+    AppState(state): AppState<Arc<State>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    web_origin(&state, &headers)?;
+    let token = cookie(&headers, "__Host-agentdeck_web_csrf")
+        .filter(|value| security::valid_token(value))
+        .ok_or_else(Error::unauthorized)?;
+    // Only return the anti-CSRF token, never access/refresh credentials. This
+    // permits a Pages tab to recover after reload even when access has expired.
+    Ok(Json(json!({"csrfToken": token})))
+}
+async fn web_logout(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -> Result<Response> {
+    let auth = browser_auth(&state, &headers, true, false).await?;
+    state.store.logout(&auth).await?;
+    state.hub.disconnect_session(&auth.session_id);
+    let mut cookies = HeaderMap::new();
+    for name in [
+        "__Host-agentdeck_web_access",
+        "__Host-agentdeck_web_refresh",
+        "__Host-agentdeck_web_csrf",
+    ] {
+        cookies.append(
+            header::SET_COOKIE,
+            HeaderValue::from_str(&format!(
+                "{name}=; Max-Age=0; Path=/; Secure; SameSite=None; Partitioned; HttpOnly"
+            ))
+            .unwrap(),
+        );
+    }
+    Ok((cookies, Json(json!({"ok":true}))).into_response())
+}
 async fn change_password(state: &State, auth: &Auth, input: PasswordChange) -> Result<Json<Value>> {
     if !state
         .limits
@@ -314,12 +546,21 @@ async fn password(
     let auth = native_auth(&state, &headers).await?;
     change_password(&state, &auth, input).await
 }
+async fn browser_password(
+    AppState(state): AppState<Arc<State>>,
+    headers: HeaderMap,
+    Json(input): Json<PasswordChange>,
+) -> Result<Json<Value>> {
+    let auth = browser_auth(&state, &headers, true, false).await?;
+    change_password(&state, &auth, input).await
+}
 async fn account(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -> Result<Json<Value>> {
-    Ok(Json(public_account(&native_auth(&state, &headers).await?)))
+    Ok(Json(public_account(
+        &client_auth(&state, &headers, false).await?,
+    )))
 }
 async fn devices(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -> Result<Json<Value>> {
-    let auth = native_auth(&state, &headers).await?;
-    auth.ready()?;
+    let auth = client_auth(&state, &headers, true).await?;
     Ok(Json(
         json!({"devices":state.store.devices(Some(&auth.account_id)).await?}),
     ))
@@ -329,8 +570,13 @@ async fn revoke_device(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
-    let auth = native_auth(&state, &headers).await?;
-    auth.ready()?;
+    let auth = if headers.contains_key(header::ORIGIN) {
+        browser_auth(&state, &headers, true, true).await?
+    } else {
+        let auth = native_auth(&state, &headers).await?;
+        auth.ready()?;
+        auth
+    };
     state
         .store
         .revoke_device(&auth.account_id, Some(&auth.account_id), &id)
@@ -368,8 +614,7 @@ async fn register_host(
     Ok(Json(json!({"hostId":input.host_id})))
 }
 async fn hosts(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -> Result<Json<Value>> {
-    let auth = native_auth(&state, &headers).await?;
-    auth.ready()?;
+    let auth = client_auth(&state, &headers, true).await?;
     let mut hosts = state.store.hosts(&auth.account_id).await?;
     for host in &mut hosts {
         host["online"] = json!(state

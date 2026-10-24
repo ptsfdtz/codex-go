@@ -1,0 +1,169 @@
+import { HostSocket } from './host';
+import type { HostGrant } from '../host-book';
+
+export type Packet = {
+  type?: string;
+  id?: string;
+  action?: string;
+  sessionId?: string;
+  turnId?: string;
+  payload?: Record<string, unknown>;
+  code?: string;
+  message?: string;
+  requestId?: string;
+};
+export class Bridge {
+  private socket?: HostSocket;
+  private pending = new Map<
+    string,
+    {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  private events: ((value: Packet) => void)[] = [];
+  private closed = false;
+  private hostId = '';
+  private receiptsFound: Packet[] = [];
+  constructor(private readonly scope: string) {}
+  private readonly mutationActions = new Set([
+    'sessions.create',
+    'turn.start',
+    'turn.interrupt',
+    'approvals.decide',
+    'sessions.rename',
+    'sessions.archive',
+    'sessions.restore',
+    'sessions.delete',
+    'sessions.goal.resume',
+    'sessions.goal.clear',
+    'sessions.goal.edit',
+  ]);
+  async connect(grant: HostGrant) {
+    this.hostId = grant.hostId;
+    this.socket = await HostSocket.connect(grant.hostId, grant.fingerprint, grant.credential);
+    if (this.closed) {
+      this.socket.close();
+      throw new Error('Connection cancelled');
+    }
+    void this.socket.receive(
+      (text) => {
+        const packet = JSON.parse(text) as Packet;
+        const request = packet.id ? this.pending.get(packet.id) : undefined;
+        if (request) {
+          clearTimeout(request.timer);
+          this.pending.delete(packet.id!);
+          if (
+            packet.type === 'response' ||
+            (packet.type === 'error' && packet.code !== 'OUTCOME_UNKNOWN')
+          )
+            this.clearReceipt(packet.id!);
+          if (packet.type === 'error')
+            request.reject(
+              new Error(`${packet.code || 'ERROR'}: ${packet.message || 'Host request failed'}`),
+            );
+          else if (packet.type === 'response') request.resolve(packet.payload);
+          else {
+            request.reject(new Error('Invalid host response'));
+            this.close();
+          }
+        } else this.events.forEach((handler) => handler(packet));
+      },
+      (error) => this.fail(error),
+    );
+    const hello = await this.request<{ hostId: string }>('system.hello', {
+      client: 'AgentDeck Web/0.3.0',
+      version: 1,
+    });
+    if (hello.hostId !== grant.hostId) {
+      this.close();
+      throw new Error('Host identity mismatch');
+    }
+    await this.reconcileReceipts();
+  }
+  onEvent(handler: (value: Packet) => void) {
+    this.events.push(handler);
+    for (const packet of this.receiptsFound.splice(0)) handler(packet);
+    return () => {
+      this.events = this.events.filter((item) => item !== handler);
+    };
+  }
+  request<T = unknown>(action: string, payload: unknown = {}): Promise<T> {
+    if (!this.socket || this.closed) return Promise.reject(new Error('Host disconnected'));
+    const id = `web-${crypto.randomUUID()}`;
+    if (this.mutationActions.has(action)) {
+      const pending = this.receipts();
+      if (pending.length)
+        return Promise.reject(new Error('上一条操作结果尚未确定，请重连核对后再操作'));
+      pending.push(id);
+      try {
+        this.saveReceipts(pending);
+      } catch {
+        return Promise.reject(new Error('无法保存操作回执；请允许浏览器存储后重试'));
+      }
+    }
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(
+          new Error('Host request timed out; outcome may be unknown. Reconcile before retrying.'),
+        );
+      }, 30000);
+      this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
+      void this.socket!.send(JSON.stringify({ v: 1, type: 'request', id, action, payload })).catch(
+        (error) => this.fail(error instanceof Error ? error : new Error('Host send failed')),
+      );
+    });
+  }
+  private receiptKey() {
+    return `agentdeck.web.receipts.${this.scope}.${this.hostId}`;
+  }
+  private receipts(): string[] {
+    try {
+      const value = JSON.parse(localStorage.getItem(this.receiptKey()) || '[]');
+      return Array.isArray(value) ? value.filter((v) => typeof v === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+  private saveReceipts(value: string[]) {
+    if (value.length) localStorage.setItem(this.receiptKey(), JSON.stringify(value));
+    else localStorage.removeItem(this.receiptKey());
+  }
+  private clearReceipt(id: string) {
+    const next = this.receipts().filter((value) => value !== id);
+    this.saveReceipts(next);
+  }
+  private async reconcileReceipts() {
+    for (const id of this.receipts()) {
+      try {
+        const status = await this.request<{ status?: string; response?: Packet }>(
+          'requests.status',
+          { requestId: id },
+        );
+        if (status.response && status.status !== 'pending' && status.status !== 'unknown')
+          this.clearReceipt(id);
+        const packet = { type: 'receipt', requestId: id, payload: status } satisfies Packet;
+        if (this.events.length) this.events.forEach((handler) => handler(packet));
+        else this.receiptsFound.push(packet);
+      } catch {
+        /* keep the receipt for the next reconnect */
+      }
+    }
+  }
+  private fail(error: Error) {
+    if (this.closed) return;
+    this.closed = true;
+    this.socket?.close();
+    for (const request of this.pending.values()) {
+      clearTimeout(request.timer);
+      request.reject(error);
+    }
+    this.pending.clear();
+    this.events.forEach((handler) => handler({ type: 'closed', message: error.message }));
+  }
+  close() {
+    this.fail(new Error('Host connection closed'));
+  }
+}

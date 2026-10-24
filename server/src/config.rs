@@ -6,6 +6,7 @@ pub struct Config {
     pub database_url: String,
     pub listen: SocketAddr,
     pub public_origin: String,
+    pub web_origins: Vec<String>,
     pub max_tunnels: usize,
     pub proxy_token: Option<String>,
 }
@@ -24,6 +25,25 @@ impl Config {
         {
             return Err(Error::invalid());
         }
+        let web_origins = std::env::var("AGENTDECK_WEB_ORIGINS")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| {
+                let value = value.trim_end_matches('/').to_owned();
+                let parsed = axum::http::Uri::from_str(&value).map_err(|_| Error::invalid())?;
+                if parsed.scheme_str() != Some("https")
+                    || parsed.authority().is_none()
+                    || parsed.authority().is_some_and(|a| a.as_str().contains('@'))
+                    || parsed.path() != "/"
+                    || parsed.query().is_some()
+                {
+                    return Err(Error::invalid());
+                }
+                Ok(value)
+            })
+            .collect::<Result<Vec<_>>>()?;
         let listen = std::env::var("AGENTDECK_LISTEN")
             .unwrap_or_else(|_| "127.0.0.1:8080".into())
             .parse()
@@ -45,6 +65,7 @@ impl Config {
             database_url,
             listen,
             public_origin,
+            web_origins,
             max_tunnels,
             proxy_token,
         })

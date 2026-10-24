@@ -102,6 +102,7 @@ impl Store {
         let cap = match kind {
             "desktop" => row.get::<_, i32>("max_hosts"),
             "mobile" => row.get("max_mobile_devices"),
+            "web" => 16,
             "adminWeb" => 8,
             _ => return Err(Error::invalid()),
         };
@@ -116,7 +117,7 @@ impl Store {
         }
         tx.execute("INSERT INTO devices(id,account_id,installation_hash,kind,display_name) VALUES($1,$2,$3,$4,$5) ON CONFLICT(account_id,installation_hash) DO UPDATE SET display_name=EXCLUDED.display_name,revoked_at=NULL",&[&device,&account.id,&install_hash,&kind,&name]).await?;
         let old=tx.query("UPDATE sessions SET revoked_at=now() WHERE device_id=$1 AND revoked_at IS NULL RETURNING id",&[&device]).await?.into_iter().map(|r|r.get(0)).collect();
-        let tokens = SessionTokens::new(account, &device, kind == "adminWeb");
+        let tokens = SessionTokens::new(account, &device, kind == "adminWeb" || kind == "web");
         tx.execute(
             "INSERT INTO sessions(id,device_id,access_hash,csrf_hash) VALUES($1,$2,$3,$4)",
             &[
@@ -168,7 +169,7 @@ impl Store {
         if (kind == "adminWeb") != admin {
             return Err(Error::forbidden());
         }
-        if admin
+        if (admin || kind == "web")
             && !row
                 .get::<_, Option<String>>("csrf_hash")
                 .zip(csrf)
@@ -196,7 +197,11 @@ impl Store {
             disabled: false,
             must_change_password: row.get("must_change_password"),
         };
-        let mut tokens = SessionTokens::new(&account, &row.get::<_, String>("device_id"), admin);
+        let mut tokens = SessionTokens::new(
+            &account,
+            &row.get::<_, String>("device_id"),
+            admin || kind == "web",
+        );
         tokens.session_id = session;
         tx.execute(
             "UPDATE refresh_tokens SET consumed_at=now() WHERE hash=$1",

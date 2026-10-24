@@ -1,4 +1,8 @@
-use crate::{accounts::Auth, api::native_auth, security, Error, Result, State};
+use crate::{
+    accounts::Auth,
+    api::{browser_auth, native_auth},
+    security, Error, Result, State,
+};
 use agentdeck_connection_protocol::{
     ControlMessage, TunnelOffer, TunnelRequest, MAX_RELAY_FRAME, TICKET_LIFETIME_SECONDS, VERSION,
 };
@@ -257,9 +261,13 @@ pub async fn offer(
     headers: HeaderMap,
     Json(request): Json<TunnelRequest>,
 ) -> Result<Json<TunnelOffer>> {
-    let auth = native_auth(&state, &headers).await?;
+    let auth = if headers.contains_key("origin") {
+        browser_auth(&state, &headers, true, true).await?
+    } else {
+        native_auth(&state, &headers).await?
+    };
     auth.ready()?;
-    if auth.kind != "mobile" {
+    if auth.kind != "mobile" && auth.kind != "web" {
         return Err(Error::forbidden());
     }
     if !state
@@ -377,12 +385,27 @@ pub async fn attach(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Result<Response> {
-    let auth = native_auth(&state, &headers).await?;
+    let auth = if headers.contains_key("origin") {
+        browser_auth(&state, &headers, false, true).await?
+    } else {
+        native_auth(&state, &headers).await?
+    };
     auth.ready()?;
     let ticket = headers
         .get("x-tunnel-ticket")
         .and_then(|v| v.to_str().ok())
         .filter(|v| security::valid_token(v))
+        .or_else(|| {
+            headers
+                .get("sec-websocket-protocol")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|value| {
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .find(|part| security::valid_token(part))
+                })
+        })
         .ok_or_else(Error::forbidden)?;
     let sender = {
         let mut inner = state.hub.inner.lock().unwrap();
@@ -402,7 +425,7 @@ pub async fn attach(
                 &mut tunnel.server
             }
             "client"
-                if auth.kind == "mobile"
+                if (auth.kind == "mobile" || auth.kind == "web")
                     && auth.device_id == tunnel.client_device
                     && auth.session_id == tunnel.client_session =>
             {
@@ -416,6 +439,7 @@ pub async fn attach(
         ticket_slot.sender.take().ok_or_else(Error::forbidden)?
     };
     Ok(upgrade
+        .protocols(["agentdeck-relay-v1"])
         .max_message_size(MAX_RELAY_FRAME)
         .max_frame_size(MAX_RELAY_FRAME)
         .write_buffer_size(0)

@@ -49,6 +49,7 @@ pub fn find() -> Result<PathBuf> {
     if let Some(v) = std::env::var_os("AGENTDECK_CODEX_EXE") {
         let p = PathBuf::from(v);
         paths::valid(&p)?;
+        #[cfg(windows)]
         ensure(
             p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")),
             "CONFIG_ERROR",
@@ -71,15 +72,19 @@ pub fn find() -> Result<PathBuf> {
             return paths::canonical(&managed);
         }
     }
+    #[cfg(windows)]
     let paths = sync_command("where.exe", &["codex"], None).map_err(|_| {
         Error::new(
             "CODEX_CLI_NOT_FOUND",
             "找不到 Codex CLI。请安装 Codex，或使用 AgentDeck 提供的兼容版本安装按钮。",
         )
     })?;
+    #[cfg(not(windows))]
+    let paths = sync_command("which", &["codex"], None)
+        .map_err(|_| Error::new("CODEX_CLI_NOT_FOUND", "Codex CLI not found on PATH"))?;
     for line in paths.lines() {
         let p = PathBuf::from(line.trim());
-        if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
+        if cfg!(not(windows)) || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
             return paths::canonical(&p);
         }
         if let Some(parent) = p.parent() {

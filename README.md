@@ -4,11 +4,11 @@
 
 - 桌面端（`desktop/src/`、`desktop/src-tauri/`）：电脑上的 React/Tauri 管理与控制界面，负责项目授权、设备与网络、审批和托盘常驻；仅 Windows，不呈现对话。
 - 移动端（`android/`）：Android Compose 客户端，收发文字与图片、同步历史、显示工具结果与任务状态、处理审批和追问；同时连接多台已配对电脑。
-- 服务端 `agentdeck-service`（源码在 `desktop/core/`）：当前随桌面端安装、在电脑后台运行。保存凭据与权威会话，附着并执行 Codex，提供 TLS WebSocket、六位码配对、审批、未知结果核对和重连恢复；仅 Windows。
+- 服务端 `agentdeck-service`（源码在 `desktop/core/`）：Windows 随桌面端安装，Linux 通过 `agentdeck` CLI/systemd 运行。保存凭据与权威会话，附着并执行 Codex，提供 TLS WebSocket、六位码配对、审批、未知结果核对和重连恢复。
 
-- 云端连接服务（`server/`）：Linux VPS 上独立部署，保存账户、设备归属、登录会话、配额和管理记录，提供管理网页与 WSS 转发。电脑上的服务仍是 Codex 会话、项目授权和审批的权威源。
+- 云端连接服务（`server/`）：Linux VPS 上独立部署，保存账户、设备归属、登录会话、配额和管理记录，提供管理网页、GitHub Pages Web 客户端的 Cookie/CSRF 会话与 WSS 转发。电脑上的服务仍是 Codex 会话、项目授权和审批的权威源。
 
-连接：`Android → 局域网直连电脑`，或 `Android → 云端 WSS 转发 → 电脑 → Codex`。公网的内层标准 TLS 在电脑终止；VPS 只看到加密业务字节，不存聊天/媒体，不持有 OpenAI 凭据，不运行模型。本轮客户端为 Windows 和 Android；网页只用于云端管理，不提供网页/PWA 对话客户端。
+连接：`Android/Pages Web → 云端 WSS 转发 → 电脑 → Codex`，也支持 Android 局域网直连。公网的内层标准 TLS 在电脑终止；VPS 只看到加密业务字节，不存聊天/媒体，不持有 OpenAI 凭据，不运行模型。Web 页面使用独立 `web` 设备身份，可单独撤销。
 
 - Logo（2026-10-23）：采用纯黑白三重交织标记，表达三端共享同一会话；SVG、透明 PNG 与预览位于 `assets/branding/`，已用于桌面标题栏、窗口/托盘图标、favicon 和 Android 自适应/主题图标及单色通知图标。桌面前端构建、Android 资源编译及跨端路径一致性检查通过；安装后系统图标、通知栏和主题图标实机展示待验证，下一步核对系统裁切与小尺寸显示。
 
@@ -28,6 +28,8 @@
 - 云端使用认证外层 WSS、一次性短期连接票据、有界二进制转发与心跳；内层为原电脑 TLS/授权协议，不为每台电脑开放公网端口。Windows 使用 DPAPI、Android 使用 Vault 加密保存登录凭据；云端刷新凭据轮换并检测重复使用。退出账户立即隔离该账户的移动端连接与界面，独立 LAN 电脑保留。
 - Android 可自愿开启前台服务保持连接，显示持续通知和停止入口；通知权限独立申请。系统休眠、强制结束或省电限制仍需真机验收，不承诺离线推送。
 - 已验证：7 项真实 PostgreSQL/HTTPS/浏览器集成，覆盖账户、刷新竞争与重放、账户隔离、票据、内层 TLS、定向撤销、配额、管理网页和实际 pg_dump/pg_restore；恢复保留账户/设备/电脑身份并使旧访问及刷新凭据失效。Windows 原生服务与真实 HTTPS 云端的登录→扫码请求→电脑批准→RPC→定向撤销→解绑闭环通过。100 账户、200 电脑、200 手机、400 同时在线隧道及 12.5 MiB 本地转发通过；这不等于公网性能或持续压测结论。
+- Web/Linux 入口（2026-10-24）：新增 `web/` 与 Pages workflow，路径按仓库名生成（当前为 `https://ptsfdtz.github.io/codex-go/`）；仓库变量 `AGENTDECK_CLOUD_ORIGIN` 指向云端 HTTPS Origin，云端 `AGENTDECK_WEB_ORIGINS` 配为 `https://ptsfdtz.github.io`。Web 使用 HttpOnly 分区 Cookie、跨域 CSRF 恢复、首次登录改密和一次性票据；浏览器在二进制隧道内建立 TLS 1.3，核验邀请码中的电脑证书指纹，再沿用原有本地配对授权与 WebSocket 协议。浏览器独立凭据以不可导出的 AES-GCM 密钥加密保存到 IndexedDB，按账户/设备隔离。新增 `agentdeck login/serve/status`、systemd 模板与 Linux CLI workflow；`serve` 通过认证的本机 Codex app-server 附着，headless 模式不因 stdin EOF 退出，并处理 SIGTERM/Ctrl+C。只有操作者显式确认 Linux 隔离配置后，才可设置 `--sandbox-verified` 或 `AGENTDECK_LINUX_SANDBOX_VERIFIED=1`；systemd 模板不自动设置。
+- 本轮已验证：core 编译、Clippy 及 26 项单测（1 项 PostgreSQL 集成测试忽略）、Web 类型检查/11 项测试/Pages 路径生产构建；真实 Edge 浏览器以 Web Crypto 完成 TLS 1.3 二进制 WebSocket 通信与证书错配拒绝；VPS 临时隔离 PostgreSQL 上 Web session/CSRF/改密/relay 与原生账户/中继回归通过。未知回执按账户/设备隔离，未确认时阻止再次变更，持久化失败时拒绝发送。Web 当前按预览版部署：尚缺自动重连、保留已加载旧页的实时历史合并、跨标签页刷新协调、图片和富内容渲染、桌面配对信息复制入口；完整浏览器登录→配对→会话闭环、Ubuntu runner、Linux app-server 实机及公网切换仍待验收。
 - 构建检查：Rust native 64 项及其余默认回归、Clippy、桌面前端 22 项、Tauri 4 项、浏览器 4 项、314 份基线及版本化 schema 校验通过；Android 116 项 JVM 测试、设备测试代码编译、lint（0 错误）及 APK 构建通过。真实套接字/TLS 测试覆盖 LAN→云端→LAN、待确认发送阻止切换、并发发送与切换、证书错误阻止回退、仅云端策略和不重发变更。
 - 本地包验收：Windows NSIS/ZIP 哈希一致；ZIP 解压至工作区外独立目录，分别启动随包服务和桌面主程序，均通过 DPAPI、Windows 隔离边界及 Codex 0.159.2 初始化，无模型任务、无已有安装/数据变更。APK 签名有效，包名 `dev.agentdeck.app`、版本 `0.3.0`（2）保持不变。交付：`artifacts/AgentDeck_0.3.0_x64-setup.exe`、`artifacts/AgentDeck-0.3.0-windows.zip`、`android/app/build/outputs/apk/debug/app-debug.apk`；验收结果在 `artifacts/package-acceptance.json`。Windows 包未做代码签名，APK 为 debug 签名；本轮未执行 NSIS 安装、APK 真机安装或桌面界面人工验收。
 - 公网部署（2026-10-23）：`yecaoyun` 已部署 `https://agent.ptsfdtz.top`（管理页 `/admin`），Cloudflare 为仅 DNS；复用现有 Nginx SNI 分流，原订阅/代理服务保留，Rust 1.90 release 程序以独立 `agentdeck` 用户由 systemd 常驻，PostgreSQL 17 通过本地 peer 认证，应用仅监听 `127.0.0.1:18082`。源码基于 `08216a61c873`，程序位于 `/opt/agentdeck/current/agentdeck-cloud`，配置位于 `/etc/agentdeck/cloud.env`；已创建管理员及普通账户 `ptsfdtz`，普通账户首次登录必须改密。公开证书、外部 HTTPS 健康检查、浏览器管理页、经公网 HTTPS 的账户登录/改密要求/退出、WSS 未授权拦截、续证模拟及数据库备份恢复到隔离数据库通过；本机—小米平板公网配对与真实云端对话验收见上方；蜂窝网络、真机多设备、IP 变化与休眠/切换待验收，Docker/Caddy 路径本轮未使用。现有 SNI 分流未传递来源 IP，应用的 IP 限流按共享入口计；下一步验证其他电脑网络和蜂窝切换。
@@ -65,10 +67,10 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib actual_cloud_a
 
 ## 三端现状与下一步（2026-10-22）
 
-| 端     | 已有                                                                                                       | 缺口 / 风险                                                                                      |
-| ------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| 桌面端 | React/Tauri 管理界面：项目授权、设备撤销、配对网络地址、待审批、Codex 安装检查、托盘与进程监督             | 仅 Windows；不呈现对话；终端/编辑器/扩展管理界面不在本轮目标内，其对话结果仍需呈现               |
-| 移动端 | Compose 手机/平板界面；会话/历史、审批、草稿、图片；云端账户、独立多电脑连接与缓存、LAN/云端路径、后台保持 | 仅 Android；真实网络切换与后台行为待验收，富内容与部分设置布局仍有缺口                           |
+| 端     | 已有                                                                                                       | 缺口 / 风险                                                                                                    |
+| ------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 桌面端 | React/Tauri 管理界面：项目授权、设备撤销、配对网络地址、待审批、Codex 安装检查、托盘与进程监督             | 仅 Windows；不呈现对话；终端/编辑器/扩展管理界面不在本轮目标内，其对话结果仍需呈现                             |
+| 移动端 | Compose 手机/平板界面；会话/历史、审批、草稿、图片；云端账户、独立多电脑连接与缓存、LAN/云端路径、后台保持 | 仅 Android；真实网络切换与后台行为待验收，富内容与部分设置布局仍有缺口                                         |
 | 服务端 | 电脑 Rust 服务负责 Codex 权威状态、TLS、配对授权与审批；Linux 云端负责多用户账户、管理网页与加密转发       | 原版 Codex 桌面同一运行时完整共享（`sharedDesktopRuntime=false`）；本机与平板公网配对/读取通过，其他网络待验收 |
 
 - Android reconnect UI (2026-10-23): ordinary disconnects and timeouts now show only subtle gray reconnecting text; certificate, authorization and protocol errors retain error prompts. compileDebugKotlin passed; device reconnect recovery and light/dark appearance remain unverified.
@@ -93,7 +95,7 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib actual_cloud_a
 - 已有会话同步（2026-10-23）：服务端启动、重新连接上游和新增本地项目授权后自动读取原会话索引；手机连接后主动同步，列表新增“同步电脑已有对话”，在线时服务端每 15 秒核对授权项目索引，选中会话更新时间变化后刷新历史。沿用原线程 ID，通过公开历史/恢复接口续聊，不复制私有数据库。原版桌面仍持有写入权时保留占用提示；同一运行时双端实时操作仍未完成。
 - 会话同步验证：Rust 6 项定向测试（含自动发现/持续核对、授权边界、原 ID 历史与续聊、占用及缺失保护）通过；Android 主程序/设备测试源码编译及 3 项同步单测通过。未做真实桌面/手机续聊、真实模型与打包验收；下一步核验原版桌面同一运行时附着和双向可见性。
 - 清理：删除旧设计/迁移/历史/盘点文档、独立 API 聊天、高级配置/账户/技能管理页面和一次性桌面盘点脚本。保留对话内模型/权限选择、技能引用、资源预览、Diff、核心协议及兼容接口。
-- 下一步：完成远程连接三端集中构建和实际部署/真机验收；原生同一运行时共享、移动端富内容与布局另行推进，网页对话不在本轮范围。
+- 下一步：完成远程连接三端集中构建和实际部署/真机验收；原生同一运行时共享、移动端富内容与布局另行推进，Web 会话与 Pages 发布继续做真实环境验收。
 - 本次验证：移动端 UI 重构后 Android `compileDebugKotlin`、`compileDebugAndroidTestKotlin`、`assembleDebug` 通过，JVM 单测通过；未安装真机/模拟器，未做逐像素视觉、真实上游或部署验收。
 - 连接恢复：修复手机端将连接/请求超时误作取消、导致重连循环退出的问题；断线首次立即重试，持续失败退避至 30 秒，网络变化/回到前台主动探测并唤醒重试。手机心跳 30 秒，服务端保留 15 秒探测、允许 60 秒无入站数据；旧协议兼容，证书固定、授权、历史回放和未知发送结果约束保留，不自动重发消息。Android JVM 单测、设备测试编译及 APK 构建、Rust 心跳测试和 WSS 鉴权/回放回归通过；下一步在真机验证短断网、锁屏恢复和 Wi‑Fi 切换。
 
@@ -137,6 +139,8 @@ pnpm desktop:build                      # 桌面端与服务端
 pnpm package:windows
 ```
 
+Linux CLI 安装后先启动受限的 Codex app-server，再执行 `agentdeck login --origin https://cloud.example --username NAME`；长期运行使用 `agentdeck serve --runtime-ws ws://127.0.0.1:4500 --runtime-token-file ~/.config/codex/runtime-token --sandbox-verified`，或安装 `desktop/core/systemd/agentdeck.service` 到 `~/.config/systemd/user/` 后运行 `systemctl --user daemon-reload && systemctl --user enable --now agentdeck`。
+
 `pnpm desktop:dev` 使用 `.tmp/webview2` 与 `.tmp/agentdeck-data` 保存开发态 WebView2/服务数据，删除 `.tmp` 即重置开发状态。若构建工作区带有继承的 Low Integrity 标签，生成的桌面端和服务 EXE 会以低完整性运行；换普通终端仍然失败。服务在访问数据前检查完整性级别，不更改安全标签或提权。使用便携 ZIP，由资源管理器解压到工作区外的普通用户目录后运行；开发需使用正常开发目录。
 
 启动诊断：低完整性、文件/目录、数据锁/端口、凭据和 MXC 失败有独立提示；隔离探针仅提取有界 stderr 中的已知错误。已验证同一 Codex 直接启动为 Medium 且隔离通过、经低标签 EXE 后为 Low 且 MXC 失败；新服务准确返回 `LOW_INTEGRITY_HOST`。桌面类型检查、16 项前端测试、Rust 定向测试及前后端 release 构建通过，ZIP 四项文件与构建产物哈希一致。便携包命令：`pnpm --filter @agentdeck/desktop tauri build --no-bundle` 后 `node scripts/desktop/package-desktop.mjs --portable`（先执行 `pnpm desktop:prepare`）；ZIP 在 `artifacts/AgentDeck-0.3.0-windows.zip`。最新包在普通目录的启动验证见上方“多用户远程连接”；工作区内运行不作为此项验收依据。
@@ -171,9 +175,11 @@ pnpm package:windows
 
 - 服务端附着的 Codex 是权威源；沿用原 `thread/turn/item` 身份。发送 ACK 不等于任务完成，结果未知时先核对，不自动重发。
 - 不复制/写入 Codex 私有数据库，不暴露任意 RPC，不因远程访问放宽项目授权或执行确认；凭据不进入文档、日志和测试产物。
-- 现有 WSS 使用固定自签名证书，`server/transport.rs` 拒绝浏览器 Origin；浏览器 WebSocket 不能自定义 Authorization。Web 接入需明确 Origin 白名单、浏览器会话/CSRF、防护不降级、公开信任证书及独立设备授权，不能直接部署桌面端管理界面替代。
+- Web 接入已使用 `AGENTDECK_WEB_ORIGINS` Origin 白名单、HttpOnly 会话 Cookie、CSRF 校验和一次性隧道票据；浏览器 WebSocket 通过 `Sec-WebSocket-Protocol` 携带票据，仍需在真实 Pages、公开信任证书和公网切换环境验收。
 - 默认 CLI 基线 `0.159.2`，锁定附着协议 `0.163.0-alpha.10.2`。协议入口见 Rust `server/protocol.rs`、`server/capabilities.rs` 与移动端 `core/network`；设置等 Rust 兼容接口仍保留。
 - 附着配置：`AGENTDECK_RUNTIME_WS_URL`、`AGENTDECK_RUNTIME_TOKEN_FILE`，可选 `AGENTDECK_RUNTIME_PROTOCOL_VERSION`；只支持带认证的回环连接，附着成功不代表原版桌面共享已完成。
 - 共享接入必要诊断保留在 `scripts/codex/check-shared-codex-runtime.mjs`、`check-desktop-gui-runtime.mjs`（参数见文件头）；不默认启动真实 GUI/模型实验。
 
 官方效果按需参考：[移动端](https://learn.chatgpt.com/docs/mobile)、[远程连接](https://learn.chatgpt.com/docs/remote-connections)。
+
+Linux CLI 管理（2026-10-24）：`agentdeck serve` 运行时写入仅限本机的随机令牌管理端点；`agentdeck status`、`projects list/add/remove/sync`、`pair create/pending/approve/reject`、`devices list/revoke`、`password`、`logout` 和 `stop` 均由正在运行的服务处理，配对批准必须核对六位码。Linux 项目路径授权使用大小写敏感比较和打开 inode 校验；登录秘密使用私有临时文件。systemd 模板显式使用 `%h/.local/state/agentdeck`，服务也支持 XDG/HOME 回退。无需 GUI 安装器，仍需运行 CLI 与服务程序；可用 `cargo build --release --locked --manifest-path desktop/core/Cargo.toml --bin agentdeck --bin agentdeck-service` 从源码构建，或取 Linux CLI workflow 的构建产物。真实 Linux app-server 与完整浏览器配对会话闭环尚待验收。

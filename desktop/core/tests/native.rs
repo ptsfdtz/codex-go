@@ -1313,6 +1313,15 @@ async fn session_mutations_are_idempotent_per_device() {
     );
     let first = transport::handle_request(&h.core, &r, "management-device").await;
     assert_eq!(first["type"], "response", "{first}");
+    let receipt = request(
+        "requests.status",
+        json!({"requestId":"manage-once"}),
+        "receipt-check",
+    );
+    let receipt_response = transport::handle_request(&h.core, &receipt, "management-device").await;
+    assert_eq!(receipt_response["type"], "response", "{receipt_response}");
+    assert_eq!(receipt_response["payload"]["status"], "done");
+    assert_eq!(receipt_response["payload"]["response"]["id"], "manage-once");
     let cursor = h.core.store.cursor().unwrap();
     let second = transport::handle_request(&h.core, &r, "management-device").await;
     assert_eq!(first, second);

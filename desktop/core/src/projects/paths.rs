@@ -32,12 +32,26 @@ pub fn canonical(path: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 pub fn equal(a: &Path, b: &Path) -> bool {
-    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    #[cfg(windows)]
+    {
+        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
 }
 pub fn within(root: &Path, target: &Path) -> bool {
-    let a = root.to_string_lossy().replace('/', "\\").to_lowercase();
-    let b = target.to_string_lossy().replace('/', "\\").to_lowercase();
-    b == a || b.starts_with(&(a.trim_end_matches('\\').to_owned() + "\\"))
+    #[cfg(windows)]
+    {
+        let a = root.to_string_lossy().replace('/', "\\").to_lowercase();
+        let b = target.to_string_lossy().replace('/', "\\").to_lowercase();
+        b == a || b.starts_with(&(a.trim_end_matches('\\').to_owned() + "\\"))
+    }
+    #[cfg(not(windows))]
+    {
+        target.starts_with(root)
+    }
 }
 pub fn identity(file: &File) -> Result<String> {
     #[cfg(windows)]
@@ -96,12 +110,25 @@ pub fn opened_path(file: &File) -> Result<PathBuf> {
         valid(&path)?;
         Ok(path)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        let path = std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
+        valid(&path)?;
+        // A deleted/replaced inode must never authorize its former pathname.
+        ensure(
+            identity(file)? == identity(&File::open(&path)?)?,
+            "WORKSPACE_FORBIDDEN",
+            "Opened file changed",
+        )?;
+        Ok(path)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = file;
         Err(crate::Error::new(
             "UNSUPPORTED_PLATFORM",
-            "Windows handle validation required",
+            "Opened handle validation is unavailable on this platform",
         ))
     }
 }
@@ -121,7 +148,11 @@ pub fn add_local(store: &Store, path: &Path) -> Result<Value> {
         .into_owned();
     let path = root.to_string_lossy().into_owned();
     let existing = store.query(
-        "SELECT projectId FROM projects WHERE canonicalPath=? COLLATE NOCASE",
+        if cfg!(windows) {
+            "SELECT projectId FROM projects WHERE canonicalPath=? COLLATE NOCASE"
+        } else {
+            "SELECT projectId FROM projects WHERE canonicalPath=?"
+        },
         [&path],
     )?;
     let id = existing
@@ -210,4 +241,33 @@ pub fn remove_local(store: &Store, id: &str) -> Result<()> {
     store.exec("UPDATE projects SET enabled=0 WHERE projectId=?", [id])?;
     store.append("projects.updated", json!({}), None, None)?;
     Ok(())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    use super::*;
+    #[test]
+    fn case_sensitive_grants_and_opened_inode_validation() {
+        let directory = tempfile::tempdir().unwrap();
+        let upper = directory.path().join("Project");
+        let lower = directory.path().join("project");
+        std::fs::create_dir(&upper).unwrap();
+        std::fs::create_dir(&lower).unwrap();
+        let store = Store::open(&directory.path().join("state.db")).unwrap();
+        let a = add_local(&store, &upper).unwrap();
+        let b = add_local(&store, &lower).unwrap();
+        assert_ne!(a["projectId"], b["projectId"]);
+        assert!(!equal(&upper, &lower));
+        assert!(!within(&upper, &lower.join("secret")));
+        std::os::unix::fs::symlink(&lower, upper.join("escape")).unwrap();
+        assert!(checked_file(&upper, "escape/secret").is_err());
+        let file = upper.join("data");
+        std::fs::write(&file, "old").unwrap();
+        let opened = File::open(&file).unwrap();
+        assert_eq!(opened_path(&opened).unwrap(), file);
+        std::fs::rename(&file, lower.join("moved")).unwrap();
+        assert!(!within(&upper, &opened_path(&opened).unwrap()));
+        std::fs::remove_file(lower.join("moved")).unwrap();
+        assert!(opened_path(&opened).is_err());
+    }
 }

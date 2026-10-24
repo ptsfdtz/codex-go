@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS devices(
     id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL REFERENCES accounts(id),
     installation_hash TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK(kind IN ('desktop','mobile','adminWeb')),
+    kind TEXT NOT NULL CHECK(kind IN ('desktop','mobile','web','adminWeb')),
     display_name TEXT NOT NULL,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -53,3 +53,11 @@ CREATE TABLE IF NOT EXISTS audit(
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 INSERT INTO migrations(version) VALUES(1) ON CONFLICT DO NOTHING;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM migrations WHERE version=2) THEN
+        ALTER TABLE devices DROP CONSTRAINT IF EXISTS devices_kind_check;
+        ALTER TABLE devices ADD CONSTRAINT devices_kind_check CHECK(kind IN ('desktop','mobile','web','adminWeb'));
+        INSERT INTO migrations(version) VALUES(2);
+    END IF;
+END $$;

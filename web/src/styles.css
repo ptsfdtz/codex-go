@@ -1,0 +1,393 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #191919;
+  background: #f4f4f1;
+  font-size: 16px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+.center {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+.card {
+  background: #fff;
+  border: 1px solid #e5e5e0;
+  border-radius: 20px;
+  box-shadow: 0 12px 40px #0000000b;
+}
+.login {
+  width: min(400px, calc(100vw - 32px));
+  padding: 36px;
+  display: grid;
+  gap: 14px;
+}
+.brand {
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+.brand span {
+  font-weight: 400;
+}
+.login h1 {
+  margin: 12px 0;
+}
+.login input,
+.composer textarea {
+  border: 1px solid #d7d7d0;
+  border-radius: 12px;
+  padding: 13px;
+  font: inherit;
+  background: #fff;
+}
+.login button,
+.composer button {
+  border: 0;
+  border-radius: 12px;
+  padding: 13px 18px;
+  background: #171717;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.login button:disabled,
+.composer button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.shell {
+  min-height: 100vh;
+  padding: 18px;
+  max-width: 1400px;
+  margin: auto;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 2px 18px;
+  gap: 12px;
+}
+.connection {
+  font-size: 12px;
+  color: #92928b;
+  margin-left: auto;
+}
+.online-text {
+  color: #2f8b5b;
+}
+.ghost {
+  border: 1px solid #d4d4ce;
+  background: transparent;
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 18px;
+}
+.hosts {
+  padding: 18px;
+  height: fit-content;
+}
+.hosts h2 {
+  font-size: 15px;
+  margin: 0 0 14px;
+}
+.hosts select,
+.composer select {
+  border: 1px solid #d7d7d0;
+  border-radius: 9px;
+  padding: 8px;
+  background: #fff;
+  font: inherit;
+  color: #444;
+}
+.composer-options {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.composer-row {
+  display: flex;
+  gap: 10px;
+}
+.composer-row textarea {
+  width: 100%;
+}
+.host {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  text-align: left;
+  gap: 9px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 11px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+}
+.host:hover,
+.host.selected {
+  background: #f0f0ec;
+}
+.host small {
+  font-size: 11px;
+  color: #92928b;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #aaa;
+}
+.dot.online {
+  background: #39a86b;
+}
+.session-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.session-heading .session-title {
+  margin-top: 24px !important;
+}
+.new-session {
+  border: 0;
+  background: transparent;
+  font-size: 20px;
+  color: #555;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.session {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 9px 6px;
+  border-radius: 9px;
+  cursor: pointer;
+  color: #555;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: inherit;
+}
+.session:hover,
+.session.selected {
+  background: #f0f0ec;
+  color: #111;
+}
+.device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 6px;
+  color: #555;
+  font-size: 12px;
+}
+.device span {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.device span small {
+  color: #999;
+  font-size: 10px;
+}
+.device-revoke {
+  border: 0;
+  background: transparent;
+  color: #a44b43;
+  cursor: pointer;
+  font-size: 11px;
+}
+.conversation {
+  min-height: calc(100vh - 88px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.conversation-head {
+  padding: 22px;
+  border-bottom: 1px solid #edede8;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.conversation-head h1 {
+  font-size: 20px;
+  margin: 0 0 5px;
+}
+.conversation-head p {
+  margin: 0;
+  color: #888;
+  font-size: 13px;
+}
+.approval {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  background: #fff6df;
+  border-bottom: 1px solid #f0dfae;
+  font-size: 13px;
+}
+.approval-copy {
+  margin-right: auto;
+}
+.approval-copy > span {
+  display: block;
+}
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.question span {
+  font-size: 12px;
+}
+.question input {
+  border: 1px solid #d7d7d0;
+  border-radius: 8px;
+  padding: 7px;
+  font: inherit;
+  width: min(420px, 100%);
+}
+.approval button {
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #171717;
+  color: #fff;
+  cursor: pointer;
+}
+.approval .ghost {
+  background: transparent;
+  color: #333;
+  border: 1px solid #d4d4ce;
+}
+.timeline {
+  padding: 22px;
+  overflow: auto;
+  flex: 1;
+}
+.turn {
+  margin: 0 0 20px;
+}
+.turn .role {
+  font-size: 12px;
+  color: #777;
+  margin-bottom: 5px;
+}
+.turn pre {
+  font: inherit;
+  white-space: pre-wrap;
+  margin: 0;
+  line-height: 1.6;
+}
+.empty,
+.muted {
+  color: #92928b;
+}
+.composer {
+  border-top: 1px solid #edede8;
+  padding: 15px;
+  display: block;
+}
+.composer textarea {
+  resize: none;
+  min-height: 56px;
+  flex: 1;
+}
+.error {
+  color: #b13d36;
+  font-size: 13px;
+}
+.pair-panel {
+  padding: 20px;
+  border-bottom: 1px solid #e5e5e0;
+  background: #f8f8f4;
+}
+.pair-panel h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+.pair-panel p {
+  line-height: 1.5;
+}
+.pair-panel textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 10px;
+  border: 1px solid #d7d7d0;
+  border-radius: 10px;
+}
+.pair-panel button {
+  margin: 10px 8px 0 0;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.pair-code {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.approval-context {
+  max-width: 100%;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-copy {
+  min-width: 0;
+}
+.approval button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+@media (max-width: 760px) {
+  .shell {
+    padding: 10px;
+  }
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .hosts {
+    order: 2;
+  }
+  .conversation {
+    min-height: 72vh;
+  }
+  .host {
+    display: flex;
+  }
+  .host small {
+    margin-left: auto;
+  }
+  .conversation-head {
+    padding: 16px;
+  }
+  .timeline {
+    padding: 16px;
+  }
+  .composer {
+    padding: 10px;
+  }
+  .composer button {
+    padding-inline: 14px;
+  }
+}

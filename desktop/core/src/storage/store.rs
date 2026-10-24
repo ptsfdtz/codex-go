@@ -678,6 +678,21 @@ impl Store {
         tx.commit()?;
         Ok(None)
     }
+    pub fn request_status(&self, device: &str, request_id: &str) -> Result<Value> {
+        let rows = self.query(
+            "SELECT status,responseJson,createdAt FROM requests WHERE deviceId=? AND requestId=?",
+            [device, request_id],
+        )?;
+        let Some(row) = rows.into_iter().next() else {
+            return Ok(json!({"requestId":request_id,"status":"notFound","response":null}));
+        };
+        let response = row["responseJson"]
+            .as_str()
+            .and_then(|v| serde_json::from_str::<Value>(v).ok());
+        Ok(
+            json!({"requestId":request_id,"status":row["status"],"createdAt":row["createdAt"],"response":response}),
+        )
+    }
     /// Add one independently revocable device without changing existing grants.
     pub fn add_device(&self, id: &str, name: &str, hash: &str) -> Result<()> {
         let mut db = self.db.lock().unwrap();

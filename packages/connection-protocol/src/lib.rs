@@ -10,6 +10,7 @@ pub const TICKET_LIFETIME_SECONDS: u64 = 30;
 pub enum DeviceKind {
     Desktop,
     Mobile,
+    Web,
     AdminWeb,
 }
 

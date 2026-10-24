@@ -6,6 +6,10 @@ edition = "2021"
 rust-version = "1.88"
 description = "Native AgentDeck Windows Bridge; no Node runtime"
 
+[[bin]]
+name = "agentdeck"
+path = "src/bin/agentdeck.rs"
+
 [build-dependencies]
 sha2 = "0.10"
 serde_json = "1"
@@ -21,6 +25,7 @@ hyper = { version = "1", features = ["server", "client", "http1"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls-pemfile = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rpassword = "7"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }

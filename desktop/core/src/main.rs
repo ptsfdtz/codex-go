@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#[cfg(windows)]
+use agentdeck_service::service::boundary;
 use agentdeck_service::{
     codex, ensure, now, security,
-    service::{boundary, sandbox_probe, Core},
+    service::{sandbox_probe, Core},
     store::Store,
     Error, Result,
 };
@@ -30,17 +32,36 @@ async fn main() {
     }
 }
 async fn run() -> Result<()> {
+    let login_only = std::env::var("AGENTDECK_LOGIN_ONLY").as_deref() == Ok("1");
+    let headless = std::env::var("AGENTDECK_HEADLESS").as_deref() == Ok("1");
     security::verify_host_integrity()?;
     let runtime_target = agentdeck_service::runtime::RuntimeTarget::from_environment()?;
-    ensure(
-        cfg!(windows),
-        "UNSUPPORTED_PLATFORM",
-        "AgentDeck production Bridge requires Windows",
-    )?;
+    #[cfg(not(windows))]
+    if !login_only {
+        ensure(
+            runtime_target.attached(),
+            "CONFIG_ERROR",
+            "Linux daemon requires AGENTDECK_RUNTIME_WS_URL and AGENTDECK_RUNTIME_TOKEN_FILE",
+        )?;
+    }
     let _ = rustls::crypto::ring::default_provider().install_default();
     let directory = std::env::var_os("AGENTDECK_DATA_DIR")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("LOCALAPPDATA").map(|v| PathBuf::from(v).join("AgentDeck")))
+        .or_else(|| {
+            #[cfg(windows)]
+            {
+                std::env::var_os("LOCALAPPDATA").map(|v| PathBuf::from(v).join("AgentDeck"))
+            }
+            #[cfg(not(windows))]
+            {
+                std::env::var_os("XDG_STATE_HOME")
+                    .map(|v| PathBuf::from(v).join("agentdeck"))
+                    .or_else(|| {
+                        std::env::var_os("HOME")
+                            .map(|v| PathBuf::from(v).join(".local/state/agentdeck"))
+                    })
+            }
+        })
         .ok_or_else(|| Error::new("CONFIG_ERROR", "Data directory unavailable"))?;
     security::restrict_directory(&directory)
         .map_err(|e| Error::new(&e.code, &format!("准备服务数据目录失败：{}", e.message)))?;
@@ -56,9 +77,22 @@ async fn run() -> Result<()> {
                 &format!("无法打开服务锁（系统错误 {:?}）", e.raw_os_error()),
             )
         })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        lock.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
     lock.try_lock_exclusive()
         .map_err(|_| Error::new("CONFLICT", "Native service already uses this directory"))?;
     let store = Arc::new(Store::open(&directory.join("agentdeck.db"))?);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            directory.join("agentdeck.db"),
+            std::fs::Permissions::from_mode(0o600),
+        )?;
+    }
     let tls = security::Certificate::load(&directory)?;
     let address = tls.restore(store.meta("listenAddress")?);
     let port = std::env::var("AGENTDECK_PORT")
@@ -88,34 +122,59 @@ async fn run() -> Result<()> {
         }
     });
     agentdeck_service::cloud::Cloud::start(&core).await?;
+    if login_only {
+        let origin = std::env::var("AGENTDECK_CLOUD_ORIGIN")
+            .map_err(|_| Error::new("CONFIG_ERROR", "AGENTDECK_CLOUD_ORIGIN is required"))?;
+        let username = std::env::var("AGENTDECK_CLOUD_USERNAME")
+            .map_err(|_| Error::new("CONFIG_ERROR", "AGENTDECK_CLOUD_USERNAME is required"))?;
+        let password_path = std::env::var_os("AGENTDECK_CLOUD_PASSWORD_FILE")
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                Error::new("CONFIG_ERROR", "AGENTDECK_CLOUD_PASSWORD_FILE is required")
+            })?;
+        let password = std::fs::read_to_string(&password_path)
+            .map_err(|_| Error::new("CONFIG_ERROR", "Cannot read cloud login secret"))?;
+        let _ = std::fs::remove_file(&password_path);
+        let password = password.trim_end_matches(['\r', '\n']);
+        core.cloud_login(&origin, &username, password).await?;
+        core.shutdown().await;
+        return Ok(());
+    }
+    let _management = if headless {
+        Some(agentdeck_service::management::Management::start(core.clone(), &directory).await?)
+    } else {
+        None
+    };
     core.publish();
     eprintln!("AGENTDECK_DIAG published");
     let (commands, mut input) = tokio::sync::mpsc::channel::<Value>(8);
     let owner = core.clone();
-    std::thread::spawn(move || {
-        let stdin = std::io::stdin();
-        let mut reader = stdin.lock();
-        loop {
-            let mut bytes = vec![];
-            let count = std::io::Read::take(&mut reader, 65537).read_until(b'\n', &mut bytes);
-            match count {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    if n > 65536 || !bytes.ends_with(b"\n") {
-                        break;
-                    }
-                    let v: Value = match serde_json::from_slice(&bytes) {
-                        Ok(v) => v,
-                        Err(_) => break,
-                    };
-                    if commands.blocking_send(v).is_err() {
-                        break;
+    if !headless {
+        std::thread::spawn(move || {
+            let stdin = std::io::stdin();
+            let mut reader = stdin.lock();
+            loop {
+                let mut bytes = vec![];
+                let count = std::io::Read::take(&mut reader, 65537).read_until(b'\n', &mut bytes);
+                match count {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if n > 65536 || !bytes.ends_with(b"\n") {
+                            break;
+                        }
+                        let v: Value = match serde_json::from_slice(&bytes) {
+                            Ok(v) => v,
+                            Err(_) => break,
+                        };
+                        if commands.blocking_send(v).is_err() {
+                            break;
+                        }
                     }
                 }
             }
-        }
-        owner.request_stop();
-    });
+            owner.request_stop();
+        });
+    }
     let owner = core.clone();
     let actions = tokio::spawn(async move {
         while let Some(v) = input.recv().await {
@@ -147,25 +206,41 @@ async fn run() -> Result<()> {
         }
     });
     eprintln!("AGENTDECK_DIAG finding codex");
-    let exe = codex::find()?;
+    let exe = if runtime_target.attached() {
+        PathBuf::from("codex")
+    } else {
+        codex::find()?
+    };
     eprintln!("AGENTDECK_DIAG found codex {}", exe.display());
-    codex::verify_for(&exe, runtime_target.protocol())?;
-    eprintln!("AGENTDECK_DIAG verified codex");
+    if !runtime_target.attached() {
+        codex::verify_for(&exe, runtime_target.protocol())?;
+    }
+    #[cfg(windows)]
     let report = boundary(&exe).await?;
-    eprintln!("AGENTDECK_DIAG boundary done");
+    #[cfg(not(windows))]
+    let sandbox_verified = std::env::var("AGENTDECK_LINUX_SANDBOX_VERIFIED").as_deref() == Ok("1");
+    #[cfg(not(windows))]
+    let report = json!({"passed":sandbox_verified,"platform":"linux","mode":"attached-runtime","verification":"explicit-operator-declaration"});
+    #[cfg(windows)]
+    let sandbox_verified = report["passed"] == true;
     std::fs::write(
         directory.join("sandbox-verification.json"),
         report.to_string(),
     )?;
+    #[cfg(windows)]
     ensure(
         report["passed"] == true,
         "SANDBOX_UNVERIFIED",
         "Native Windows isolation probe failed; inspect sandbox-verification.json",
     )?;
-    core.verified.store(true, Ordering::SeqCst);
+    core.verified.store(sandbox_verified, Ordering::SeqCst);
     core.store.set_meta(
         "sandboxVerifiedVersion",
-        runtime_target.protocol().version(),
+        if sandbox_verified {
+            runtime_target.protocol().version()
+        } else {
+            ""
+        },
     )?;
     let desktop_adapter =
         agentdeck_service::desktop_adapter::DesktopAdapter::from_environment(&runtime_target)
@@ -194,7 +269,7 @@ async fn run() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         let passed = core.ready.load(Ordering::SeqCst);
-        std::fs::write(directory.join("startup-check.json"),json!({"at":now(),"result":if passed{"PASS"}else{"FAIL"},"backend":"Rust","codexVersion":core.snapshot()?["host"]["codexVersion"],"runtimeMode":if core.attached_runtime.load(Ordering::SeqCst){"attached-local-ws"}else{"managed-stdio"},"codexReady":passed,"sandboxVerified":true,"dpapiCertificate":true,"address":address}).to_string())?;
+        std::fs::write(directory.join("startup-check.json"),json!({"at":now(),"result":if passed{"PASS"}else{"FAIL"},"backend":"Rust","codexVersion":core.snapshot()?["host"]["codexVersion"],"runtimeMode":if core.attached_runtime.load(Ordering::SeqCst){"attached-local-ws"}else{"managed-stdio"},"codexReady":passed,"sandboxVerified":core.verified.load(Ordering::SeqCst),"dpapiCertificate":true,"address":address}).to_string())?;
         core.shutdown().await;
         ensure(
             passed,
@@ -202,7 +277,14 @@ async fn run() -> Result<()> {
             "Native startup check failed",
         )?;
     } else {
-        core.stop.notified().await;
+        if headless {
+            tokio::select! {
+                _ = core.stop.notified() => {},
+                result = shutdown_signal() => { result?; core.request_stop(); },
+            }
+        } else {
+            core.stop.notified().await;
+        }
         core.shutdown().await;
     }
     drop(desktop_adapter);
@@ -211,5 +293,20 @@ async fn run() -> Result<()> {
     git_poll.abort();
     supervisor.abort();
     writer.abort();
+    Ok(())
+}
+
+async fn shutdown_signal() -> Result<()> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut terminate = signal(SignalKind::terminate())?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => { result?; },
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await?;
     Ok(())
 }

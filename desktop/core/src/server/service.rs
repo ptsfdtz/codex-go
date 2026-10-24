@@ -157,6 +157,29 @@ impl Core {
         self.create_pair_versioned(address, 1).await
     }
     pub async fn create_pair_versioned(self: &Arc<Self>, address: &str, version: u8) -> Result<()> {
+        let mut qr = self.create_invitation(address, version).await?;
+        let code = qrcode::QrCode::new(qr.to_string().as_bytes())
+            .map_err(|_| Error::new("PAIRING_ERROR", "Cannot render QR"))?;
+        let image = code
+            .render::<image::Luma<u8>>()
+            .min_dimensions(512, 512)
+            .build();
+        let mut png = std::io::Cursor::new(vec![]);
+        image::DynamicImage::ImageLuma8(image)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .map_err(|_| Error::new("PAIRING_ERROR", "Cannot encode QR"))?;
+        use base64::Engine;
+        qr["image"] = json!(base64::engine::general_purpose::STANDARD.encode(png.into_inner()));
+        self.emit("pair.qr", qr);
+        Ok(())
+    }
+    /// Return the same invitation as the desktop QR without logging its secret.
+    pub async fn create_invitation(self: &Arc<Self>, address: &str, version: u8) -> Result<Value> {
+        ensure(
+            matches!(version, 1..=3),
+            "INVALID_REQUEST",
+            "Unsupported pairing version",
+        )?;
         ensure(
             address == "127.0.0.1" || security::addresses().contains(&address.to_owned()),
             "CONFIG_ERROR",
@@ -173,7 +196,7 @@ impl Core {
             self.store.set_meta("lanEnabled", "true")?;
         }
         self.store.set_meta("listenAddress", address)?;
-        let mut qr = if version == 3 {
+        let qr = if version == 3 {
             let (issuer, account) = self.cloud.pairing_account()?;
             self.pairing.create_remote(
                 &self.store,
@@ -190,20 +213,7 @@ impl Core {
                 version,
             )?
         };
-        let code = qrcode::QrCode::new(qr.to_string().as_bytes())
-            .map_err(|_| Error::new("PAIRING_ERROR", "Cannot render QR"))?;
-        let image = code
-            .render::<image::Luma<u8>>()
-            .min_dimensions(512, 512)
-            .build();
-        let mut png = std::io::Cursor::new(vec![]);
-        image::DynamicImage::ImageLuma8(image)
-            .write_to(&mut png, image::ImageFormat::Png)
-            .map_err(|_| Error::new("PAIRING_ERROR", "Cannot encode QR"))?;
-        use base64::Engine;
-        qr["image"] = json!(base64::engine::general_purpose::STANDARD.encode(png.into_inner()));
-        self.emit("pair.qr", qr);
-        Ok(())
+        Ok(qr)
     }
     pub async fn local_action(self: &Arc<Self>, v: Value) -> Result<bool> {
         let action = s(&v, "action");
@@ -391,13 +401,16 @@ impl Core {
                             ));
                         }
                     }
-                    let readiness = rpc.request("windowsSandbox/readiness", Value::Null).await?;
-                    rpc.validate("v2/WindowsSandboxReadinessResponse", &readiness)?;
-                    ensure(
-                        readiness["status"] == "ready",
-                        "SANDBOX_UNAVAILABLE",
-                        "Windows sandbox is not ready",
-                    )?;
+                    #[cfg(windows)]
+                    {
+                        let readiness = rpc.request("windowsSandbox/readiness", Value::Null).await?;
+                        rpc.validate("v2/WindowsSandboxReadinessResponse", &readiness)?;
+                        ensure(
+                            readiness["status"] == "ready",
+                            "SANDBOX_UNAVAILABLE",
+                            "Windows sandbox is not ready",
+                        )?;
+                    }
                     let config = rpc
                         .request("config/read", json!({"includeLayers":false}))
                         .await?;
@@ -448,6 +461,7 @@ impl Core {
     pub async fn dispatch(&self, r: &protocol::Request, device: &str) -> Result<Value> {
         let p = &r.payload;
         match r.action.as_str() {
+            "requests.status" => self.store.request_status(device, s(p, "requestId")),
             "system.hello" => Ok(
                 json!({"v":1,"hostId":self.store.meta("hostId")?,"serverVersion":"0.3.0","heartbeatSeconds":15}),
             ),
@@ -472,7 +486,7 @@ impl Core {
                 )?["n"]
                     .clone();
                 Ok(
-                    json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":self.runtime_protocol.read().unwrap().version(),"nodeVersion":"Rust native (no Node runtime)","platform":"win32","upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
+                    json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":self.runtime_protocol.read().unwrap().version(),"nodeVersion":"Rust native (no Node runtime)","platform":std::env::consts::OS,"upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
                 )
             }
             "settings.execution" => self.execution_config(p["projectId"].as_str()).await,

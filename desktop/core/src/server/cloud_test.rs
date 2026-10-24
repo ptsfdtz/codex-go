@@ -152,6 +152,7 @@ async fn actual_cloud_and_pc_login_pair_rpc_revoke_and_unbind() {
         database_url,
         listen: address,
         public_origin: origin.clone(),
+        web_origins: vec![],
         max_tunnels: 16,
         proxy_token: None,
     })
