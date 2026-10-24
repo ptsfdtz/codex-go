@@ -526,7 +526,11 @@ export function App() {
                       alt="使用 AgentDeck 平板端扫描此配对码"
                     />
                   </div>
-                  <p>用平板上的 AgentDeck 扫码</p>
+                  <p>
+                    {activeQr.v === 3
+                      ? '公网配对码 · 平板登录同一云端账户后扫码'
+                      : '局域网配对码 · 配对后仅支持局域网连接'}
+                  </p>
                   <div className="qr-footer">
                     <span>{seconds} 秒后失效</span>
                     <button

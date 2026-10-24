@@ -261,15 +261,6 @@ impl Core {
             "workspaces.sync" => {
                 let result = self.sync_workspaces().await?;
                 self.emit("workspaces.synced", result);
-                let saved = self.address.read().unwrap().clone();
-                let selected = if saved != "127.0.0.1" {
-                    Some(saved)
-                } else {
-                    security::addresses().first().cloned()
-                };
-                if let Some(address) = selected {
-                    self.create_pair(&address).await?;
-                }
             }
             "project.add" => {
                 paths::add_local(&self.store, Path::new(s(&v, "path")))?;

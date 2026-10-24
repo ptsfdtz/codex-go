@@ -58,18 +58,18 @@ class DeckTransport internal constructor(private val host:Host,private val conne
     internal val hasPendingRequests:Boolean get()=pending.isNotEmpty()
     suspend fun connect(){
         socket=client.newWebSocket(Request.Builder().url(serviceOrigin(host.endpoint,host.tlsServerName).replaceFirst("https://","wss://")+"/api/v1/ws").header("Authorization","Bearer ${host.credential}").build(),object:WebSocketListener(){
-            override fun onOpen(webSocket:WebSocket,response:Response){opened.complete(Unit)}
+            override fun onOpen(webSocket:WebSocket,response:Response){ConnectionDiagnostics.record("inner_open host=${host.hostId.takeLast(6)}");opened.complete(Unit)}
             override fun onMessage(webSocket:WebSocket,text:String){try{
                 require(text.length<=1024*1024){"Message too large"};val p=wire.parseToJsonElement(text).jsonObject;require(p["v"]?.jsonPrimitive?.int==1){"Unsupported protocol version"}
                 when(p["type"]?.jsonPrimitive?.content){
                     "response","error"->{val id=p["id"]?.jsonPrimitive?.content;if(id!=null)pending.remove(id)?.let{if(p["type"]?.jsonPrimitive?.content=="error")it.completeExceptionally(DeckException(p["code"]?.jsonPrimitive?.content?:"ERROR",p["message"]?.jsonPrimitive?.content?:"Bridge 请求失败"))else it.complete(p["payload"]?.jsonObject?:JsonObject(emptyMap()))}}
-                    "event"->{if(!events.trySend(p).isSuccess){webSocket.close(1013,"Replay required");fail(IOException("事件过快，正在重新同步"))}}
+                    "event"->{if(!events.trySend(p).isSuccess){ConnectionDiagnostics.record("event_queue_full");webSocket.close(1013,"Replay required");fail(IOException("事件过快，正在重新同步"))}}
                     else->throw IOException("Invalid message type")
                 }
             }catch(e:Exception){webSocket.close(1002,"Protocol error");fail(e)}}
-            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?){fail(t)}
-            override fun onClosed(webSocket:WebSocket,code:Int,reason:String){fail(IOException("Bridge 已断开 ($code)"))}
-            override fun onClosing(webSocket:WebSocket,code:Int,reason:String){webSocket.close(code,reason)}
+            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?){ConnectionDiagnostics.record("inner_failure host=${host.hostId.takeLast(6)}",t);fail(t)}
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String){ConnectionDiagnostics.record("inner_closed code=$code");fail(IOException("Bridge 已断开 ($code)"))}
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String){ConnectionDiagnostics.record("inner_closing code=$code");webSocket.close(code,reason)}
         })
         // A local I/O timeout is recoverable, not cancellation of the repository's
         // reconnect coroutine. External cancellation still propagates normally.
@@ -83,8 +83,12 @@ class DeckTransport internal constructor(private val host:Host,private val conne
         if(pending.isNotEmpty())return false
         fail(error);return true
     }
-    suspend fun probe(){request("system.hello",timeoutMillis=10000)}
+    suspend fun hello(timeoutMillis:Long=requestTimeoutMillis){
+        request("system.hello",buildJsonObject{put("client","AgentDeck Android/${BuildConfig.VERSION_NAME}");put("version",1)},timeoutMillis)
+    }
+    suspend fun probe(){hello(timeoutMillis=10000)}
     suspend fun request(action:String,payload:JsonObject=JsonObject(emptyMap()),timeoutMillis:Long=requestTimeoutMillis):JsonObject {
+        val started=System.nanoTime()
         val id=UUID.randomUUID().toString();val result=CompletableDeferred<JsonObject>()
         val packet=buildJsonObject{put("v",1);put("type","request");put("id",id);put("action",action);put("payload",payload)}.toString()
         try{
@@ -93,8 +97,8 @@ class DeckTransport internal constructor(private val host:Host,private val conne
                 pending[id]=result
                 check(socket?.send(packet)==true){"Bridge 连接不可用"}
             }
-            return withTimeoutOrNull(timeoutMillis){result.await()}?:throw SocketTimeoutException("Bridge 请求超时，请核对操作结果")
-        }finally{pending.remove(id)}
+            return withTimeoutOrNull(timeoutMillis){result.await()}?:run{ConnectionDiagnostics.record("request_timeout host=${host.hostId.takeLast(6)} action=$action");throw SocketTimeoutException("Bridge 请求超时，请核对操作结果")}
+        }finally{pending.remove(id);val elapsed=(System.nanoTime()-started)/1_000_000;if(elapsed>=2000)ConnectionDiagnostics.record("slow_request host=${host.hostId.takeLast(6)} action=$action elapsed_ms=$elapsed")}
     }
     fun close(){fail(IOException("Connection closed"));client.dispatcher.executorService.shutdown();client.connectionPool.evictAll()}
 }

@@ -236,8 +236,28 @@ impl Rpc {
         Ok((rpc, event_rx))
     }
     pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
-        self.request_timeout(method, params, Duration::from_secs(30))
-            .await
+        for attempt in 0..5 {
+            let result = self
+                .request_timeout(method, params.clone(), Duration::from_secs(30))
+                .await;
+            // A just-created native thread may be visible before its first
+            // rollout metadata is flushed. Only retry this precise read race;
+            // mutations and unknown outcomes must never be replayed.
+            if attempt < 4
+                && method == "thread/read"
+                && result.as_ref().is_err_and(|error| {
+                    error.code == "UPSTREAM_ERROR"
+                        && error.message.starts_with("failed to read thread:")
+                        && error.message.contains("rollout at ")
+                        && error.message.ends_with(" is empty")
+                })
+            {
+                tokio::time::sleep(Duration::from_millis(50 << attempt)).await;
+                continue;
+            }
+            return result;
+        }
+        unreachable!()
     }
     pub async fn request_timeout(
         &self,
@@ -329,5 +349,69 @@ impl Rpc {
     }
     pub fn stop(&self) {
         self.stop.notify_one();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn read_race(method: &str, message: &str, succeeds_after: usize) -> (Result<Value>, u64) {
+        let (output, mut packets) = mpsc::channel::<Value>(8);
+        let rpc = Arc::new(Rpc {
+            protocol: ProtocolVersion::Managed,
+            output,
+            pending: Mutex::new(HashMap::new()),
+            next: AtomicU64::new(0),
+            alive: AtomicBool::new(true),
+            stop: tokio::sync::Notify::new(),
+            generation: "read-race-test".into(),
+            project_revision: AtomicU64::new(0),
+        });
+        let peer = rpc.clone();
+        let message = message.to_owned();
+        let responder = tokio::spawn(async move {
+            let mut calls = 0;
+            while let Some(packet) = packets.recv().await {
+                calls += 1;
+                let reply = if calls > succeeds_after {
+                    Ok(json!({"thread":{"id":"original"}}))
+                } else {
+                    Err(Error::new("UPSTREAM_ERROR", &message))
+                };
+                let sender = peer
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .remove(&packet["id"].to_string())
+                    .unwrap();
+                let _ = sender.send(reply);
+            }
+        });
+        let result = rpc
+            .request(method, json!({"threadId":"original","excludeTurns":true}))
+            .await;
+        let calls = rpc.next.load(Ordering::Relaxed);
+        responder.abort();
+        (result, calls)
+    }
+
+    #[tokio::test]
+    async fn unflushed_thread_reads_retry_boundedly_without_replaying_mutations() {
+        let empty =
+            "failed to read thread: thread-store internal error: rollout at test.jsonl is empty";
+        let (result, calls) = read_race("thread/read", empty, 2).await;
+        assert_eq!(result.unwrap()["thread"]["id"], "original");
+        assert_eq!(calls, 3);
+        let (result, calls) = read_race("thread/read", empty, usize::MAX).await;
+        assert_eq!(result.unwrap_err().message, empty);
+        assert_eq!(calls, 5);
+        let (result, calls) = read_race("thread/resume", empty, 1).await;
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+        let (result, calls) =
+            read_race("thread/read", "failed to read thread: permission denied", 1).await;
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
     }
 }

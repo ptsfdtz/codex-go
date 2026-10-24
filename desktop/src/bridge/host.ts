@@ -43,6 +43,7 @@ export interface CloudState {
   error: string | null;
 }
 export interface Invitation {
+  v?: number;
   image: string;
   endpoint: string;
   fingerprint: string;

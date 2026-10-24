@@ -274,7 +274,7 @@ import androidx.compose.ui.platform.LocalContext
                     }
                     if(changeCardEnds[entry.sourceTurn]==entry.id)changesByTurn[entry.sourceTurn]?.let{changes->TurnChangesCard(changes,state.displayMask,history?.nextCursor!=null)}
                 }}}
-                items(approvals,key={"${state.host?.hostId}:approval:"+it.approvalId}){approval->ChatWidth{if(approval.method=="item/tool/requestUserInput")QuestionCard(approval,state.stale||state.busy,repo::answerQuestions,{repo.decide(approval,"cancel")},state.displayMask)else ApprovalCard(approval,state.stale||state.busy,repo::decide,state.displayMask)}}
+                items(approvals,key={"${state.host?.hostId}:approval:"+it.approvalId}){approval->ChatWidth{if(approval.method=="item/tool/requestUserInput")QuestionCard(approval,state,repo)else ApprovalCard(approval,state.stale||state.busy,repo::decide,state.displayMask)}}
                 item{ChatWidth{if(active&&approvals.isEmpty())Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){if(!state.stale&&session.status!="unknown")CircularProgressIndicator(Modifier.size(13.dp),strokeWidth=1.5.dp);Text(if(state.stale)"连接恢复后核对任务状态" else statusLabel(session.status),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}}}
             }
             if(!follow&&session!=null)FilledTonalIconButton(onClick={follow=true;scope.launch{list.animateScrollToItem((list.layoutInfo.totalItemsCount-1).coerceAtLeast(0))}},modifier=Modifier.align(Alignment.BottomCenter).padding(8.dp)){Icon(Icons.Outlined.ArrowDownward,"回到最新消息")}
@@ -344,7 +344,7 @@ import androidx.compose.ui.platform.LocalContext
 @Composable private fun ChatWidth(content:@Composable ()->Unit){Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.TopCenter){Column(Modifier.widthIn(max=760.dp).fillMaxWidth()){content()}}}
 
 @Composable internal fun ChatMessage(entry:ChatEntry,mask:String){
-    val text=maskDisplay(entry.text,mask)
+    val text=maskDisplay(if(entry.kind=="user")questionReplyDisplayText(entry.text)else entry.text,mask)
     when(entry.kind){
         "user"->BoxWithConstraints(Modifier.fillMaxWidth()){val bubbleWidth=minOf(640.dp,maxWidth*0.82f);Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){Surface(Modifier.widthIn(max=bubbleWidth),shape=RoundedCornerShape(24.dp),color=MaterialTheme.colorScheme.surfaceContainer){SelectionContainer{Text(text,Modifier.padding(horizontal=16.dp,vertical=12.dp),fontSize=16.sp,lineHeight=25.sp)}}}}
         "assistant","plan"->Column{

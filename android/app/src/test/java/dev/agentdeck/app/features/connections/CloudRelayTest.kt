@@ -43,6 +43,13 @@ class CloudRelayTest {
             return MockResponse().withWebSocketUpgrade(object:WebSocketListener(){
                 override fun onMessage(webSocket:WebSocket,text:String){
                     val request=wire.parseToJsonElement(text).jsonObject;val action=request.getValue("action").jsonPrimitive.content;replies+=action
+                    if(action=="system.hello"){
+                        val payload=request.getValue("payload").jsonObject
+                        if(payload["client"]?.jsonPrimitive?.contentOrNull==null||payload["version"]?.jsonPrimitive?.intOrNull!=1){
+                            webSocket.send("{\"v\":1,\"type\":\"error\",\"code\":\"INVALID_REQUEST\",\"message\":\"Missing hello fields\"}")
+                            return
+                        }
+                    }
                     if(action=="turn.start"){waitingTurn.set(webSocket to request.getValue("id"));return}
                     val result=when(action){
                         "system.capabilities"->buildJsonObject{put("protocolVersion",1)}
@@ -93,7 +100,7 @@ class CloudRelayTest {
             val host=Host("https://192.0.2.7:${pc.port}",pin,"pinned-computer","device",innerCredential,tlsServerName="127.0.0.1",cloud=binding)
             transport=DeckTransport(host,45_000,routeFactory=RelaySocketFactory(account,binding,host.hostId))
             transport.connect()
-            assertEquals("pinned-computer",transport.request("system.hello")["hostId"]?.jsonPrimitive?.content)
+            assertEquals("pinned-computer",transport.request("system.hello",buildJsonObject{put("client","AgentDeck cloud test");put("version",1)})["hostId"]?.jsonPrimitive?.content)
             assertEquals(listOf("system.hello"),replies.toList())
             assertTrue(encrypted.isNotEmpty())
             assertTrue(encrypted.none{it.utf8().contains(innerCredential)||it.utf8().contains("system.hello")})

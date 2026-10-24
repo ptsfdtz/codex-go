@@ -12,7 +12,7 @@ export function CloudSettings({
   available: boolean;
   send: (action: Action) => Promise<boolean>;
 }) {
-  const [origin, setOrigin] = useState(state?.origin ?? '');
+  const [origin, setOrigin] = useState(state?.origin || 'https://agent.ptsfdtz.top');
   const [username, setUsername] = useState(state?.username ?? '');
   const [password, setPassword] = useState('');
   const [oldPassword, setOldPassword] = useState('');
@@ -25,7 +25,7 @@ export function CloudSettings({
     return (
       <section className="cloud-settings">
         <h3>公网连接</h3>
-        <p>登录管理员提供的账户后，可以在其他网络连接这台电脑。</p>
+        <p>使用普通账户登录后，可以在其他网络连接这台电脑。网页管理后台使用管理员账户。</p>
         {state?.error && <p role="status">{state.error}</p>}
         <form
           onSubmit={(event) => {
@@ -42,7 +42,7 @@ export function CloudSettings({
             <input
               type="url"
               required
-              placeholder="https://connect.example.com"
+              placeholder="https://agent.ptsfdtz.top"
               value={origin}
               onChange={(event) => setOrigin(event.target.value)}
               disabled={disabled}

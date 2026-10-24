@@ -100,7 +100,7 @@ internal class ComputerConnection(
         probe=scope.launch{try{current.probe()
             if(host.cloud!=null&&host.routePolicy=="auto"&&state.value.route=="云端"&&!current.hasPendingRequests){
                 val candidate=DeckTransport(lanRoute(host),connectTimeoutMillis=4_000)
-                try{candidate.connect();candidate.request("system.hello");val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),candidate.request("snapshot.get"));require(snapshot.host?.hostId==host.hostId){"电脑身份不匹配"}
+                try{candidate.connect();candidate.hello();val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),candidate.request("snapshot.get"));require(snapshot.host?.hostId==host.hostId){"电脑身份不匹配"}
                     if(transport===current)current.disconnectIfIdle(IOException("局域网连接已恢复"))
                 }catch(e:CancellationException){throw e}catch(_:Exception){}finally{candidate.close()}
             }
@@ -177,7 +177,7 @@ internal class ComputerConnection(
                 if(remote&&cloud==null)throw DeckException("CLOUD_LOGIN_REQUIRED","当前云端账户不可用")
                 update{it.copy(connection=if(attempt==0)"正在连接" else "正在尝试重连",error=null,route=if(remote)"云端"else"局域网")}
                 current.connect()
-                current.request("system.hello",buildJsonObject{put("client","AgentDeck Android/${BuildConfig.VERSION_NAME}");put("version",1)})
+                current.hello()
                 val capabilities=wire.decodeFromJsonElement(BridgeCapabilities.serializer(),current.request("system.capabilities"))
                 if(capabilities.protocolVersion!=1)throw DeckException("PROTOCOL_VERSION","电脑端协议不兼容，请更新客户端")
                 val cache=journal.host(host.hostId)
@@ -193,6 +193,7 @@ internal class ComputerConnection(
                 update{it.copy(connection="已连接",capabilities=capabilities,retention=retention,error=null)}
                 blockedRoute=null
                 recovery.connected();connectedAt=System.nanoTime()
+                ConnectionDiagnostics.record("connected host=${host.hostId.takeLast(6)} route=${if(remote)"cloud" else "lan"}")
                 deliver(current,hints)
                 coroutineScope{
                     val refreshJob=launch{
@@ -214,6 +215,7 @@ internal class ComputerConnection(
                 }
             }catch(e:CancellationException){throw e}
             catch(e:Exception){
+                ConnectionDiagnostics.record("reconnect host=${host.hostId.takeLast(6)} route=${if(remote)"cloud" else "lan"} online_ms=${connectedAt?.let{(System.nanoTime()-it)/1_000_000}?:0}",e)
                 val transient=e is IOException&&!connectionSecurityFailure(e)&&e !is java.net.ProtocolException
                 if(!transient)blockedRoute=remote
                 // Security/protocol failures never silently downgrade to another route.

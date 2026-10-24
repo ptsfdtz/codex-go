@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable internal fun CloudSettings(state:DeckState,repo:DeckRepository){
     val cloud=state.cloud
-    var origin by remember(cloud.origin){mutableStateOf(cloud.origin)}
+    var origin by remember(cloud.origin){mutableStateOf(cloud.origin.ifBlank{"https://agent.ptsfdtz.top"})}
     var username by remember(cloud.username){mutableStateOf(cloud.username)}
     // Passwords deliberately do not participate in saved instance state.
     var password by remember{mutableStateOf("")}
@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
     OutlinedCard{Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         Text("云端账户",fontWeight=FontWeight.SemiBold)
         if(!cloud.signedIn){
-            Text("使用管理员提供的账户登录。局域网配对无需登录或互联网。",style=MaterialTheme.typography.bodySmall)
+            Text("使用普通账户登录；网页管理后台使用管理员账户。局域网配对无需登录或互联网。",style=MaterialTheme.typography.bodySmall)
             OutlinedTextField(origin,{origin=it.take(2048)},label={Text("服务器 HTTPS 地址")},singleLine=true,enabled=!state.busy,modifier=Modifier.fillMaxWidth())
             OutlinedTextField(username,{username=it.take(80)},label={Text("用户名")},singleLine=true,enabled=!state.busy,modifier=Modifier.fillMaxWidth())
             OutlinedTextField(password,{password=it.take(1024)},label={Text("密码")},visualTransformation=PasswordVisualTransformation(),singleLine=true,enabled=!state.busy,modifier=Modifier.fillMaxWidth())
@@ -43,8 +43,13 @@ import androidx.compose.ui.unit.dp
                 Text("账户下的电脑",fontWeight=FontWeight.SemiBold)
                 if(cloud.computers.isEmpty())Text("暂未绑定电脑，请在桌面端登录此账户。")
                 cloud.computers.forEach{computer->
-                    val paired=state.hosts.any{it.hostId==computer.hostId}
-                    Text("${computer.displayName} · ${if(computer.online)"在线"else"离线"} · ${if(paired)"已配对"else"需扫描桌面配对码"}")
+                    val host=state.hosts.find{it.hostId==computer.hostId}
+                    val pairing=when{
+                        host?.cloud!=null&&host.cloud==cloud.binding->"已云端配对"
+                        host!=null->"仅局域网配对，需重新扫描公网配对码"
+                        else->"需扫描桌面公网配对码"
+                    }
+                    Text("${computer.displayName} · ${if(computer.online)"在线"else"离线"} · $pairing")
                 }
                 TextButton(onClick=repo::cloudRefresh,enabled=!state.busy){Text("刷新电脑列表")}
             }
@@ -53,10 +58,14 @@ import androidx.compose.ui.unit.dp
     }}
 }
 
-@Composable internal fun RouteSettings(state:DeckState,repo:DeckRepository){
+@Composable internal fun RouteSettings(state:DeckState,repo:DeckRepository,onPair:()->Unit){
     val host=state.host?:return
     Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-        Text("连接方式",fontWeight=FontWeight.SemiBold)
+        Text("${host.label} · 连接方式",fontWeight=FontWeight.SemiBold)
+        if(host.cloud==null){
+            Text("此电脑仅完成局域网配对。请在桌面端登录同一云端账户，重新生成公网配对码并扫码，完成后即可选择仅云端。",style=MaterialTheme.typography.bodySmall)
+            TextButton(onClick=onPair,enabled=!state.busy){Text("扫描公网配对码")}
+        }
         listOf("auto" to "自动：局域网优先，云端备用","lan" to "仅局域网","cloud" to "仅云端").forEach{(value,label)->
             Row(Modifier.fillMaxWidth()){
                 RadioButton(selected=host.routePolicy==value,onClick={repo.setRoutePolicy(host.hostId,value)},enabled=!state.busy&&(value!="cloud"||host.cloud!=null))

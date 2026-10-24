@@ -53,7 +53,7 @@ class ReplayWebSocketTest {
         val transport=DeckTransport(Host(server.url("/").toString().trimEnd('/'),pin,"computer","device","synthetic-test-credential"))
         try{
             withTimeout(10000){
-                transport.connect();transport.request("system.hello")
+                transport.connect();transport.hello()
                 val page=transport.request("events.replay",buildJsonObject{put("cursor","41");put("limit",500)})
                 val replay=NotificationReplay()
                 page.getValue("events").jsonArray.forEach{replay.observe(wire.decodeFromJsonElement(DeckEvent.serializer(),it))}

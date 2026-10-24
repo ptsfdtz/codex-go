@@ -568,6 +568,63 @@ mod tests {
             .is_empty());
     }
     #[test]
+    fn streaming_output_allows_index_sync_but_journal_gaps_do_not() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(&directory.path().join("test.db")).unwrap();
+        let project = paths::add_local(&store, directory.path()).unwrap();
+        let mut entry = ThreadIndexEntry {
+            project_id: s(&project, "projectId").to_owned(),
+            thread_id: "streaming-thread".into(),
+            title: "original".into(),
+            created_at: "2026-10-01T00:00:00.000Z".into(),
+            updated_at: "2026-10-01T00:00:00.000Z".into(),
+            archived: false,
+            metadata: json!({"status":{"type":"idle"}}),
+            expected_updated_at: None,
+            expected_event_seq: None,
+        };
+        store
+            .apply_thread_index(std::slice::from_ref(&entry))
+            .unwrap();
+        let session = store.sessions(None).unwrap().remove(0);
+        let id = s(&session, "sessionId");
+        entry.expected_updated_at = Some(s(&session, "updatedAt").into());
+        entry.expected_event_seq = Some(0);
+        entry.title = "renamed upstream".into();
+        for method in [
+            "item/agentMessage/delta",
+            "item/completed",
+            "turn/plan/updated",
+        ] {
+            store
+                .append("turn.progress", json!({"method":method}), Some(id), None)
+                .unwrap();
+        }
+        store
+            .append("session.tokenUsage", json!({}), Some(id), None)
+            .unwrap();
+        assert_eq!(
+            store
+                .apply_thread_index(std::slice::from_ref(&entry))
+                .unwrap(),
+            1
+        );
+        assert_eq!(store.session(id).unwrap()["title"], "renamed upstream");
+        // The sequence table outlives retained event rows. A missing control
+        // event must not be mistaken for harmless streaming.
+        store
+            .exec("DELETE FROM events WHERE sessionId=? AND seq=2", [id])
+            .unwrap();
+        let cursor = store.cursor().unwrap();
+        entry.title = "must not overwrite".into();
+        assert_eq!(
+            store.apply_thread_index(&[entry]).unwrap_err().code,
+            "SYNC_CONFLICT"
+        );
+        assert_eq!(store.session(id).unwrap()["title"], "renamed upstream");
+        assert_eq!(store.cursor().unwrap(), cursor);
+    }
+    #[test]
     fn stale_local_revision_rolls_back_the_entire_index_and_journal() {
         let directory = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(&directory.path().join("test.db")).unwrap();

@@ -276,9 +276,27 @@ impl Store {
                 let external_status = s(&entry.metadata["status"], "type");
                 let unknown = !["idle", "notLoaded"].contains(&external_status);
                 let id = if let Some(existing) = rows.first() {
+                    let current_seq = existing["eventSeq"].as_i64();
+                    let mut revision_matches = entry.expected_event_seq == current_seq;
+                    if !revision_matches {
+                        if let (Some(before), Some(current)) =
+                            (entry.expected_event_seq, current_seq)
+                        {
+                            // Streaming item output does not change index metadata.
+                            // Require the complete intervening journal so retention
+                            // gaps or any control/metadata event still reject it.
+                            let (count, changes): (i64, i64) = tx.query_row(
+                                "SELECT COUNT(*),COALESCE(SUM(CASE WHEN action='session.tokenUsage' OR (action='turn.progress' AND (json_extract(payloadJson,'$.method') LIKE 'item/%' OR json_extract(payloadJson,'$.method')='turn/plan/updated')) THEN 0 ELSE 1 END),0) FROM events WHERE sessionId=? AND seq>? AND seq<=?",
+                                params![s(existing, "sessionId"), before, current],
+                                |row| Ok((row.get(0)?, row.get(1)?)),
+                            )?;
+                            revision_matches =
+                                current > before && count == current - before && changes == 0;
+                        }
+                    }
                     ensure(
                         existing["projectId"] == entry.project_id
-                            && entry.expected_event_seq == existing["eventSeq"].as_i64()
+                            && revision_matches
                             && entry.expected_updated_at.as_deref()
                                 == existing["updatedAt"].as_str(),
                         "SYNC_CONFLICT",

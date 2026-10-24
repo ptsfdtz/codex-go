@@ -34,6 +34,33 @@ class TransportRecoveryTest {
         }
     }
 
+    @Test fun periodicProbeUsesAProtocolValidHelloWithoutReopeningConnection()=runBlocking {
+        val (server,host)=server()
+        val actions=CopyOnWriteArrayList<String>()
+        server.enqueue(MockResponse().withWebSocketUpgrade(object:WebSocketListener(){
+            override fun onMessage(webSocket:WebSocket,text:String){
+                val request=wire.parseToJsonElement(text).jsonObject
+                actions.add(request.getValue("action").jsonPrimitive.content)
+                val payload=request.getValue("payload").jsonObject
+                // The production Rust parser rejects a malformed hello before
+                // dispatch, so the error has no request id to correlate.
+                val valid=payload["client"]?.jsonPrimitive?.contentOrNull!=null&&payload["version"]?.jsonPrimitive?.intOrNull==1
+                webSocket.send(buildJsonObject{
+                    put("v",1)
+                    if(valid){put("type","response");put("id",request.getValue("id"));put("payload",buildJsonObject{put("hostId","computer")})}
+                    else{put("type","error");put("code","INVALID_REQUEST");put("message","Missing hello fields")}
+                }.toString())
+            }
+        }))
+        val transport=DeckTransport(host)
+        try{withTimeout(3000){
+            transport.connect()
+            repeat(3){transport.probe()}
+            assertEquals(listOf("system.hello","system.hello","system.hello"),actions.toList())
+            assertEquals(1,server.requestCount)
+        }}finally{transport.close();server.shutdown()}
+    }
+
     @Test fun requestTimeoutKeepsOwnerAliveAndDoesNotResendMutation() = runBlocking {
         val (server,host)=server();val actions=CopyOnWriteArrayList<String>()
         server.enqueue(MockResponse().withWebSocketUpgrade(replyToHello(actions)))

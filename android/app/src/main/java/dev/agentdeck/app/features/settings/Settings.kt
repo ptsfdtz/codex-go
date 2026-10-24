@@ -135,7 +135,7 @@ internal val deckSettingsSections=listOf("general" to "通用","conversations" t
         if(section=="computers")item{OutlinedCard{Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
             Text("我的电脑",fontWeight=FontWeight.SemiBold)
             ComputerList(state,repo::selectHost,repo::renameHost)
-            RouteSettings(state,repo)
+            RouteSettings(state,repo,onPair)
             TextButton(onClick=onPair,enabled=!state.busy){Text("添加电脑")}
             Text("当前电脑",fontWeight=FontWeight.SemiBold);Text(state.host?.label?:"未配对")
             TextButton(onClick={renameComputer=true},enabled=state.host!=null&&!state.busy){Text("重命名当前电脑")}

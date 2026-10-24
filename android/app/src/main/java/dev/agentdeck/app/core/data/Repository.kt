@@ -39,6 +39,8 @@ class DeckRepository(context:Context){
     internal val conversationViewports=ConversationViewports()
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val navigation=context.getSharedPreferences("agentdeck_navigation",Context.MODE_PRIVATE)
+    private val questionReceipts=context.getSharedPreferences("agentdeck_question_replies",Context.MODE_PRIVATE)
+    internal val questionReplies=QuestionReplies(questionReceipts.getString("receipts","").orEmpty()){questionReceipts.edit().putString("receipts",it).apply()}
     private var restoreNavigation=true
     private val vault=Vault(context)
     private val cloud=CloudAccount(vault::readCloud,vault::saveCloud,scope,vault::cloudInstallation)
@@ -75,6 +77,11 @@ class DeckRepository(context:Context){
         override fun onLost(network:Network){discovery.refresh();checkConnection()}
     }
     init {
+        scope.launch{
+            state.map{Triple(it.host?.hostId,it.selectedSession,it.events to it.timelineHistory.entries)}.distinctUntilChanged().collect{(host,id,content)->
+                if(host!=null&&id!=null)questionReplies.reconcile(host,id,conversationTimeline(id,content.first,content.second,mutable.value.snapshot.turns))
+            }
+        }
         scope.launch{discovery.endpoints.collect{connections.check()}}
         scope.launch{while(isActive){delay(30_000);connections.check()}}
         scope.launch{initialized.await();var previous=cloud.state.value.binding
@@ -104,6 +111,7 @@ class DeckRepository(context:Context){
     // UI selection observes a session; it never owns or closes its network connection.
     private suspend fun activateBook(savedBook:HostBook){
         val book=savedBook.visible(cloud.state.value.binding)
+        questionReplies.retainHosts(savedBook.hosts.map{it.hostId}.toSet(),book.hosts.map{it.hostId}.toSet())
         discovery.hosts(book.hosts)
         notifications.visibleHosts(book.hosts.map{it.hostId}.toSet())
         switchingHost=true;hostEpoch++
@@ -144,7 +152,7 @@ class DeckRepository(context:Context){
                                     if(!isCurrent())return@launch
                                     loadModels()
                                     if(isCurrent())mutable.value.selectedSession?.let{refreshSession(it)}
-                                }catch(e:CancellationException){throw e}catch(e:Exception){if(isCurrent())mutable.update{it.copy(error=errorMessage(e))}}
+                                }catch(e:CancellationException){throw e}catch(e:Exception){backgroundReadError(e)?.let{message->if(isCurrent())mutable.update{it.copy(error=message)}}}
                             }
                         }
                         previousOnline=view.online
@@ -192,6 +200,10 @@ class DeckRepository(context:Context){
     fun cloudRefresh(){action{cloud.refreshDirectory()}}
     fun setRoutePolicy(hostId:String,policy:String){action{require(policy in listOf("auto","lan","cloud"));val book=vault.readBook();val host=book.visible(cloud.state.value.binding).hosts.single{it.hostId==hostId};require(policy!="cloud"||host.cloud!=null){"请重新扫描公网配对码后使用云端连接"};val next=book.copy(hosts=book.hosts.map{if(it.hostId==hostId)it.copy(routePolicy=policy)else it});vault.saveBook(next);activateBook(next)}}
     private fun errorMessage(e:Throwable):String=when(e){is DeckException->userFacingError(e.code,e.message);is java.security.cert.CertificateException,is javax.net.ssl.SSLPeerUnverifiedException,is javax.net.ssl.SSLHandshakeException->userFacingError("TLS",e.message);is TimeoutCancellationException->userFacingError("TIMEOUT",e.message);is java.io.IOException->userFacingError("NETWORK",e.message);else->userFacingError(null,e.message)}
+    // Background reads are retried by connection/history recovery. Their socket
+    // closing during a reconnect must not become a sticky operation error.
+    // Mutation failures still use errorMessage and retain unknown-result prompts.
+    private fun backgroundReadError(e:Exception):String?=if(e is java.io.IOException&&!connectionSecurityFailure(e))null else errorMessage(e)
     private suspend fun applyEvent(event:DeckEvent){
         if(event.action=="session.historyChanged")historyRevision.incrementAndGet()
         if(event.action=="session.historyChanged"&&event.sessionId==mutable.value.selectedSession){
@@ -291,7 +303,7 @@ class DeckRepository(context:Context){
         val session=state.snapshot.sessions.find{it.sessionId==id}?:return
         if(state.snapshot.projects.none{it.projectId==session.projectId&&it.enabled})return
         if(record)recordNavigation(WorkspaceDestination(session.projectId,id,session.upstreamThreadId))
-        cancelTimelineRequests();restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();mutable.update{it.copy(selectedSession=id,timelineHistory=TimelineHistory(sessionId=id),selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{watchSessionTurn(id)};launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:Exception){mutable.update{it.copy(error=errorMessage(e))}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(events=events)else it}}}}
+        cancelTimelineRequests();restoreNavigation=false;navigation.edit().putString("${host.hostId}:session",id).apply();mutable.update{it.copy(selectedSession=id,timelineHistory=TimelineHistory(sessionId=id),selectedModel=session.model,selectedEffort=session.effort,selectedProject=session.projectId,events=emptyList(),git=if(it.selectedProject==session.projectId)it.git else null,diff=if(it.selectedProject==session.projectId)it.diff else null)};selectionJob?.cancel();selectionJob=scope.launch{launch{watchSessionTurn(id)};launch{try{if(!mutable.value.stale)refreshSession(id)}catch(e:CancellationException){throw e}catch(e:Exception){backgroundReadError(e)?.let{message->mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(error=message)else it}}}};dao.events(host.hostId,id).collect{rows->val events=rows.asReversed().mapNotNull{runCatching{wire.decodeFromString(DeckEvent.serializer(),it.json)}.getOrNull()};mutable.update{if(it.host?.hostId==host.hostId&&it.selectedSession==id)it.copy(events=events)else it}}}}
     private suspend fun refreshSession(id:String,before:String?=null){
         val host=mutable.value.host?:return
         val epoch=hostEpoch
@@ -303,7 +315,7 @@ class DeckRepository(context:Context){
                 mutable.update{if(epoch==hostEpoch&&it.selectedSession==id)it.copy(observationPendingSession=if(observed["observing"]?.jsonPrimitive?.booleanOrNull==true)null else id)else it}
             }catch(e:CancellationException){throw e}catch(e:Exception){
                 // A failed live join must not prevent authorized persisted reads.
-                mutable.update{if(epoch==hostEpoch&&it.selectedSession==id)it.copy(observationPendingSession=id,error=errorMessage(e))else it}
+                mutable.update{if(epoch==hostEpoch&&it.selectedSession==id)it.copy(observationPendingSession=id,error=backgroundReadError(e)?:it.error)else it}
             }
         }
         val historyVersion=historyRevision.get()
@@ -620,10 +632,71 @@ class DeckRepository(context:Context){
         refreshSnapshot()
     }}
     fun decide(approval:Approval,decision:String){action{require(Instant.parse(approval.expiresAt).isAfter(Instant.now())){"审批已过期"};rpc().request("approvals.decide",payload("sessionId" to approval.sessionId,"turnId" to approval.turnId,"approvalId" to approval.approvalId,"decision" to decision));refreshSnapshot()}}
-    fun answerQuestions(approval:Approval,answers:Map<String,String>){action{rpc().request("approvals.decide",buildJsonObject{
-        put("sessionId",approval.sessionId);put("turnId",approval.turnId);put("approvalId",approval.approvalId);put("decision","approve")
-        put("answers",buildJsonObject{answers.forEach{(id,value)->put(id,buildJsonObject{put("answers",buildJsonArray{add(value)})})}})
-    });refreshSnapshot()}}
+    internal fun answerQuestions(key:QuestionKey,approval:Approval,skip:Boolean=false){
+        submitQuestionReply(key){reply,request->
+            require(key.sessionId==approval.sessionId&&key.requestId==approval.approvalId)
+            require(approval.status=="pending"&&Instant.parse(approval.expiresAt).isAfter(Instant.now())){"问题已过期"}
+            val questions=approvalQuestions(approval)
+            require(skip||questions.isNotEmpty()&&questions.all{!reply.answers[it.id].isNullOrBlank()}){"请回答全部问题"}
+            val result=request("approvals.decide",buildJsonObject{
+                put("sessionId",approval.sessionId);put("turnId",approval.turnId);put("approvalId",approval.approvalId);put("decision",if(skip)"cancel" else "approve")
+                if(!skip)put("answers",buildJsonObject{questions.forEach{q->put(q.id,buildJsonObject{put("answers",buildJsonArray{add(reply.answers.getValue(q.id))})})}})
+            })
+            require(result["status"]?.jsonPrimitive?.content==if(skip)"cancelled" else "approved"){"回答受理结果需要核对"}
+        }
+    }
+    internal fun answerMessageQuestions(key:QuestionKey,entry:ChatEntry){
+        val now=mutable.value
+        val session=now.snapshot.sessions.find{it.sessionId==key.sessionId}
+        val options=session?.let{turnPayload(key.sessionId,"",it.mode,emptyList())}
+        submitQuestionReply(key,messageQuestions(entry).map{it.id}.toSet()){reply,request->
+            require(key.requestId==entry.id){"问题来源已变化"}
+            require(session!=null&&options!=null&&session.archived!=1){"原会话已不可用"}
+            require(now.capabilities?.supports("activeTurnSteering")==true){"电脑端需要升级才能异步回答"}
+            val text=questionAnswerText(entry,reply.answers)
+            require(text.isNotBlank()&&text.length<=64000){"请填写回答，合计不超过 64000 字符"}
+            deliverMessageAnswer(key.sessionId,text,JsonObject(options+mapOf("text" to JsonPrimitive(text))),request)
+        }
+    }
+    private fun submitQuestionReply(key:QuestionKey,messageQuestionIds:Set<String>?=null,send:suspend(QuestionReply,suspend(String,JsonObject)->JsonObject)->Unit){
+        val reply=questionReplies.claim(key)?:return
+        val now=mutable.value
+        val connection=connections.get(key.hostId)?.transport
+        scope.launch{
+            var mutationStarted=false
+            try{
+                require(now.host?.hostId==key.hostId&&!now.stale&&connection!=null){"连接恢复后可提交回答"}
+                require(now.snapshot.sessions.any{it.sessionId==key.sessionId&&it.archived!=1}){"原会话已不可用"}
+                // Wait for prior apply() receipts on IO before a mutation can leave the process.
+                check(questionReceipts.edit().commit()){"无法保存回答的发送状态，请稍后重试"}
+                send(reply){method,params->
+                    require(connections.get(key.hostId)?.transport===connection&&connections.get(key.hostId)?.state?.value?.online==true){"连接已变化，请核对后重试"}
+                    if(method!="turn.active")mutationStarted=true
+                    connection.request(method,params)
+                }
+                if(messageQuestionIds!=null)questionReplies.accepted(key,reply.answers.filterValues{it.isNotBlank()}.keys,messageQuestionIds)
+                else questionReplies.finish(key,ReplyPhase.Sent)
+            }catch(e:CancellationException){
+                questionReplies.finish(key,if(mutationStarted)ReplyPhase.Unknown else ReplyPhase.Editing,if(mutationStarted)"发送结果待确认，请查看会话，勿重复提交。" else "发送已取消")
+                throw e
+            }catch(e:Exception){
+                val unknown=mutationStarted&&(e !is DeckException||e.code in listOf("OUTCOME_UNKNOWN","UPSTREAM_TIMEOUT","UPSTREAM_UNAVAILABLE"))
+                val unavailable=e is DeckException&&e.code=="APPROVAL_STALE"
+                questionReplies.finish(key,if(unknown)ReplyPhase.Unknown else if(unavailable)ReplyPhase.Unavailable else ReplyPhase.Editing,
+                    if(unknown)"发送结果待确认，请查看会话，勿重复提交。" else if(unavailable)"此问题已处理或已过期。" else errorMessage(e))
+            }
+            // A read failing after acceptance must never turn success into a retryable send.
+            if(connection!=null)try{connections.get(key.hostId)?.refreshSnapshot(connection)}catch(e:CancellationException){throw e}catch(_:Exception){}
+        }
+    }
+    internal fun checkQuestionReply(key:QuestionKey){
+        scope.launch{
+            try{
+                if(mutable.value.host?.hostId!=key.hostId||mutable.value.stale)return@launch
+                refreshSession(key.sessionId)
+            }catch(e:CancellationException){throw e}catch(_:Exception){}
+        }
+    }
     fun addProject(){action{rpc().request("projects.add");mutable.update{it.copy(error="请在 Windows 管理窗选择并确认目录")}}}
     fun refresh(){action{if(mutable.value.capabilities?.supports("threadIndexRefresh")==true)refreshNativeProjectSessions() else refreshSnapshot();mutable.value.selectedSession?.let{refreshSession(it)}}}
     fun refreshGit(){val epoch=hostEpoch;scope.launch{try{if(epoch!=hostEpoch)return@launch;val id=mutable.value.selectedProject?:return@launch;val git=wire.decodeFromJsonElement(GitStatus.serializer(),rpc().request("git.status",payload("projectId" to id)));mutable.update{if(epoch==hostEpoch&&it.selectedProject==id)it.copy(git=git)else it}}catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{if(epoch==hostEpoch)it.copy(error=errorMessage(e))else it}}}}

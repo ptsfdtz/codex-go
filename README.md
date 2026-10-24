@@ -14,8 +14,14 @@
 
 - Android timeline (2026-10-23): infer native turn identity from live events and preserve history merge direction; pagination explicitly pauses following live output, and layout changes no longer re-enable it. TimelineHistory/Conversation unit tests, assembleDebug and device data-preserving install passed. On the connected real session, two older-page clicks retained the visible answer/question and viewport while output continued; automated real-session pagination assertions compiled, but helper installation was blocked by Android USB-install restrictions. Immediate post-completion pagination remains unverified.
 
+- Android 追问交互（2026-10-23）：原生追问与消息异步问题统一为卡片内直接提交，取消检查弹窗与加入主草稿步骤；提交、核对不占全局 busy，成功就地收起，不再把成功提示显示为顶部红色错误。按原电脑/会话发送，保留重复提交保护、未知结果与原生历史核对；本地只持久化回执身份，不保存回答内容，发送前在 IO 线程确认回执落盘。20 项定向 JVM 测试、lint、APK/设备测试编译通过；小米平板经实际云端完成深色异步问题和浅色原生双题的真实模型回复验证，提交期间切换会话、保留草稿、无全局错误均通过，截图在 `artifacts/mobile-questions/`，已保留数据更新平板及 `artifacts/AgentDeck-0.3.0-android.apk`。真机断网/进程被杀后的未知结果恢复、手机窄屏仍待验收，下一步补验这些场景。
+
 ## 多用户远程连接（2026-10-23）
 
+- 周期性重连（2026-10-23）：Android 每 30 秒探测的 `system.hello` 缺少必需的 `client/version`，服务端拒绝且无可关联请求 ID，10 秒后触发断开；已统一初连、探测和 LAN 恢复的握手报文。修复前小米平板 180 秒出现 6 次异常重连，严格协议回归复现超时；修复后定向单测、真实 TLS 云端/路由切换回归和 APK 构建通过，已保留数据安装并核对安装 APK 哈希。平板经生产云端界面发送两轮真实模型对话，计算上下文 `14175 → 14176` 正确、收到 411 个流式增量事件，主动重连后两轮原生历史完整恢复；随后前台持续观察 660 秒，0 次异常重连。恢复后的后台只读请求不再留下过期网络错误，真机截图确认无错误横幅；跨网络切换、长期后台/休眠仍未验收。
+- 客户端切换（2026-10-23）：两端默认服务器为 `https://agent.ptsfdtz.top`，登录提示区分普通账户与管理员。小米平板已完成本机公网扫码与本地批准，保存为“仅云端”；重启后仍为 cloud 策略并连接云端。经生产域名持续 180 秒、51 次真实状态读取，仅建立 1 条探测隧道、0 次失败，不创建模型任务；其他电脑网络、蜂窝切换与长期休眠尚未验收。物理测试仅显式启用，材料经一次性 ADB 本地套接字传递。
+- 配对入口（2026-10-23）：Android 区分仅 LAN 与当前账户云端授权，为不可用的“仅云端”提供原因和公网扫码入口；已保留数据安装，用户确认按钮恢复可用。桌面按实际二维码版本显示公网/LAN 类型，工作区同步不再重新签发 LAN 码覆盖公网码。桌面 22 项测试、类型/格式检查、Rust release 检查、Android/设备测试与 Windows NSIS/ZIP 构建通过。桌面文件已备份替换并核对哈希，正在运行的旧进程未重启，桌面这两项修复下次重启生效；重启后的桌面展示仍待验证。
+- 云端转发积压（2026-10-23）：Android 原先在接收队列或发送队列短时积压时立即关闭隧道，已改为有界等待，持续阻塞 10 秒仍中止。真实套接字回归复现旧版丢失 4 MiB 突发流，修复后下载/上传各 4 MiB 完整通过，现有 3 项云端 TLS/路由回归、APK 和设备测试编译通过；已保留数据更新小米平板。实际公网持续读取已通过上方 180 秒验收，其他电脑网络及蜂窝切换尚未验收。
 - 管理员创建用户名/临时密码账户；首次登录必须改密。支持重置密码、停用账户、撤销设备、电脑解绑、设备/连接/带宽配额与管理记录；账户彼此隔离，不提供跨账户分享。
 - Windows 与 Android 登录同一服务器、同一账户；手机扫描桌面 v3 公网二维码，核对六位码并在电脑批准。账户归属不代替电脑的本地授权；每个移动设备独立授权，可定向撤销。同一账户可绑定多台电脑与手机，每部手机同时维护多台电脑的连接、缓存、游标、任务与审批通知。
 - 独立 LAN 配对无需账户、互联网或 VPS；v1/v2 二维码仍兼容，原证书与设备身份保留。公网配对可选择自动（LAN 优先、云端备用）、仅 LAN、仅云端。mDNS 只为已配对身份提供新地址，证书固定与主机身份校验始终保留。云端恢复 LAN 时先核验身份，切换决策与请求登记互斥，避开待确认请求；任何路径切换均不自动重发变更操作。
@@ -24,7 +30,8 @@
 - 已验证：7 项真实 PostgreSQL/HTTPS/浏览器集成，覆盖账户、刷新竞争与重放、账户隔离、票据、内层 TLS、定向撤销、配额、管理网页和实际 pg_dump/pg_restore；恢复保留账户/设备/电脑身份并使旧访问及刷新凭据失效。Windows 原生服务与真实 HTTPS 云端的登录→扫码请求→电脑批准→RPC→定向撤销→解绑闭环通过。100 账户、200 电脑、200 手机、400 同时在线隧道及 12.5 MiB 本地转发通过；这不等于公网性能或持续压测结论。
 - 构建检查：Rust native 64 项及其余默认回归、Clippy、桌面前端 22 项、Tauri 4 项、浏览器 4 项、314 份基线及版本化 schema 校验通过；Android 116 项 JVM 测试、设备测试代码编译、lint（0 错误）及 APK 构建通过。真实套接字/TLS 测试覆盖 LAN→云端→LAN、待确认发送阻止切换、并发发送与切换、证书错误阻止回退、仅云端策略和不重发变更。
 - 本地包验收：Windows NSIS/ZIP 哈希一致；ZIP 解压至工作区外独立目录，分别启动随包服务和桌面主程序，均通过 DPAPI、Windows 隔离边界及 Codex 0.159.2 初始化，无模型任务、无已有安装/数据变更。APK 签名有效，包名 `dev.agentdeck.app`、版本 `0.3.0`（2）保持不变。交付：`artifacts/AgentDeck_0.3.0_x64-setup.exe`、`artifacts/AgentDeck-0.3.0-windows.zip`、`android/app/build/outputs/apk/debug/app-debug.apk`；验收结果在 `artifacts/package-acceptance.json`。Windows 包未做代码签名，APK 为 debug 签名；本轮未执行 NSIS 安装、APK 真机安装或桌面界面人工验收。
-- 未验证：实际 VPS/Docker/Caddy 与备份脚本部署、公网蜂窝网络、真机多设备、IP 变化发现、休眠与路由切换、真实模型任务、生产备份恢复。按用户要求先完成代码与安装包本地验收；公网部署待有域名/VPS 后继续，设备验收另行进行。
+- 公网部署（2026-10-23）：`yecaoyun` 已部署 `https://agent.ptsfdtz.top`（管理页 `/admin`），Cloudflare 为仅 DNS；复用现有 Nginx SNI 分流，原订阅/代理服务保留，Rust 1.90 release 程序以独立 `agentdeck` 用户由 systemd 常驻，PostgreSQL 17 通过本地 peer 认证，应用仅监听 `127.0.0.1:18082`。源码基于 `08216a61c873`，程序位于 `/opt/agentdeck/current/agentdeck-cloud`，配置位于 `/etc/agentdeck/cloud.env`；已创建管理员及普通账户 `ptsfdtz`，普通账户首次登录必须改密。公开证书、外部 HTTPS 健康检查、浏览器管理页、经公网 HTTPS 的账户登录/改密要求/退出、WSS 未授权拦截、续证模拟及数据库备份恢复到隔离数据库通过；本机—小米平板公网配对与真实云端对话验收见上方；蜂窝网络、真机多设备、IP 变化与休眠/切换待验收，Docker/Caddy 路径本轮未使用。现有 SNI 分流未传递来源 IP，应用的 IP 限流按共享入口计；下一步验证其他电脑网络和蜂窝切换。
+- VPS 运维：`ssh yecaoyun 'systemctl status agentdeck-cloud --no-pager'` 查看服务，`ssh yecaoyun 'journalctl -u agentdeck-cloud -n 50 --no-pager'` 查看日志；`ssh yecaoyun 'systemctl start agentdeck-backup.service'` 手动备份，`agentdeck-backup.timer` 每日 UTC 03:20 起随机延迟最多 10 分钟执行。数据库与私有配置备份仅 root 可读，存于 `/var/backups/agentdeck/`，目前保留全部归档且仍需异机备份；未对生产库执行恢复。证书由 Certbot 自动续期并重载 Nginx。
 
 云端部署（仓库根目录；Linux Docker Compose，域名 A/AAAA 指向 VPS，开放 80/443）：
 
@@ -62,7 +69,7 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib actual_cloud_a
 | ------ | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | 桌面端 | React/Tauri 管理界面：项目授权、设备撤销、配对网络地址、待审批、Codex 安装检查、托盘与进程监督             | 仅 Windows；不呈现对话；终端/编辑器/扩展管理界面不在本轮目标内，其对话结果仍需呈现               |
 | 移动端 | Compose 手机/平板界面；会话/历史、审批、草稿、图片；云端账户、独立多电脑连接与缓存、LAN/云端路径、后台保持 | 仅 Android；真实网络切换与后台行为待验收，富内容与部分设置布局仍有缺口                           |
-| 服务端 | 电脑 Rust 服务负责 Codex 权威状态、TLS、配对授权与审批；Linux 云端负责多用户账户、管理网页与加密转发       | 原版 Codex 桌面同一运行时完整共享（`sharedDesktopRuntime=false`）；实际 VPS 与三端真机闭环待验收 |
+| 服务端 | 电脑 Rust 服务负责 Codex 权威状态、TLS、配对授权与审批；Linux 云端负责多用户账户、管理网页与加密转发       | 原版 Codex 桌面同一运行时完整共享（`sharedDesktopRuntime=false`）；本机与平板公网配对/读取通过，其他网络待验收 |
 
 - Android reconnect UI (2026-10-23): ordinary disconnects and timeouts now show only subtle gray reconnecting text; certificate, authorization and protocol errors retain error prompts. compileDebugKotlin passed; device reconnect recovery and light/dark appearance remain unverified.
 
@@ -108,6 +115,10 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib actual_cloud_a
 发布构建修复（2026-10-23）：补齐 CommonJS 测试夹具的 ESLint 环境、排除开发临时文件并统一格式；Compose 按订阅状态更新消息操作，Rust 测试使用规范授权路径以兼容 Windows runner 短路径临时目录。桌面检查、22 项前端测试、4 项浏览器回归、Rust 测试与 Clippy、Android 单测/lint/APK 构建通过；线上构建与发布结果见 release 提交对应的 Actions，未做真机或真实模型验收。后续默认在 `release` 开发，提交与推送按用户授权执行。
 
 ## 开发命令
+
+移动端同步排查（2026-10-23）：本机服务日志确认新会话首次历史/目标/最新轮次读取遇到上游空 rollout，以及持续输出期间索引同步出现 `SYNC_CONFLICT`。服务端已对精确的空 rollout `thread/read` 错误增加最多 750ms 退避重试（不重发变更），索引允许完整日志中仅含条目输出/计划/用量的并发事件，保留会话修改、授权、状态变化和日志缺口保护。25 项 Rust 单测及原会话导入/分页/原子提交集成回归通过；原版桌面共享运行时仍未打通，不能据此宣称双端实时协作。当前真实任务仍运行，修复尚未替换运行中的服务；下一步在空闲时更新服务并验收新建/输出中同步及连接恢复。
+
+本机更新检查（2026-10-23）：当前 release 源码的 Windows NSIS/ZIP 与 Android APK 构建通过，桌面 22 项测试、Android 116 项单测及工作区移除后同步的 Rust release 定向回归通过（临时目录使用工作区 `.tmp/build-temp`）。Windows 静默安装返回成功但未替换旧文件，备份旧二进制后覆盖安装目录的桌面/服务和运行时清单，哈希与最新构建一致，窗口响应正常。Android 平板原签名不匹配，经用户授权使用桌面 debug.keystore 重新签名并卸载旧版后安装最新 APK，签名校验、安装及冷启动通过，进程存活且 Activity 位于前台；旧版本地数据已清除，需重新配对。安装包为 `artifacts/AgentDeck-0.3.0-android.apk`。未做真实模型、手机续聊或公网验收。
 
 构建环境：桌面端与服务端需要 Windows、Node 22.22.x、pnpm 12.3.4、Rust MSVC ≥1.88、Visual Studio C++、WebView2；移动端需要 JDK 21、SDK 36。仓库根目录执行：
 
