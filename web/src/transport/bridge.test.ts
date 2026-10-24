@@ -90,3 +90,24 @@ it('does not import receipts belonging to another account or device', async () =
   expect(sent.some((value) => value.action === 'requests.status')).toBe(false);
   bridge.close();
 });
+it('settles a confirmed response even when receipt cleanup fails', async () => {
+  const bridge = await connect();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: () => {
+      throw new Error('storage unavailable');
+    },
+  });
+  await expect(bridge.request('turn.start')).resolves.toEqual({});
+  expect(JSON.parse(storage.get(key)!)).toHaveLength(1);
+  bridge.close();
+});
+it('refuses to overwrite an unreadable receipt journal with a new mutation', async () => {
+  const bridge = await connect();
+  storage.set(key, '{}');
+  await expect(bridge.request('turn.start')).rejects.toThrow('无法保存');
+  expect(sent.filter((value) => value.action === 'turn.start')).toHaveLength(0);
+  expect(storage.get(key)).toBe('{}');
+  bridge.close();
+});

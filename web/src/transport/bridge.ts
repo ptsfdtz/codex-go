@@ -57,8 +57,13 @@ export class Bridge {
           if (
             packet.type === 'response' ||
             (packet.type === 'error' && packet.code !== 'OUTCOME_UNKNOWN')
-          )
-            this.clearReceipt(packet.id!);
+          ) {
+            try {
+              this.clearReceipt(packet.id!);
+            } catch {
+              /* Deliver the response; retain the receipt until it can be reconciled. */
+            }
+          }
           if (packet.type === 'error')
             request.reject(
               new Error(`${packet.code || 'ERROR'}: ${packet.message || 'Host request failed'}`),
@@ -93,11 +98,11 @@ export class Bridge {
     if (!this.socket || this.closed) return Promise.reject(new Error('Host disconnected'));
     const id = `web-${crypto.randomUUID()}`;
     if (this.mutationActions.has(action)) {
-      const pending = this.receipts();
-      if (pending.length)
-        return Promise.reject(new Error('上一条操作结果尚未确定，请重连核对后再操作'));
-      pending.push(id);
       try {
+        const pending = this.receipts();
+        if (pending.length)
+          return Promise.reject(new Error('上一条操作结果尚未确定，请重连核对后再操作'));
+        pending.push(id);
         this.saveReceipts(pending);
       } catch {
         return Promise.reject(new Error('无法保存操作回执；请允许浏览器存储后重试'));
@@ -120,12 +125,10 @@ export class Bridge {
     return `agentdeck.web.receipts.${this.scope}.${this.hostId}`;
   }
   private receipts(): string[] {
-    try {
-      const value = JSON.parse(localStorage.getItem(this.receiptKey()) || '[]');
-      return Array.isArray(value) ? value.filter((v) => typeof v === 'string') : [];
-    } catch {
-      return [];
-    }
+    const value: unknown = JSON.parse(localStorage.getItem(this.receiptKey()) || '[]');
+    if (!Array.isArray(value) || !value.every((id) => typeof id === 'string'))
+      throw new Error('无法读取操作回执，请先核对电脑上的操作状态');
+    return value;
   }
   private saveReceipts(value: string[]) {
     if (value.length) localStorage.setItem(this.receiptKey(), JSON.stringify(value));
