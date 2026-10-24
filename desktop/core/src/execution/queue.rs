@@ -395,28 +395,6 @@ fn input_revision(entry: &Value) -> String {
     )
 }
 
-#[cfg(test)]
-mod edit_tests {
-    use super::*;
-    #[test]
-    fn queue_text_edit_preserves_resources_and_rejects_structured_or_multiple_texts() {
-        let entry = json!({"input":[{"type":"localImage","path":"C:/fixture/image.png"},{"type":"text","text":"old","text_elements":[]},{"type":"skill","name":"review","path":"C:/fixture/SKILL.md"}]});
-        let edited = replace_resource_text(&entry, "new").unwrap();
-        assert_eq!(edited[0], entry["input"][0]);
-        assert_eq!(edited[2], entry["input"][2]);
-        assert_eq!(edited[1]["text"], "new");
-        assert_ne!(
-            input_revision(&entry),
-            input_revision(&json!({"input":edited}))
-        );
-        let mut structured = entry.clone();
-        structured["input"][1]["text_elements"] = json!([{"byteRange":{"start":0,"end":3}}]);
-        assert!(replace_resource_text(&structured, "new").is_err());
-        structured["input"] = json!([{"type":"text","text":"a"},{"type":"text","text":"b"}]);
-        assert!(replace_resource_text(&structured, "new").is_err());
-    }
-}
-
 pub(crate) fn replace_resource_text(entry: &Value, text: &str) -> Result<Vec<Value>> {
     let input = entry["input"]
         .as_array()
@@ -574,5 +552,27 @@ mod resource_tests {
             &json!({"input":[{"type":"image","url":"https://example.com/image.png"}]})
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::*;
+    #[test]
+    fn queue_text_edit_preserves_resources_and_rejects_structured_or_multiple_texts() {
+        let entry = json!({"input":[{"type":"localImage","path":"C:/fixture/image.png"},{"type":"text","text":"old","text_elements":[]},{"type":"skill","name":"review","path":"C:/fixture/SKILL.md"}]});
+        let edited = replace_resource_text(&entry, "new").unwrap();
+        assert_eq!(edited[0], entry["input"][0]);
+        assert_eq!(edited[2], entry["input"][2]);
+        assert_eq!(edited[1]["text"], "new");
+        assert_ne!(
+            input_revision(&entry),
+            input_revision(&json!({"input":edited}))
+        );
+        let mut structured = entry.clone();
+        structured["input"][1]["text_elements"] = json!([{"byteRange":{"start":0,"end":3}}]);
+        assert!(replace_resource_text(&structured, "new").is_err());
+        structured["input"] = json!([{"type":"text","text":"a"},{"type":"text","text":"b"}]);
+        assert!(replace_resource_text(&structured, "new").is_err());
     }
 }

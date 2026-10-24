@@ -49,8 +49,14 @@ jobs:
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @agentdeck/desktop exec playwright install --with-deps chromium
-      - run: sudo apt-get update
-      - run: sudo apt-get install -y postgresql-client-17
+      - name: Install matching PostgreSQL client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: rustfmt, clippy
