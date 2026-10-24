@@ -429,7 +429,10 @@ mod tests {
         let tls = crate::security::Certificate::load(directory.path()).unwrap();
         let (tx, _rx) = tokio::sync::mpsc::channel(128);
         let core = Core::new(store, tls, "127.0.0.1".into(), 18443, tx);
+        #[cfg(windows)]
         let node = crate::codex::sync_command("where.exe", &["node.exe"], None).unwrap();
+        #[cfg(not(windows))]
+        let node = crate::codex::sync_command("which", &["node"], None).unwrap();
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/appserver.mjs");
         let (rpc, mut events) = crate::rpc::Rpc::start(
             Path::new(node.lines().next().unwrap().trim()),
