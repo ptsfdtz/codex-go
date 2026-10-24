@@ -130,7 +130,11 @@ async fn quit_app(app: tauri::AppHandle, host: State<'_, Arc<Host>>) -> Result<(
 }
 fn runtime(app: &tauri::AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/native-runtime")
+        std::env::var_os("AGENTDECK_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/native-runtime")
+            })
     } else {
         app.path()
             .resource_dir()
