@@ -96,7 +96,7 @@ try {
   await page.waitForFunction(
     () =>
       Math.abs(
-        parseFloat(document.documentElement.style.getPropertyValue('--app-height')) -
+        document.querySelector('.center').getBoundingClientRect().height -
           window.visualViewport.height,
       ) < 2,
   );

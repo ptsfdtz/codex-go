@@ -11,6 +11,7 @@ let receiptStatus = 'pending';
 let responseCode = '';
 let deferTurn = false;
 let finishTurn: (() => void) | undefined;
+let silent = false;
 beforeEach(() => {
   vi.stubGlobal('navigator', { locks: testLocks() });
   storage.clear();
@@ -19,6 +20,7 @@ beforeEach(() => {
   responseCode = '';
   deferTurn = false;
   finishTurn = undefined;
+  silent = false;
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
@@ -34,6 +36,7 @@ beforeEach(() => {
       send: async (text: string) => {
         const request = JSON.parse(text);
         sent.push(request);
+        if (silent) return;
         const payload =
           request.action === 'system.hello'
             ? { hostId: 'host' }
@@ -65,6 +68,44 @@ async function connect() {
   await bridge.connect({ hostId: 'host', fingerprint: 'pin', credential: 'grant' });
   return bridge;
 }
+it('shares overlapping resume probes and preserves a healthy connection', async () => {
+  const bridge = await connect();
+  const before = sent.length;
+  const first = bridge.probe();
+  expect(bridge.probe()).toBe(first);
+  await first;
+  expect(sent.slice(before).map((request) => request.action)).toEqual(['system.hello']);
+  await expect(bridge.request('snapshot.get')).resolves.toEqual({});
+  bridge.close();
+});
+it('detects a silently lost background connection in five seconds without resending a mutation', async () => {
+  const bridge = await connect();
+  vi.useFakeTimers();
+  try {
+    silent = true;
+    const sending = bridge.request('turn.start');
+    const rejectedSend = expect(sending).rejects.toThrow('timed out');
+    // Let the receipt reservation finish before probing the silent socket.
+    await vi.advanceTimersByTimeAsync(0);
+    const events: string[] = [];
+    bridge.onEvent((packet) => events.push(packet.type || ''));
+    const rejectedProbe = expect(bridge.probe()).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(5000);
+    await Promise.all([rejectedSend, rejectedProbe]);
+    expect(events).toEqual(['closed']);
+    expect(bridge.awaitingReceipt).toBe(true);
+    expect(sent.filter((request) => request.action === 'turn.start')).toHaveLength(1);
+    silent = false;
+    receiptStatus = 'done';
+    const restored = await connect();
+    expect(restored.awaitingReceipt).toBe(false);
+    expect(sent.filter((request) => request.action === 'turn.start')).toHaveLength(1);
+    restored.close();
+  } finally {
+    vi.useRealTimers();
+    bridge.close();
+  }
+});
 it('keeps an in-flight send reserved without reporting its result as unknown', async () => {
   const bridge = await connect();
   deferTurn = true;

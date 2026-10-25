@@ -10,6 +10,7 @@ export async function startConversationServer({
   cacheDir,
   port = 0,
   allowMutations = false,
+  showNotice = true,
 } = {}) {
   const actual = actualFile ? JSON.parse(readFileSync(actualFile, 'utf8')) : undefined;
   const entry = (id, text, type = 'agentMessage') => ({
@@ -91,11 +92,12 @@ export async function startConversationServer({
             return fileURLToPath(new URL('./conversation-host.ts', import.meta.url));
         },
         transformIndexHtml(html) {
+          if (!showNotice) return html;
           return html.replace(
             '<body>',
             '<body><div id="test-notice" style="background:#fff0bd;color:#342b15;padding:7px;text-align:center;font:13px system-ui">本地只读验收 · ' +
               (actual ? '真实历史来自 Codex 公开 API' : '受控回归数据') +
-              ' · 不发送模型任务</div><style>.shell {height:calc(100dvh - 32px)}</style>',
+              ' · 不发送模型任务</div><style>.shell {top:calc(var(--app-top, 0px) + 32px);height:calc(var(--app-height, 100dvh) - 32px)}</style>',
           );
         },
         configurePreviewServer(server) {

@@ -68,9 +68,9 @@ button:disabled {
   display: flex;
   position: absolute;
   z-index: 30;
-  top: env(safe-area-inset-top);
+  top: var(--app-safe-top);
   left: env(safe-area-inset-left);
-  height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  height: calc(100% - var(--app-safe-top) - var(--app-safe-bottom));
   visibility: hidden;
   opacity: 0;
   transform: translateX(-100%);

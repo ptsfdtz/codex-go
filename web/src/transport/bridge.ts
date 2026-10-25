@@ -30,6 +30,7 @@ export class Bridge {
   private hostId = '';
   private receiptsFound: Packet[] = [];
   private mutations = new Set<string>();
+  private probing?: Promise<void>;
   get awaitingReceipt() {
     try {
       // A request still awaiting its response on this live connection is in
@@ -141,7 +142,27 @@ export class Bridge {
       return exclusive(this.receiptKey(), () => this.sendRequest<T>(action, payload));
     return this.sendRequest<T>(action, payload);
   }
-  private sendRequest<T>(action: string, payload: unknown): Promise<T> {
+  // Resume and heartbeat events share one bounded, read-only liveness check.
+  // A suspended socket may remain OPEN even though its network route is gone.
+  probe(): Promise<void> {
+    if (this.probing) return this.probing;
+    this.probing = this.sendRequest<{ hostId: string }>(
+      'system.hello',
+      { client: 'AgentDeck Web/0.3.0', version: 1 },
+      5000,
+    )
+      .then((hello) => {
+        if (hello.hostId !== this.hostId) {
+          this.close();
+          throw new Error('Host identity mismatch');
+        }
+      })
+      .finally(() => {
+        this.probing = undefined;
+      });
+    return this.probing;
+  }
+  private sendRequest<T>(action: string, payload: unknown, timeout = 30000): Promise<T> {
     if (!this.socket || this.closed) return Promise.reject(new Error('Host disconnected'));
     const id = `web-${crypto.randomUUID()}`;
     if (this.mutationActions.has(action)) {
@@ -163,7 +184,7 @@ export class Bridge {
           new Error('Host request timed out; outcome may be unknown. Reconcile before retrying.'),
         );
         this.fail(new Error('Host request timed out'));
-      }, 30000);
+      }, timeout);
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
       void this.socket!.send(JSON.stringify({ v: 1, type: 'request', id, action, payload })).catch(
         (error) => this.fail(error instanceof Error ? error : new Error('Host send failed')),

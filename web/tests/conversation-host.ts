@@ -20,6 +20,9 @@ export class Bridge {
     const result = await this.request<{ status: string }>('__test_receipt', {});
     if (result.status === 'done') localStorage.removeItem('test-receipt');
   }
+  async probe() {
+    await this.request('system.hello', {});
+  }
   private handler?: (packet: Packet) => void;
   private closed = false;
   private listener = (event: Event) => this.handler?.((event as CustomEvent<Packet>).detail);
