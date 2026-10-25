@@ -1,11 +1,21 @@
+import { Timeline } from './Timeline';
+import { RichContent } from './RichContent';
+import { attachmentsFromFiles, type Attachment } from './media';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
-import { api, installationId } from './cloud';
-import { Bridge } from './transport/bridge';
-import { PairHost } from './PairHost';
+import { api, installationId, accountEvent } from './cloud';
+import { ReconnectLoop, type ConnectionState } from './transport/reconnect';
+import {
+  mergeHistory,
+  withLiveText,
+  historyKey,
+  type HistoryEntry,
+  type HistoryPage,
+} from './history';
+import { Bridge, type Packet } from './transport/bridge';
 import { AccountPassword } from './AccountPassword';
-import { loadGrant, type HostGrant } from './host-book';
+import { type HostGrant } from './host-book';
 
 type Host = { hostId: string; displayName: string; online: boolean };
 type Device = { deviceId: string; kind: string; displayName: string; revoked?: boolean };
@@ -32,19 +42,6 @@ type Snapshot = {
   projects?: Project[];
   turns?: Turn[];
   approvals?: Approval[];
-};
-type HistoryEntry = { turnId?: string; item?: { id?: string; [key: string]: unknown } };
-type HistoryPage = {
-  data?: HistoryEntry[];
-  nextCursor?: string;
-  resource?: {
-    cursor?: string | null;
-    sha256?: string;
-    bytes?: number;
-    chunkBytes?: number;
-    turnId?: string;
-    itemId?: string;
-  } | null;
 };
 
 function Login({ onLogin }: { onLogin: () => void }) {
@@ -105,17 +102,6 @@ function Login({ onLogin }: { onLogin: () => void }) {
       </form>
     </main>
   );
-}
-
-function historyText(item: unknown): string {
-  if (typeof item === 'string') return item;
-  if (!item || typeof item !== 'object') return String(item ?? '');
-  const value = item as Record<string, unknown>;
-  for (const key of ['text', 'content', 'message', 'summary'])
-    if (typeof value[key] === 'string') return value[key];
-  if (Array.isArray(value.content))
-    return value.content.map(historyText).filter(Boolean).join('\n');
-  return JSON.stringify(item, null, 2);
 }
 
 function ApprovalCard({
@@ -183,31 +169,38 @@ function ApprovalCard({
   );
 }
 
-function eventText(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') return '';
-  const value = payload as Record<string, unknown>;
-  for (const key of ['delta', 'text', 'content', 'summary'])
-    if (typeof value[key] === 'string') return value[key];
-  if (value.item) return eventText(value.item);
-  return '';
-}
-
 function App() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [scope, setScope] = useState('');
   const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [pairHost, setPairHost] = useState<Host>();
   const connectionEpoch = useRef(0);
+  const accountEpoch = useRef(0);
+  const reconnect = useRef<ReconnectLoop | undefined>(undefined);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('stopped');
+  const [receiptNotice, setReceiptNotice] = useState('');
+  const [receiptBlocked, setReceiptBlocked] = useState(false);
+  const hostRef = useRef<Host | undefined>(undefined);
+  const historyIdentity = useRef('');
+  const historyStarted = useRef(false);
+  const latestRead = useRef(0);
+  const refreshing = useRef(false);
+  const refreshAgain = useRef(false);
+  const olderRequest = useRef(0);
+  const mutationBusy = useRef(false);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [host, setHost] = useState<Host>();
   const [snapshot, setSnapshot] = useState<Snapshot>({});
   const [session, setSession] = useState<string>();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const historyRef = useRef(history);
+  historyRef.current = history;
   const [historyCursor, setHistoryCursor] = useState<string | undefined>();
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [liveText, setLiveText] = useState('');
+  const liveEntries = useRef(new Map<string, HistoryEntry>());
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const timeline = useRef<Timeline | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [activeTurn, setActiveTurn] = useState<string>();
@@ -311,82 +304,228 @@ function App() {
       )
     : [];
 
+  function selectSession(id: string | undefined) {
+    if (sessionRef.current !== id) {
+      historyStarted.current = false;
+      latestRead.current++;
+      olderRequest.current++;
+      setHistory([]);
+      setHistoryCursor(undefined);
+      setHistoryLoading(false);
+      liveEntries.current.clear();
+      setActiveTurn(undefined);
+    }
+    sessionRef.current = id;
+    setSession(id);
+  }
   useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
+    if (!scope || !host) return;
+    try {
+      localStorage.setItem(
+        'agentdeck.web.selection.' + scope,
+        JSON.stringify({ hostId: host.hostId, sessionId: session, projectId: selectedProject }),
+      );
+    } catch {
+      setError('无法保存会话选择，重新打开后需手动选择电脑');
+    }
+  }, [scope, host, session, selectedProject]);
   useEffect(() => {
+    const epoch = accountEpoch.current;
     api('/api/v1/web/session')
       .then((value) => {
+        if (epoch !== accountEpoch.current) return;
         setScope(`${value.accountId}:${value.cloudDeviceId}`);
         setMustChangePassword(value.mustChangePassword === true);
         setSignedIn(true);
       })
-      .catch(() => setSignedIn(false));
+      .catch(() => {
+        if (epoch === accountEpoch.current) setSignedIn(false);
+      });
   }, []);
   useEffect(() => {
     if (!signedIn || mustChangePassword) return;
-    Promise.all([
-      api<{ hosts: Host[] }>('/api/v1/hosts'),
-      api<{ devices: Device[] }>('/api/v1/devices'),
-    ])
-      .then(([hostValue, deviceValue]) => {
+    let active = true;
+    const epoch = accountEpoch.current;
+    let pending = false;
+    const readDirectory = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const [hostValue, deviceValue] = await Promise.all([
+          api<{ hosts: Host[] }>('/api/v1/hosts'),
+          api<{ devices: Device[] }>('/api/v1/devices'),
+        ]);
+        if (!active || epoch !== accountEpoch.current) return;
         setHosts(hostValue.hosts || []);
         setDevices(deviceValue.devices || []);
-      })
-      .catch((error) => setError(String(error)));
-  }, [signedIn, mustChangePassword]);
+        if (
+          hostRef.current &&
+          !hostValue.hosts.some((item) => item.hostId === hostRef.current?.hostId)
+        ) {
+          connectionEpoch.current++;
+          reconnect.current?.stop();
+          bridge.current?.close();
+          bridge.current = undefined;
+          hostRef.current = undefined;
+          setHost(undefined);
+          setConnected(false);
+          setSnapshot({});
+          selectSession(undefined);
+        }
+        try {
+          const saved = JSON.parse(
+            localStorage.getItem('agentdeck.web.selection.' + scope) || 'null',
+          );
+          const previous =
+            hostValue.hosts.find((item) => item.hostId === saved?.hostId) ||
+            (hostValue.hosts.length === 1 ? hostValue.hosts[0] : undefined);
+          if (previous && !hostRef.current)
+            void connect(previous, saved?.sessionId, saved?.projectId);
+        } catch {
+          setError('无法读取上次的会话选择，请手动选择电脑');
+        }
+      } catch (error) {
+        if (active && epoch === accountEpoch.current) setError(String(error));
+      } finally {
+        pending = false;
+      }
+    };
+    void readDirectory();
+    const timer = window.setInterval(() => void readDirectory(), 15000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [signedIn, mustChangePassword, scope]);
   useEffect(() => {
-    if (!bridge.current || !session) {
+    const identity = JSON.stringify([host?.hostId, session]);
+    if (historyIdentity.current !== identity) {
+      historyIdentity.current = identity;
+      historyStarted.current = false;
+      latestRead.current++;
+      olderRequest.current++;
+      setHistoryLoading(false);
       setHistory([]);
       setHistoryCursor(undefined);
-      setLiveText('');
-      return;
+      liveEntries.current.clear();
     }
-    let cancelled = false;
-    void historyPage(bridge.current, session)
-      .then((value) => {
-        if (!cancelled) {
-          setHistory([...(value.data || [])].reverse());
-          setHistoryCursor(value.nextCursor);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) setError(String(error));
-      });
-    return () => {
-      cancelled = true;
+    if (connected && session) scheduleRefresh();
+  }, [host?.hostId, session, connected]);
+  useEffect(() => {
+    const offline = () => bridge.current?.close();
+    const wake = () => {
+      if (document.visibilityState === 'hidden') return;
+      reconnect.current?.wake();
+      const value = bridge.current;
+      if (value)
+        void value
+          .request('system.hello', { client: 'AgentDeck Web/0.3.0', version: 1 })
+          .then(() => value.reconcile())
+          .then(() => scheduleRefresh())
+          .catch(() => value.close());
     };
-  }, [session]);
-
-  useEffect(
-    () => () => {
+    const receiptChanged = (event: StorageEvent) => {
+      if (!event.key?.startsWith('agentdeck.web.receipts.') || !bridge.current) return;
+      try {
+        setReceiptBlocked(bridge.current.awaitingReceipt);
+      } catch {
+        setReceiptBlocked(true);
+        setReceiptNotice('无法读取操作回执，暂不能发送新操作');
+      }
+    };
+    const accountChanged = () => {
+      const epoch = ++accountEpoch.current;
+      reconnect.current?.stop();
       connectionEpoch.current++;
       bridge.current?.close();
+      bridge.current = undefined;
+      setConnected(false);
+      setSnapshot({});
+      setHistory([]);
+      setInput('');
+      setAttachments([]);
+      setHost(undefined);
+      hostRef.current = undefined;
+      selectSession(undefined);
+      setHosts([]);
+      setDevices([]);
+      setModels([]);
+      setSignedIn(null);
+      void api('/api/v1/web/session', {}, false)
+        .then((value) => {
+          if (epoch !== accountEpoch.current) return;
+          setScope(String(value.accountId) + ':' + String(value.cloudDeviceId));
+          setMustChangePassword(value.mustChangePassword === true);
+          setSignedIn(true);
+        })
+        .catch(() => {
+          if (epoch === accountEpoch.current) setSignedIn(false);
+        });
+    };
+    window.addEventListener('storage', receiptChanged);
+    window.addEventListener('online', wake);
+    window.addEventListener('offline', offline);
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener(accountEvent, accountChanged);
+    return () => {
+      window.removeEventListener('storage', receiptChanged);
+      window.removeEventListener('online', wake);
+      window.removeEventListener('offline', offline);
+      document.removeEventListener('visibilitychange', wake);
+      window.removeEventListener(accountEvent, accountChanged);
+      connectionEpoch.current++;
+      reconnect.current?.stop();
+      bridge.current?.close();
       if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function refresh() {
     if (!bridge.current) return;
-    const value = bridge.current;
-    const epoch = connectionEpoch.current;
-    const next = await value.request<Snapshot>('snapshot.get', {});
-    if (epoch !== connectionEpoch.current) return;
-    setSnapshot(next);
-    const id = sessionRef.current;
-    setActiveTurn(
-      next.turns?.find(
-        (turn) =>
-          turn.sessionId === id &&
-          ['queued', 'running', 'waitingApproval'].includes(turn.status || ''),
-      )?.turnId,
-    );
-    if (id) {
-      const page = await historyPage(value, id);
-      if (epoch === connectionEpoch.current && id === sessionRef.current) {
-        setHistory([...(page.data || [])].reverse());
-        setHistoryCursor(page.nextCursor);
+    if (refreshing.current) {
+      refreshAgain.current = true;
+      return;
+    }
+    refreshing.current = true;
+    const value = bridge.current,
+      epoch = connectionEpoch.current;
+    try {
+      const next = await value.request<Snapshot>('snapshot.get', {});
+      if (epoch !== connectionEpoch.current) return;
+      setSnapshot(next);
+      const id = sessionRef.current;
+      setActiveTurn(
+        next.turns?.find(
+          (turn) =>
+            turn.sessionId === id &&
+            ['queued', 'running', 'waitingApproval'].includes(turn.status || ''),
+        )?.turnId,
+      );
+      if (id) {
+        const read = ++latestRead.current;
+        const page = await historyPage(value, id);
+        if (
+          epoch === connectionEpoch.current &&
+          id === sessionRef.current &&
+          read === latestRead.current
+        ) {
+          setHistory((items) =>
+            withLiveText(
+              mergeHistory(items, [...page.data].reverse(), 'latest'),
+              liveEntries.current,
+            ),
+          );
+          if (!historyStarted.current) {
+            setHistoryCursor(page.nextCursor);
+            historyStarted.current = true;
+          }
+        }
+      }
+    } finally {
+      refreshing.current = false;
+      if (refreshAgain.current) {
+        refreshAgain.current = false;
+        scheduleRefresh();
       }
     }
   }
@@ -399,160 +538,253 @@ function App() {
     }, 250);
   }
 
-  async function connect(next: Host, paired?: HostGrant) {
-    const epoch = ++connectionEpoch.current;
-    setError('');
-    setBusy(true);
-    setConnected(false);
-    bridge.current?.close();
+  async function connect(next: Host, restoreSession?: string, restoreProject?: string) {
+    reconnect.current?.stop();
+    connectionEpoch.current++;
     bridge.current = undefined;
-    historyResourceCache.current.clear();
-    setSession(undefined);
+    hostRef.current = next;
+    setAttachments([]);
+    setInput('');
+    setModels([]);
+    setHost(next);
+    selectSession(restoreSession);
     setSnapshot({});
     setHistory([]);
-    setHistoryCursor(undefined);
-    setLiveText('');
-    setHost(next);
-    setPairHost(undefined);
-    const value = new Bridge(scope);
-    try {
-      const grant = paired || (await loadGrant(scope, next.hostId));
-      if (epoch !== connectionEpoch.current) return;
-      if (!grant) {
-        setPairHost(next);
-        return;
-      }
-      await value.connect(grant);
-      if (epoch !== connectionEpoch.current) {
-        value.close();
-        return;
-      }
-      const snap = await value.request<Snapshot>('snapshot.get', {});
-      if (epoch !== connectionEpoch.current) {
-        value.close();
-        return;
-      }
-      bridge.current = value;
-      setHost(next);
-      setSnapshot(snap);
-      setSelectedProject(snap.projects?.[0]?.projectId || '');
-      const selectedSession = snap.sessions?.[0]?.sessionId;
-      setSession(selectedSession);
-      setActiveTurn(
-        snap.turns?.find(
-          (turn) =>
-            turn.sessionId === selectedSession &&
-            ['queued', 'running', 'waitingApproval'].includes(turn.status || ''),
-        )?.turnId,
-      );
-      setLiveText('');
-      setConnected(true);
-      void value
-        .request<{ models?: Model[] }>('models.list', {})
-        .then((result) => {
-          if (epoch === connectionEpoch.current) setModels(result.models || []);
-        })
-        .catch(() => {
-          if (epoch === connectionEpoch.current) setModels([]);
+    historyStarted.current = false;
+    historyResourceCache.current.clear();
+    setError('');
+    setReceiptNotice('');
+    const ownerScope = scope;
+    const loop = new ReconnectLoop(
+      async ({ current: isCurrent, own, closed }) => {
+        const epoch = ++connectionEpoch.current;
+        const value = new Bridge(ownerScope);
+        const heartbeat: { timer?: ReturnType<typeof setInterval> } = {};
+        own(() => {
+          if (heartbeat.timer) clearInterval(heartbeat.timer);
+          value.close();
+          if (bridge.current === value) bridge.current = undefined;
         });
-      value.onEvent((packet) => {
-        if (epoch !== connectionEpoch.current) return;
-        if (packet.type === 'closed') {
-          setConnected(false);
-          setError('电脑连接已断开');
-          return;
-        }
-        if (packet.type === 'receipt') {
-          setError(`上一条操作已核对：${packet.payload?.status || '未知状态'}，请查看会话状态`);
-          scheduleRefresh();
-          return;
-        }
-        if (packet.type === 'event') {
-          if (packet.sessionId && packet.sessionId !== sessionRef.current) {
-            scheduleRefresh();
+        const grant = await api<HostGrant>(
+          `/api/v1/hosts/${encodeURIComponent(next.hostId)}/access`,
+          { method: 'POST' },
+        );
+        if (!isCurrent()) return;
+        if (
+          grant.hostId !== next.hostId ||
+          !/^[a-f0-9]{64}$/i.test(grant.fingerprint) ||
+          !/^[A-Za-z0-9_-]{43}$/.test(grant.credential)
+        )
+          throw new Error('电脑授权信息无效，请更新桌面端');
+        bridge.current = value;
+        let authenticated = false;
+        const earlyPackets: Packet[] = [];
+        const onPacket = (packet: Packet) => {
+          if (!isCurrent()) return;
+          if (packet.type === 'closed') {
+            closed(new Error(packet.message || 'Host disconnected'));
             return;
           }
-          if (packet.action?.includes('turn.progress')) {
-            const text = eventText(packet.payload);
-            if (text) setLiveText((value) => value + text);
+          if (!authenticated) {
+            if (earlyPackets.length >= 256) {
+              closed(new Error('Host event buffer exceeded'));
+              return;
+            }
+            earlyPackets.push(packet);
+            return;
           }
-          if (
-            packet.action?.includes('turn.completed') ||
-            packet.action?.includes('turn.failed') ||
-            packet.action?.includes('turn.interrupted')
-          ) {
-            setActiveTurn(undefined);
-            setLiveText('');
+          if (packet.type === 'receipt') {
+            setReceiptBlocked(value.awaitingReceipt);
+            const status = String(packet.payload?.status || 'unknown');
+            setReceiptNotice(
+              status !== 'done'
+                ? '上一条操作结果仍待核对（' + status + '），暂不能发送新操作'
+                : '已收到操作核对结果，请查看会话状态',
+            );
+            scheduleRefresh();
           }
-          scheduleRefresh();
+          if (packet.type === 'event') {
+            if (!packet.sessionId || packet.sessionId === sessionRef.current) {
+              const payload = packet.payload;
+              if (
+                payload?.method === 'item/agentMessage/delta' &&
+                typeof payload.turnId === 'string' &&
+                typeof payload.itemId === 'string' &&
+                typeof payload.delta === 'string'
+              ) {
+                const entry: HistoryEntry = {
+                  turnId: payload.turnId,
+                  item: { id: payload.itemId, type: 'agentMessage', text: '' },
+                };
+                const key = historyKey(entry),
+                  previous =
+                    liveEntries.current.get(key) ||
+                    historyRef.current.find((item) => historyKey(item) === key);
+                entry.item!.text = String(previous?.item?.text || '') + payload.delta;
+                liveEntries.current.set(key, entry);
+                setHistory((items) => withLiveText(items, liveEntries.current));
+              }
+              if (/turn\.(completed|failed|interrupted)/.test(packet.action || '')) {
+                setActiveTurn(undefined);
+                liveEntries.current.clear();
+              }
+            }
+            scheduleRefresh();
+          }
+        };
+        value.onEvent(onPacket);
+        await value.connect(grant);
+        if (!isCurrent()) return;
+        authenticated = true;
+        setReceiptBlocked(value.awaitingReceipt);
+        for (const packet of earlyPackets) onPacket(packet);
+        const snap = await value.request<Snapshot>('snapshot.get', {});
+        if (!isCurrent()) return;
+        setSnapshot(snap);
+        const selected = snap.sessions?.find((item) => item.sessionId === sessionRef.current);
+        const selectedId = selected?.sessionId;
+        // Never silently substitute a different conversation for a missing original.
+        selectSession(selectedId);
+        setSelectedProject(
+          selected?.projectId || restoreProject || snap.projects?.[0]?.projectId || '',
+        );
+        if (selectedId) {
+          const page = await historyPage(value, selectedId);
+          if (!isCurrent()) return;
+          if (sessionRef.current === selectedId) {
+            setHistory((items) =>
+              withLiveText(
+                mergeHistory(items, [...page.data].reverse(), 'latest'),
+                liveEntries.current,
+              ),
+            );
+            if (!historyStarted.current) {
+              setHistoryCursor(page.nextCursor);
+              historyStarted.current = true;
+            }
+          }
         }
-      });
-    } catch (error) {
-      value.close();
-      if (epoch === connectionEpoch.current) {
-        setConnected(false);
-        setError(String(error));
-      }
-    } finally {
-      if (epoch === connectionEpoch.current) setBusy(false);
-    }
+        if (!isCurrent()) return;
+        setActiveTurn(
+          snap.turns?.find(
+            (turn) =>
+              turn.sessionId === sessionRef.current &&
+              ['queued', 'running', 'waitingApproval'].includes(turn.status || ''),
+          )?.turnId,
+        );
+        liveEntries.current.clear();
+        heartbeat.timer = setInterval(() => {
+          void value
+            .request('system.hello', { client: 'AgentDeck Web/0.3.0', version: 1 })
+            .then(() => value.reconcile())
+            .catch(() => value.close());
+        }, 30_000);
+        void value
+          .request<{ models?: Model[] }>('models.list', {})
+          .then((result) => {
+            if (epoch === connectionEpoch.current) setModels(result.models || []);
+          })
+          .catch(() => {
+            if (isCurrent()) setModels([]);
+          });
+      },
+      (state, failure) => {
+        setConnectionState(state);
+        setConnected(state === 'connected');
+        if (failure) setError(String(failure));
+        else if (state === 'connected') setError('');
+      },
+    );
+    reconnect.current = loop;
+    loop.start();
   }
 
   async function loadOlderHistory() {
     if (!bridge.current || !session || !historyCursor || historyLoading) return;
     const epoch = connectionEpoch.current;
     const id = session;
+    timeline.current?.pause();
+    const request = ++olderRequest.current;
     setHistoryLoading(true);
     try {
       const page = await historyPage(bridge.current, session, historyCursor);
       if (epoch !== connectionEpoch.current || id !== sessionRef.current) return;
-      setHistory((items) => [[...(page.data || [])].reverse(), ...items].flat());
+      setHistory((items) =>
+        withLiveText(mergeHistory(items, [...page.data].reverse(), 'older'), liveEntries.current),
+      );
       setHistoryCursor(page.nextCursor);
     } catch (error) {
       if (epoch === connectionEpoch.current && id === sessionRef.current) setError(String(error));
     } finally {
-      setHistoryLoading(false);
+      if (request === olderRequest.current) setHistoryLoading(false);
     }
   }
 
   async function send() {
-    if (!bridge.current || !input.trim() || busy) return;
-    const text = input.trim();
-    setInput('');
-    setLiveText('');
+    const value = bridge.current,
+      epoch = connectionEpoch.current;
+    if (
+      !value ||
+      !connected ||
+      receiptBlocked ||
+      (!input.trim() && !attachments.length) ||
+      busy ||
+      mutationBusy.current
+    )
+      return;
+    mutationBusy.current = true;
+    const text = input.trim() || '请查看所附图片。',
+      files = attachments;
+    const original = sessionRef.current;
+    let id = original;
     setBusy(true);
+    setError('');
     try {
-      let id = session;
       if (!id) {
-        const created = await bridge.current.request<{ session?: Session }>('sessions.create', {
+        const created = await value.request<{ session?: Session }>('sessions.create', {
           projectId: selectedProject || snapshot.projects?.[0]?.projectId,
-          title: text.slice(0, 80),
+          title: text.slice(0, 80) || '图片会话',
         });
         id = created.session?.sessionId;
         if (!id) throw new Error('电脑没有返回会话标识');
-        setSession(id);
+        if (epoch !== connectionEpoch.current || sessionRef.current !== original) return;
+        selectSession(id);
       }
+      if (epoch !== connectionEpoch.current || sessionRef.current !== id) return;
       const payload: Record<string, unknown> = { sessionId: id, text };
+      if (files.length) payload.attachments = files.map(({ name, data }) => ({ name, data }));
       if (model) payload.model = model;
       if (effort) payload.effort = effort;
-      const result = await bridge.current.request<{ turn?: Turn }>('turn.start', payload);
+      const result = await value.request<{ turn?: Turn }>('turn.start', payload);
+      if (epoch !== connectionEpoch.current || sessionRef.current !== id) return;
+      setInput('');
+      setAttachments([]);
+      liveEntries.current.clear();
       setActiveTurn(result.turn?.turnId);
       await refresh();
     } catch (error) {
-      setError(String(error));
+      if (epoch === connectionEpoch.current && sessionRef.current === id) {
+        setError(String(error));
+        setReceiptBlocked(value.awaitingReceipt);
+      }
     } finally {
+      mutationBusy.current = false;
       setBusy(false);
     }
   }
 
   async function interrupt() {
-    if (!bridge.current || !session || !activeTurn) return;
+    const value = bridge.current,
+      epoch = connectionEpoch.current,
+      id = sessionRef.current;
+    if (!value || !connected || !id || !activeTurn) return;
     try {
-      await bridge.current.request('turn.interrupt', { sessionId: session, turnId: activeTurn });
+      await value.request('turn.interrupt', { sessionId: id, turnId: activeTurn });
+      if (epoch !== connectionEpoch.current || id !== sessionRef.current) return;
       setActiveTurn(undefined);
       await refresh();
     } catch (error) {
-      setError(String(error));
+      if (epoch === connectionEpoch.current && id === sessionRef.current) setError(String(error));
     }
   }
 
@@ -561,18 +793,21 @@ function App() {
     decision: string,
     answers?: Record<string, { answers: string[] }>,
   ) {
-    if (!bridge.current) return;
+    const value = bridge.current,
+      epoch = connectionEpoch.current;
+    if (!value || !connected) return;
     try {
-      await bridge.current.request('approvals.decide', {
+      await value.request('approvals.decide', {
         sessionId: approval.sessionId,
         turnId: approval.turnId,
         approvalId: approval.approvalId,
         decision,
         ...(answers ? { answers } : {}),
       });
+      if (epoch !== connectionEpoch.current) return;
       await refresh();
     } catch (error) {
-      setError(String(error));
+      if (epoch === connectionEpoch.current) setError(String(error));
     }
   }
 
@@ -597,7 +832,15 @@ function App() {
           AGENT<span>DECK</span>
         </div>
         <span className={connected ? 'connection online-text' : 'connection'}>
-          {connected ? '已连接' : '未连接'}
+          {connected
+            ? '已连接'
+            : connectionState === 'retrying'
+              ? '正在重连…'
+              : connectionState === 'connecting'
+                ? '正在连接…'
+                : connectionState === 'blocked'
+                  ? '需要处理连接问题'
+                  : '未连接'}
         </span>
         <button
           className="ghost"
@@ -642,8 +885,8 @@ function App() {
               className="new-session"
               onClick={() => {
                 setActiveTurn(undefined);
-                setLiveText('');
-                setSession(undefined);
+                liveEntries.current.clear();
+                selectSession(undefined);
               }}
             >
               ＋
@@ -655,8 +898,8 @@ function App() {
               key={item.sessionId}
               onClick={() => {
                 setActiveTurn(undefined);
-                setLiveText('');
-                setSession(item.sessionId);
+                liveEntries.current.clear();
+                selectSession(item.sessionId);
               }}
             >
               {item.title || '未命名会话'}
@@ -680,18 +923,6 @@ function App() {
           ))}
         </aside>
         <section className="card conversation">
-          {pairHost && (
-            <PairHost
-              key={pairHost.hostId}
-              hostId={pairHost.hostId}
-              scope={scope}
-              onPaired={(grant) => {
-                setPairHost(undefined);
-                void connect(pairHost, grant);
-              }}
-              onCancel={() => setPairHost(undefined)}
-            />
-          )}
           <div className="conversation-head">
             <div>
               <h1>{host?.displayName || '选择一台电脑'}</h1>
@@ -701,19 +932,18 @@ function App() {
               <button
                 className="ghost"
                 disabled={busy}
-                onClick={() => {
-                  connectionEpoch.current++;
-                  bridge.current?.close();
-                  bridge.current = undefined;
-                  setConnected(false);
-                  setPairHost(host);
-                }}
+                onClick={() => void connect(host, session, selectedProject)}
               >
-                重新配对
+                重新连接
               </button>
             )}
             {error && <span className="error">{error}</span>}
           </div>
+          {receiptNotice && (
+            <p role="status" className="receipt-notice">
+              {receiptNotice}
+            </p>
+          )}
           {(snapshot.approvals || []).map((approval, index) => (
             <ApprovalCard
               approval={approval}
@@ -721,7 +951,7 @@ function App() {
               key={approval.approvalId || index}
             />
           ))}
-          <div className="timeline">
+          <Timeline ref={timeline} identity={JSON.stringify([host?.hostId, session])}>
             {historyCursor && (
               <button
                 className="ghost history-more"
@@ -731,27 +961,27 @@ function App() {
                 {historyLoading ? '加载中…' : '加载更早记录'}
               </button>
             )}
-            {history.map((entry, index) => {
+            {history.map((entry) => {
               const item = entry.item || {};
               return (
-                <article className="turn" key={`${entry.turnId || 'item'}-${index}`}>
+                <article
+                  className="turn"
+                  key={historyKey(entry)}
+                  data-history-key={historyKey(entry)}
+                >
                   <div className="role">
                     {item.type === 'userMessage' || item.role === 'user' ? '你' : 'Codex'}
                   </div>
-                  <pre>{historyText(item)}</pre>
+                  <RichContent
+                    entry={entry}
+                    connection={connected ? bridge.current : undefined}
+                    sessionId={session || ''}
+                  />
                 </article>
               );
             })}
-            {liveText && (
-              <article className="turn live">
-                <div className="role">Codex · 输出中</div>
-                <pre>{liveText}</pre>
-              </article>
-            )}
-            {!history.length && !liveText && (
-              <div className="empty">连接电脑后开始一段新的 Codex 会话。</div>
-            )}
-          </div>
+            {!history.length && <div className="empty">连接电脑后开始一段新的 Codex 会话。</div>}
+          </Timeline>
           <div className="composer">
             <div className="composer-options">
               <select value={model} onChange={(event) => setModel(event.target.value)}>
@@ -774,6 +1004,48 @@ function App() {
                 ))}
               </select>
             </div>
+            <label className="attachment-picker">
+              添加图片（最多 4 张，共 512 KiB）
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                disabled={!connected || busy || receiptBlocked}
+                onChange={async (event) => {
+                  const files = [...(event.target.files || [])];
+                  event.target.value = '';
+                  const epoch = connectionEpoch.current;
+                  if (!files.length || mutationBusy.current) return;
+                  mutationBusy.current = true;
+                  setBusy(true);
+                  try {
+                    const next = await attachmentsFromFiles(files, attachments);
+                    if (epoch === connectionEpoch.current) setAttachments(next);
+                  } catch (error) {
+                    if (epoch === connectionEpoch.current) setError(String(error));
+                  } finally {
+                    mutationBusy.current = false;
+                    setBusy(false);
+                  }
+                }}
+              />
+            </label>
+            <div className="attachment-previews">
+              {attachments.map((file, index) => (
+                <div key={file.name}>
+                  <img
+                    src={'data:' + file.mime + ';base64,' + file.data}
+                    alt={'待发送图片 ' + (index + 1)}
+                  />
+                  <button
+                    disabled={busy}
+                    onClick={() => setAttachments((items) => items.filter((item) => item !== file))}
+                  >
+                    移除
+                  </button>
+                </div>
+              ))}
+            </div>
             <div className="composer-row">
               <textarea
                 value={input}
@@ -790,7 +1062,12 @@ function App() {
               {activeTurn ? (
                 <button onClick={() => void interrupt()}>停止</button>
               ) : (
-                <button onClick={() => void send()} disabled={!connected || busy || !input.trim()}>
+                <button
+                  onClick={() => void send()}
+                  disabled={
+                    !connected || busy || receiptBlocked || (!input.trim() && !attachments.length)
+                  }
+                >
                   {busy ? '处理中…' : '发送'}
                 </button>
               )}

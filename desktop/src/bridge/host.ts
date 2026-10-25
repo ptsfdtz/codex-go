@@ -44,6 +44,10 @@ export interface CloudState {
 }
 export interface Invitation {
   v?: number;
+  hostId?: string;
+  cloud?: { origin: string; accountId: string };
+  tlsServerName?: string;
+  token?: string;
   image: string;
   endpoint: string;
   fingerprint: string;

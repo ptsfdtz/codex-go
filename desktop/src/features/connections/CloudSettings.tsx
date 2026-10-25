@@ -12,7 +12,7 @@ export function CloudSettings({
   available: boolean;
   send: (action: Action) => Promise<boolean>;
 }) {
-  const [origin, setOrigin] = useState(state?.origin || 'https://agent.ptsfdtz.top');
+  const origin = state?.origin || 'https://agent.ptsfdtz.top';
   const [username, setUsername] = useState(state?.username ?? '');
   const [password, setPassword] = useState('');
   const [oldPassword, setOldPassword] = useState('');
@@ -24,8 +24,8 @@ export function CloudSettings({
   if (!state?.signedIn)
     return (
       <section className="cloud-settings">
-        <h3>公网连接</h3>
-        <p>使用普通账户登录后，可以在其他网络连接这台电脑。网页管理后台使用管理员账户。</p>
+        <h3>账户</h3>
+        <p>登录后，移动端和 Web 使用同一账户即可访问这台电脑。</p>
         {state?.error && <p role="status">{state.error}</p>}
         <form
           onSubmit={(event) => {
@@ -37,17 +37,6 @@ export function CloudSettings({
             })();
           }}
         >
-          <label>
-            服务器地址
-            <input
-              type="url"
-              required
-              placeholder="https://agent.ptsfdtz.top"
-              value={origin}
-              onChange={(event) => setOrigin(event.target.value)}
-              disabled={disabled}
-            />
-          </label>
           <label>
             用户名
             <input
@@ -75,12 +64,11 @@ export function CloudSettings({
             登录
           </button>
         </form>
-        <p className="modal-hint">局域网配对可以独立使用，无需账户或互联网。</p>
       </section>
     );
   return (
     <section className="cloud-settings">
-      <h3>公网连接</h3>
+      <h3>账户</h3>
       <p>
         {state.username} · {state.origin}
       </p>
@@ -88,7 +76,7 @@ export function CloudSettings({
         {state.mustChangePassword
           ? '请先修改初始密码'
           : state.online
-            ? '已连接，可从其他网络访问'
+            ? '已上线，同账户设备可直接访问'
             : (state.error ?? '正在连接服务器…')}
       </p>
       {(changing || state.mustChangePassword) && (
@@ -172,9 +160,7 @@ export function CloudSettings({
             className="button secondary"
             disabled={disabled}
             onClick={() => {
-              if (
-                window.confirm('解绑并退出这台电脑的云端账户？公网连接将关闭，局域网配对继续保留。')
-              )
+              if (window.confirm('解绑并退出这台电脑的云端账户？账户将关闭，局域网配对继续保留。'))
                 void send({ action: 'cloud.logout', unbind: true });
             }}
           >

@@ -7,7 +7,7 @@ use std::{env, path::PathBuf, process::Command};
 
 fn usage() {
     eprintln!(
-        "AgentDeck CLI\n\n  agentdeck login --origin https://cloud.example --username NAME\n  agentdeck serve --runtime-ws ws://127.0.0.1:4500 --runtime-token-file PATH [--sandbox-verified]\n  agentdeck status | stop\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck pair create [--lan ADDRESS] | pending | approve REQUEST_ID CODE | reject REQUEST_ID\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck password\n  agentdeck logout [--unbind]\n"
+        "AgentDeck CLI\n\n  agentdeck login --origin https://cloud.example --username NAME\n  agentdeck serve --runtime-ws ws://127.0.0.1:4500 --runtime-token-file PATH [--protocol VERSION] [--sandbox-verified]\n  agentdeck status | stop\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck pair create [--lan ADDRESS] | pending | approve REQUEST_ID CODE | reject REQUEST_ID\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck password\n  agentdeck logout [--unbind]\n"
     );
 }
 
@@ -115,7 +115,9 @@ fn serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let endpoint = value(args, "--runtime-ws").ok_or("--runtime-ws is required")?;
     let token_file =
         value(args, "--runtime-token-file").ok_or("--runtime-token-file is required")?;
-    let protocol = value(args, "--protocol").unwrap_or_else(|| "0.159.2".into());
+    let protocol = value(args, "--protocol")
+        .or_else(|| env::var("AGENTDECK_RUNTIME_PROTOCOL_VERSION").ok())
+        .unwrap_or_else(|| "0.159.2".into());
     let mut envs = vec![
         ("AGENTDECK_HEADLESS", "1"),
         ("AGENTDECK_RUNTIME_WS_URL", endpoint.as_str()),

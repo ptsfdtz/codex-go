@@ -135,7 +135,7 @@ describe('desktop human interactions', () => {
       }),
     );
   });
-  it('never confirms an incoming pairing request without a click', async () => {
+  it('keeps legacy pairing out of the account login interface and never auto approves it', async () => {
     const v = fixture();
     v.pairing = {
       requestId: 'pair-human',
@@ -145,16 +145,10 @@ describe('desktop human interactions', () => {
     };
     mocked.snapshot.mockResolvedValue(v);
     render(<App />);
-    await screen.findByText('123456');
+    await screen.findByText('Codex 已就绪');
+    expect(screen.queryByText('123456')).toBeNull();
+    expect(screen.queryByRole('button', { name: '配对码一致，确认' })).toBeNull();
     expect(mocked.action).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '配对码一致，确认' }));
-    await waitFor(() =>
-      expect(mocked.action).toHaveBeenCalledWith({
-        action: 'pair.confirm',
-        requestId: 'pair-human',
-        approve: true,
-      }),
-    );
   });
   it('does not offer stale approvals after authoritative state removes them', async () => {
     const v = fixture();

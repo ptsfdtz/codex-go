@@ -18,7 +18,6 @@ import {
   LoaderCircle,
   Minus,
   Plus,
-  QrCode,
   RotateCw,
   RefreshCw,
   ShieldCheck,
@@ -119,11 +118,6 @@ export function App() {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [localRequest, setLocalRequest] = useState<LocalRequest | null>(null);
   const [selectedApproval, setSelectedApproval] = useState<string | null>(null);
-  const [address, setAddress] = useState('');
-  const [legacyPair, setLegacyPair] = useState(false);
-  const [remotePair, setRemotePair] = useState(true);
-  const [showPair, setShowPair] = useState(false);
-  const [dismissedPair, setDismissedPair] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const [search, setSearch] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
@@ -178,9 +172,6 @@ export function App() {
   const online = view.running ? state.devices.find((d) => d.connected) : undefined;
   const knownDevice = online ?? state.devices[0];
   const ready = view.running && state.codexReady && state.sandboxVerified;
-  const seconds = remaining(view.qr?.expiresAt, now);
-  const pairingValid = remaining(view.pairing?.expiresAt, now) > 0;
-  const activeQr = view.qr && seconds > 0 && view.running ? view.qr : null;
   const approvals = state.approvals.filter(
     (a) => a.status === 'pending' && remaining(a.expiresAt, now) > 0,
   );
@@ -189,14 +180,6 @@ export function App() {
     notice ?? (view.error ? presentDesktopError(view.errorCode, view.error) : null);
   const visibleError = visibleHelp ? errorText(visibleHelp) : null;
   const startupHelp = view.error && !notice ? visibleHelp : null;
-  const effectiveAddress = state.addresses.includes(address)
-    ? address
-    : (state.addresses.find((a) => a === state.listenAddress && a !== '127.0.0.1') ??
-      state.addresses.find((a) => a !== '127.0.0.1') ??
-      '');
-  const useCloudPair =
-    remotePair && !legacyPair && state.cloud?.signedIn && !state.cloud.mustChangePassword;
-  const pairAddress = effectiveAddress || (useCloudPair ? '127.0.0.1' : '');
   const choose = (p: Panel) => {
     setMenu(false);
     setSearch('');
@@ -266,23 +249,6 @@ export function App() {
         throw new Error(`无法保存开机自启动设置：${String(error)}`);
       }
     });
-  };
-  const pair = async () => {
-    if (!pairAddress) {
-      setNotice(informationNotice('未找到局域网地址', '请将电脑和平板连接同一 Wi-Fi 后重试。'));
-      return;
-    }
-    if (
-      await send('pair', {
-        action: useCloudPair
-          ? 'pair.createRemote'
-          : legacyPair
-            ? 'pair.create'
-            : 'pair.createStable',
-        address: pairAddress,
-      })
-    )
-      setShowPair(true);
   };
   const confirmApproval = (a: Approval, decision: 'approve' | 'reject') =>
     setConfirmation({
@@ -355,7 +321,7 @@ export function App() {
                 </button>
                 <button onClick={() => choose('devices')}>
                   <Smartphone size={16} />
-                  已配对设备<span>{state.devices.length}</span>
+                  访问设备<span>{state.devices.length}</span>
                 </button>
                 <button onClick={() => choose('approvals')}>
                   <ShieldCheck size={16} />
@@ -415,8 +381,8 @@ export function App() {
       <main>
         <div className="connection-content">
           <div className="page-heading">
-            <h1>连接平板</h1>
-            <p>同步工作区后，在平板扫码即可。</p>
+            <h1>连接你的设备</h1>
+            <p>登录账户后，在移动端或网页继续同一份会话。</p>
           </div>
           {visibleError && (
             <div className="notice" role="alert">
@@ -466,7 +432,7 @@ export function App() {
               )}
             </div>
           )}
-          <section className="connection-settings" aria-label="工作区与配对">
+          <section className="connection-settings" aria-label="工作区与设备">
             <div className="setting-row">
               <Folder size={20} />
               <div className="setting-copy">
@@ -500,79 +466,24 @@ export function App() {
                     ? '已连接'
                     : knownDevice
                       ? view.running
-                        ? '已配对 · 等待连接'
+                        ? '等待连接'
                         : '服务未连接'
-                      : '尚未配对'}
+                      : '登录同一账户即可连接'}
                 </p>
               </div>
-              {knownDevice && (
-                <button
-                  className="button secondary"
-                  disabled={!ready || busy !== null}
-                  onClick={() => void pair()}
-                >
-                  {busy === 'pair' ? '正在生成…' : '重新配对'}
-                </button>
-              )}
             </div>
           </section>
-          {(!knownDevice || showPair) && (
-            <section className="pair-area" aria-label="扫码配对">
-              {activeQr ? (
-                <>
-                  <div className="qr-frame">
-                    <img
-                      src={'data:image/png;base64,' + activeQr.image}
-                      alt="使用 AgentDeck 平板端扫描此配对码"
-                    />
-                  </div>
-                  <p>
-                    {activeQr.v === 3
-                      ? '公网配对码 · 平板登录同一云端账户后扫码'
-                      : '局域网配对码 · 配对后仅支持局域网连接'}
-                  </p>
-                  <div className="qr-footer">
-                    <span>{seconds} 秒后失效</span>
-                    <button
-                      className="text-button"
-                      disabled={busy !== null}
-                      onClick={() => void pair()}
-                    >
-                      刷新
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p>
-                    {view.qr && seconds === 0
-                      ? '配对码已过期'
-                      : useCloudPair
-                        ? '移动端登录同一账户后扫码配对'
-                        : '电脑和移动端需连接同一局域网'}
-                  </p>
-                  <button
-                    className="button primary"
-                    disabled={!ready || busy !== null || !pairAddress}
-                    onClick={() => void pair()}
-                  >
-                    {busy === 'pair' ? (
-                      <LoaderCircle className="spin" size={17} />
-                    ) : (
-                      <QrCode size={17} />
-                    )}
-                    {busy === 'pair' ? '正在生成…' : view.qr ? '重新生成配对码' : '显示配对码'}
-                  </button>
-                </>
-              )}
-              {knownDevice && (
-                <button className="text-button" onClick={() => setShowPair(false)}>
-                  返回已配对设备
-                </button>
-              )}
-            </section>
-          )}
-          {online && !showPair && <p className="connected-hint">可以在平板上继续工作了。</p>}
+          <section className="cloud-account-entry">
+            <CloudSettings
+              state={state.cloud}
+              busy={!!busy}
+              available={view.running}
+              send={(action) => send('cloud', action)}
+            />
+            <p className="connected-hint">
+              在移动端或 Web 登录同一账户即可使用，连接方式自动选择。
+            </p>
+          </section>
           {!view.running && <p className="stale-hint">服务未连接，以上信息可能已过期。</p>}
           {approvals.length > 0 && (
             <button className="approval-banner" onClick={() => choose('approvals')}>
@@ -586,64 +497,7 @@ export function App() {
           </button>
         </div>
       </main>
-      {view.pairing && view.pairing.requestId !== dismissedPair ? (
-        <Modal
-          error={visibleError}
-          title={pairingValid ? '确认是你的平板' : '配对请求已过期'}
-          description="核对两台设备上的六位码完全一致。"
-          onClose={() => {
-            if (!pairingValid) {
-              setDismissedPair(view.pairing!.requestId);
-              return;
-            }
-            if (!busy)
-              void send('pairConfirm', {
-                action: 'pair.confirm',
-                requestId: view.pairing!.requestId,
-                approve: false,
-              });
-          }}
-        >
-          <div className="pair-confirm-device">
-            <Smartphone size={22} />
-            {view.pairing.displayName}
-          </div>
-          <div className="match-code">{view.pairing.code}</div>
-          <p className="modal-hint">
-            仅当设备属于你且配对码一致时确认。每台设备独立授权，可分别撤销。
-          </p>
-          <div className="modal-actions">
-            <button
-              className="button secondary"
-              disabled={!!busy}
-              onClick={() => {
-                if (!pairingValid) setDismissedPair(view.pairing!.requestId);
-                else
-                  void send('pairConfirm', {
-                    action: 'pair.confirm',
-                    requestId: view.pairing!.requestId,
-                    approve: false,
-                  });
-              }}
-            >
-              拒绝
-            </button>
-            <button
-              className="button primary"
-              disabled={!!busy || !pairingValid}
-              onClick={() =>
-                void send('pairConfirm', {
-                  action: 'pair.confirm',
-                  requestId: view.pairing!.requestId,
-                  approve: true,
-                })
-              }
-            >
-              配对码一致，确认
-            </button>
-          </div>
-        </Modal>
-      ) : confirmation ? (
+      {confirmation ? (
         <Modal
           error={visibleError}
           title={confirmation.title}
@@ -785,8 +639,8 @@ export function App() {
       ) : panel === 'devices' ? (
         <Modal
           error={visibleError}
-          title="已配对设备"
-          description="撤销后，设备会立即断开；再次使用需要重新扫码。"
+          title="访问设备"
+          description="撤销后设备会断开；账户设备需重新登录后才能再次访问。"
           onClose={() => setPanel(null)}
         >
           <div className="detail-list">
@@ -798,7 +652,7 @@ export function App() {
                   </span>
                   <div>
                     <strong>{d.displayName}</strong>
-                    <p>{d.connected ? '当前在线' : '已配对 · 当前离线'}</p>
+                    <p>{d.connected ? '当前在线' : '当前离线'}</p>
                   </div>
                   <button
                     className="text-button danger-text"
@@ -807,7 +661,7 @@ export function App() {
                       setConfirmation({
                         title: '撤销此设备？',
                         text: `${d.displayName}\n\n设备将失去访问权限，正在等待的审批不会被自动允许。`,
-                        label: '撤销配对',
+                        label: '撤销设备',
                         action: { action: 'device.revoke', deviceId: d.deviceId },
                       })
                     }
@@ -817,7 +671,7 @@ export function App() {
                 </div>
               ))
             ) : (
-              <p className="empty-message">还没有配对设备。扫码后会显示在这里。</p>
+              <p className="empty-message">还没有连接设备。在移动端或 Web 登录同一账户即可。</p>
             )}
           </div>
         </Modal>
@@ -825,7 +679,7 @@ export function App() {
         <Modal
           error={visibleError}
           title="连接详情"
-          description="局域网与公网共用电脑身份，移动端始终验证配对证书。"
+          description="局域网与公网共用电脑身份，移动端始终验证电脑身份。"
           onClose={() => setPanel(null)}
         >
           <dl className="network-details">
@@ -835,70 +689,9 @@ export function App() {
             <dd>{state.endpoint ?? '尚未就绪'}</dd>
             <dt>工作区隔离</dt>
             <dd>{state.sandboxVerified ? '已通过实际边界检查' : '尚未通过'}</dd>
-            <dt>配对地址</dt>
-            <dd>
-              <select
-                aria-label="配对网络地址"
-                value={effectiveAddress}
-                onChange={(e) => setAddress(e.target.value)}
-              >
-                {!effectiveAddress && <option value="">未找到局域网</option>}
-                {state.addresses
-                  .filter((a) => a !== '127.0.0.1')
-                  .map((a) => (
-                    <option key={a}>{a}</option>
-                  ))}
-              </select>
-            </dd>
-            {state.cloud?.signedIn && !state.cloud.mustChangePassword && (
-              <>
-                <dt>配对方式</dt>
-                <dd>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={remotePair}
-                      onChange={(event) => {
-                        setRemotePair(event.target.checked);
-                        setLegacyPair(false);
-                      }}
-                    />
-                    允许通过云端配对和连接
-                  </label>
-                </dd>
-              </>
-            )}
-            <dt>兼容模式</dt>
-            <dd>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={legacyPair}
-                  onChange={(event) => {
-                    setLegacyPair(event.target.checked);
-                    if (event.target.checked) setRemotePair(false);
-                  }}
-                />
-                为旧版移动端生成配对码
-              </label>
-            </dd>
+            <dt>连接方式</dt>
+            <dd>自动选择局域网或公网</dd>
           </dl>
-          {view.qr && (
-            <div className="fingerprint">
-              <span>证书 SHA-256 指纹</span>
-              <code>{view.qr.fingerprint}</code>
-            </div>
-          )}
-          <div className="modal-actions">
-            <button
-              className="button primary"
-              disabled={!ready || !!busy || !pairAddress}
-              onClick={() => void pair().then(() => setPanel(null))}
-            >
-              <QrCode size={16} />
-              更新配对码
-            </button>
-          </div>
           <CloudSettings
             state={state.cloud}
             busy={!!busy}

@@ -7,6 +7,22 @@ class HostBookTest{
     private val first=Host("https://192.168.1.10:49321","a".repeat(64),"first","device-one","one",name="工作电脑")
     private val second=Host("https://192.168.1.20:49321","b".repeat(64),"second","device-two","two",name="家里电脑")
 
+    @Test fun directoryWaitsForLoadMigratesLegacyWithoutDuplicatesAndRemovesUnboundHosts(){
+        val account=CloudAccountState(origin="https://cloud.test",accountId="account",signedIn=true,cloudDeviceId="client")
+        val old=HostBook(listOf(first,second),first.hostId)
+        assertEquals(old,old.withDirectory(account))
+        val loaded=account.copy(directoryLoaded=true,computers=listOf(CloudComputer(first.hostId,"Server name",true,first.fingerprint,listOf(first.endpoint))))
+        val migrated=old.withDirectory(loaded)
+        assertEquals(2,migrated.hosts.size)
+        assertEquals(first.name,migrated.active?.name)
+        assertTrue(migrated.active!!.accountAccess)
+        assertEquals("",migrated.active!!.credential)
+        assertEquals(account.binding,migrated.active!!.cloud)
+        assertEquals(listOf(second),migrated.withDirectory(loaded.copy(computers=emptyList())).hosts)
+        assertEquals(listOf(second),migrated.visible(null).hosts)
+        assertEquals(migrated,wire.decodeFromString(HostBook.serializer(),wire.encodeToString(HostBook.serializer(),migrated)))
+    }
+
     @Test fun pairingAndSwitchingKeepsBothCredentialsAndRemembersSelection(){
         val book=HostBook().paired(first).paired(second).selected(first.hostId)
         val restored=wire.decodeFromString(HostBook.serializer(),wire.encodeToString(HostBook.serializer(),book))

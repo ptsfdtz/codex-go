@@ -61,3 +61,14 @@ BEGIN
         INSERT INTO migrations(version) VALUES(2);
     END IF;
 END $$;
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS fingerprint TEXT;
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS endpoints JSONB NOT NULL DEFAULT '[]';
+CREATE TABLE IF NOT EXISTS host_access(
+    hash TEXT PRIMARY KEY,
+    host_id TEXT NOT NULL REFERENCES hosts(host_id) ON DELETE CASCADE,
+    host_device_id TEXT NOT NULL REFERENCES devices(id),
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT now()+interval '5 minutes'
+);
+CREATE INDEX IF NOT EXISTS host_access_expiry ON host_access(expires_at);
+INSERT INTO migrations(version) VALUES(3) ON CONFLICT DO NOTHING;

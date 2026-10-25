@@ -6,6 +6,7 @@ use deadpool_postgres::{Manager, Pool};
 use serde_json::{json, Value};
 use tokio_postgres::{NoTls, Row};
 use uuid::Uuid;
+mod access;
 
 pub struct Store {
     pool: Pool,
@@ -339,7 +340,7 @@ impl Store {
         Ok(self.pool.get().await?.query_opt("SELECT d.id FROM hosts h JOIN devices d ON d.id=h.device_id JOIN accounts a ON a.id=d.account_id WHERE h.host_id=$1 AND d.account_id=$2 AND d.revoked_at IS NULL AND NOT a.disabled",&[&host,&account]).await?.ok_or_else(Error::forbidden)?.get(0))
     }
     pub async fn hosts(&self, account: &str) -> Result<Vec<Value>> {
-        Ok(self.pool.get().await?.query("SELECT json_build_object('hostId',h.host_id,'cloudDeviceId',d.id,'displayName',h.display_name) FROM hosts h JOIN devices d ON d.id=h.device_id WHERE d.account_id=$1 AND d.revoked_at IS NULL ORDER BY h.created_at",&[&account]).await?.into_iter().map(|r|r.get(0)).collect())
+        Ok(self.pool.get().await?.query("SELECT json_build_object('hostId',h.host_id,'cloudDeviceId',d.id,'displayName',h.display_name,'fingerprint',h.fingerprint,'endpoints',h.endpoints) FROM hosts h JOIN devices d ON d.id=h.device_id WHERE d.account_id=$1 AND d.revoked_at IS NULL ORDER BY h.created_at",&[&account]).await?.into_iter().map(|r|r.get(0)).collect())
     }
     pub async fn unbind_host(&self, auth: &Auth, host: &str) -> Result<String> {
         let device = self.host_owner(host, &auth.account_id).await?;

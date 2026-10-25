@@ -6,7 +6,7 @@ import java.net.URI
 import java.time.Instant
 
 val wire = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-@Serializable data class Host(val endpoint:String,val fingerprint:String,val hostId:String,val deviceId:String,val credential:String,val name:String="",val tlsServerName:String?=null,val cloud:CloudBinding?=null,val routePolicy:String="auto")
+@Serializable data class Host(val endpoint:String,val fingerprint:String,val hostId:String,val deviceId:String,val credential:String,val name:String="",val tlsServerName:String?=null,val cloud:CloudBinding?=null,val routePolicy:String="auto",val accountAccess:Boolean=false)
 @Serializable data class PairQr(val v:Int,val endpoint:String,val fingerprint:String,val token:String,val expiresAt:String,val hostId:String,val tlsServerName:String?=null,val cloud:CloudBinding?=null) {
     fun validated():PairQr {
         val uri=URI(endpoint)

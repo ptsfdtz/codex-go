@@ -48,6 +48,8 @@ pub struct Status {
     pub error: Option<String>,
 }
 pub struct Cloud {
+    access_cache:
+        tokio::sync::Mutex<std::collections::HashMap<String, (RemoteIdentity, std::time::Instant)>>,
     #[cfg(test)]
     connector: Option<Arc<rustls::ClientConfig>>,
     client: reqwest::Client,
@@ -59,6 +61,7 @@ pub struct Cloud {
 impl Default for Cloud {
     fn default() -> Self {
         Self {
+            access_cache: Default::default(),
             #[cfg(test)]
             connector: None,
             client: reqwest::Client::builder()
@@ -147,6 +150,7 @@ impl Cloud {
         status.error = Some(error.message.clone());
     }
     async fn forget(&self, core: &Core, message: Option<String>) -> Result<Option<Saved>> {
+        self.access_cache.lock().await.clear();
         let mut saved = self.saved.lock().await;
         self.write(core, None)?;
         let previous = saved.take();
@@ -272,6 +276,114 @@ async fn reply<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> R
     Err(Error::new(code, message))
 }
 impl Core {
+    /// Account authorization is checked for both LAN and relayed sockets. A
+    /// short cache bounds revocation latency without an HTTP call per delta.
+    pub(crate) async fn account_device(
+        &self,
+        credential: &str,
+        remote: Option<&RemoteIdentity>,
+    ) -> Result<String> {
+        ensure(
+            security::valid_token(credential),
+            "UNAUTHORIZED",
+            "Invalid device credential",
+        )?;
+        let status = self.cloud.status();
+        ensure(
+            status.signed_in && !status.must_change_password,
+            "UNAUTHORIZED",
+            "Account signed out",
+        )?;
+        let hash = crate::digest(credential);
+        let mut cache = self.cloud.access_cache.lock().await;
+        if let Some((identity, until)) = cache.get(&hash) {
+            if *until > std::time::Instant::now()
+                && identity.issuer == status.origin
+                && identity.account_id == status.account_id
+                && remote.is_none_or(|r| r == identity)
+            {
+                let existing = self.store.query(
+                    "SELECT revokedAt FROM devices WHERE deviceId=?",
+                    [&identity.device_id],
+                )?;
+                ensure(
+                    existing
+                        .first()
+                        .is_some_and(|row| row["revokedAt"].is_null()),
+                    "UNAUTHORIZED",
+                    "Device revoked",
+                )?;
+                return Ok(identity.device_id.clone());
+            }
+        }
+        let saved = self.cloud.access(self).await?;
+        let value: Value = reply(
+            self.cloud
+                .client
+                .post(format!("{}/api/v1/hosts/access/validate", saved.origin))
+                .bearer_auth(&saved.tokens.access_token)
+                .json(&json!({"credential":credential}))
+                .send()
+                .await
+                .map_err(network_error)?,
+        )
+        .await?;
+        let identity = RemoteIdentity {
+            issuer: saved.origin,
+            account_id: saved.tokens.account_id,
+            device_id: crate::s(&value, "deviceId").into(),
+        };
+        ensure(
+            value["hostId"] == self.store.meta("hostId")?.unwrap_or_default()
+                && value["accountId"] == identity.account_id
+                && uuid::Uuid::parse_str(&identity.device_id).is_ok()
+                && uuid::Uuid::parse_str(crate::s(&value, "sessionId")).is_ok()
+                && remote.is_none_or(|r| r == &identity),
+            "UNAUTHORIZED",
+            "Account device identity mismatch",
+        )?;
+        let current = self.cloud.status();
+        ensure(
+            current.signed_in
+                && current.origin == identity.issuer
+                && current.account_id == identity.account_id,
+            "UNAUTHORIZED",
+            "Account changed",
+        )?;
+        let existing = self.store.query(
+            "SELECT deviceId,revokedAt,credentialHash FROM devices WHERE deviceId=?",
+            [&identity.device_id],
+        )?;
+        let marker = format!("account:{}", crate::s(&value, "sessionId"));
+        if existing.is_empty() {
+            self.store.add_device(
+                &identity.device_id,
+                crate::s(&value, "displayName"),
+                &marker,
+            )?;
+        } else {
+            let row = &existing[0];
+            // Only an explicitly new cloud login may restore a locally revoked
+            // account device. Refreshing or issuing another grant cannot do so.
+            ensure(
+                crate::s(row, "credentialHash").starts_with("account:")
+                    && (row["revokedAt"].is_null() || row["credentialHash"] != marker),
+                "UNAUTHORIZED",
+                "Device revoked; sign in again",
+            )?;
+            let changed=self.store.exec("UPDATE devices SET credentialHash=?,displayName=?,revokedAt=NULL WHERE deviceId=? AND (revokedAt IS NULL OR (revokedAt=? AND credentialHash<>?))",rusqlite::params![marker,crate::s(&value,"displayName"),identity.device_id,row["revokedAt"].as_str(),marker])?;
+            ensure(changed == 1, "UNAUTHORIZED", "Device revoked")?;
+        }
+        cache.retain(|_, (_, until)| *until > std::time::Instant::now());
+        cache.insert(
+            hash,
+            (
+                identity.clone(),
+                std::time::Instant::now() + Duration::from_secs(10),
+            ),
+        );
+        Ok(identity.device_id)
+    }
     pub async fn cloud_login(
         self: &Arc<Self>,
         origin: &str,
@@ -395,7 +507,12 @@ async fn run(core: Arc<Core>) {
 async fn control(core: &Arc<Core>, changed: &mut watch::Receiver<u64>) -> Result<()> {
     let saved = core.cloud.access(core).await?;
     let host = core.store.meta("hostId")?.unwrap_or_default();
-    let _:Value=reply(core.cloud.client.put(format!("{}/api/v1/hosts/self",saved.origin)).bearer_auth(&saved.tokens.access_token).json(&json!({"hostId":host,"displayName":std::env::var("COMPUTERNAME").unwrap_or_else(|_|"AgentDeck computer".into())})).send().await.map_err(network_error)?).await?;
+    let addresses = security::addresses();
+    if let Some(address) = addresses.iter().find(|a| a.as_str() != "127.0.0.1") {
+        core.store.set_meta("lanEnabled", "true")?;
+        core.listen(address).await?;
+    }
+    register(core, &saved, &host).await?;
     let mut request = format!(
         "{}/api/v1/relay/control",
         saved.origin.replacen("https:", "wss:", 1)
@@ -453,11 +570,18 @@ async fn control(core: &Arc<Core>, changed: &mut watch::Receiver<u64>) -> Result
             _=tunnels.join_next(),if !tunnels.is_empty()=>{},
             _=tick.tick()=>{
                 ensure(received.elapsed()<Duration::from_secs(75),"CLOUD_UNAVAILABLE","云端心跳超时，正在重连")?;
-                core.cloud.access(core).await?;
+                let current=core.cloud.access(core).await?;
+                core.refresh_network().await?;
+                register(core,&current,&host).await?;
                 socket.send(Message::Ping(Vec::new().into())).await.map_err(|_|Error::new("CLOUD_UNAVAILABLE","云端连接中断"))?;
             }
         }
     }
+    Ok(())
+}
+async fn register(core: &Core, saved: &Saved, host: &str) -> Result<()> {
+    let endpoint = format!("https://{}:{}", core.address.read().unwrap(), core.port);
+    let _:Value=reply(core.cloud.client.put(format!("{}/api/v1/hosts/self",saved.origin)).bearer_auth(&saved.tokens.access_token).json(&json!({"hostId":host,"displayName":std::env::var("COMPUTERNAME").unwrap_or_else(|_|"AgentDeck computer".into()),"fingerprint":core.tls.fingerprint,"endpoints":[endpoint]})).send().await.map_err(network_error)?).await?;
     Ok(())
 }
 struct AbortTask(JoinHandle<()>);
@@ -565,6 +689,6 @@ mod tests {
     }
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
 #[path = "cloud_test.rs"]
 mod integration_tests;

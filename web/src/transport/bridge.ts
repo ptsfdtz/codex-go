@@ -1,3 +1,4 @@
+import { exclusive } from '../coordination';
 import { HostSocket } from './host';
 import type { HostGrant } from '../host-book';
 
@@ -26,6 +27,10 @@ export class Bridge {
   private closed = false;
   private hostId = '';
   private receiptsFound: Packet[] = [];
+  private mutations = new Set<string>();
+  get awaitingReceipt() {
+    return this.receipts().length > 0;
+  }
   constructor(private readonly scope: string) {}
   private readonly mutationActions = new Set([
     'sessions.create',
@@ -42,7 +47,12 @@ export class Bridge {
   ]);
   async connect(grant: HostGrant) {
     this.hostId = grant.hostId;
-    this.socket = await HostSocket.connect(grant.hostId, grant.fingerprint, grant.credential);
+    this.socket = await HostSocket.connect(
+      grant.hostId,
+      grant.fingerprint,
+      grant.credential,
+      grant.endpoints,
+    );
     if (this.closed) {
       this.socket.close();
       throw new Error('Connection cancelled');
@@ -59,7 +69,7 @@ export class Bridge {
             (packet.type === 'error' && packet.code !== 'OUTCOME_UNKNOWN')
           ) {
             try {
-              this.clearReceipt(packet.id!);
+              if (this.mutations.has(packet.id!)) this.clearReceipt(packet.id!);
             } catch {
               /* Deliver the response; retain the receipt until it can be reconciled. */
             }
@@ -73,7 +83,11 @@ export class Bridge {
             request.reject(new Error('Invalid host response'));
             this.close();
           }
-        } else this.events.forEach((handler) => handler(packet));
+        } else {
+          if (packet.id && this.mutations.has(packet.id))
+            void this.reconcile().catch(() => undefined);
+          this.events.forEach((handler) => handler(packet));
+        }
       },
       (error) => this.fail(error),
     );
@@ -85,7 +99,7 @@ export class Bridge {
       this.close();
       throw new Error('Host identity mismatch');
     }
-    await this.reconcileReceipts();
+    await this.reconcile();
   }
   onEvent(handler: (value: Packet) => void) {
     this.events.push(handler);
@@ -95,6 +109,11 @@ export class Bridge {
     };
   }
   request<T = unknown>(action: string, payload: unknown = {}): Promise<T> {
+    if (this.mutationActions.has(action))
+      return exclusive(this.receiptKey(), () => this.sendRequest<T>(action, payload));
+    return this.sendRequest<T>(action, payload);
+  }
+  private sendRequest<T>(action: string, payload: unknown): Promise<T> {
     if (!this.socket || this.closed) return Promise.reject(new Error('Host disconnected'));
     const id = `web-${crypto.randomUUID()}`;
     if (this.mutationActions.has(action)) {
@@ -104,6 +123,7 @@ export class Bridge {
           return Promise.reject(new Error('上一条操作结果尚未确定，请重连核对后再操作'));
         pending.push(id);
         this.saveReceipts(pending);
+        this.mutations.add(id);
       } catch {
         return Promise.reject(new Error('无法保存操作回执；请允许浏览器存储后重试'));
       }
@@ -114,6 +134,7 @@ export class Bridge {
         reject(
           new Error('Host request timed out; outcome may be unknown. Reconcile before retrying.'),
         );
+        this.fail(new Error('Host request timed out'));
       }, 30000);
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
       void this.socket!.send(JSON.stringify({ v: 1, type: 'request', id, action, payload })).catch(
@@ -138,6 +159,9 @@ export class Bridge {
     const next = this.receipts().filter((value) => value !== id);
     this.saveReceipts(next);
   }
+  async reconcile() {
+    return exclusive(this.receiptKey(), () => this.reconcileReceipts());
+  }
   private async reconcileReceipts() {
     for (const id of this.receipts()) {
       try {
@@ -145,7 +169,12 @@ export class Bridge {
           'requests.status',
           { requestId: id },
         );
-        if (status.response && status.status !== 'pending' && status.status !== 'unknown')
+        if (
+          status.status === 'done' &&
+          status.response?.id === id &&
+          (status.response?.type === 'response' ||
+            (status.response?.type === 'error' && status.response.code !== 'OUTCOME_UNKNOWN'))
+        )
           this.clearReceipt(id);
         const packet = { type: 'receipt', requestId: id, payload: status } satisfies Packet;
         if (this.events.length) this.events.forEach((handler) => handler(packet));

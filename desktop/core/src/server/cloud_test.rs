@@ -1,4 +1,7 @@
 //! Full control-plane + native PC transport acceptance against real PostgreSQL.
+#[cfg(target_os = "linux")]
+#[path = "cloud_browser_test.rs"]
+mod browser;
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio_tungstenite::{
@@ -196,7 +199,10 @@ async fn actual_cloud_and_pc_login_pair_rpc_revoke_and_unbind() {
         .unwrap();
     let (output, mut events) = tokio::sync::mpsc::channel(256);
     let drain = tokio::spawn(async move { while events.recv().await.is_some() {} });
-    let mut core = Core::new(store, certificate, "127.0.0.1".into(), 49321, output);
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = free.local_addr().unwrap().port();
+    drop(free);
+    let mut core = Core::new(store, certificate, "127.0.0.1".into(), port, output);
     Arc::get_mut(&mut core).unwrap().cloud.client = client.clone();
     Arc::get_mut(&mut core).unwrap().cloud.connector = Some(outer_root.clone());
     Cloud::start(&core).await.unwrap();
@@ -222,6 +228,85 @@ async fn actual_cloud_and_pc_login_pair_rpc_revoke_and_unbind() {
         inner: inner_root,
         host,
     };
+    // New account clients do not call either pairing endpoint. Exercise the
+    // real cloud validation, LAN byte gateway, native TLS and RPC together.
+    let installation = security::token();
+    let account_login = || {
+        client.post(format!("{origin}/api/v1/auth/login")).json(&json!({"username":"native-test","password":password,"kind":"mobile","installationId":installation,"deviceName":"Account acceptance"})).send()
+    };
+    let account_tokens: Value = account_login().await.unwrap().json().await.unwrap();
+    let issue = |tokens: &Value| {
+        client
+            .post(format!("{origin}/api/v1/hosts/{}/access", mobile.host))
+            .bearer_auth(crate::s(tokens, "accessToken"))
+            .send()
+    };
+    let access: Value = issue(&account_tokens).await.unwrap().json().await.unwrap();
+    let account_credential = crate::s(&access, "credential");
+    let account_device = crate::s(&account_tokens, "cloudDeviceId");
+    assert_eq!(
+        core.account_device(account_credential, None).await.unwrap(),
+        account_device
+    );
+    let wrong = RemoteIdentity {
+        issuer: origin.clone(),
+        account_id: account.clone(),
+        device_id: uuid::Uuid::new_v4().to_string(),
+    };
+    assert!(core
+        .account_device(account_credential, Some(&wrong))
+        .await
+        .is_err());
+    let address = core.address.read().unwrap().clone();
+    if address != "127.0.0.1" {
+        let mut request = format!("ws://{address}:{}/api/v1/lan", port + 1)
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert("Origin", origin.parse().unwrap());
+        request.headers_mut().insert(
+            "Sec-WebSocket-Protocol",
+            "agentdeck-lan-v1".parse().unwrap(),
+        );
+        let (outer_socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+        let stream = tokio_rustls::TlsConnector::from(mobile.inner.clone())
+            .connect(
+                rustls::pki_types::ServerName::try_from("127.0.0.1").unwrap(),
+                byte_stream(outer_socket),
+            )
+            .await
+            .unwrap();
+        let mut request = "wss://127.0.0.1/api/v1/ws".into_client_request().unwrap();
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {account_credential}").parse().unwrap(),
+        );
+        let (mut socket, _) = tokio_tungstenite::client_async(request, stream)
+            .await
+            .unwrap();
+        socket.send(Message::Text(json!({"v":1,"type":"request","id":"account-hello","action":"system.hello","payload":{"client":"Account acceptance","version":1}}).to_string().into())).await.unwrap();
+        let packet = socket.next().await.unwrap().unwrap();
+        let value: Value = serde_json::from_str(packet.to_text().unwrap()).unwrap();
+        assert_eq!(value["type"], "response");
+        assert_eq!(value["payload"]["hostId"], mobile.host);
+        socket.close(None).await.unwrap();
+    }
+    core.revoke_device(account_device).unwrap();
+    assert!(core.account_device(account_credential, None).await.is_err());
+    let same_session: Value = issue(&account_tokens).await.unwrap().json().await.unwrap();
+    assert!(core
+        .account_device(crate::s(&same_session, "credential"), None)
+        .await
+        .is_err());
+    let renewed: Value = account_login().await.unwrap().json().await.unwrap();
+    let new_session: Value = issue(&renewed).await.unwrap().json().await.unwrap();
+    assert_eq!(
+        core.account_device(crate::s(&new_session, "credential"), None)
+            .await
+            .unwrap(),
+        account_device
+    );
     let qr = core
         .pairing
         .create_remote(

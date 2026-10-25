@@ -280,6 +280,13 @@ async fn upgrade(
     )
     .ok()
     .flatten();
+    let device = match device {
+        Some(device) => Some(device),
+        None => core
+            .account_device(&credential, remote.as_ref().map(|r| &r.identity))
+            .await
+            .ok(),
+    };
     let Some(device) = device else {
         return denied();
     };
@@ -370,6 +377,7 @@ impl Core {
         }
         *self.address.write().unwrap() = address.into();
         *network = Some((handle, task));
+        self.start_lan_gateway(ip).await;
         self.discovery.lock().unwrap().take();
         if address != "127.0.0.1" {
             if let Ok(advertisement) = crate::server::discovery::Advertisement::start(
@@ -404,6 +412,66 @@ impl Core {
             self.store.set_meta("lanEnabled", "true")?;
         }
         Ok(())
+    }
+}
+impl Core {
+    /// Fixed destination byte transport for browsers. Authentication and TLS
+    /// remain inside this socket; this endpoint never accepts an RPC or target.
+    async fn start_lan_gateway(self: &Arc<Self>, ip: IpAddr) {
+        let mut previous = self.lan_gateway.lock().unwrap().take();
+        if let Some((_, task)) = previous.take() {
+            task.abort();
+        }
+        if ip.is_loopback() {
+            return;
+        }
+        let Some(port) = self.port.checked_add(1) else {
+            return;
+        };
+        let address = SocketAddr::new(ip, port);
+        let Ok(listener) = std::net::TcpListener::bind(address) else {
+            return;
+        };
+        if listener.set_nonblocking(true).is_err() {
+            return;
+        }
+        let target = SocketAddr::new(ip, self.port);
+        let core = self.clone();
+        let app=Router::new().route("/api/v1/lan",get(move |headers:HeaderMap,ws:WebSocketUpgrade|{
+            let core=core.clone();
+            async move {
+                if !core.cloud.status().signed_in || headers.get("origin").and_then(|h|h.to_str().ok()).is_none_or(|origin|!origin.starts_with("https://") && !origin.starts_with("http://127.0.0.1:")){return denied();}
+                let Ok(slot)=core.ws_slots.clone().try_acquire_owned()else{return denied()};
+                ws.protocols(["agentdeck-lan-v1"]).max_frame_size(65536).max_message_size(65536).on_upgrade(move |mut socket|async move{
+                    use tokio::io::{AsyncReadExt,AsyncWriteExt};
+                    let _slot=slot;
+                    let Ok(Ok(stream))=tokio::time::timeout(Duration::from_secs(3),tokio::net::TcpStream::connect(target)).await else{return};
+                    let (mut read,mut write)=stream.into_split();
+                    let mut bytes=vec![0;32768];
+                    loop {
+                        let active=async {tokio::select!{
+                            result=read.read(&mut bytes)=>match result{Ok(0)|Err(_)=>false,Ok(n)=>socket.send(Message::Binary(bytes[..n].to_vec().into())).await.is_ok()},
+                            incoming=socket.recv()=>match incoming{Some(Ok(Message::Binary(data)))=>write.write_all(&data).await.is_ok(),Some(Ok(Message::Ping(data)))=>socket.send(Message::Pong(data)).await.is_ok(),Some(Ok(Message::Pong(_)))=>true,_=>false}
+                        }};
+                        if !matches!(tokio::time::timeout(Duration::from_secs(60),active).await,Ok(true)){break;}
+                    }
+                }).into_response()
+            }
+        }));
+        let Ok(server) = axum_server::from_tcp(listener) else {
+            return;
+        };
+        let mut server =
+            server.acceptor(LimitedAcceptor(Arc::new(tokio::sync::Semaphore::new(64))));
+        server
+            .http_builder()
+            .http1()
+            .timer(hyper_util::rt::TokioTimer::new())
+            .header_read_timeout(Duration::from_secs(10));
+        let task = tokio::spawn(async move {
+            let _ = server.serve(app.into_make_service()).await;
+        });
+        *self.lan_gateway.lock().unwrap() = Some((address, task));
     }
 }
 async fn send(socket: &mut futures_util::stream::SplitSink<WebSocket, Message>, v: Value) -> bool {
@@ -466,7 +534,7 @@ async fn connection(
     loop {
         tokio::select! {
             incoming=reader.next()=>{match incoming{Some(Ok(Message::Text(text)))=>{
-                if Pairing::authenticate_scoped(&core.store,&credential,remote.as_ref()).ok().flatten().as_ref()!=Some(&device){break;}
+                if !authorized(&core,&credential,remote.as_ref(),&device).await {break;}
                 last_received = Instant::now();
                 let request=serde_json::from_str::<Value>(&text).map_err(|_|Error::new("INVALID_REQUEST","Invalid JSON")).and_then(protocol::parse);let request=match request{Ok(v)=>v,Err(e)=>{if !send(&mut writer,e.packet(None)).await{break;}continue;}};
             if !hello&&request.action!="system.hello"{if !send(&mut writer,Error::new("VERSION_REQUIRED","Send system.hello first").packet(Some(&request.id))).await{break;}continue;}
@@ -477,10 +545,10 @@ async fn connection(
             },Some(Ok(Message::Pong(_)))=>last_received=Instant::now(),Some(Ok(Message::Ping(bytes)))=>{last_received=Instant::now();if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Pong(bytes))).await,Ok(Ok(()))){break;}},Some(Ok(Message::Binary(_)))|Some(Ok(Message::Close(_)))|Some(Err(_))|None=>break}},
             result=result_rx.recv()=>{if let Some(v)=result{if !send(&mut writer,v).await{break;}}},
             _=core.authorization_changed.notified()=>{
-                if Pairing::authenticate_scoped(&core.store,&credential,remote.as_ref()).ok().flatten().as_ref()!=Some(&device){break;}
+                if !authorized(&core,&credential,remote.as_ref(),&device).await {break;}
             },
-            event=events.recv()=>{match event{Ok(v) if hello=>{if Pairing::authenticate_scoped(&core.store,&credential,remote.as_ref()).ok().flatten().as_ref()!=Some(&device)||!send(&mut writer,v).await{break;}},Ok(_)=>{},Err(_)=>break}},
-            _=heartbeat.tick()=>{if peer_timed_out(last_received, Instant::now())||core.stopping.load(std::sync::atomic::Ordering::SeqCst)||Pairing::authenticate_scoped(&core.store,&credential,remote.as_ref()).ok().flatten().as_ref()!=Some(&device){break;}
+            event=events.recv()=>{match event{Ok(v) if hello=>{if !authorized(&core,&credential,remote.as_ref(),&device).await||!send(&mut writer,v).await{break;}},Ok(_)=>{},Err(_)=>break}},
+            _=heartbeat.tick()=>{if peer_timed_out(last_received, Instant::now())||core.stopping.load(std::sync::atomic::Ordering::SeqCst)||!authorized(&core,&credential,remote.as_ref(),&device).await{break;}
                 if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Ping(vec![].into()))).await,Ok(Ok(()))){break;}}
         }
     }
@@ -499,6 +567,24 @@ async fn connection(
         let _ = core.invalidate_approvals(true);
     }
     core.publish();
+}
+async fn authorized(
+    core: &Core,
+    credential: &str,
+    remote: Option<&RemoteIdentity>,
+    device: &str,
+) -> bool {
+    if Pairing::authenticate_scoped(&core.store, credential, remote)
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some(device)
+    {
+        return true;
+    }
+    core.account_device(credential, remote)
+        .await
+        .is_ok_and(|value| value == device)
 }
 fn peer_timed_out(last_received: Instant, now: Instant) -> bool {
     now.saturating_duration_since(last_received) >= Duration::from_secs(60)

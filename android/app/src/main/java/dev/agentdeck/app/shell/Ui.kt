@@ -32,7 +32,6 @@ import java.time.Instant
 @Composable fun DeckApp(state:DeckState,repo:DeckRepository){
     var panel by rememberSaveable{mutableStateOf("chat")}
     var conversationAction by remember(state.host?.hostId,state.selectedSession){mutableStateOf<String?>(null)}
-    var showPair by rememberSaveable{mutableStateOf(false)}
     var showComputers by rememberSaveable{mutableStateOf(false)}
     var sidebar by rememberSaveable{mutableStateOf(false)}
     var sidebarExpanded by rememberSaveable{mutableStateOf(true)}
@@ -42,7 +41,7 @@ import java.time.Instant
     var sessionCommand by remember(state.host?.hostId){mutableStateOf<Pair<String,String>?>(null)}
     val workspaceState=rememberSaveableStateHolder()
     var notificationSeen by rememberSaveable{mutableStateOf("")}
-    LaunchedEffect(state.notificationNavigation){if(state.notificationNavigation.isNotEmpty()&&state.notificationNavigation!=notificationSeen){notificationSeen=state.notificationNavigation;panel="chat";sidebar=false;showPair=false;showComputers=false}}
+    LaunchedEffect(state.notificationNavigation){if(state.notificationNavigation.isNotEmpty()&&state.notificationNavigation!=notificationSeen){notificationSeen=state.notificationNavigation;panel="chat";sidebar=false;showComputers=false}}
     val canBack=!state.busy&&state.host?.hostId?.let{repo.workspaceNavigation.destination(it,-1,state.snapshot)}!=null
     val canForward=!state.busy&&state.host?.hostId?.let{repo.workspaceNavigation.destination(it,1,state.snapshot)}!=null
     fun navigate(direction:Int){if(repo.navigateWorkspace(direction)){panel="chat";sidebar=false}}
@@ -68,9 +67,9 @@ import java.time.Instant
                 Box(Modifier.weight(1f)){
                     when {
                         panel=="settings"->workspaceState.SaveableStateProvider("settings"){
-                            DeckSettings(state,repo,onPair={showPair=true},onForget={confirmForget=true},onReconnect=repo::reconnect,onOpenArchived={id->repo.selectSession(id);panel="chat"},requestedSection=settingsTarget,onSectionConsumed={settingsTarget=null})
+                            DeckSettings(state,repo,onPair={settingsTarget="computers";panel="settings"},onForget={confirmForget=true},onReconnect=repo::reconnect,onOpenArchived={id->repo.selectSession(id);panel="chat"},requestedSection=settingsTarget,onSectionConsumed={settingsTarget=null})
                         }
-                        state.host==null->Welcome{showPair=true}
+                        !state.cloud.signedIn||state.cloud.mustChangePassword||state.host==null->Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)){CloudSettings(state,repo)}
                         else->BoxWithConstraints(Modifier.fillMaxSize()){
                             // Measure the remaining workspace, not the whole display: an open
                             // sidebar must not squeeze the conversation below a usable width.
@@ -114,7 +113,7 @@ import java.time.Instant
             add(DeckCommand("drafts","查看未发送草稿","当前电脑 · 安卓内存草稿",state.host!=null){showDrafts=true})
             add(DeckCommand("chat","返回对话"){panel="chat"})
             add(DeckCommand("computers","切换电脑"){showComputers=true})
-            add(DeckCommand("pair","添加电脑","安全配对 Windows"){showPair=true})
+            add(DeckCommand("account","账户与电脑","登录同一账户即可使用"){settingsTarget="computers";panel="settings"})
             add(DeckCommand("new","新对话","当前项目",state.selectedProject!=null&&!state.busy){state.selectedProject?.let(repo::selectProject);panel="chat"})
             add(DeckCommand("review","审查工作区改动","当前项目",state.selectedProject!=null&&!state.stale){panel="review";repo.refreshGit()})
             add(DeckCommand("refresh","刷新会话与项目","从当前电脑同步",state.host!=null&&!state.stale&&!state.busy){repo.refresh()})
@@ -143,18 +142,11 @@ import java.time.Instant
         else LaunchedEffect(id){sessionCommand=null}
     }
     if(showDrafts)ComposerDraftList(state,repo,onOpen={showDrafts=false;panel="chat";sidebar=false},onClose={showDrafts=false})
-    if(showComputers)ComputerPickerDialog(state,onSelect={id->showComputers=false;sidebar=false;panel="chat";repo.selectHost(id)},onAdd={showComputers=false;showPair=true},onDismiss={showComputers=false},onRename=repo::renameHost)
-    if(showPair)AlertDialog(onDismissRequest={showPair=false;repo.cancelPair()},confirmButton={},dismissButton={TextButton(onClick={showPair=false;repo.cancelPair()}){Text("关闭")}},title={Text("安全配对 Windows")},text={PairContent(state,repo,onDone={showPair=false})})
+    if(showComputers)ComputerPickerDialog(state,onSelect={id->showComputers=false;sidebar=false;panel="chat";repo.selectHost(id)},onAdd={showComputers=false;settingsTarget="computers";panel="settings"},onDismiss={showComputers=false},onRename=repo::renameHost)
+
     if(confirmInterrupt)Confirm("停止当前任务？","将向 Codex 请求中断，收到确认后更新任务状态。",{confirmInterrupt=false},{confirmInterrupt=false;repo.interrupt()})
-    if(confirmForget)Confirm("移除当前电脑？","仅移除此电脑的配对和缓存，其他电脑会保留。在线时撤销该电脑的设备凭据；离线时请随后在该 Windows 电脑撤销设备。",{confirmForget=false},{confirmForget=false;repo.forgetHost()})
+    if(confirmForget)Confirm("移除当前电脑？","仅移除此电脑的授权和缓存，其他电脑会保留。在线时撤销该电脑的设备凭据；离线时请随后在该 Windows 电脑撤销设备。",{confirmForget=false},{confirmForget=false;repo.forgetHost()})
 }
-@Composable private fun Welcome(onPair:()->Unit){Box(Modifier.fillMaxSize().padding(32.dp),contentAlignment=Alignment.Center){Column(Modifier.widthIn(max=420.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(14.dp)){
-    Text("欢迎使用 AgentDeck",fontSize=28.sp,lineHeight=34.sp,fontWeight=FontWeight.SemiBold)
-    Text("连接你的 Windows，继续同一份 Codex 会话。",fontSize=15.sp,lineHeight=23.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-    Spacer(Modifier.height(6.dp))
-    Button(onClick=onPair,modifier=Modifier.fillMaxWidth().height(50.dp),shape=RoundedCornerShape(14.dp)){Text("配对 Windows 主机",fontSize=16.sp)}
-    Text("在 AgentDeck 中生成二维码，扫码并确认即可。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-}}}
 @Composable private fun ChatSidebar(state:DeckState,repo:DeckRepository,panel:String,onChat:()->Unit,onSettings:()->Unit,onPair:()->Unit,onCollapse:()->Unit){
     var search by rememberSaveable(state.host?.hostId){mutableStateOf("")}
     var filter by rememberSaveable(state.host?.hostId){mutableStateOf("all")}
@@ -240,7 +232,7 @@ import java.time.Instant
 }
 @Composable internal fun Review(state:DeckState,repo:DeckRepository){LaunchedEffect(state.host?.hostId,state.selectedProject){if(state.selectedProject!=null&&!state.stale)repo.refreshGit()};BoxWithConstraints(Modifier.fillMaxSize().padding(20.dp)){val wide=maxWidth>=760.dp;var showDiff by rememberSaveable(state.host?.hostId){mutableStateOf(false)};if(wide)Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){GitFiles(state,repo,Modifier.width(280.dp),onFile={repo.selectFile(it)});DiffPane(state.diff,Modifier.weight(1f),state.displayMask)}else Column{if(!showDiff){GitFiles(state,repo,Modifier.fillMaxSize(),onFile={repo.selectFile(it);showDiff=true})}else{TextButton(onClick={showDiff=false}){Text("返回文件列表")};DiffPane(state.diff,Modifier.weight(1f),state.displayMask)}}}}
 @Composable private fun GitFiles(state:DeckState,repo:DeckRepository,modifier:Modifier,onFile:(GitFile)->Unit){var filter by rememberSaveable(state.host?.hostId,state.selectedProject){mutableStateOf("")};val files=remember(state.git,filter){filterGitFiles(state.git?.files?:emptyList(),filter)};LazyColumn(modifier.testTag("git-files"),verticalArrangement=Arrangement.spacedBy(8.dp)){item{Text("Git 审查",fontSize=24.sp,fontWeight=FontWeight.SemiBold);Text("工作区当前变化，可能包含外部修改。",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant);Spacer(Modifier.height(12.dp));state.snapshot.projects.forEach{project->FilterChip(selected=state.selectedProject==project.projectId,onClick={repo.selectProject(project.projectId);repo.refreshGit()},label={Text(project.name)})};TextButton(onClick=repo::refreshGit,enabled=!state.stale){Text("刷新真实 Git 状态")};state.git?.baseline?.let{Text("基线 ${it.take(12)}",fontSize=10.sp,fontFamily=FontFamily.Monospace)};OutlinedTextField(value=filter,onValueChange={if(it.length<=200)filter=it},label={Text("筛选文件路径")},singleLine=true,modifier=Modifier.fillMaxWidth());if(state.git?.truncated==true)Text("文件列表已截断",color=MaterialTheme.colorScheme.error)};if(state.git?.available==false)item{Empty("此项目没有可用 Git 仓库","Codex 任务仍可使用。")};if(state.git?.available==true&&state.git.files.isEmpty())item{Text("工作区干净，没有待审查改动。",fontSize=13.sp)};if(state.git?.available==true&&state.git.files.isNotEmpty()&&files.isEmpty())item{Text("没有匹配的文件",fontSize=13.sp)};items(files,key={it.fileId}){file->OutlinedCard(onClick={onFile(file)},modifier=Modifier.fillMaxWidth()){Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)){Text(if(file.untracked)"??" else file.index+file.worktree,fontFamily=FontFamily.Monospace,color=MaterialTheme.colorScheme.primary);Column{Text(file.path,fontSize=12.sp);file.oldPath?.let{Text("原路径 $it",fontSize=10.sp)}}}}}}}
-@Composable private fun PairContent(state:DeckState,repo:DeckRepository,onDone:()->Unit){val initialDevice=remember{state.host?.let{it.hostId to it.deviceId}};var scanner by remember{mutableStateOf(false)};var raw by rememberSaveable{mutableStateOf("")};LaunchedEffect(state.host?.deviceId,state.busy){if(state.host!=null&&(state.host.hostId to state.host.deviceId)!=initialDevice&&state.pairingCode==null&&!state.busy)onDone()};Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)){Text("在 Windows 管理窗生成二维码。扫描后，在两台设备核对相同的六位码，并在 Windows 确认。",fontSize=13.sp);if(state.pairingCode!=null){Text(state.pairingCode,fontSize=38.sp,fontFamily=FontFamily.Monospace,fontWeight=FontWeight.SemiBold);Text(state.pairingName?:"");Text("等待 Windows 人工确认…",color=MaterialTheme.colorScheme.primary)}else{if(scanner)QrScanner(Modifier.fillMaxWidth().height(260.dp)){scanner=false;repo.beginPair(it)}else Button(onClick={scanner=true},enabled=!state.busy){Icon(Icons.Outlined.QrCodeScanner,null);Spacer(Modifier.width(8.dp));Text("扫描配对二维码")};Text("或粘贴完整配对 JSON",fontSize=12.sp);OutlinedTextField(value=raw,onValueChange={if(it.length<4096)raw=it},modifier=Modifier.fillMaxWidth(),maxLines=5,enabled=!state.busy);OutlinedButton(onClick={repo.beginPair(raw)},enabled=raw.isNotBlank()&&!state.busy){Text("验证证书并申请配对")}};if(state.busy)LinearProgressIndicator(Modifier.fillMaxWidth());state.error?.let{Text(it,color=MaterialTheme.colorScheme.error,fontSize=12.sp)}}}
+
 @Composable private fun Empty(title:String,description:String){Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){Text(title,fontWeight=FontWeight.Medium);Text(description,fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,lineHeight=21.sp)}}
 @Composable private fun Confirm(title:String,text:String,onDismiss:()->Unit,onConfirm:()->Unit){AlertDialog(onDismissRequest=onDismiss,title={Text(title)},text={Text(text)},confirmButton={Button(onClick=onConfirm){Text("确认")}},dismissButton={TextButton(onClick=onDismiss){Text("取消")}})}
 

@@ -81,7 +81,27 @@ async function responseHeaders(reader: ByteReader) {
   return { status: Number(match[1]), headers };
 }
 
-export async function openHostTls(hostId: string, fingerprint: string): Promise<TlsChannel> {
+export async function openHostTls(
+  hostId: string,
+  fingerprint: string,
+  endpoints: string[] = [],
+): Promise<TlsChannel> {
+  // LAN availability is a browser capability, never a prerequisite for use.
+  // Only binary TLS records traverse the local gateway; the credential is sent
+  // after the exact computer certificate has been verified by the inner TLS.
+  for (const endpoint of endpoints.slice(0, 2)) {
+    const url = localGateway(endpoint);
+    if (!url) continue;
+    let local: WebSocket | undefined;
+    try {
+      local = new WebSocket(url, ['agentdeck-lan-v1']);
+      const channel = await socketTls(local, fingerprint, 1500);
+      return channel;
+    } catch (error) {
+      local?.close();
+      if (/fingerprint|certificate|pin mismatch/i.test(String(error))) throw error;
+    }
+  }
   const offer = await api<{ tunnelId: string; clientTicket: string }>('/api/v1/relay/tunnels', {
     method: 'POST',
     body: JSON.stringify({ hostId }),
@@ -137,6 +157,85 @@ export async function openHostTls(hostId: string, fingerprint: string): Promise<
     throw error;
   }
 }
+export function localGateway(endpoint: string): string | undefined {
+  try {
+    const value = new URL(endpoint),
+      parts = value.hostname.split('.').map(Number);
+    if (
+      value.protocol !== 'https:' ||
+      value.username ||
+      value.password ||
+      value.pathname !== '/' ||
+      value.search ||
+      value.hash ||
+      parts.length !== 4 ||
+      parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255) ||
+      !/^\d+\.\d+\.\d+\.\d+$/.test(value.hostname) ||
+      !(
+        parts[0] === 10 ||
+        (parts[0] === 192 && parts[1] === 168) ||
+        (parts[0] === 172 && parts[1]! >= 16 && parts[1]! <= 31)
+      ) ||
+      !value.port ||
+      Number(value.port) >= 65535
+    )
+      return;
+    return `ws://${value.hostname}:${Number(value.port) + 1}/api/v1/lan`;
+  } catch {
+    return;
+  }
+}
+async function socketTls(
+  socket: WebSocket,
+  fingerprint: string,
+  timeout: number,
+): Promise<TlsChannel> {
+  socket.binaryType = 'arraybuffer';
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error('LAN unavailable'));
+    }, timeout);
+    const failed = () => {
+      clearTimeout(timer);
+      reject(new Error('LAN unavailable'));
+    };
+    socket.onopen = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    socket.onerror = failed;
+    socket.onclose = failed;
+  });
+  const timer = setTimeout(() => socket.close(), timeout);
+  try {
+    const { connectPinnedTls } = await import('./tls');
+    return await connectPinnedTls(
+      {
+        send(bytes) {
+          if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > MAX_MESSAGE * 2)
+            throw new Error('LAN unavailable');
+          socket.send(bytes);
+        },
+        close() {
+          socket.close();
+        },
+        receive(handler, ended) {
+          socket.onmessage = (event) => {
+            if (event.data instanceof ArrayBuffer && event.data.byteLength <= 65536)
+              handler(new Uint8Array(event.data));
+            else ended(new Error('Invalid LAN frame'));
+          };
+          socket.onerror = () => ended(new Error('LAN unavailable'));
+          socket.onclose = () => ended(new Error('LAN closed'));
+        },
+      },
+      fingerprint,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function hostPost<T>(
   hostId: string,
@@ -152,7 +251,7 @@ export async function hostPost<T>(
     await channel.write(
       join(
         encode(
-          `POST ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n`,
+          `POST ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\n\r\n`,
         ),
         body,
       ),
@@ -189,9 +288,14 @@ export class HostSocket {
     private reader: ByteReader,
   ) {}
 
-  static async connect(hostId: string, fingerprint: string, credential: string) {
+  static async connect(
+    hostId: string,
+    fingerprint: string,
+    credential: string,
+    endpoints?: string[],
+  ) {
     if (!/^[A-Za-z0-9_-]{43}$/.test(credential)) throw new Error('Invalid host credential');
-    const channel = await openHostTls(hostId, fingerprint);
+    const channel = await openHostTls(hostId, fingerprint, endpoints);
     return HostSocket.upgrade(channel, credential);
   }
 

@@ -19,8 +19,8 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 @Serializable data class CloudBinding(val origin:String,val accountId:String)
-@Serializable data class CloudComputer(val hostId:String,val displayName:String,val online:Boolean=false)
-data class CloudAccountState(val origin:String="",val username:String="",val accountId:String="",val signedIn:Boolean=false,val mustChangePassword:Boolean=false,val computers:List<CloudComputer> = emptyList(),val error:String?=null){
+@Serializable data class CloudComputer(val hostId:String,val displayName:String,val online:Boolean=false,val fingerprint:String?=null,val endpoints:List<String> = emptyList())
+data class CloudAccountState(val origin:String="",val username:String="",val accountId:String="",val signedIn:Boolean=false,val mustChangePassword:Boolean=false,val computers:List<CloudComputer> = emptyList(),val error:String?=null,val cloudDeviceId:String="",val directoryLoaded:Boolean=false){
     val binding:CloudBinding? get()=if(signedIn)CloudBinding(origin,accountId)else null
 }
 @Serializable internal class CloudTokens(val accessToken:String,val refreshToken:String,val accessExpiresIn:Long,val accountId:String,val username:String,val cloudDeviceId:String,val mustChangePassword:Boolean)
@@ -49,7 +49,7 @@ internal class CloudAccount(
         catch(e:CancellationException){throw e}catch(_:Exception){mutable.value=CloudAccountState(error="云端凭据无法读取，请重新登录；局域网连接不受影响")}
         scope.launch{while(isActive){try{refreshDirectory()}catch(e:CancellationException){throw e}catch(e:Exception){mutable.update{it.copy(error=cloudError(e))}};delay(30_000)}}
     }
-    private fun identity(value:CloudSaved){mutable.value=CloudAccountState(value.origin,value.tokens.username,value.tokens.accountId,true,value.tokens.mustChangePassword)}
+    private fun identity(value:CloudSaved){mutable.value=CloudAccountState(value.origin,value.tokens.username,value.tokens.accountId,true,value.tokens.mustChangePassword,cloudDeviceId=value.tokens.cloudDeviceId)}
     suspend fun login(origin:String,username:String,password:String){lock.withLock{
         check(saved==null){"请先退出当前云端账户"}
         val issuer=cloudOrigin(origin);require(username.isNotBlank()&&username.length<=80&&password.length<=1024)
@@ -93,7 +93,7 @@ internal class CloudAccount(
         val response=try{call("${current.origin}/api/v1/hosts","GET",auth=current.tokens.accessToken)}
         catch(e:DeckException){if(e.code in listOf("UNAUTHORIZED","FORBIDDEN"))forget("登录已失效，请重新登录");throw e}
         val computers=wire.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(CloudComputer.serializer()),response.getValue("hosts"))
-        mutable.update{it.copy(computers=computers,error=null)}
+        mutable.update{it.copy(computers=computers,error=null,directoryLoaded=true)}
     }}
     suspend fun tunnel(binding:CloudBinding,hostId:String):CloudTunnel=lock.withLock{
         val current=accessLocked()
@@ -106,6 +106,17 @@ internal class CloudAccount(
         val ticket=result.getValue("clientTicket").jsonPrimitive.content;require(Regex("[A-Za-z0-9_-]{43}").matches(ticket))
         require(Instant.parse(result.getValue("expiresAt").jsonPrimitive.content).isAfter(Instant.now())){"云端连接票据已过期"}
         CloudTunnel(current.origin.replaceFirst("https://","wss://")+"/api/v1/relay/tunnels/$id/client",current.tokens.accessToken,ticket)
+    }
+    suspend fun authorize(host:Host):Host=lock.withLock{
+        val current=accessLocked()
+        require(host.cloud==CloudBinding(current.origin,current.tokens.accountId)){"电脑与当前账户不匹配"}
+        val result=call("${current.origin}/api/v1/hosts/${host.hostId}/access","POST",auth=current.tokens.accessToken)
+        require(result["hostId"]?.jsonPrimitive?.content==host.hostId){"电脑身份不匹配"}
+        val fingerprint=result.getValue("fingerprint").jsonPrimitive.content
+        val credential=result.getValue("credential").jsonPrimitive.content
+        require(Regex("[a-f0-9]{64}").matches(fingerprint)&&fingerprint==host.fingerprint){"电脑证书身份已变化，请刷新设备列表"}
+        require(Regex("[A-Za-z0-9_-]{43}").matches(credential)){"电脑授权无效"}
+        host.copy(credential=credential,deviceId=current.tokens.cloudDeviceId,routePolicy="auto")
     }
     private suspend fun call(url:String,method:String,body:JsonObject?=null,auth:String?=null):JsonObject {
         val request=Request.Builder().url(url).apply{if(auth!=null)header("Authorization","Bearer $auth")}.method(method,if(method=="GET")null else (body?:JsonObject(emptyMap())).toString().toRequestBody("application/json".toMediaType())).build()

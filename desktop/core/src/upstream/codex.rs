@@ -140,8 +140,16 @@ pub async fn initialize_attached(rpc: &Arc<Rpc>) -> Result<()> {
     initialize_checked(rpc, true).await
 }
 pub fn check_runtime_identity(user_agent: &str) -> Result<()> {
+    check_runtime_identity_for(user_agent, crate::rpc::ProtocolVersion::Managed)
+}
+pub(crate) fn check_runtime_identity_for(
+    user_agent: &str,
+    protocol: crate::rpc::ProtocolVersion,
+) -> Result<()> {
     ensure(
-        user_agent.starts_with(&format!("Codex Desktop/{VERSION} (")),
+        ["Codex Desktop", "agentdeck"]
+            .iter()
+            .any(|client| user_agent.starts_with(&format!("{client}/{} (", protocol.version()))),
         "UPSTREAM_VERSION_UNSUPPORTED",
         "Attached runtime does not match the pinned protocol version",
     )
@@ -150,12 +158,7 @@ async fn initialize_checked(rpc: &Arc<Rpc>, attached: bool) -> Result<()> {
     let v=rpc.request("initialize",json!({"clientInfo":{"name":"agentdeck","title":"AgentDeck","version":"0.3.0"},"capabilities":{"experimentalApi":true,"requestAttestation":false}})).await?;
     rpc.validate("v1/InitializeResponse", &v)?;
     if attached {
-        ensure(
-            crate::s(&v, "userAgent")
-                .starts_with(&format!("Codex Desktop/{} (", rpc.protocol().version())),
-            "UPSTREAM_VERSION_UNSUPPORTED",
-            "Attached runtime does not match its selected protocol version",
-        )?;
+        check_runtime_identity_for(crate::s(&v, "userAgent"), rpc.protocol())?;
     }
     rpc.send(json!({"method":"initialized","params":{}}))
 }

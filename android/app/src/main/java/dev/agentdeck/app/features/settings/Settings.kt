@@ -137,13 +137,13 @@ internal val deckSettingsSections=listOf("general" to "通用","conversations" t
             ComputerList(state,repo::selectHost,repo::renameHost)
             RouteSettings(state,repo,onPair)
             TextButton(onClick=onPair,enabled=!state.busy){Text("添加电脑")}
-            Text("当前电脑",fontWeight=FontWeight.SemiBold);Text(state.host?.label?:"未配对")
+            Text("当前电脑",fontWeight=FontWeight.SemiBold);Text(state.host?.label?:"未连接")
             TextButton(onClick={renameComputer=true},enabled=state.host!=null&&!state.busy){Text("重命名当前电脑")}
             Text("证书 SHA-256",fontSize=12.sp);SelectionContainer{Text(state.host?.fingerprint?:"尚无固定证书",fontFamily=FontFamily.Monospace,fontSize=12.sp)}
-            Text("设备 ${state.host?.deviceId?:"未配对"}",fontSize=11.sp)
+            Text("设备 ${state.host?.deviceId?:"未连接"}",fontSize=11.sp)
             Text("Codex CLI ${state.snapshot.host?.codexVersion?:"未知"} · 协议 v1",fontSize=12.sp)
             Text("最后同步 ${state.lastSynced?:"尚无"}",fontSize=12.sp)
-            OutlinedButton(onClick=onReconnect,enabled=state.host!=null&&!state.busy){Text("重新连接")};TextButton(onClick=onPair,enabled=!state.busy){Text("重新配对当前电脑")}
+            OutlinedButton(onClick=onReconnect,enabled=state.host!=null&&!state.busy){Text("重新连接")}
             TextButton(onClick=onForget,enabled=state.host!=null&&!state.busy,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)){Text("移除当前电脑及其缓存")}
         }}}
         if(section=="data")item{OutlinedCard{Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){

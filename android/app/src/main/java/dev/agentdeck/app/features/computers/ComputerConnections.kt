@@ -99,7 +99,7 @@ internal class ComputerConnection(
         val current=transport?:return
         probe=scope.launch{try{current.probe()
             if(host.cloud!=null&&host.routePolicy=="auto"&&state.value.route=="云端"&&!current.hasPendingRequests){
-                val candidate=DeckTransport(lanRoute(host),connectTimeoutMillis=4_000)
+                val candidate=DeckTransport(lanRoute(if(host.accountAccess)requireNotNull(cloud).authorize(host)else host),connectTimeoutMillis=4_000)
                 try{candidate.connect();candidate.hello();val snapshot=wire.decodeFromJsonElement(Snapshot.serializer(),candidate.request("snapshot.get"));require(snapshot.host?.hostId==host.hostId){"电脑身份不匹配"}
                     if(transport===current)current.disconnectIfIdle(IOException("局域网连接已恢复"))
                 }catch(e:CancellationException){throw e}catch(_:Exception){}finally{candidate.close()}
@@ -167,9 +167,11 @@ internal class ComputerConnection(
         var fallback=false
         var blockedRoute:Boolean?=null
         while(currentCoroutineContext().isActive){
+            val authorizedHost=try{if(host.accountAccess)requireNotNull(cloud).authorize(host)else host}
+            catch(e:CancellationException){throw e}catch(e:Exception){update{it.copy(connection="正在尝试重连",error=computerConnectionError(e))};recovery.pause(++attempt);continue}
             val remote=host.cloud!=null&&host.routePolicy!="lan"&&(host.routePolicy=="cloud"||(blockedRoute?:fallback))
             val factory=if(remote&&cloud!=null)RelaySocketFactory(cloud,requireNotNull(host.cloud),host.hostId)else null
-            val current=DeckTransport(if(remote)host else lanRoute(host),connectTimeoutMillis=if(remote)45_000 else 12_000,routeFactory=factory)
+            val current=DeckTransport(if(remote)authorizedHost else lanRoute(authorizedHost),connectTimeoutMillis=if(remote)45_000 else 4_000,routeFactory=factory)
             transport=current
             val hints=NotificationReplay()
             var connectedAt:Long?=null

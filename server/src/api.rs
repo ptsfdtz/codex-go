@@ -40,6 +40,8 @@ pub fn router(state: Arc<State>) -> Router {
         .route("/api/v1/devices/{id}", delete(revoke_device))
         .route("/api/v1/hosts", get(hosts))
         .route("/api/v1/hosts/self", put(register_host))
+        .route("/api/v1/hosts/{id}/access", post(host_access))
+        .route("/api/v1/hosts/access/validate", post(validate_host_access))
         .route("/api/v1/hosts/{id}", delete(unbind_host))
         .route("/api/v1/relay/control", get(crate::relay::control))
         .route("/api/v1/relay/tunnels", post(crate::relay::offer))
@@ -179,6 +181,26 @@ fn origin(state: &State, headers: &HeaderMap) -> Result<()> {
     Ok(())
 }
 fn web_origin(state: &State, headers: &HeaderMap) -> Result<()> {
+    // Same-origin browser GETs omit Origin. Fetch Metadata is browser-owned;
+    // accept only requests explicitly classified as same-origin, on the public
+    // authority. Cross-origin clients still require the exact Origin allowlist.
+    if !headers.contains_key(header::ORIGIN)
+        && headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) == Some("same-origin")
+        && headers
+            .get("sec-fetch-mode")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| matches!(v, "cors" | "same-origin"))
+        && headers.get(header::HOST).and_then(|v| v.to_str().ok())
+            == state
+                .config
+                .public_origin
+                .parse::<axum::http::Uri>()
+                .ok()
+                .and_then(|v| v.authority().map(|a| a.as_str().to_owned()))
+                .as_deref()
+    {
+        return Ok(());
+    }
     let value = headers
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
@@ -438,7 +460,10 @@ pub(crate) async fn browser_auth(
     Ok(auth)
 }
 pub(crate) async fn client_auth(state: &State, headers: &HeaderMap, ready: bool) -> Result<Auth> {
-    if headers.contains_key(header::ORIGIN) {
+    if headers.contains_key(header::ORIGIN)
+        || (!headers.contains_key(header::AUTHORIZATION)
+            && cookie(headers, "__Host-agentdeck_web_access").is_some())
+    {
         browser_auth(state, headers, false, ready).await
     } else {
         let auth = native_auth(state, headers).await?;
@@ -589,6 +614,10 @@ async fn revoke_device(
 struct HostRegistration {
     host_id: String,
     display_name: String,
+    #[serde(default)]
+    fingerprint: Option<String>,
+    #[serde(default)]
+    endpoints: Vec<String>,
 }
 async fn register_host(
     AppState(state): AppState<Arc<State>>,
@@ -607,11 +636,83 @@ async fn register_host(
     {
         return Err(Error::invalid());
     }
+    if input.endpoints.len() > 8
+        || input.endpoints.iter().any(|v| !valid_lan_endpoint(v))
+        || input.fingerprint.as_ref().is_some_and(|fingerprint| {
+            fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit())
+        })
+        || (input.fingerprint.is_none() && !input.endpoints.is_empty())
+    {
+        return Err(Error::invalid());
+    }
     state
         .store
         .register_host(&auth, &input.host_id, input.display_name.trim())
         .await?;
+    if let Some(fingerprint) = input.fingerprint {
+        state
+            .store
+            .host_connection(
+                &auth,
+                &input.host_id,
+                &fingerprint.to_lowercase(),
+                &json!(input.endpoints),
+            )
+            .await?;
+    }
     Ok(Json(json!({"hostId":input.host_id})))
+}
+fn valid_lan_endpoint(value: &str) -> bool {
+    let Ok(uri) = value.parse::<axum::http::Uri>() else {
+        return false;
+    };
+    uri.scheme_str() == Some("https")
+        && uri.port_u16().is_some()
+        && uri.path() == "/"
+        && uri.query().is_none()
+        && uri
+            .host()
+            .and_then(|host| host.parse::<std::net::Ipv4Addr>().ok())
+            .is_some_and(|ip| ip.is_private() || ip.is_loopback() || ip.is_link_local())
+}
+async fn host_access(
+    AppState(state): AppState<Arc<State>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let auth = if headers.contains_key(header::ORIGIN)
+        || (!headers.contains_key(header::AUTHORIZATION)
+            && cookie(&headers, "__Host-agentdeck_web_access").is_some())
+    {
+        browser_auth(&state, &headers, true, true).await?
+    } else {
+        client_auth(&state, &headers, true).await?
+    };
+    if !state
+        .limits
+        .take(format!("access:{}", auth.device_id), 60., 1., 1.)
+    {
+        return Err(Error::limit());
+    }
+    Ok(Json(state.store.host_access(&auth, &id).await?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccessCheck {
+    credential: String,
+}
+async fn validate_host_access(
+    AppState(state): AppState<Arc<State>>,
+    headers: HeaderMap,
+    Json(input): Json<AccessCheck>,
+) -> Result<Json<Value>> {
+    let auth = native_auth(&state, &headers).await?;
+    Ok(Json(
+        state
+            .store
+            .validate_host_access(&auth, &input.credential)
+            .await?,
+    ))
 }
 async fn hosts(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -> Result<Json<Value>> {
     let auth = client_auth(&state, &headers, true).await?;

@@ -98,6 +98,13 @@ class DeckRepository(context:Context){
                     mutable.update{it.forHost(visible).copy(host=null)}
                     actionMutex.withLock{activateBook(vault.readBook())}
                 }
+                if(value.signedIn&&!value.mustChangePassword&&value.directoryLoaded){
+                    actionMutex.withLock{
+                        val old=vault.readBook()
+                        val next=old.withDirectory(value)
+                        if(next!=old){vault.saveBook(next);credentialsUnreadable=false;activateBook(next)}
+                    }
+                }
             }
         }
         scope.launch{connections.states.collect{views->mutable.update{it.copy(computerConnections=views.mapValues{entry->ComputerStatus(entry.value.connection,entry.value.error,entry.value.route)})}}}

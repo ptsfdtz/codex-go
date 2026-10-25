@@ -55,14 +55,18 @@ export async function connectPinnedTls(
     resolveHandshake = resolve;
     rejectHandshake = reject;
   });
-  const fail = (error: Error) => {
+  const finish = (error: Error) => {
     if (closed) return;
     closed = error;
-    queued.length = 0;
-    queuedBytes = 0;
     transport.close();
     rejectHandshake(error);
     ended?.(error);
+  };
+  const fail = (error: Error) => {
+    if (closed) return;
+    queued.length = 0;
+    queuedBytes = 0;
+    finish(error);
   };
   const deliver = (bytes: Uint8Array) => {
     if (closed) return;
@@ -76,7 +80,7 @@ export async function connectPinnedTls(
     } else receiver(bytes);
   };
   const flush = () => {
-    if (!ready || !receiver || closed) return;
+    if (!ready || !receiver) return;
     for (const bytes of queued.splice(0)) receiver(bytes);
     queuedBytes = 0;
   };
@@ -119,25 +123,37 @@ export async function connectPinnedTls(
     },
     onApplicationData: deliver,
     onTlsEnd(error) {
-      fail(error || new Error('Host TLS connection closed'));
+      if (error) fail(error);
+      else finish(new Error('Host TLS connection closed'));
     },
   });
   let reading = Promise.resolve();
-  transport.receive((bytes) => {
-    incomingBytes += bytes.length;
-    if (incomingBytes > MAX_BUFFER) {
-      fail(new Error('TLS input buffer exceeded'));
-      return;
-    }
-    reading = reading
-      .then(async () => {
-        if (!closed) await tls.handleReceivedBytes(bytes);
-      })
-      .catch((error) => fail(error instanceof Error ? error : new Error('Invalid TLS record')))
-      .finally(() => {
-        incomingBytes -= bytes.length;
-      });
-  }, fail);
+  let transportEnded = false;
+  transport.receive(
+    (bytes) => {
+      if (transportEnded || closed) return;
+      incomingBytes += bytes.length;
+      if (incomingBytes > MAX_BUFFER) {
+        fail(new Error('TLS input buffer exceeded'));
+        return;
+      }
+      reading = reading
+        .then(async () => {
+          if (!closed) await tls.handleReceivedBytes(bytes);
+        })
+        .catch((error) => fail(error instanceof Error ? error : new Error('Invalid TLS record')))
+        .finally(() => {
+          incomingBytes -= bytes.length;
+        });
+    },
+    (error) => {
+      if (transportEnded) return;
+      transportEnded = true;
+      // Web Crypto is asynchronous: EOF must follow all preceding TLS records.
+      // Keep authenticated plaintext available for a reader attached after EOF.
+      void reading.then(() => finish(error));
+    },
+  );
   const timer = globalThis.setTimeout(() => fail(new Error('Host TLS handshake timed out')), 15000);
   try {
     await Promise.all([tls.startHandshake().catch(fail), handshake]);
@@ -160,8 +176,8 @@ export async function connectPinnedTls(
     receive(handler, onEnd) {
       receiver = handler;
       ended = onEnd;
+      flush();
       if (closed) onEnd(closed);
-      else flush();
     },
   };
 }

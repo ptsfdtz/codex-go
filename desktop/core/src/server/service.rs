@@ -20,6 +20,7 @@ use std::{
 };
 use tokio::sync::{mpsc, Notify, Semaphore};
 pub struct Core {
+    pub(crate) lan_gateway: Mutex<Option<(std::net::SocketAddr, tokio::task::JoinHandle<()>)>>,
     pub cloud: crate::cloud::Cloud,
     pub(crate) discovery: Mutex<Option<crate::server::discovery::Advertisement>>,
     pub store: Arc<Store>,
@@ -68,6 +69,7 @@ impl Core {
         local: mpsc::Sender<Value>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            lan_gateway: Mutex::new(None),
             cloud: crate::cloud::Cloud::default(),
             discovery: Mutex::new(None),
             store,
@@ -113,6 +115,9 @@ impl Core {
         }
     }
     pub fn request_stop(&self) {
+        if let Some((_, task)) = self.lan_gateway.lock().unwrap().take() {
+            task.abort();
+        }
         self.stopping.store(true, Ordering::SeqCst);
         self.stop.notify_one();
     }

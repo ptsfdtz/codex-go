@@ -165,6 +165,21 @@ mod tests {
     }
     #[test]
     fn runtime_identity_requires_the_exact_pinned_version() {
+        assert!(crate::codex::check_runtime_identity_for(
+            "agentdeck/0.163.0-alpha.10.2 (Ubuntu 22.4.0; x86_64) unknown (agentdeck; 0.3.0)",
+            crate::rpc::ProtocolVersion::DesktopBaseline,
+        )
+        .is_ok());
+        for agent in [
+            "agentdeck/0.163.0-alpha.10.20 (Linux)",
+            "other/0.163.0-alpha.10.2 (Linux)",
+        ] {
+            assert!(crate::codex::check_runtime_identity_for(
+                agent,
+                crate::rpc::ProtocolVersion::DesktopBaseline
+            )
+            .is_err());
+        }
         assert!(crate::codex::check_runtime_identity(&format!(
             "Codex Desktop/{} (Windows)",
             crate::codex::VERSION

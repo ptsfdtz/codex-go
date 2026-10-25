@@ -1,4 +1,9 @@
-export type HostGrant = { hostId: string; fingerprint: string; credential: string };
+export type HostGrant = {
+  hostId: string;
+  fingerprint: string;
+  credential: string;
+  endpoints?: string[];
+};
 
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

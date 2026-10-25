@@ -18,6 +18,139 @@ use uuid::Uuid;
 
 const INITIAL: &str = "test-initial-password";
 const CHANGED: &str = "test-changed-password";
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL"]
+async fn account_host_access_is_scoped_and_revoked_without_pairing() {
+    let test = TestServer::new().await;
+    let desktop = test.ready("account-owner", "user", "desktop").await;
+    let mobile = test
+        .login("account-owner", CHANGED, "mobile", &security::token())
+        .await;
+    let other = test.ready("other-owner", "user", "mobile").await;
+    // Old registration remains accepted, but cannot issue account credentials
+    // before the computer has registered its actual certificate.
+    assert_eq!(
+        test.register(&desktop, "account-host").await,
+        StatusCode::OK
+    );
+    let grant = |tokens: Value| {
+        test.client
+            .post(format!("{}/api/v1/hosts/account-host/access", test.base))
+            .bearer_auth(access(&tokens))
+            .send()
+    };
+    assert_eq!(
+        grant(mobile.clone()).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let register = |fingerprint: &str| {
+        test.client.put(format!("{}/api/v1/hosts/self",test.base)).bearer_auth(access(&desktop)).json(&json!({"hostId":"account-host","displayName":"Test computer","fingerprint":fingerprint,"endpoints":["https://192.168.1.20:49321"]})).send()
+    };
+    assert_eq!(
+        register("invalid").await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        register(&"a".repeat(64)).await.unwrap().status(),
+        StatusCode::OK
+    );
+    assert_eq!(grant(other).await.unwrap().status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        grant(desktop.clone()).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    let credential: Value = grant(mobile.clone()).await.unwrap().json().await.unwrap();
+    assert_eq!(credential["fingerprint"], "a".repeat(64));
+    assert_eq!(credential["endpoints"][0], "https://192.168.1.20:49321");
+    let validate = |tokens: Value, token: Value| {
+        test.client
+            .post(format!("{}/api/v1/hosts/access/validate", test.base))
+            .bearer_auth(access(&tokens))
+            .json(&json!({"credential":token}))
+            .send()
+    };
+    assert_eq!(
+        validate(mobile.clone(), credential["credential"].clone())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let accepted = validate(desktop.clone(), credential["credential"].clone())
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), StatusCode::OK);
+    assert_eq!(
+        accepted.json::<Value>().await.unwrap()["deviceId"],
+        mobile["cloudDeviceId"]
+    );
+    let other_desktop = test
+        .login("account-owner", CHANGED, "desktop", &security::token())
+        .await;
+    assert_eq!(
+        validate(other_desktop, credential["credential"].clone())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let logout = test
+        .client
+        .post(format!("{}/api/v1/auth/logout", test.base))
+        .bearer_auth(access(&mobile))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), StatusCode::OK);
+    assert_eq!(
+        validate(desktop.clone(), credential["credential"].clone())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let fresh = test
+        .login("account-owner", CHANGED, "mobile", &security::token())
+        .await;
+    let issued: Value = grant(fresh.clone()).await.unwrap().json().await.unwrap();
+    let auth = test.state.store.authenticate(access(&fresh)).await.unwrap();
+    test.state
+        .store
+        .revoke_device(&auth.account_id, Some(&auth.account_id), &auth.device_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        validate(desktop.clone(), issued["credential"].clone())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let fresh = test
+        .login("account-owner", CHANGED, "mobile", &security::token())
+        .await;
+    let issued: Value = grant(fresh).await.unwrap().json().await.unwrap();
+    let auth = test
+        .state
+        .store
+        .authenticate(access(&desktop))
+        .await
+        .unwrap();
+    test.state
+        .store
+        .unbind_host(&auth, "account-host")
+        .await
+        .unwrap();
+    assert_eq!(
+        validate(desktop, issued["credential"].clone())
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    test.finish().await;
+}
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 struct TestServer {
@@ -714,6 +847,50 @@ async fn web_browser_session_origin_csrf_and_device_scope() {
         StatusCode::OK
     );
     let (jar, csrf) = test.web_login("web-user", CHANGED, origin).await;
+    // Production SPA is served by the cloud origin. Same-origin GET fetches
+    // omit Origin, while browsers supply non-scriptable Fetch Metadata.
+    for path in ["/web/session", "/web/csrf", "/hosts", "/devices"] {
+        let request = || {
+            test.client
+                .get(format!("{}/api/v1{path}", test.base))
+                .header("Cookie", &jar)
+                .header("Host", "cloud.test")
+                .header("Sec-Fetch-Mode", "cors")
+        };
+        assert_eq!(
+            request()
+                .header("Sec-Fetch-Site", "same-origin")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            request()
+                .header("Sec-Fetch-Site", "cross-site")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request().send().await.unwrap().status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        test.client
+            .post(format!("{}/api/v1/hosts/web_host_auth/access", test.base))
+            .header("Origin", origin)
+            .header("Cookie", &jar)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
     let recovered = test
         .client
         .get(format!("{}/api/v1/web/csrf", test.base))
