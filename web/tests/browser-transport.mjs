@@ -29,12 +29,35 @@ const fingerprint = createHash('sha256')
   .update(Buffer.from(cert.replace(/-----[^-]+-----/g, '').replace(/\s/g, ''), 'base64'))
   .digest('hex');
 let applicationMessages = 0;
+const pairingRequests = [];
 const host = createTlsServer(
   { key, cert, minVersion: 'TLSv1.3', maxVersion: 'TLSv1.3' },
   (socket) => {
     socket.on('error', () => {});
+    let request = Buffer.alloc(0);
     socket.on('data', (bytes) => {
       applicationMessages++;
+      if (request.length || bytes.toString().startsWith('POST ')) {
+        request = Buffer.concat([request, bytes]);
+        const end = request.indexOf('\r\n\r\n');
+        if (end < 0) return;
+        const headers = request.subarray(0, end).toString();
+        const size = Number(/Content-Length: (\d+)/i.exec(headers)?.[1]);
+        if (!Number.isSafeInteger(size) || request.length < end + 4 + size) return;
+        pairingRequests.push(headers);
+        const body = headers.startsWith('POST /api/v1/pair/request ')
+          ? JSON.stringify({
+              code: '123456',
+              requestId: 'test-request',
+              claimToken: 'a'.repeat(43),
+            })
+          : JSON.stringify({ status: 'approved', hostId: 'test-host', credential: 'b'.repeat(43) });
+        // A short-lived HTTP peer may send its last response and TLS EOF together.
+        socket.end(
+          `HTTP/1.1 200 OK\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+        );
+        return;
+      }
       socket.write(bytes);
     });
   },
@@ -138,6 +161,57 @@ try {
     throw new Error('Browser TLS acceptance failed');
   console.log(
     'PASS: browser Web Crypto, real TLS 1.3 over binary WebSocket, pinned certificate, and mismatch rejection',
+  );
+  const cloudOrigin = await page.evaluate(async () => (await import('/src/cloud.ts')).cloudOrigin);
+  await page.route(`${cloudOrigin}/api/v1/**`, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const body =
+      path === '/api/v1/web/csrf'
+        ? { csrfToken: 'test-csrf' }
+        : { tunnelId: 'test-tunnel', clientTicket: 'test-ticket' };
+    await route.fulfill({
+      json: body,
+      headers: {
+        'access-control-allow-origin': new URL(page.url()).origin,
+        'access-control-allow-credentials': 'true',
+        'access-control-allow-headers': 'content-type,x-csrf-token',
+      },
+    });
+  });
+  const pairing = await page.evaluate(
+    async ({ port, fingerprint }) => {
+      const NativeWebSocket = window.WebSocket;
+      window.WebSocket = class extends NativeWebSocket {
+        constructor() {
+          super(`ws://127.0.0.1:${port}`);
+        }
+      };
+      try {
+        const { hostPost } = await import('/src/transport/host.ts');
+        const pending = await hostPost('test-host', fingerprint, '/api/v1/pair/request', {
+          token: 'test-invitation',
+        });
+        const approved = await hostPost('test-host', fingerprint, '/api/v1/pair/claim', {
+          requestId: pending.requestId,
+          claimToken: pending.claimToken,
+        });
+        return { pending, approved };
+      } finally {
+        window.WebSocket = NativeWebSocket;
+      }
+    },
+    { port: relay.address().port, fingerprint },
+  );
+  if (
+    pairing.pending.code !== '123456' ||
+    pairing.approved.status !== 'approved' ||
+    pairing.approved.credential !== 'b'.repeat(43) ||
+    pairingRequests.length !== 2 ||
+    pairingRequests.some((headers) => /Connection: close/i.test(headers))
+  )
+    throw new Error('Browser short-lived pairing HTTP acceptance failed');
+  console.log(
+    'PASS: browser pairing request and approved claim over real TLS with immediate peer closure',
   );
 } finally {
   await browser?.close();
