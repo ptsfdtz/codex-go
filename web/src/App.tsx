@@ -81,6 +81,7 @@ import {
 } from './transport/resume';
 import type { Packet } from './transport/bridge';
 import { TaskProgress } from './features/TaskProgress';
+import { MessageEditor } from './features/MessageEditor';
 import { InstallApp } from './features/InstallApp';
 
 type HistoryPage = {
@@ -215,6 +216,8 @@ export function App() {
   const [receiptBlocked, setReceiptBlocked] = useState(false);
   const [messageAction, setMessageAction] = useState<{ entry: HistoryEntry; kind: string }>();
   const [editText, setEditText] = useState('');
+  const [editError, setEditError] = useState('');
+  const messageActionPending = useRef(false);
   const [hostFingerprint, setHostFingerprint] = useState(''),
     [hostLabel, setHostLabel] = useState(''),
     [lastSynced, setLastSynced] = useState('');
@@ -1383,11 +1386,24 @@ export function App() {
     }
   }
   async function runMessageAction() {
-    if (!messageAction || !session || busy || receiptBlocked) return;
+    if (
+      !messageAction ||
+      !session ||
+      busy ||
+      receiptBlocked ||
+      !connected ||
+      messageActionPending.current ||
+      !canManage(current) ||
+      current?.archived === 1 ||
+      (messageAction.kind === 'revise' && (!editText.trim() || !!activeTurn || !historyReady))
+    )
+      return;
     const { entry, kind } = messageAction,
       id = session,
       epoch = connectionEpoch.current;
+    messageActionPending.current = true;
     setBusy(true);
+    setEditError('');
     try {
       if (kind === 'fork') {
         const result = await request<{ session?: Session }>('sessions.fork', {
@@ -1431,12 +1447,35 @@ export function App() {
           await refresh();
         }
       }
-      if (epoch === connectionEpoch.current) setMessageAction(undefined);
+      if (epoch === connectionEpoch.current && sessionRef.current === id)
+        setMessageAction(undefined);
     } catch (e) {
-      if (epoch === connectionEpoch.current) setError(String(e));
+      if (epoch === connectionEpoch.current && sessionRef.current === id) {
+        if (kind === 'revise') setEditError(String(e));
+        else setError(String(e));
+      }
     } finally {
+      messageActionPending.current = false;
       if (epoch === connectionEpoch.current) setBusy(false);
     }
+  }
+  function editMessage(entry: HistoryEntry) {
+    timeline.current?.pause();
+    setEditText(contentText(entry.item));
+    setEditError('');
+    setMessageAction({ entry, kind: 'revise' });
+  }
+  function cancelMessageEdit() {
+    const entry = messageAction?.entry;
+    setMessageAction(undefined);
+    if (entry)
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLButtonElement>(
+            `[data-history-key="${CSS.escape(historyKey(entry))}"] button[aria-label="编辑并重新发送"]`,
+          )
+          ?.focus({ preventScroll: true }),
+      );
   }
   const [settingsTab, setSettingsTab] = useState('general');
   const titles: Record<string, string> = {
@@ -1770,51 +1809,74 @@ export function App() {
               const user = type === 'userMessage' || item.role === 'user',
                 assistant =
                   ['agentMessage', 'assistantMessage'].includes(type) || item.role === 'assistant',
-                text = contentText(item);
+                text = contentText(item),
+                editing =
+                  messageAction?.kind === 'revise' &&
+                  historyKey(messageAction.entry) === historyKey(entry);
               return (
                 <article
                   className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
                   key={historyKey(entry)}
                   data-history-key={historyKey(entry)}
                 >
-                  <div className="message-content">
-                    <RichContent
-                      entry={entry}
-                      connection={bridge.current}
-                      sessionId={session || ''}
-                      onFile={supports('projectTextPreview') ? openFile : undefined}
-                      onAgent={openAgent}
-                      onImplementPlan={
-                        type === 'plan' &&
-                        !Array.isArray(item.plan) &&
-                        text.trim() &&
-                        !activeTurn &&
-                        historyReady &&
-                        !historyFailure &&
-                        !chat &&
-                        !['failed', 'interrupted', 'declined', 'inProgress'].includes(
-                          String(item.status),
-                        ) &&
-                        !renderedHistory
-                          .slice(entryIndex + 1)
-                          .some((next) =>
-                            ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
-                              String(next.item?.type),
-                            ),
-                          )
-                          ? () => void send(undefined, text)
-                          : undefined
-                      }
-                      onRevisePlan={() => {
-                        updateDraft({ mode: 'plan' });
-                        document
-                          .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
-                          ?.focus();
-                      }}
-                      planDisabled={
-                        !connected || busy || receiptBlocked || current?.archived === 1
-                      }
-                    />
+                  <div className={`message-content${editing ? ' editing-message' : ''}`}>
+                    {editing ? (
+                      <MessageEditor
+                        text={editText}
+                        busy={busy}
+                        disabled={
+                          !connected ||
+                          busy ||
+                          receiptBlocked ||
+                          !!activeTurn ||
+                          !historyReady ||
+                          current?.archived === 1 ||
+                          !canManage(current)
+                        }
+                        error={editError}
+                        onChange={setEditText}
+                        onCancel={cancelMessageEdit}
+                        onSend={() => void runMessageAction()}
+                      />
+                    ) : (
+                      <RichContent
+                        entry={entry}
+                        connection={bridge.current}
+                        sessionId={session || ''}
+                        onFile={supports('projectTextPreview') ? openFile : undefined}
+                        onAgent={openAgent}
+                        onImplementPlan={
+                          type === 'plan' &&
+                          !Array.isArray(item.plan) &&
+                          text.trim() &&
+                          !activeTurn &&
+                          historyReady &&
+                          !historyFailure &&
+                          !chat &&
+                          !['failed', 'interrupted', 'declined', 'inProgress'].includes(
+                            String(item.status),
+                          ) &&
+                          !renderedHistory
+                            .slice(entryIndex + 1)
+                            .some((next) =>
+                              ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
+                                String(next.item?.type),
+                              ),
+                            )
+                            ? () => void send(undefined, text)
+                            : undefined
+                        }
+                        onRevisePlan={() => {
+                          updateDraft({ mode: 'plan' });
+                          document
+                            .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
+                            ?.focus();
+                        }}
+                        planDisabled={
+                          !connected || busy || receiptBlocked || current?.archived === 1
+                        }
+                      />
+                    )}
                   </div>
                   {assistant &&
                     Array.isArray(item.questions) &&
@@ -1843,7 +1905,7 @@ export function App() {
                         uncertain={() => bridge.current?.awaitingReceipt === true}
                       />
                     )}
-                  {(user || assistant) && text && (
+                  {(user || assistant) && text && !editing && (
                     <div className="message-actions">
                       <IconButton
                         icon={Copy}
@@ -1877,8 +1939,7 @@ export function App() {
                           label="编辑并重新发送"
                           disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
                           onClick={() => {
-                            setEditText(text);
-                            setMessageAction({ entry, kind: 'revise' });
+                            editMessage(entry);
                           }}
                         />
                       )}
@@ -1900,8 +1961,7 @@ export function App() {
                               setError('此轮用户消息尚未加载，请先加载更早记录');
                               return;
                             }
-                            setEditText(contentText(before.item));
-                            setMessageAction({ entry: before, kind: 'revise' });
+                            editMessage(before);
                           }}
                         />
                       )}
@@ -2021,17 +2081,15 @@ export function App() {
         )}
       </MotionPresence>
       <MotionPresence>
-        {messageAction && (
+        {messageAction && messageAction.kind !== 'revise' && (
           <Modal
             wide
             title={
               messageAction.kind === 'read'
                 ? '消息'
-                : messageAction.kind === 'revise'
-                  ? '编辑并重新发送'
-                  : messageAction.kind === 'fork'
-                    ? '从此处分叉'
-                    : '回退会话'
+                : messageAction.kind === 'fork'
+                  ? '从此处分叉'
+                  : '回退会话'
             }
             onClose={() => {
               if (!busy) setMessageAction(undefined);
@@ -2047,35 +2105,16 @@ export function App() {
               </div>
             ) : (
               <div className="panel-stack">
-                {messageAction.kind === 'revise' ? (
-                  <>
-                    <p className="muted">
-                      替换该轮用户消息并重新执行，后续轮次将被回退。原附件和技能由电脑核对保留。
-                    </p>
-                    <textarea
-                      aria-label="修改消息"
-                      rows={8}
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                    />
-                  </>
-                ) : (
-                  <p>
-                    {messageAction.kind === 'fork'
-                      ? '从该原生轮次创建独立会话？'
-                      : '回退此消息和之后的轮次？此操作会改变电脑上的原会话。'}
-                  </p>
-                )}
+                <p>
+                  {messageAction.kind === 'fork'
+                    ? '从该原生轮次创建独立会话？'
+                    : '回退此消息和之后的轮次？此操作会改变电脑上的原会话。'}
+                </p>
                 <button
-                  disabled={
-                    busy ||
-                    receiptBlocked ||
-                    !canManage(current) ||
-                    (messageAction.kind === 'revise' && !editText.trim())
-                  }
+                  disabled={busy || receiptBlocked || !canManage(current)}
                   onClick={() => void runMessageAction()}
                 >
-                  确认{messageAction.kind === 'revise' ? '并发送' : ''}
+                  确认
                 </button>
                 {error && <p className="error">{error}</p>}
               </div>

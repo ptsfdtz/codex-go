@@ -191,8 +191,13 @@ try {
   await close();
   await page.getByRole('button', { name: '编辑并重新发送', exact: true }).click();
   await page.getByLabel('修改消息', { exact: true }).fill('Revised native message');
-  await page.getByRole('button', { name: '确认并发送', exact: true }).click();
-  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(
+    await page.getByRole('dialog').count(),
+    0,
+    'message editing stays in the conversation',
+  );
+  await page.getByRole('button', { name: '保存并发送', exact: true }).click();
+  await page.getByLabel('修改消息', { exact: true }).waitFor({ state: 'hidden' });
   assert.deepEqual(last('sessions.revise'), {
     sessionId: 's1',
     beforeTurnId: 'native-turn',

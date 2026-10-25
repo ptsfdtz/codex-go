@@ -142,6 +142,8 @@ export class Timeline extends Component<
           }
         }}
         onWheel={(event) => {
+          if ((event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]'))
+            return;
           const node = this.element.current;
           if (node) {
             this.userIntent = true;
@@ -160,6 +162,8 @@ export class Timeline extends Component<
           this.olderRequested = false;
         }}
         onKeyDown={(event) => {
+          if ((event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]'))
+            return;
           if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) {
             this.userIntent = true;
             this.olderRequested = false;
@@ -170,12 +174,18 @@ export class Timeline extends Component<
         tabIndex={0}
         aria-label="会话消息"
         onTouchStart={(event) => {
+          if ((event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]')) {
+            this.touchY = undefined;
+            return;
+          }
           this.userIntent = true;
           this.touchY = event.touches[0]?.clientY;
           this.olderRequested = false;
           this.pause();
         }}
         onTouchMove={(event) => {
+          if ((event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]'))
+            return;
           const y = event.touches[0]?.clientY;
           if (y !== undefined && this.touchY !== undefined && y > this.touchY) this.older();
           this.touchY = y;
