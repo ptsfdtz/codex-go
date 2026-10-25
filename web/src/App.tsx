@@ -84,6 +84,7 @@ import { TaskProgress } from './features/TaskProgress';
 import { MessageEditor } from './features/MessageEditor';
 import { InstallApp } from './features/InstallApp';
 import { AppUpdates } from './features/AppUpdates';
+import { HostUpdates } from './features/HostUpdates';
 
 type HistoryPage = {
   data?: HistoryEntry[];
@@ -1267,6 +1268,67 @@ export function App() {
     }
   }
 
+  async function sendHostUpdate(text: string, projectId: string) {
+    const connection = bridge.current;
+    if (
+      !connection ||
+      !connected ||
+      sending.current ||
+      busy ||
+      receiptBlocked ||
+      !(
+        (projectId === chatProject && supports('projectlessChat')) ||
+        projects.some((p) => p.projectId === projectId)
+      )
+    )
+      return;
+    const epoch = connectionEpoch.current;
+    sending.current = true;
+    setBusy(true);
+    setError('');
+    let createdSession: string | undefined;
+    try {
+      const created = await connection.request<{ session?: Session }>('sessions.create', {
+        projectId,
+        title: '更新 AgentDeck Host',
+      });
+      if (epoch !== connectionEpoch.current) return;
+      const id = created.session?.sessionId;
+      if (!id) throw new Error('电脑没有返回更新会话标识');
+      createdSession = id;
+      startingSession.current = id;
+      setSelectedProject(projectId);
+      selectSession(id);
+      setHistoryReady(true);
+      setPanel('');
+      const result = await connection.request<{ turn?: Turn }>('turn.start', {
+        sessionId: id,
+        ...turnOptions(
+          { ...emptyDraft(), text, model: draft.model, effort: draft.effort },
+          'workspace',
+        ),
+      });
+      if (epoch !== connectionEpoch.current) return;
+      if (sessionRef.current === id) {
+        activityVersion.current++;
+        managedActiveTurn.current = result.turn?.turnId;
+        setActiveTurn(result.turn?.turnId);
+      }
+      startingSession.current = undefined;
+      await refresh(sessionRef.current === id);
+    } catch (error) {
+      if (epoch === connectionEpoch.current)
+        setError(`更新提示词未确认发送成功，请先核对更新会话，勿重复发送。${String(error)}`);
+    } finally {
+      if (startingSession.current === createdSession) startingSession.current = undefined;
+      sending.current = false;
+      if (epoch === connectionEpoch.current) {
+        setBusy(false);
+        setReceiptBlocked(connection.awaitingReceipt);
+      }
+    }
+  }
+
   async function interrupt() {
     if (!bridge.current || !session || !activeTurn || busy || receiptBlocked) return;
     const epoch = connectionEpoch.current,
@@ -1704,6 +1766,22 @@ export function App() {
             </MotionPresence>
           </div>
         </header>
+        {host && connected && (
+          <HostUpdates
+            key={host.hostId}
+            request={request}
+            supported={supports('hostUpdateCheck')}
+            disabled={busy || receiptBlocked || !!activeTurn}
+            name={hostLabel || host.displayName}
+            projects={
+              supports('projectlessChat')
+                ? [{ projectId: chatProject, name: '普通聊天（更新会话）' }, ...projects]
+                : projects
+            }
+            selectedProject={selectedProject}
+            onUpdate={sendHostUpdate}
+          />
+        )}
         <MotionPresence>
           {connectionFailure && connectionState === 'blocked' && (
             <div className="connection-error" role="alert">

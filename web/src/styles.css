@@ -2439,3 +2439,22 @@ small,
   filter: blur(6px);
   user-select: none;
 }
+.host-update-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.host-update-notice > span {
+  flex: 1 1 240px;
+}
+.host-update-prompt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 40dvh;
+  overflow: auto;
+  font: inherit;
+}
