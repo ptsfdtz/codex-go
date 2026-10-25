@@ -86,7 +86,7 @@ button:disabled {
   transition-delay: 0s;
 }
 .with-sidebar .conversation {
-  margin-left: 280px;
+  margin-left: var(--sidebar-width);
 }
 .sidebar-scrim {
   opacity: 0;
@@ -235,11 +235,6 @@ button:disabled {
     opacity: 0;
   }
 }
-@media (min-width: 761px) and (max-width: 1000px) {
-  .with-sidebar .conversation {
-    margin-left: 248px;
-  }
-}
 @media (max-width: 760px) {
   .with-sidebar .conversation {
     margin-left: 0;
@@ -334,6 +329,67 @@ button:disabled {
     }
   }
   :root[data-motion-input='keyboard'] select::picker(select) {
+    transition: none;
+  }
+}
+.model-picker-popup {
+  opacity: 0;
+  transform: translateY(4px) scale(0.97);
+  transform-origin: bottom left;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out),
+    display var(--motion-fast) allow-discrete,
+    overlay var(--motion-fast) allow-discrete;
+}
+.model-picker-popup:popover-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+@starting-style {
+  .model-picker-popup:popover-open {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+.model-picker-view {
+  opacity: 1;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+@starting-style {
+  .model-picker-view {
+    opacity: 0;
+  }
+}
+.effort-fill,
+.effort-thumb {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.effort-slider:active .effort-fill,
+.effort-slider:active .effort-thumb {
+  transition: none;
+}
+:root:not([data-motion-input='keyboard']) .model-picker-trigger:focus,
+:root:not([data-motion-input='keyboard']) .model-picker-popup button:focus {
+  outline: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .model-picker-option:hover:not(:disabled) {
+    background: var(--hover);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-picker-popup,
+  .model-picker-popup:popover-open {
+    transform: none;
+  }
+  @starting-style {
+    .model-picker-popup:popover-open {
+      transform: none;
+    }
+  }
+  .effort-fill,
+  .effort-thumb {
     transition: none;
   }
 }

@@ -1,25 +1,29 @@
 import { MotionPresence } from '../motion';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { FileDiff } from 'lucide-react';
 import type { HistoryEntry } from '../history';
 import { Modal } from '../ui';
 import { DiffText } from './DiffText';
-import { turnChanges, workDuration } from './turn-changes';
-export function TurnChanges({ entries, partial }: { entries: HistoryEntry[]; partial: boolean }) {
+import { projectRelativePath, turnChanges, workDuration } from './turn-changes';
+export function TurnChanges({
+  entries,
+  projectRoot,
+}: {
+  entries: HistoryEntry[];
+  projectRoot?: string;
+}) {
   const files = turnChanges(entries),
     duration = workDuration(entries);
   const [open, setOpen] = useState(false),
     [selected, setSelected] = useState(''),
     [expanded, setExpanded] = useState(false);
   const file = files.find((f) => f.path === selected) || files[0];
+  const panelId = useId();
+  const displayPath = (path: string) =>
+    projectRelativePath(path, projectRoot) || path.replaceAll('\\', '/').split('/').pop() || path;
   return (
     <>
-      {duration && (
-        <div className="work-duration">
-          Worked for {duration}
-          {partial ? ' · loaded history' : ''}
-        </div>
-      )}
+      {duration && <div className="work-duration">Worked for {duration}</div>}
       {files.length > 0 && (
         <div className="turn-changes">
           <div className="changes-header">
@@ -40,7 +44,7 @@ export function TurnChanges({ entries, partial }: { entries: HistoryEntry[]; par
                 setOpen(true);
               }}
             >
-              <span>{f.path}</span>
+              <span title={displayPath(f.path)}>{displayPath(f.path)}</span>
               <span className="diff-count-add">+{f.added}</span>
               <span className="diff-count-remove">−{f.removed}</span>
             </button>
@@ -50,26 +54,68 @@ export function TurnChanges({ entries, partial }: { entries: HistoryEntry[]; par
               {expanded ? 'Show less' : `Show ${files.length - 3} more`}
             </button>
           )}
-          {partial && <small>仅含已加载步骤的累计改动</small>}
         </div>
       )}
       <MotionPresence>
         {open && file && (
-          <Modal title="本轮文件改动" wide onClose={() => setOpen(false)}>
-            <p className="muted">已加载步骤累计，不是当前工作区净差异。</p>
-            <div className="changes-tabs">
-              {files.map((f) => (
-                <button
-                  key={f.path}
-                  onClick={() => setSelected(f.path)}
-                  className={f.path === file.path ? 'selected' : ''}
-                >
-                  {f.path.split(/[\\/]/).pop()}
-                </button>
-              ))}
+          <Modal
+            title="改动预览"
+            wide
+            className="changes-preview"
+            onClose={() => setOpen(false)}
+            header={
+              <div className="changes-tabs" role="tablist" aria-label="改动文件">
+                {files.map((f) => (
+                  <button
+                    key={f.path}
+                    id={`${panelId}-${files.indexOf(f)}`}
+                    role="tab"
+                    aria-selected={f.path === file.path}
+                    aria-controls={panelId}
+                    tabIndex={f.path === file.path ? 0 : -1}
+                    title={displayPath(f.path)}
+                    onClick={() => setSelected(f.path)}
+                    onKeyDown={(event) => {
+                      const index = files.indexOf(f);
+                      const next =
+                        event.key === 'ArrowRight'
+                          ? (index + 1) % files.length
+                          : event.key === 'ArrowLeft'
+                            ? (index + files.length - 1) % files.length
+                            : event.key === 'Home'
+                              ? 0
+                              : event.key === 'End'
+                                ? files.length - 1
+                                : undefined;
+                      if (next === undefined) return;
+                      event.preventDefault();
+                      setSelected(files[next]!.path);
+                      const target =
+                        event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                          '[role="tab"]',
+                        )[next];
+                      target?.focus();
+                      target?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    }}
+                    className={f.path === file.path ? 'selected' : ''}
+                  >
+                    <span>{displayPath(f.path)}</span>
+                    <span className="diff-count-add">+{f.added}</span>
+                    <span className="diff-count-remove">−{f.removed}</span>
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            <div
+              key={file.path}
+              id={panelId}
+              role="tabpanel"
+              aria-labelledby={`${panelId}-${files.indexOf(file)}`}
+              tabIndex={0}
+            >
+              <DiffText text={file.diffs.join('\n\n')} />
             </div>
-            <p>{file.path}</p>
-            <DiffText text={file.diffs.join('\n\n')} />
           </Modal>
         )}
       </MotionPresence>

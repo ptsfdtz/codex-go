@@ -40,6 +40,10 @@ jobs:
       - run: node web/tests/browser-pwa.mjs
       - run: node web/tests/browser-mobile.mjs
       - run: node web/tests/browser-motion.mjs
+      - run: node web/tests/browser-diff.mjs
+      - run: node web/tests/browser-chat.mjs
+      - run: node web/tests/browser-questions.mjs
+      - run: node web/tests/browser-plan.mjs
       - run: pnpm --filter @agentdeck/web build
       - run: pnpm host:package
         env:

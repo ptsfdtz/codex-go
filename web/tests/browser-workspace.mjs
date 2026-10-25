@@ -74,8 +74,43 @@ try {
   await page.getByRole('button', { name: '移除附件 note.txt' }).waitFor();
   await page.getByRole('button', { name: '添加附件和操作' }).click();
   await page.getByRole('menuitem', { name: 'Plan', exact: true }).click();
-  await page.getByLabel('模型', { exact: true }).selectOption('test-model');
-  await page.getByLabel('推理强度', { exact: true }).selectOption('high');
+  await page.getByRole('button', { name: '切换模型', exact: true }).click();
+  await page.getByRole('button', { name: 'Test model', exact: true }).click();
+  assert.equal(
+    await page.getByRole('button', { name: '切换模型', exact: true }).innerText(),
+    'Test model',
+  );
+  await page.getByRole('slider', { name: '推理强度', exact: true }).fill('1');
+  await page.getByRole('button', { name: '重置思维强度', exact: true }).click();
+  assert.equal(
+    await page.getByRole('button', { name: '重置思维强度', exact: true }).isEnabled(),
+    false,
+  );
+  await page.getByRole('slider', { name: '推理强度', exact: true }).fill('1');
+  assert.equal(
+    await page.getByRole('slider', { name: '推理强度' }).getAttribute('aria-valuetext'),
+    'High',
+  );
+  await page.getByRole('slider', { name: '推理强度' }).press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '模型与思维强度', exact: true }).click();
+  const pickerBox = await page.locator('.model-picker-popup').boundingBox();
+  assert.ok(pickerBox.x >= 0 && pickerBox.x + pickerBox.width <= 390);
+  assert.equal(
+    await page
+      .locator('.model-picker-popup')
+      .evaluate((el) => el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth),
+    true,
+    'effort panel has no overflowing content',
+  );
+  mkdirSync('artifacts/web-model-picker', { recursive: true });
+  await page.screenshot({ path: 'artifacts/web-model-picker/effort.png' });
+  await page.getByRole('button', { name: '选择模型', exact: true }).click();
+  await page.screenshot({ path: 'artifacts/web-model-picker/models.png' });
+  await page.getByRole('button', { name: 'Test model', exact: true }).click();
+  await page.getByRole('slider', { name: '推理强度' }).fill('1');
+  await page.getByRole('slider', { name: '推理强度' }).press('Escape');
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByLabel('消息', { exact: true }).fill('Review this change');
   state.failTurn = true;
   await page.getByRole('button', { name: '发送', exact: true }).click();
@@ -131,14 +166,23 @@ try {
   assert.deepEqual(last('git.diff'), { projectId: 'p1', fileId: 'f1' });
   await close();
   await menu('管理当前会话');
-  await page.getByRole('textbox', { name: '名称', exact: true }).fill('Renamed conversation');
-  await page.getByRole('button', { name: '保存名称' }).click();
-  await page.getByRole('heading', { name: 'Renamed conversation', exact: true }).waitFor();
+  const nameInput = page.getByRole('textbox', { name: '对话名称', exact: true });
+  assert.equal(await page.getByRole('button', { name: '保存名称' }).isEnabled(), false);
+  const originalName = await nameInput.inputValue();
+  await nameInput.fill('临时名称');
+  await nameInput.press('Escape');
+  assert.equal(await nameInput.inputValue(), originalName);
+  await nameInput.fill('Renamed conversation');
+  await nameInput.press('Enter');
+  await page.waitForFunction(() => document.querySelector('.session-name button')?.disabled);
   await page.getByRole('button', { name: '置顶', exact: true }).click();
   await page.getByRole('button', { name: '取消置顶', exact: true }).waitFor();
   assert.deepEqual(last('sessions.pin'), { sessionId: 's1', pinned: true });
   await page.getByRole('button', { name: '整理上下文', exact: true }).click();
-  await page.getByRole('button', { name: '确认', exact: true }).click();
+  await page
+    .locator('.confirmation')
+    .getByRole('button', { name: '整理上下文', exact: true })
+    .click();
   await page.waitForFunction(() => !document.querySelector('.confirmation'));
   assert.deepEqual(last('sessions.compact'), {
     sessionId: 's1',

@@ -39,9 +39,15 @@ export async function startConversationServer({
     delay: false,
     pending: [],
     extra: [],
+    chatSupported: false,
+    chatOnly: false,
+    chatSessions: [],
     rpc: [],
     actual: !!actual,
     failTurn: false,
+    delayStart: false,
+    startPending: [],
+    startedSessions: new Set(),
     queue: [],
     goal: { objective: 'Controlled goal', status: 'paused', tokenBudget: 1000 },
     goalActivity: undefined,
@@ -108,34 +114,39 @@ export async function startConversationServer({
             if (action === 'snapshot.get')
               body = {
                 cursor: state.events.at(-1)?.eventId || '0',
-                projects: actual
-                  ? [{ projectId: 'p1', name: 'outsourced-projects' }]
-                  : [
-                      { projectId: 'p1', name: actual ? 'outsourced-projects' : '项目一' },
-                      { projectId: 'p2', name: '项目二' },
-                    ],
-                sessions: actual
-                  ? [
-                      {
-                        sessionId: 's1',
-                        projectId: 'p1',
-                        title: actual.thread.name || actual.thread.preview.slice(0, 40),
-                      },
-                    ]
-                  : [
-                      {
-                        sessionId: 's1',
-                        projectId: 'p1',
-                        title: actual
-                          ? actual.thread.name || actual.thread.preview.slice(0, 40)
-                          : state.title,
-                        pinned: state.pinned,
-                        archived: state.archived,
-                        status: 'idle',
-                      },
-                      { sessionId: 's2', projectId: 'p1', title: '另一会话' },
-                      { sessionId: 's3', projectId: 'p2', title: '其他项目会话' },
-                    ],
+                projects: state.chatOnly
+                  ? []
+                  : actual
+                    ? [{ projectId: 'p1', name: 'outsourced-projects' }]
+                    : [
+                        { projectId: 'p1', name: actual ? 'outsourced-projects' : '项目一' },
+                        { projectId: 'p2', name: '项目二' },
+                      ],
+                sessions: state.chatOnly
+                  ? state.chatSessions
+                  : actual
+                    ? [
+                        {
+                          sessionId: 's1',
+                          projectId: 'p1',
+                          title: actual.thread.name || actual.thread.preview.slice(0, 40),
+                        },
+                      ]
+                    : [
+                        {
+                          sessionId: 's1',
+                          projectId: 'p1',
+                          title: actual
+                            ? actual.thread.name || actual.thread.preview.slice(0, 40)
+                            : state.title,
+                          pinned: state.pinned,
+                          archived: state.archived,
+                          status: 'idle',
+                        },
+                        { sessionId: 's2', projectId: 'p1', title: '另一会话' },
+                        { sessionId: 's3', projectId: 'p2', title: '其他项目会话' },
+                        ...state.chatSessions,
+                      ],
                 turns: state.running
                   ? [
                       {
@@ -151,10 +162,10 @@ export async function startConversationServer({
             else if (action === 'system.capabilities')
               body = {
                 features: Object.fromEntries(
-                  (actual ? ['upstreamHistoryPages', 'sessionImages'] : featureNames).map((key) => [
-                    key,
-                    true,
-                  ]),
+                  (actual
+                    ? ['upstreamHistoryPages', 'sessionImages']
+                    : [...featureNames, ...(state.chatSupported ? ['projectlessChat'] : [])]
+                  ).map((key) => [key, true]),
                 ),
               };
             else if (action === 'models.list')
@@ -190,26 +201,39 @@ export async function startConversationServer({
                 return;
               }
             } else if (action === 'sessions.history') {
+              if (
+                payload.sessionId === 'new-session' &&
+                !state.startedSessions.has(payload.sessionId)
+              )
+                return send(
+                  {
+                    error:
+                      'UPSTREAM_ERROR: invalid paginated history lineage for new-thread: missing source rollout',
+                  },
+                  409,
+                );
               if (state.blocked && payload.sessionId === 's1')
                 return send(
                   { error: 'WORKSPACE_FORBIDDEN: Upstream thread identity or workspace changed' },
                   403,
                 );
               body =
-                payload.sessionId !== 's1'
-                  ? { data: [entry('other', '另一会话的正文')] }
-                  : actual
-                    ? actual.history
-                    : payload.cursor
-                      ? {
-                          data: Array.from({ length: 30 }, (_, index) =>
-                            entry(
-                              'old-' + (29 - index),
-                              '较早的消息 ' + (29 - index) + '\n\n' + '正文段落。'.repeat(80),
+                payload.sessionId === 'new-session'
+                  ? { data: [] }
+                  : payload.sessionId !== 's1'
+                    ? { data: [entry('other', '另一会话的正文')] }
+                    : actual
+                      ? actual.history
+                      : payload.cursor
+                        ? {
+                            data: Array.from({ length: 30 }, (_, index) =>
+                              entry(
+                                'old-' + (29 - index),
+                                '较早的消息 ' + (29 - index) + '\n\n' + '正文段落。'.repeat(80),
+                              ),
                             ),
-                          ),
-                        }
-                      : { data: [...latest, ...state.extra].reverse(), nextCursor: 'older-page' };
+                          }
+                        : { data: [...latest, ...state.extra].reverse(), nextCursor: 'older-page' };
               if (state.delay) {
                 state.pending.push(() => send(body));
                 return;
@@ -303,6 +327,13 @@ export async function startConversationServer({
             else if (!actual && allowMutations) {
               if (action.startsWith('sessions.goal.') && state.goalMutationError)
                 return send({ error: state.goalMutationError }, 409);
+              if (action === 'sessions.create' && payload.projectId === 'agentdeck-chat') {
+                state.chatSessions.push({
+                  sessionId: 'new-session',
+                  projectId: 'agentdeck-chat',
+                  title: payload.title,
+                });
+              }
               if (action === 'turn.interruptActive') state.running = false;
               if (action === 'approvals.decide') state.approvals = [];
               if (action === 'turn.start' && state.failTurn)
@@ -361,6 +392,15 @@ export async function startConversationServer({
                           },
                         };
             } else return send({ error: '本地验收环境只读，不发送模型任务' }, 403);
+            if (action === 'turn.start') {
+              const acknowledge = () => {
+                state.startedSessions.add(payload.sessionId);
+                send(body);
+              };
+              if (state.delayStart) state.startPending.push(acknowledge);
+              else acknowledge();
+              return;
+            }
             send(body);
           });
         },

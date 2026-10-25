@@ -19,6 +19,7 @@ import {
 import { IconButton, Modal } from '../ui';
 import type { Draft, Model } from '../workspace';
 import { readAttachments } from './composer-input';
+import { ModelPicker } from './ModelPicker';
 
 export function Composer({
   draft,
@@ -36,6 +37,7 @@ export function Composer({
   onPanel,
   onNew,
   onError,
+  chat = false,
 }: {
   draft: Draft;
   status?: ReactNode;
@@ -52,14 +54,11 @@ export function Composer({
   onPanel: (panel: string) => void;
   onNew: () => void;
   onError: (s: string) => void;
+  chat?: boolean;
 }) {
   const [menu, setMenu] = useState(false),
     [expanded, setExpanded] = useState(false);
   const file = useRef<HTMLInputElement>(null);
-  const model = models.find((m) => (m.id || m.model) === draft.model);
-  const efforts =
-    model?.supportedReasoningEfforts?.map((v) => (typeof v === 'string' ? v : v.reasoningEffort)) ||
-    [];
   const hasResources = !!(draft.attachments.length || draft.skills.length);
   const ready = !disabled && !busy && !!(draft.text.trim() || hasResources);
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -86,7 +85,7 @@ export function Composer({
       value={draft.text}
       onChange={(e) => changeText(e.target.value)}
       onKeyDown={keyDown}
-      placeholder={disabled ? '连接电脑并选择项目后开始' : 'Ask Codex anything…'}
+      placeholder={disabled ? '连接电脑后开始' : chat ? '聊点什么…' : 'Ask Codex anything…'}
       disabled={disabled || busy}
       rows={expanded ? 16 : 2}
     />
@@ -245,46 +244,23 @@ export function Composer({
               <X size={12} />
             </button>
           )}
-          <div className="composer-model">
-            <select
-              aria-label="模型"
-              disabled={disabled || busy}
-              value={draft.model}
-              onChange={(e) => onChange({ model: e.target.value, effort: '' })}
-            >
-              <option value="">Default model</option>
-              {models.map((m) => {
-                const id = m.id || m.model;
-                return id ? (
-                  <option value={id} key={id}>
-                    {m.displayName || m.name || id}
-                  </option>
-                ) : null;
-              })}
-            </select>
-            {efforts.length > 0 && (
-              <select
-                aria-label="推理强度"
-                value={draft.effort}
-                onChange={(e) => onChange({ effort: e.target.value })}
-                disabled={disabled || busy}
-              >
-                <option value="">Default reasoning</option>
-                {efforts.map((e) => (
-                  <option key={e}>{e}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          <button
-            className="permission"
-            title="执行权限"
+          <ModelPicker
+            draft={draft}
+            models={models}
             disabled={disabled || busy}
-            onClick={() => onPermission(permission === 'workspace' ? 'full' : 'workspace')}
-          >
-            <Shield size={15} />
-            <span>{permission === 'full' ? 'Full access' : 'Workspace'}</span>
-          </button>
+            onChange={onChange}
+          />
+          {!chat && (
+            <button
+              className="permission"
+              title="执行权限"
+              disabled={disabled || busy}
+              onClick={() => onPermission(permission === 'workspace' ? 'full' : 'workspace')}
+            >
+              <Shield size={15} />
+              <span>{permission === 'full' ? 'Full access' : 'Workspace'}</span>
+            </button>
+          )}
           {active && supports('activeTurnSteering') && !hasResources && (
             <IconButton
               icon={CornerDownLeft}

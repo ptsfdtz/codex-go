@@ -32,11 +32,15 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  header,
+  className = '',
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  header?: ReactNode;
+  className?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const present = useMotionPresence();
@@ -52,7 +56,8 @@ export function Modal({
   return (
     <dialog
       ref={dialog}
-      className={`modal ${wide ? 'modal-wide' : ''}`}
+      className={`modal ${wide ? 'modal-wide' : ''} ${className}`}
+      aria-label={title}
       data-motion={present ? 'open' : 'closed'}
       onCancel={(event) => {
         event.preventDefault();
@@ -63,7 +68,7 @@ export function Modal({
       }}
     >
       <div className="modal-title">
-        <h2>{title}</h2>
+        {header || <h2>{title}</h2>}
         <IconButton icon={X} label="关闭" onClick={onClose} />
       </div>
       <div className="modal-body">{children}</div>

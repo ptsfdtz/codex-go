@@ -22,7 +22,7 @@ import type {
   Draft,
   Request,
 } from './workspace';
-import { emptyDraft, canManage } from './workspace';
+import { emptyDraft, canManage, chatProject } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { Composer } from './features/Composer';
 import { ApprovalCard, AsyncQuestions } from './features/Questions';
@@ -239,6 +239,11 @@ export function App() {
     }));
   }
   const supports = (key: string) => capabilities.features?.[key] === true;
+  const chat = selectedProject === chatProject;
+  const projects = (snapshot.projects || []).filter((p) => p.projectId !== chatProject);
+  const composerSupports = (key: string) =>
+    (!chat || !['composerSkills', 'projectFileBrowser', 'plan', 'goal'].includes(key)) &&
+    supports(key);
   const bridge = useRef<Bridge | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
   const refreshTimer = useRef<number | undefined>(undefined);
@@ -278,7 +283,10 @@ export function App() {
     setManageSession(undefined);
     setObservedUsage(undefined);
     if (persist && hostRef.current)
-      localStorage.setItem(`agentdeck.web.selection.${scope}.${hostRef.current.hostId}`, id || '');
+      localStorage.setItem(
+        `agentdeck.web.selection.${scope}.${hostRef.current.hostId}`,
+        id || (chat ? 'new:chat' : ''),
+      );
   }
 
   async function historyPage(
@@ -1010,7 +1018,13 @@ export function App() {
           const chosen =
             snap.sessions?.find((s) => s.sessionId === saved) ||
             (!saved ? snap.sessions?.find((s) => s.archived !== 1) : undefined);
-          setSelectedProject(chosen?.projectId || snap.projects?.[0]?.projectId || '');
+          setSelectedProject(
+            chosen?.projectId ||
+              (configuration.caps.features?.projectlessChat
+                ? chatProject
+                : snap.projects?.[0]?.projectId) ||
+              '',
+          );
           if (chosen?.sessionId !== sessionRef.current) selectSession(chosen?.sessionId);
 
           let replay: Packet[] = [];
@@ -1131,13 +1145,24 @@ export function App() {
     }
   }
 
-  async function send(kind?: 'queue' | 'steer') {
+  async function send(kind?: 'queue' | 'steer', planText?: string) {
     const connection = bridge.current;
+    const source =
+      planText === undefined
+        ? draft
+        : {
+            ...draft,
+            text: `请按照以下计划开始开发：\n\n${planText}`,
+            mode: 'default',
+            attachments: [],
+            skills: [],
+          };
     if (
       !connection ||
       !connected ||
       sending.current ||
-      (!draft.text.trim() && !draft.attachments.length && !draft.skills.length) ||
+      (!source.text.trim() && !source.attachments.length && !source.skills.length) ||
+      (planText !== undefined && !!activeTurn) ||
       busy ||
       receiptBlocked ||
       (session && !historyReady) ||
@@ -1145,7 +1170,6 @@ export function App() {
     )
       return;
     const sourceKey = draftKey,
-      source = draft,
       epoch = connectionEpoch.current;
     let targetKey = sourceKey;
     let createdSession: string | undefined;
@@ -1203,7 +1227,10 @@ export function App() {
       } else {
         const result = await connection.request<{ turn?: Turn }>('turn.start', {
           sessionId: id,
-          ...turnOptions(source, permission),
+          ...turnOptions(
+            chat ? { ...source, mode: 'default', skills: [] } : source,
+            chat ? 'workspace' : permission,
+          ),
         });
         if (epoch === connectionEpoch.current && sessionRef.current === id) {
           activityVersion.current++;
@@ -1216,8 +1243,11 @@ export function App() {
       setDrafts((items) => {
         const next = { ...items };
         for (const key of new Set([sourceKey, targetKey]))
-          if (next[key] === source)
-            next[key] = { ...source, text: '', attachments: [], skills: [] };
+          if (next[key] === draft)
+            next[key] =
+              planText === undefined
+                ? { ...source, text: '', attachments: [], skills: [] }
+                : { ...draft, mode: 'default' };
         return next;
       });
       await refresh(!session && sessionRef.current === id);
@@ -1311,7 +1341,8 @@ export function App() {
   function newChat() {
     selectSession(undefined);
     setPanel('');
-    if (!selectedProject) setSelectedProject(snapshot.projects?.[0]?.projectId || '');
+    if (!selectedProject)
+      setSelectedProject(supports('projectlessChat') ? chatProject : projects[0]?.projectId || '');
     if (matchMedia('(max-width:760px)').matches) setSidebarOpen(false);
   }
   function openFile(path: string) {
@@ -1332,6 +1363,10 @@ export function App() {
     else setError('此代理会话尚未同步或不在授权项目中');
   }
   function openPanel(name: string) {
+    if (chat && ['files', 'git', 'skills', 'goal'].includes(name)) {
+      setError('普通聊天不使用项目文件、技能或任务目标。请先切换到项目。');
+      return;
+    }
     setFilePath(undefined);
     setMenu(false);
     setWorkspaceMenu(false);
@@ -1450,7 +1485,18 @@ export function App() {
     <div className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${mask ? 'display-masked' : ''}`}>
       <Sidebar
         sessions={snapshot.sessions || []}
-        projects={snapshot.projects || []}
+        projects={projects}
+        chatAvailable={connected && supports('projectlessChat')}
+        onChat={() => {
+          setSelectedProject(chatProject);
+          selectSession(undefined);
+          if (hostRef.current)
+            localStorage.setItem(
+              `agentdeck.web.selection.${scope}.${hostRef.current.hostId}`,
+              'new:chat',
+            );
+          if (matchMedia('(max-width:760px)').matches) setSidebarOpen(false);
+        }}
         host={host ? { ...host, displayName: hostLabel || host.displayName } : undefined}
         sessionId={session}
         projectId={selectedProject}
@@ -1484,7 +1530,7 @@ export function App() {
           />
           <div className="workspace-anchor">
             <button className="workspace-title" onClick={() => setWorkspaceMenu(!workspaceMenu)}>
-              <span>{current?.title || 'AgentDeck'}</span>
+              <span>{current?.title || (chat ? '普通聊天' : 'AgentDeck')}</span>
               <ChevronDown size={16} />
             </button>
             <MotionPresence>
@@ -1502,7 +1548,7 @@ export function App() {
                     </button>
                     <p className="menu-caption">{connected ? 'Connected' : 'Disconnected'}</p>
                     <hr />
-                    {snapshot.projects?.map((p) => (
+                    {projects.map((p) => (
                       <button
                         key={p.projectId}
                         onClick={() => {
@@ -1552,13 +1598,13 @@ export function App() {
                     </button>
                     {connected && (
                       <>
-                        {supports('gitRead') && selectedProject && (
+                        {supports('gitRead') && selectedProject && !chat && (
                           <button role="menuitem" onClick={() => openPanel('git')}>
                             <FileDiff size={18} />
                             审查工作区改动
                           </button>
                         )}
-                        {supports('projectFileBrowser') && selectedProject && (
+                        {supports('projectFileBrowser') && selectedProject && !chat && (
                           <button role="menuitem" onClick={() => openPanel('files')}>
                             <FolderOpen size={18} />
                             浏览项目文件
@@ -1583,7 +1629,7 @@ export function App() {
                             待发送消息
                           </button>
                         )}
-                        {supports('sessionGoalView') && (
+                        {!chat && supports('sessionGoalView') && (
                           <button role="menuitem" onClick={() => openPanel('goal')}>
                             <Target size={18} />
                             会话目标
@@ -1738,6 +1784,36 @@ export function App() {
                       sessionId={session || ''}
                       onFile={supports('projectTextPreview') ? openFile : undefined}
                       onAgent={openAgent}
+                      onImplementPlan={
+                        type === 'plan' &&
+                        !Array.isArray(item.plan) &&
+                        text.trim() &&
+                        !activeTurn &&
+                        historyReady &&
+                        !historyFailure &&
+                        !chat &&
+                        !['failed', 'interrupted', 'declined', 'inProgress'].includes(
+                          String(item.status),
+                        ) &&
+                        !renderedHistory
+                          .slice(entryIndex + 1)
+                          .some((next) =>
+                            ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
+                              String(next.item?.type),
+                            ),
+                          )
+                          ? () => void send(undefined, text)
+                          : undefined
+                      }
+                      onRevisePlan={() => {
+                        updateDraft({ mode: 'plan' });
+                        document
+                          .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
+                          ?.focus();
+                      }}
+                      planDisabled={
+                        !connected || busy || receiptBlocked || current?.archived === 1
+                      }
                     />
                   </div>
                   {assistant &&
@@ -1850,7 +1926,10 @@ export function App() {
                   {!activeTurn && renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
                     <TurnChanges
                       entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
-                      partial={!!historyCursor}
+                      projectRoot={
+                        snapshot.projects?.find((p) => p.projectId === current?.projectId)
+                          ?.canonicalPath
+                      }
                     />
                   )}
                 </article>
@@ -1863,10 +1942,12 @@ export function App() {
                 ) : (
                   <>
                     <div className="empty-symbol">✳</div>
-                    <h1>What can we build?</h1>
+                    <h1>{chat ? '聊点什么？' : 'What can we build?'}</h1>
                     <p>
                       {connected
-                        ? '选择项目，开始一段 Codex 对话。'
+                        ? chat
+                          ? '无需选择项目，直接开始对话。'
+                          : '选择项目，开始一段 Codex 对话。'
                         : '连接你的电脑，随时继续工作。'}
                     </p>
                     {!connected && (
@@ -1890,7 +1971,7 @@ export function App() {
                 key={session}
                 request={request}
                 sessionId={session}
-                goalSupported={supports('sessionGoalView')}
+                goalSupported={!chat && supports('sessionGoalView')}
                 usageSupported={supports('sessionTokenUsage')}
                 revision={statusRevision}
                 observedUsage={observedUsage}
@@ -1901,7 +1982,8 @@ export function App() {
           }
           onChange={updateDraft}
           models={models}
-          supports={supports}
+          supports={composerSupports}
+          chat={chat}
           disabled={
             !connected ||
             !selectedProject ||
@@ -2319,7 +2401,7 @@ export function App() {
               {panel === 'projects' && connected && (
                 <ProjectsPanel
                   request={request}
-                  projects={snapshot.projects || []}
+                  projects={projects}
                   supports={supports}
                   onChanged={() => void refresh()}
                   onProject={(id) => {

@@ -152,8 +152,10 @@ export function SessionPanel({
   const action = useAction();
   const supports = (key: string) => capabilities.features?.[key] === true;
   const safe = canManage(session) && (!value || canManage(value.session));
+  const savedTitle = session.title || '';
+  const canRename = !action.busy && safe && !!title.trim() && title.trim() !== savedTitle;
   const mutate = async (name: string, payload: Record<string, unknown> = {}) => {
-    await action.run(async () => {
+    return action.run(async () => {
       const result = await request<{ session?: Session }>(name, {
         sessionId: session.sessionId,
         ...payload,
@@ -164,38 +166,48 @@ export function SessionPanel({
     });
   };
   return (
-    <div className="panel-stack">
-      <div>
-        <span className="eyebrow">Conversation</span>
-        <h3>{session.title || '未命名会话'}</h3>
-        <p className="muted">{statusLabel(value?.session.status || session.status)}</p>
-      </div>
-      <label>
-        名称
-        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
-      </label>
-      <div className="button-row">
-        <button
-          disabled={action.busy || !safe || !title.trim()}
-          onClick={() => void mutate('sessions.rename', { title: title.trim() })}
-        >
+    <div className="panel-stack session-management">
+      <form
+        className="session-name"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canRename) void mutate('sessions.rename', { title: title.trim() });
+        }}
+      >
+        <label>
+          对话名称
+          <input
+            value={title}
+            disabled={action.busy || !safe}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={200}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && title !== savedTitle) {
+                event.preventDefault();
+                event.stopPropagation();
+                setTitle(savedTitle);
+              }
+            }}
+          />
+        </label>
+        <button type="submit" disabled={!canRename}>
           保存名称
         </button>
+      </form>
+      <div className="panel-list session-actions">
         <button
           disabled={action.busy || !safe}
           onClick={() => void mutate('sessions.pin', { pinned: session.pinned !== 1 })}
         >
           <Pin size={16} />
-          {session.pinned === 1 ? '取消置顶' : '置顶'}
+          <span>{session.pinned === 1 ? '取消置顶' : '置顶'}</span>
         </button>
         {supports('sessionFork') && (
           <button disabled={action.busy || !safe} onClick={() => void mutate('sessions.fork')}>
             <GitFork size={16} />
-            分叉会话
+            <span>分叉会话</span>
           </button>
         )}
-      </div>
-      <div className="panel-list">
         {supports('sessionCompaction') && (
           <button disabled={action.busy || !safe} onClick={() => setConfirmation('compact')}>
             <Minimize2 size={17} />
@@ -209,6 +221,8 @@ export function SessionPanel({
           <Archive size={17} />
           <span>{session.archived === 1 ? '恢复会话' : '归档会话'}</span>
         </button>
+      </div>
+      <div className="session-danger">
         <button
           className="danger"
           disabled={action.busy || !safe}
@@ -231,10 +245,12 @@ export function SessionPanel({
           </p>
           <div className="button-row">
             <button
+              className={confirmation === 'delete' ? 'danger' : ''}
               disabled={action.busy}
               onClick={async () => {
+                let completed;
                 if (confirmation === 'compact') {
-                  await action.run(async () => {
+                  completed = await action.run(async () => {
                     const latest = await request<{
                       turn?: { upstreamTurnId?: string };
                       threadStatus?: string;
@@ -247,13 +263,23 @@ export function SessionPanel({
                     });
                     onChanged();
                   });
-                } else await mutate(`sessions.${confirmation}`);
-                setConfirmation('');
+                } else completed = await mutate(`sessions.${confirmation}`);
+                if (completed) setConfirmation('');
               }}
             >
-              确认
+              {action.busy
+                ? '处理中…'
+                : confirmation === 'delete'
+                  ? '永久删除'
+                  : confirmation === 'compact'
+                    ? '整理上下文'
+                    : confirmation === 'archive'
+                      ? '归档'
+                      : '恢复'}
             </button>
-            <button onClick={() => setConfirmation('')}>取消</button>
+            <button disabled={action.busy} onClick={() => setConfirmation('')}>
+              取消
+            </button>
           </div>
         </div>
       )}

@@ -53,6 +53,10 @@ try {
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: '打开会话列表', exact: true }).click();
+  assert.equal(await page.locator('.project-list select').count(), 0);
+  await page.locator('.project-list').getByRole('button', { name: '项目二', exact: true }).click();
+  await page.getByRole('button', { name: '其他项目会话', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '渲染验收', exact: true }).count(), 0);
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page.getByText('添加到主屏幕', { exact: true }).click();
   await page.getByText(/iPhone \/ iPad/).waitFor();

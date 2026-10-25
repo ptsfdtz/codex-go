@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { CheckCircle, MessageCircle, ChevronLeft, ChevronRight } from 'lucide-react';
-import { IconButton } from '../ui';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { CheckCircle, MessageCircle, ChevronLeft } from 'lucide-react';
 import type { Approval, Request } from '../workspace';
 import type { HistoryEntry } from '../history';
 import { messageQuestions, confirmedAnswers, replyText, type Question } from './question-replies';
@@ -10,41 +9,49 @@ function QuestionFields({
   answers,
   setAnswers,
   disabled,
+  onSubmit,
+  canSubmit = true,
+  secondary,
 }: {
   questions: Question[];
   answers: Record<string, string>;
   setAnswers: (value: Record<string, string>) => void;
   disabled: boolean;
+  onSubmit: () => void;
+  canSubmit?: boolean;
+  secondary?: ReactNode;
 }) {
   const [index, setIndex] = useState(0),
     [query, setQuery] = useState('');
-  const q = questions[Math.min(index, questions.length - 1)];
+  const currentIndex = Math.min(index, questions.length - 1);
+  const q = questions[currentIndex];
+  const fields = useRef<HTMLDivElement>(null);
+  const focusNext = useRef(false);
+  useEffect(() => {
+    if (!focusNext.current) return;
+    focusNext.current = false;
+    fields.current
+      ?.querySelector<HTMLElement>('.question-options button, .question-answer')
+      ?.focus();
+  }, [q?.id]);
+  function navigate(next: number) {
+    if (disabled || next < 0 || next >= questions.length) return;
+    focusNext.current = true;
+    setIndex(next);
+    setQuery('');
+  }
+  function advance() {
+    if (q && answers[q.id]?.trim()) navigate(currentIndex + 1);
+  }
   if (!q) return null;
+  const last = currentIndex >= questions.length - 1;
   return (
-    <div className="question-fields">
+    <div className="question-fields" ref={fields}>
       {questions.length > 1 && (
-        <div className="question-pager">
+        <div className="question-pager" aria-live="polite">
           <span>
-            {index + 1} / {questions.length}
+            {currentIndex + 1} / {questions.length}
           </span>
-          <IconButton
-            icon={ChevronLeft}
-            label="上一题"
-            disabled={index === 0}
-            onClick={() => {
-              setIndex(index - 1);
-              setQuery('');
-            }}
-          />
-          <IconButton
-            icon={ChevronRight}
-            label="下一题"
-            disabled={index >= questions.length - 1}
-            onClick={() => {
-              setIndex(index + 1);
-              setQuery('');
-            }}
-          />
         </div>
       )}
       {q.header && <small>{q.header}</small>}
@@ -60,7 +67,10 @@ function QuestionFields({
               key={i}
               className={answers[q.id] === o.label ? 'selected' : ''}
               disabled={disabled}
-              onClick={() => setAnswers({ ...answers, [q.id]: o.label })}
+              onClick={() => {
+                setAnswers({ ...answers, [q.id]: o.label });
+                navigate(currentIndex + 1);
+              }}
             >
               <span className="radio-marker">{answers[q.id] === o.label ? '●' : '○'}</span>
               <span>
@@ -73,15 +83,48 @@ function QuestionFields({
       <label>
         {q.secret ? '敏感回答' : q.options.length ? '其他回答' : '你的回答'}
         <input
+          className="question-answer"
           type={q.secret ? 'password' : 'text'}
           autoComplete="off"
           value={answers[q.id] || ''}
           maxLength={16000}
           disabled={disabled}
           onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              advance();
+            }
+          }}
         />
       </label>
       {q.secret && <small>敏感回答仅保留在内存中。</small>}
+      <div className="question-actions">
+        {secondary && <div className="question-secondary">{secondary}</div>}
+        {questions.length > 1 && (
+          <button
+            disabled={disabled || currentIndex === 0}
+            onClick={() => navigate(currentIndex - 1)}
+          >
+            <ChevronLeft size={15} />
+            上一个
+          </button>
+        )}
+        {last ? (
+          <button
+            disabled={
+              disabled || !canSubmit || questions.some((question) => !answers[question.id]?.trim())
+            }
+            onClick={onSubmit}
+          >
+            提交回答
+          </button>
+        ) : (
+          <button disabled={disabled || !answers[q.id]?.trim()} onClick={advance}>
+            下一个
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -140,7 +183,12 @@ export function ApprovalCard({
     phase !== 'editing' ||
     !!(approval.status && approval.status !== 'pending');
   async function decide(decision: string) {
-    if (locked || pending.current) return;
+    if (
+      locked ||
+      pending.current ||
+      (decision === 'approve' && questions.some((q) => !answers[q.id]?.trim()))
+    )
+      return;
     pending.current = true;
     setBusy(true);
     setError('');
@@ -174,7 +222,17 @@ export function ApprovalCard({
         {phase === 'editing' && (
           <>
             {questions.length ? (
-              <QuestionFields {...{ questions, answers, setAnswers }} disabled={locked} />
+              <QuestionFields
+                {...{ questions, answers, setAnswers }}
+                disabled={locked}
+                onSubmit={() => void decide('approve')}
+                canSubmit={(approval.allowedDecisions || ['approve']).includes('approve')}
+                secondary={
+                  <button disabled={locked} onClick={() => void decide('cancel')}>
+                    跳过
+                  </button>
+                }
+              />
             ) : (
               <>
                 <p>{approval.method}</p>
@@ -196,7 +254,7 @@ export function ApprovalCard({
           </div>
         )}
       </div>
-      {phase === 'editing' && (
+      {phase === 'editing' && !questions.length && (
         <div className="button-row">
           <button
             disabled={locked}
@@ -288,7 +346,7 @@ export function AsyncQuestions({
       phase === 'unknown' && pendingIds.length > 0 && pendingIds.every((id) => confirmed.has(id)),
     locked = disabled || busy || (!allSent && phase !== 'editing' && !reconciled);
   async function submit() {
-    if (locked || pending.current) return;
+    if (locked || pending.current || remaining.some((q) => !answers[q.id]?.trim())) return;
     const provided = Object.fromEntries(
       Object.entries(answers).filter(([id, value]) => !done.has(id) && value.trim()),
     );
@@ -368,25 +426,24 @@ export function AsyncQuestions({
               ? '发送中…'
               : phase === 'unknown' && !reconciled
                 ? '等待确认'
-                : `${done.size} / ${questions.length}`}
+                : `${done.size + remaining.filter((q) => answers[q.id]?.trim()).length} / ${questions.length}`}
         </small>
       </div>
       {!allSent && (
         <>
-          <QuestionFields questions={remaining} {...{ answers, setAnswers }} disabled={locked} />
-          <div className="button-row">
-            <button
-              disabled={locked || !remaining.some((q) => answers[q.id]?.trim())}
-              onClick={() => void submit()}
-            >
-              提交回答
-            </button>
-            {phase !== 'editing' && (
-              <button disabled={disabled} onClick={onRefresh}>
-                核对会话
-              </button>
-            )}
-          </div>
+          <QuestionFields
+            questions={remaining}
+            {...{ answers, setAnswers }}
+            disabled={locked}
+            onSubmit={() => void submit()}
+            secondary={
+              phase !== 'editing' && (
+                <button disabled={disabled} onClick={onRefresh}>
+                  核对会话
+                </button>
+              )
+            }
+          />
         </>
       )}
       {error && <p className="error">{error}</p>}

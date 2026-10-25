@@ -131,7 +131,8 @@ try {
   await page.getByRole('button', { name: '重试读取' }).click();
   await page.locator('.rich-content h1').waitFor();
   assert.equal(await page.getByRole('alert').count(), 0);
-  await page.getByLabel('项目', { exact: true }).selectOption('p2');
+  assert.equal(await page.locator('.project-list select').count(), 0);
+  await page.locator('.project-list').getByRole('button', { name: '项目二', exact: true }).click();
   assert.equal(await page.locator('.turn').count(), 0);
   await page.getByRole('button', { name: '其他项目会话', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: '渲染验收', exact: true }).count(), 0);

@@ -123,6 +123,35 @@ try {
   await page.getByRole('button', { name: '打开会话列表', exact: true }).click();
   await settle();
   // Streaming a new item may fade it once; its subsequent deltas must not restart it.
+  for (const width of [900, 1200, 1600]) {
+    await page.setViewportSize({ width, height: 820 });
+    await settle();
+    assert.ok(
+      await page.evaluate(() => {
+        const rail = document.querySelector('.sidebar').getBoundingClientRect();
+        const conversation = document.querySelector('.conversation').getBoundingClientRect();
+        return Math.abs(rail.right - conversation.left) < 1;
+      }),
+      'conversation starts after the sidebar at every desktop breakpoint',
+    );
+    await page.locator('.workspace-title').click();
+    await settle();
+    assert.ok(
+      await page.locator('.workspace-menu').evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return (
+          box.left >= document.querySelector('.sidebar').getBoundingClientRect().right &&
+          node.contains(document.elementFromPoint(box.left + 12, box.top + 12))
+        );
+      }),
+      'workspace dropdown remains visible and clickable beside the sidebar',
+    );
+    await page.screenshot({ path: resolve(directory, `sidebar-menu-${width}.png`) });
+    await page.getByRole('button', { name: '关闭项目菜单', exact: true }).click();
+    await settle();
+  }
+  await page.setViewportSize({ width: 1200, height: 820 });
+  await settle();
   state.running = true;
   const stream = async (method, fields) => {
     const detail = {

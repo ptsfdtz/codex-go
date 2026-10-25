@@ -6,6 +6,7 @@ import {
   Folder,
   Menu,
   MessageSquarePlus,
+  MessageCircle,
   MoreHorizontal,
   Pin,
   RefreshCw,
@@ -25,6 +26,8 @@ export function Sidebar({
   open,
   onClose,
   onNew,
+  chatAvailable,
+  onChat,
   onSelect,
   onProject,
   onRefresh,
@@ -43,6 +46,8 @@ export function Sidebar({
   open: boolean;
   onClose: () => void;
   onNew: () => void;
+  chatAvailable: boolean;
+  onChat: () => void;
   onSelect: (session: Session) => void;
   onProject: (id: string) => void;
   onRefresh: () => void;
@@ -93,6 +98,13 @@ export function Sidebar({
             <MessageSquarePlus size={19} />
             新对话
           </button>
+          <IconButton
+            icon={MessageCircle}
+            label="普通聊天"
+            className={`chat-entry ${projectId === 'agentdeck-chat' ? 'active' : ''}`}
+            onClick={onChat}
+            disabled={!chatAvailable}
+          />
           <IconButton icon={Search} label="搜索会话" onClick={onSearch} />
         </div>
         <div className="sidebar-scroll">
@@ -107,18 +119,6 @@ export function Sidebar({
           </button>
           <Collapse open={expanded}>
             <div className="project-list">
-              <select
-                aria-label="项目"
-                value={projectId}
-                onChange={(e) => onProject(e.target.value)}
-              >
-                <option value="">全部项目</option>
-                {projects.map((p) => (
-                  <option value={p.projectId} key={p.projectId}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
               {projects.map((p) => (
                 <button
                   className={p.projectId === projectId ? 'active' : ''}

@@ -162,12 +162,18 @@ export function RichContent({
   sessionId,
   onFile,
   onAgent,
+  onImplementPlan,
+  onRevisePlan,
+  planDisabled,
 }: {
   entry: HistoryEntry;
   connection?: Bridge;
   sessionId: string;
   onFile?: (path: string) => void;
   onAgent?: (id: string) => void;
+  onImplementPlan?: () => void;
+  onRevisePlan?: () => void;
+  planDisabled?: boolean;
 }) {
   const item = entry.item || {};
   const parts = Array.isArray(item.content) ? (item.content as Record<string, unknown>[]) : [];
@@ -204,11 +210,11 @@ export function RichContent({
         <div className="plan-content">
           <div className="plan-heading">
             <ListChecks size={17} />
-            Plan
+            计划
           </div>
           <Markdown text={body} onFile={onFile} />
           {Array.isArray(item.plan) && (
-            <ul>
+            <ul className="plan-steps">
               {(item.plan as { step?: string; status?: string }[]).map((step, index) => (
                 <li key={index}>
                   {step.status === 'completed' ? '✓ ' : '○ '}
@@ -216,6 +222,19 @@ export function RichContent({
                 </li>
               ))}
             </ul>
+          )}
+          {onImplementPlan && (
+            <div className="plan-confirmation">
+              <p>是否按照此计划开发？</p>
+              <div className="button-row">
+                <button disabled={planDisabled} onClick={onImplementPlan}>
+                  按照计划开发
+                </button>
+                <button disabled={planDisabled} onClick={onRevisePlan}>
+                  继续调整计划
+                </button>
+              </div>
+            </div>
           )}
         </div>
       ) : (
