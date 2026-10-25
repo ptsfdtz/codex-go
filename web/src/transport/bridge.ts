@@ -29,21 +29,44 @@ export class Bridge {
   private receiptsFound: Packet[] = [];
   private mutations = new Set<string>();
   get awaitingReceipt() {
-    return this.receipts().length > 0;
+    try {
+      return this.receipts().length > 0;
+    } catch {
+      return true;
+    }
   }
   constructor(private readonly scope: string) {}
   private readonly mutationActions = new Set([
     'sessions.create',
     'turn.start',
+    'turn.steer',
+    'turn.interruptActive',
     'turn.interrupt',
     'approvals.decide',
     'sessions.rename',
+    'sessions.pin',
+    'sessions.fork',
+    'sessions.compact',
+    'sessions.revert',
+    'sessions.revise',
     'sessions.archive',
     'sessions.restore',
     'sessions.delete',
     'sessions.goal.resume',
     'sessions.goal.clear',
     'sessions.goal.edit',
+    'queue.add',
+    'queue.update',
+    'queue.start',
+    'queue.delete',
+    'queue.reorder',
+    'skills.setEnabled',
+    'settings.modelDefaults',
+    'settings.outputDefaults',
+    'settings.update',
+    'projects.add',
+    'projects.remove',
+    'devices.revokeSelf',
   ]);
   async connect(grant: HostGrant) {
     this.hostId = grant.hostId;

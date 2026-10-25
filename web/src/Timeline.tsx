@@ -67,7 +67,11 @@ export class Timeline extends Component<
         className="timeline"
         ref={this.element}
         onScroll={() => {
-          this.position = this.readPosition();
+          // A delayed event from our own scroll restoration can arrive after
+          // content has resized. Keep the saved anchor until ResizeObserver
+          // compensates; only a changed offset represents a new position.
+          if (this.element.current?.scrollTop !== this.position?.scrollTop)
+            this.position = this.readPosition();
         }}
         onWheel={(event) => {
           const node = this.element.current;

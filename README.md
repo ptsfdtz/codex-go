@@ -25,6 +25,8 @@
 
 未通过/未验证：本轮真实模型图文请求超时，最终原生状态为失败，上游请求地址返回 HTTP 502；不能据连接验收宣称模型图文闭环通过。Linux 前轮已验证带认证 app-server、真实模型/图文、追问、拒绝/中断、回执、systemd 启停及持久化，但 alpha 的命令工具仍因隔离内无法执行私有 `CODEX_HOME/tmp/arg0-linux/` 辅助入口而返回 `ENOENT`，未放宽隔离。额外云端全套 11 项中 8 项通过，浏览器/数据库恢复用例缺少该验收机的 Node、PostgreSQL 客户端，400 隧道负载用例连接失败；本次同域和账号定向回归单独通过。下一步复验上游模型、Linux 命令工具、Android 真机、真实持续大历史及长期休眠/跨网络。
 
+Web 界面恢复（2026-10-25）：开发服务切回主目录后使用了旧界面，之前的新界面仅保留在独立 worktree；现已合回侧栏、输入框、明暗主题、富内容和命令简化显示，保留同账号自动授权、每次重连重新领取凭据及 LAN/公网连接。修复历史内容高度变化时延迟滚动事件覆盖阅读锚点的问题。49 项 Web 单测、生产构建、ESLint 及受控浏览器的对话渲染、工作区交互、跨标签恢复与阅读锚点回归通过；当前本地页面样式正常，未登录，未复验真实模型或重新部署。下一步登录后核对真实会话展示。
+
 ## 桌面与移动端近期验证
 
 - Logo（2026-10-23）：采用纯黑白三重交织标记，表达三端共享同一会话；SVG、透明 PNG 与预览位于 `assets/branding/`，已用于桌面标题栏、窗口/托盘图标、favicon 和 Android 自适应/主题图标及单色通知图标。桌面前端构建、Android 资源编译及跨端路径一致性检查通过；安装后系统图标、通知栏和主题图标实机展示待验证，下一步核对系统裁切与小尺寸显示。
@@ -165,6 +167,8 @@ pnpm --filter @agentdeck/web check
 pnpm --filter @agentdeck/web test
 node web/tests/browser-transport.mjs
 node web/tests/browser-recovery.mjs
+node web/tests/browser-conversation.mjs
+node web/tests/browser-workspace.mjs
 pnpm --filter @agentdeck/web build
 ```
 

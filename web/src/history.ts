@@ -1,4 +1,9 @@
-export type HistoryEntry = { turnId?: string; item?: { id?: string; [key: string]: unknown } };
+export type HistoryEntry = {
+  turnId?: string;
+  item?: { id?: string; [key: string]: unknown };
+  startedAtMs?: number;
+  completedAtMs?: number;
+};
 export type HistoryPage = {
   data?: HistoryEntry[];
   nextCursor?: string;
