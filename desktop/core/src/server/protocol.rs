@@ -1,4 +1,4 @@
-//! Android protocol v1. This is intentionally separate from Codex JSON-RPC.
+//! Client connection protocol v1. This is intentionally separate from Codex JSON-RPC.
 use crate::{ensure, Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

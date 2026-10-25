@@ -166,7 +166,6 @@ const report = {
   accountCredentialsUsed: false,
   modelTurnExecuted: false,
   visualAcceptance: false,
-  androidVerified: false,
   mainAppBootstrapVerified: false,
   desktopPluginStartup: { requested: desktopPluginStartup, hostIntegrationVerified: false },
   historyVerificationRequested: sharedHistory,

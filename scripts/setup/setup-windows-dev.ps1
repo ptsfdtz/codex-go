@@ -79,79 +79,6 @@ Add-UserPath (Join-Path $env:USERPROFILE ".cargo\bin")
 & $rustupPath toolchain install stable-x86_64-pc-windows-msvc --profile minimal --component clippy --component rustfmt
 if ($LASTEXITCODE -ne 0) { throw "Rust MSVC toolchain installation failed." }
 
-$jdkRoot = Join-Path $toolRoot "jdk-21"
-$java = Get-ChildItem $jdkRoot -Filter "java.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $java) {
-    $temporaryRoot = Join-Path $env:TEMP ([guid]::NewGuid().ToString("N"))
-    New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
-    try {
-        winget download --id EclipseAdoptium.Temurin.21.JDK --exact --architecture x64 --accept-source-agreements --accept-package-agreements --disable-interactivity --download-directory $temporaryRoot --skip-dependencies
-        if ($LASTEXITCODE -ne 0) { throw "winget could not download the Temurin JDK 21 installer." }
-        $jdkInstaller = Get-ChildItem $temporaryRoot -Filter "*.msi" -Recurse | Select-Object -First 1
-        if (-not $jdkInstaller) { throw "The downloaded Temurin package did not contain an MSI installer." }
-        & "$env:SystemRoot\System32\msiexec.exe" /a $jdkInstaller.FullName /qn "TARGETDIR=$jdkRoot"
-        if ($LASTEXITCODE -ne 0) { throw "The JDK installer could not be extracted under the current user's profile." }
-    } finally {
-        Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-$java = Get-ChildItem $jdkRoot -Filter "java.exe" -Recurse | Select-Object -First 1
-if (-not $java) { throw "The extracted Temurin package does not contain java.exe." }
-$javaHome = Split-Path -Parent (Split-Path -Parent $java.FullName)
-$javaVersion = (& $java.FullName -version 2>&1 | Out-String)
-if ($javaVersion -notmatch 'version "21\.') { throw "The extracted Java runtime is not JDK 21." }
-$env:JAVA_HOME = $javaHome
-[Environment]::SetEnvironmentVariable("JAVA_HOME", $javaHome, "User")
-Add-UserPath (Join-Path $javaHome "bin")
-
-$sdkRoot = if ($env:ANDROID_HOME) {
-    $env:ANDROID_HOME
-} elseif ($env:ANDROID_SDK_ROOT) {
-    $env:ANDROID_SDK_ROOT
-} else {
-    Join-Path $env:LOCALAPPDATA "Android\Sdk"
-}
-$sdkManager = Join-Path $sdkRoot "cmdline-tools\latest\bin\sdkmanager.bat"
-if (-not (Test-Path $sdkManager)) {
-    $toolsRoot = Join-Path $sdkRoot "cmdline-tools"
-    $latestTools = Join-Path $toolsRoot "latest"
-    if (Test-Path $latestTools) {
-        throw "Android command-line tools are incomplete at $latestTools; repair that directory, then rerun setup."
-    }
-
-    $temporaryRoot = Join-Path $env:TEMP ([guid]::NewGuid().ToString("N"))
-    $archivePath = Join-Path $temporaryRoot "android-command-line-tools.zip"
-    $extractRoot = Join-Path $temporaryRoot "extract"
-    New-Item -ItemType Directory -Path $temporaryRoot, $extractRoot -Force | Out-Null
-    try {
-        $repository = [xml](Invoke-WebRequest "https://dl.google.com/android/repository/repository2-1.xml").Content
-        $package = $repository.GetElementsByTagName("remotePackage") |
-            Where-Object { $_.GetAttribute("path") -eq "cmdline-tools;latest" } |
-            Select-Object -First 1
-        if (-not $package) { throw "Google did not list Android command-line tools." }
-        $archive = $package.GetElementsByTagName("archive") |
-            Where-Object {
-                ($_.GetElementsByTagName("host-os") | Select-Object -First 1).InnerText -eq "windows"
-            } |
-            Select-Object -First 1
-        $archiveName = ($archive.GetElementsByTagName("url") | Select-Object -First 1).InnerText
-        if (-not $archiveName) { throw "Google did not list a Windows command-line tools archive." }
-
-        Download-File "https://dl.google.com/android/repository/$archiveName" $archivePath
-        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractRoot
-        New-Item -ItemType Directory -Path $toolsRoot -Force | Out-Null
-        Move-Item -LiteralPath (Join-Path $extractRoot "cmdline-tools") -Destination $latestTools
-    } finally {
-        Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
-$env:ANDROID_HOME = $sdkRoot
-$env:ANDROID_SDK_ROOT = $sdkRoot
-[Environment]::SetEnvironmentVariable("ANDROID_HOME", $sdkRoot, "User")
-[Environment]::SetEnvironmentVariable("ANDROID_SDK_ROOT", $sdkRoot, "User")
-Add-UserPath (Join-Path $sdkRoot "platform-tools")
-
 $documentsPath = [Environment]::GetFolderPath("MyDocuments")
 $profilePaths = @(
     $PROFILE.CurrentUserAllHosts,
@@ -178,10 +105,6 @@ $profileBlock = @(
     '}',
     'Set-FnmOnLoad',
     '$env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"',
-    ('$env:JAVA_HOME = "' + $javaHome + '"'),
-    '$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"',
-    '$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME',
-    '$env:PATH = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;$env:PATH"',
     'function global:pnpm { & "$env:APPDATA\npm\pnpm.cmd" @args }',
     "# End AgentDeck development environment"
 ) -join [Environment]::NewLine
@@ -207,44 +130,6 @@ foreach ($profilePath in $profilePaths) {
     [IO.File]::WriteAllText($profilePath, $profileContents, [Text.UTF8Encoding]::new($false))
 }
 
-$androidCli = Join-Path $sdkRoot "cmdline-tools\latest\bin\android.exe"
-if (-not (Test-Path $androidCli)) {
-    & $sdkManager "--sdk_root=$sdkRoot" --list
-    if ($LASTEXITCODE -ne 0) { throw "Android CLI bootstrap failed." }
-}
-& $androidCli "--sdk=$sdkRoot" sdk install "platform-tools" "platforms/android-36" "build-tools/36.0.0"
-if ($LASTEXITCODE -ne 0) { throw "Android SDK 36 package installation failed." }
-foreach ($requiredFile in @(
-    (Join-Path $sdkRoot "platform-tools\adb.exe"),
-    (Join-Path $sdkRoot "platforms\android-36\android.jar"),
-    (Join-Path $sdkRoot "build-tools\36.0.0\aapt2.exe")
-)) {
-    if (-not (Test-Path $requiredFile)) { throw "Android SDK package file is missing: $requiredFile" }
-}
-
-$localProperties = Join-Path $repositoryRoot "android\local.properties"
-$sdkPropertyPath = $sdkRoot.Replace("\", "/")
-$escapedSdkPath = New-Object System.Text.StringBuilder
-foreach ($character in $sdkPropertyPath.ToCharArray()) {
-    if ([int]$character -gt 127) {
-        [void]$escapedSdkPath.Append(("\u{0:X4}" -f [int]$character))
-    } else {
-        [void]$escapedSdkPath.Append($character)
-    }
-}
-$localContents = if (Test-Path $localProperties) { Get-Content -LiteralPath $localProperties -Raw } else { "" }
-$sdkLine = "sdk.dir=$escapedSdkPath"
-$propertyMatch = [regex]::Match($localContents, '(?m)^[ \t]*sdk\.dir[ \t]*=.*$')
-if ($propertyMatch.Success) {
-    $localContents = $localContents.Substring(0, $propertyMatch.Index) + $sdkLine + $localContents.Substring($propertyMatch.Index + $propertyMatch.Length)
-} else {
-    if ($localContents -and -not $localContents.EndsWith([Environment]::NewLine)) {
-        $localContents += [Environment]::NewLine
-    }
-    $localContents += $sdkLine + [Environment]::NewLine
-}
-[IO.File]::WriteAllText($localProperties, $localContents, [Text.UTF8Encoding]::new($false))
-
 # Keep the pnpm shim independent of fnm's version-specific Corepack directory.
 $npm = Get-Command npm.cmd -ErrorAction Stop
 $packageManager = (Get-Content (Join-Path $repositoryRoot "package.json") -Raw | ConvertFrom-Json).packageManager
@@ -257,4 +142,4 @@ $pnpmCommand = Join-Path $pnpmShimDirectory "pnpm.cmd"
 & $pnpmCommand install --frozen-lockfile
 if ($LASTEXITCODE -ne 0) { throw "pnpm dependency installation failed." }
 
-Write-Host "Development environment is ready: Node 22.22.3, pnpm 12.3.4, Rust MSVC, JDK 21 and Android SDK 36."
+Write-Host "Development environment is ready: Node 22.22.3, pnpm 12.3.4, Rust MSVC."

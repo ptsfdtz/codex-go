@@ -1,4 +1,4 @@
-//! Bounded Android attachments, stored only inside an explicitly granted project.
+//! Bounded client attachments, stored only inside an explicitly granted project.
 use crate::{ensure, protocol, uid, Error, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};

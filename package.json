@@ -9,7 +9,6 @@
   },
   "scripts": {
     "web:dev": "pnpm --filter @agentdeck/web dev",
-    "android:dev": "node scripts/android/dev-android.mjs",
     "native:check": "node scripts/checks/verify-native-runtime.mjs",
     "build": "pnpm host:build",
     "check": "pnpm -r check && eslint .",

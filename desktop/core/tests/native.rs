@@ -1150,7 +1150,7 @@ fn request(action: &str, payload: Value, id: &str) -> protocol::Request {
         .unwrap()
 }
 #[test]
-fn strict_android_protocol() {
+fn strict_client_protocol() {
     for (action, payload) in [
         (
             "sessions.history",

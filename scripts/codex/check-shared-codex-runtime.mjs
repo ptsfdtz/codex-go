@@ -312,12 +312,8 @@ const report = {
   desktopClientVerified: false,
   transport: unixProxy ? 'native-unix-listener-and-native-stdio-proxy' : 'authenticated-websocket',
   unverified: unixProxy
-    ? [
-        'original-desktop-cli-override-and-startup-arguments',
-        'socket-acl-and-production-lifecycle',
-        'android',
-      ]
-    : ['original-desktop', 'android'],
+    ? ['original-desktop-cli-override-and-startup-arguments', 'socket-acl-and-production-lifecycle']
+    : ['original-desktop'],
   checks: {},
 };
 try {

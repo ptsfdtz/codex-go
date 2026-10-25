@@ -2,7 +2,6 @@
 **/node_modules
 **/target
 **/build
-**/.gradle
 .tmp
 artifacts
 .env

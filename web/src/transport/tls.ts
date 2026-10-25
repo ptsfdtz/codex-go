@@ -30,8 +30,8 @@ export async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   );
 }
 
-// The invitation pins the host's self-signed certificate, exactly as Android
-// does. The TLS implementation still verifies CertificateVerify and Finished.
+// The invitation pins the host's self-signed certificate. The TLS implementation
+// still verifies CertificateVerify and Finished.
 // No application bytes or pairing credentials leave before pin verification.
 export async function connectPinnedTls(
   transport: BinaryTransport,

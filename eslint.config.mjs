@@ -8,7 +8,6 @@ export default tseslint.config(
       '**/artifacts/**',
       '**/target/**',
       'packages/codex-protocol/**',
-      'android/**',
       '.tmp/**',
     ],
   },
