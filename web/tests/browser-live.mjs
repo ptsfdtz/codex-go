@@ -94,7 +94,7 @@ try {
       null,
       { timeout: 180000 },
     );
-    await page.getByRole('button', { name: '读取历史图片', exact: true }).first().click();
+    await page.locator('.rich-content summary').filter({ hasText: /^图片$/ }).first().click();
     await page.locator('.saved-image img').first().waitFor({ timeout: 30000 });
     report.realModel = true;
     report.imageHistory = true;

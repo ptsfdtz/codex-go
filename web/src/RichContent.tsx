@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { HistoryEntry } from './history';
@@ -63,8 +63,8 @@ function SavedImage({
 }) {
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [requested, setRequested] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [requested, setRequested] = useState(1);
   useEffect(() => {
     let active = true,
       objectUrl = '';
@@ -102,17 +102,35 @@ function SavedImage({
         <a href={url} target="_blank" rel="noreferrer">
           <img src={url} alt="会话历史图片" />
         </a>
-      ) : (
+      ) : error ? (
         <button
           className="ghost"
           disabled={!connection || loading}
           onClick={() => setRequested((value) => value + 1)}
         >
-          {loading ? '读取图片中…' : '读取历史图片'}
+          重试读取图片
         </button>
+      ) : (
+        <p className="muted" role="status">
+          {connection ? '读取图片中…' : '连接电脑后读取图片'}
+        </p>
       )}
       {error && <p className="error">{error}。历史图片不可用时请勿以当前文件替代。</p>}
     </div>
+  );
+}
+
+function ImageDisclosure({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="tool-record" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>
+        <Image size={16} />
+        <span>图片</span>
+        <ChevronRight size={14} />
+      </summary>
+      {open && <div className="tool-body">{children}</div>}
+    </details>
   );
 }
 
@@ -186,10 +204,31 @@ export function RichContent({
     ) && !['user', 'assistant'].includes(String(item.role));
   const body = contentText(item);
   const answers = item.type === 'userMessage' ? questionAnswers(body) : undefined;
+  const imageContent = images.length ? (
+    images.map(({ part, index }) =>
+      part.type === 'localImage' ? (
+        <SavedImage
+          key={index}
+          connection={connection}
+          sessionId={sessionId}
+          entry={entry}
+          index={index}
+        />
+      ) : (
+        <p className="muted" key={index}>
+          历史远程图片暂不可读取
+        </p>
+      ),
+    )
+  ) : ['imageView', 'imageGeneration'].includes(String(item.type)) ? (
+    <SavedImage connection={connection} sessionId={sessionId} entry={entry} index={0} />
+  ) : null;
   return (
     <div className="rich-content">
       {tool ? (
-        <ToolContent item={item} body={body} onFile={onFile} onAgent={onAgent} />
+        <ToolContent item={item} body={body} onFile={onFile} onAgent={onAgent}>
+          {imageContent}
+        </ToolContent>
       ) : answers ? (
         answers.map((answer, index) => (
           <blockquote key={index}>
@@ -240,24 +279,7 @@ export function RichContent({
       ) : (
         <Markdown text={body} onFile={onFile} />
       )}
-      {images.map(({ part, index }) =>
-        part.type === 'localImage' ? (
-          <SavedImage
-            key={index}
-            connection={connection}
-            sessionId={sessionId}
-            entry={entry}
-            index={index}
-          />
-        ) : (
-          <p className="muted" key={index}>
-            历史远程图片暂不可读取
-          </p>
-        ),
-      )}
-      {['imageView', 'imageGeneration'].includes(String(item.type)) && (
-        <SavedImage connection={connection} sessionId={sessionId} entry={entry} index={0} />
-      )}
+      {!tool && imageContent && <ImageDisclosure>{imageContent}</ImageDisclosure>}
     </div>
   );
 }
@@ -267,13 +289,16 @@ function ToolContent({
   body,
   onFile,
   onAgent,
+  children,
 }: {
   item: Record<string, unknown>;
   body: string;
   onFile?: (s: string) => void;
   onAgent?: (s: string) => void;
+  children?: ReactNode;
 }) {
   const [full, setFull] = useState(false);
+  const [open, setOpen] = useState(false);
   const type = String(item.type || '');
   const rawCommand = String(item.command || '');
   const command = type === 'commandExecution' ? displayCommand(rawCommand) : '';
@@ -316,7 +341,12 @@ function ToolContent({
     : [];
   const text = type === 'commandExecution' ? body : body || JSON.stringify(item, null, 2);
   return (
-    <details className="tool-record">
+    <details
+      className="tool-record"
+      onToggle={(event) => {
+        if (event.target === event.currentTarget) setOpen(event.currentTarget.open);
+      }}
+    >
       <summary>
         <Icon size={16} />
         <span>
@@ -327,6 +357,7 @@ function ToolContent({
         <ChevronRight size={14} />
       </summary>
       <div className="tool-body">
+        {open && children}
         {type === 'commandExecution' && (
           <>
             <pre className="command">{command}</pre>
