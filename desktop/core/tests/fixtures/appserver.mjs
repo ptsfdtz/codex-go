@@ -356,6 +356,15 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       const result = clone(samples.threadStart);
       result.thread.id = p.threadId;
       result.thread.cwd = threads.get(p.threadId)?.root ?? result.thread.cwd;
+      const goalState = threads.get(p.threadId)?.name;
+      if (goalState?.startsWith('GOAL_UNLOADED')) result.thread.status = { type: 'notLoaded' };
+      if (goalState === 'GOAL_ACTIVE') result.thread.status = { type: 'active', activeFlags: [] };
+      if (goalState === 'GOAL_SYSTEM_ERROR') result.thread.status = { type: 'systemError' };
+      if (goalState === 'GOAL_ACTIVITY_RACE') {
+        const current = threads.get(p.threadId);
+        current.reads = (current.reads ?? 0) + 1;
+        if (current.reads >= 4) result.thread.status = { type: 'active', activeFlags: [] };
+      }
       if (threads.get(p.threadId)?.name === 'INDEX_DUPLICATE')
         result.thread.name = 'authoritative title';
       result.thread.turns = [];

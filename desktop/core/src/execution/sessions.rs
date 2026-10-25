@@ -117,7 +117,9 @@ impl Core {
         )?;
         let latest = self.latest_upstream_turn(id).await?;
         ensure(
-            latest["threadStatus"] == "idle" && latest["turn"]["status"] != "inProgress",
+            ["idle", "notLoaded"].contains(&s(&latest, "threadStatus"))
+                && (latest["turn"].is_null()
+                    || crate::tasks::terminal(s(&latest["turn"], "status"))),
             "CONFLICT",
             "Stop or reconcile upstream activity before editing goal",
         )?;
@@ -127,6 +129,14 @@ impl Core {
                 && self.upstream()?.generation == rpc.generation,
             "SYNC_CONFLICT",
             "Goal or runtime changed before edit",
+        )?;
+        // A persisted, unloaded thread can have a paused/finished goal. Native
+        // goal edits work without resuming it (which could acquire a writer).
+        // Recheck activity as well as the goal revision before changing it.
+        ensure(
+            self.latest_upstream_turn(id).await? == latest,
+            "SYNC_CONFLICT",
+            "Source activity changed before editing goal",
         )?;
         let mut params = json!({"threadId":session["upstreamThreadId"]});
         if !clear {

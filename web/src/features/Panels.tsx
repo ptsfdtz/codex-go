@@ -22,13 +22,24 @@ import { canManage, output, statusLabel } from '../workspace';
 import { contentText } from '../RichContent';
 import { DiffText } from './DiffText';
 
-function useRead<T>(request: Request, action: string, payload: Record<string, unknown>) {
+function useRead<T>(
+  request: Request,
+  action: string,
+  payload: Record<string, unknown>,
+  enabled = true,
+) {
   const [value, setValue] = useState<T>(),
     [error, setError] = useState(''),
     [revision, setRevision] = useState(0),
     [loading, setLoading] = useState(false);
   const key = JSON.stringify(payload);
   useEffect(() => {
+    if (!enabled) {
+      setValue(undefined);
+      setLoading(false);
+      setError('');
+      return;
+    }
     let current = true;
     setLoading(true);
     setError('');
@@ -46,7 +57,7 @@ function useRead<T>(request: Request, action: string, payload: Record<string, un
     return () => {
       current = false;
     };
-  }, [request, action, key, revision]);
+  }, [request, action, key, revision, enabled]);
   return { value, error, loading, reload: () => setRevision((n) => n + 1) };
 }
 function LoadState({
@@ -267,6 +278,17 @@ type Goal = {
   tokensUsed?: number;
   [key: string]: unknown;
 };
+type GoalActivity = { threadStatus: string; turn: { status?: string } | null };
+function goalActivityMessage(activity: GoalActivity) {
+  if (activity.threadStatus === 'active' || activity.turn?.status === 'inProgress')
+    return '当前会话仍有任务在执行。请先停止任务，再刷新状态。';
+  if (
+    !['idle', 'notLoaded'].includes(activity.threadStatus) ||
+    (activity.turn && !['completed', 'interrupted', 'failed'].includes(activity.turn.status || ''))
+  )
+    return '暂时无法确认会话已停止，请刷新状态后重试。';
+  return '';
+}
 export function GoalPanel({
   request,
   sessionId,
@@ -282,24 +304,69 @@ export function GoalPanel({
     goal: Goal | null;
     goalRevision: string | null;
   }>(request, 'sessions.goal', { sessionId });
+  const activitySupported = supports('latestUpstreamTurn');
+  const activity = useRead<GoalActivity>(
+    request,
+    'turn.latest',
+    { sessionId, contractVersion: 1 },
+    activitySupported,
+  );
   const [editing, setEditing] = useState(false),
     [objective, setObjective] = useState(''),
     [budget, setBudget] = useState(''),
     [clear, setClear] = useState(false);
   const action = useAction(),
     goal = value?.goal;
+  const activityMessage = activitySupported
+    ? activity.error
+      ? '未能核对会话状态，请刷新状态后重试。'
+      : activity.value
+        ? goalActivityMessage(activity.value)
+        : '正在核对会话状态…'
+    : '';
+  const disabled = action.busy || loading || !!error || !!activityMessage;
+  function reloadState() {
+    reload();
+    activity.reload();
+  }
   async function mutate(kind: string) {
     const ok = await action.run(async () => {
       if (!value?.goalRevision) throw new Error('请先读取当前目标');
-      await request(`sessions.goal.${kind}`, {
-        sessionId,
-        expectedGoalRevision: value.goalRevision,
-        ...(kind === 'edit'
-          ? { objective: objective.trim(), ...(budget ? { tokenBudget: Number(budget) } : {}) }
-          : {}),
-      });
+      try {
+        if (activitySupported) {
+          const latest = await request<GoalActivity>('turn.latest', {
+            sessionId,
+            contractVersion: 1,
+          });
+          const message = goalActivityMessage(latest);
+          if (message) throw new Error(message);
+        }
+        await request(`sessions.goal.${kind}`, {
+          sessionId,
+          expectedGoalRevision: value.goalRevision,
+          ...(kind === 'edit'
+            ? { objective: objective.trim(), ...(budget ? { tokenBudget: Number(budget) } : {}) }
+            : {}),
+        });
+      } catch (error) {
+        reloadState();
+        const message = String(error);
+        if (message.includes('OUTCOME_UNKNOWN'))
+          throw new Error('操作结果尚未确认，请先核对操作结果，不要重复提交。');
+        if (message.includes('SYNC_CONFLICT'))
+          throw new Error('目标或任务状态已变化，请核对刷新后的状态再操作。');
+        if (
+          message.includes('Stop or reconcile') ||
+          message.includes('active or unreconciled') ||
+          message.includes('Pause an existing goal')
+        )
+          throw new Error(
+            '电脑端尚未确认会话可修改。请先核对任务是否停止，再刷新状态；若已停止仍报错，需要更新电脑端。',
+          );
+        throw error;
+      }
       onChanged();
-      reload();
+      reloadState();
     });
     if (ok) {
       setEditing(false);
@@ -308,7 +375,7 @@ export function GoalPanel({
   }
   return (
     <div className="panel-stack">
-      <LoadState {...{ error, loading, reload }} />
+      <LoadState error={error} loading={loading} reload={reloadState} />
       {value && !goal && (
         <p className="muted">此会话没有目标。选择输入框中的 Goal 模式并发送任务来创建。</p>
       )}
@@ -316,6 +383,18 @@ export function GoalPanel({
         <>
           <div className="goal-status">{statusLabel(goal.status)}</div>
           <p className="goal-objective">{goal.objective}</p>
+          {activityMessage && (
+            <p className="muted" role="status">
+              {activityMessage}
+            </p>
+          )}
+          <button
+            className="text-button"
+            disabled={action.busy || activity.loading || loading}
+            onClick={reloadState}
+          >
+            刷新状态
+          </button>
           <DataFields
             value={Object.fromEntries(
               Object.entries(goal).filter(
@@ -326,14 +405,14 @@ export function GoalPanel({
           {goal.status !== 'active' && (
             <div className="button-row">
               {supports('sessionGoalResume') && ['paused', 'blocked'].includes(goal.status) && (
-                <button disabled={action.busy} onClick={() => void mutate('resume')}>
+                <button disabled={disabled} onClick={() => void mutate('resume')}>
                   <Play size={16} />
                   继续目标
                 </button>
               )}
               {supports('sessionGoalEdit') && (
                 <button
-                  disabled={action.busy}
+                  disabled={disabled}
                   onClick={() => {
                     setObjective(goal.objective);
                     setBudget(goal.tokenBudget ? String(goal.tokenBudget) : '');
@@ -344,7 +423,7 @@ export function GoalPanel({
                 </button>
               )}
               {supports('sessionGoalClear') && (
-                <button disabled={action.busy} onClick={() => setClear(true)}>
+                <button disabled={disabled} onClick={() => setClear(true)}>
                   清除目标
                 </button>
               )}
@@ -377,13 +456,13 @@ export function GoalPanel({
                   placeholder="不设新预算"
                 />
               </label>
-              <button disabled={action.busy || !objective.trim()}>保存目标</button>
+              <button disabled={disabled || !objective.trim()}>保存目标</button>
             </form>
           )}
           {clear && (
             <div className="confirmation">
               <p>清除现有目标？</p>
-              <button disabled={action.busy} onClick={() => void mutate('clear')}>
+              <button disabled={disabled} onClick={() => void mutate('clear')}>
                 确认清除
               </button>
               <button onClick={() => setClear(false)}>取消</button>

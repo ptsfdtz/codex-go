@@ -284,6 +284,84 @@ async fn goal_resume_preserves_identity_and_deduplicates() {
 }
 
 #[tokio::test]
+async fn unloaded_goals_can_be_edited_and_cleared_without_resuming_the_thread() {
+    let h = Harness::fixture().await;
+    let session = h.session("GOAL_UNLOADED").await;
+    let id = s(&session, "sessionId");
+    let rpc = h.core.upstream().unwrap();
+    // Persist a completed turn as a historical thread would have.
+    let turn = h.core.start_turn(id, "hello").await.unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    h.core.loaded.lock().unwrap().clear();
+    for status in ["paused", "blocked", "complete"] {
+        rpc.request("thread/goal/set", json!({"threadId":session["upstreamThreadId"],"objective":"Persisted goal","status":status,"tokenBudget":5000})).await.unwrap();
+        let before = h.core.session_goal(id).await.unwrap();
+        let edited = h.core.manage_session("sessions.goal.edit", &json!({"sessionId":id,"expectedGoalRevision":before["goalRevision"],"objective":"Updated persisted goal"})).await.unwrap();
+        assert_eq!(edited["goal"]["objective"], "Updated persisted goal");
+        assert_eq!(edited["goal"]["status"], status);
+        let cleared = h
+            .core
+            .manage_session(
+                "sessions.goal.clear",
+                &json!({"sessionId":id,"expectedGoalRevision":edited["goalRevision"]}),
+            )
+            .await
+            .unwrap();
+        assert!(cleared["goal"].is_null());
+        assert_eq!(cleared["upstreamThreadId"], session["upstreamThreadId"]);
+        assert!(!h
+            .core
+            .loaded
+            .lock()
+            .unwrap()
+            .contains(s(&session, "upstreamThreadId")));
+        assert_eq!(h.core.store.turns(Some(id)).unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn goal_edits_reject_active_unloaded_in_progress_and_changing_activity() {
+    for title in [
+        "GOAL_ACTIVE",
+        "GOAL_SYSTEM_ERROR",
+        "GOAL_UNLOADED_RUNNING",
+        "GOAL_ACTIVITY_RACE",
+    ] {
+        let h = Harness::fixture().await;
+        let session = h.session(title).await;
+        let id = s(&session, "sessionId");
+        let rpc = h.core.upstream().unwrap();
+        rpc.request("thread/goal/set", json!({"threadId":session["upstreamThreadId"],"objective":"Keep goal","status":"paused"})).await.unwrap();
+        if title == "GOAL_UNLOADED_RUNNING" {
+            // External activity has no local queued/running turn to block it.
+            rpc.request("turn/start", json!({"threadId":session["upstreamThreadId"],"input":[{"type":"text","text":"WAIT"}]})).await.unwrap();
+        }
+        let before = h.core.session_goal(id).await.unwrap();
+        let error = h
+            .core
+            .manage_session(
+                "sessions.goal.clear",
+                &json!({"sessionId":id,"expectedGoalRevision":before["goalRevision"]}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.code,
+            if title == "GOAL_ACTIVITY_RACE" {
+                "SYNC_CONFLICT"
+            } else {
+                "CONFLICT"
+            },
+            "{title}: {error}"
+        );
+        assert_eq!(
+            h.core.session_goal(id).await.unwrap()["goal"],
+            before["goal"]
+        );
+    }
+}
+
+#[tokio::test]
 async fn goal_clear_checks_revision_preserves_thread_and_deduplicates() {
     let h = Harness::fixture().await;
     let session = h.session("goal-clear").await;

@@ -44,6 +44,9 @@ export async function startConversationServer({
     failTurn: false,
     queue: [],
     goal: { objective: 'Controlled goal', status: 'paused', tokenBudget: 1000 },
+    goalActivity: undefined,
+    goalActivityError: false,
+    goalMutationError: '',
     title: '渲染验收',
     pinned: 0,
     archived: 0,
@@ -238,15 +241,17 @@ export async function startConversationServer({
               };
             else if (!actual && action === 'sessions.goal')
               body = { goal: state.goal, goalRevision: 'a'.repeat(64) };
-            else if (!actual && action === 'turn.latest')
-              body = {
+            else if (!actual && action === 'turn.latest') {
+              if (state.goalActivityError)
+                return send({ error: 'UPSTREAM_UNAVAILABLE: controlled failure' }, 503);
+              body = state.goalActivity || {
                 threadStatus: state.running ? 'active' : 'idle',
                 turn: {
                   upstreamTurnId: 'native-turn',
                   status: state.running ? 'inProgress' : 'completed',
                 },
               };
-            else if (!actual && action === 'turn.active')
+            } else if (!actual && action === 'turn.active')
               body = {
                 sessionId: payload.sessionId,
                 upstreamTurnId: state.running ? 'native-turn' : null,
@@ -296,6 +301,8 @@ export async function startConversationServer({
             else if (!actual && action === 'account.status')
               body = { authenticated: true, plan: 'test' };
             else if (!actual && allowMutations) {
+              if (action.startsWith('sessions.goal.') && state.goalMutationError)
+                return send({ error: state.goalMutationError }, 409);
               if (action === 'turn.interruptActive') state.running = false;
               if (action === 'approvals.decide') state.approvals = [];
               if (action === 'turn.start' && state.failTurn)
