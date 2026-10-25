@@ -62,6 +62,7 @@ pub fn describe_profile(
         "automationManagement": false
     });
     features["multipleDevices"] = Value::Bool(true);
+    features["hostUpdateCheck"] = Value::Bool(true);
     features["stableTlsIdentity"] = Value::Bool(true);
     features["pairingV2"] = Value::Bool(true);
     features["projectFileBrowser"] = Value::Bool(true);

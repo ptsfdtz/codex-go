@@ -28,6 +28,7 @@ jobs:
   build:
     needs: validate
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
 
   publish:
     needs: build
@@ -64,7 +65,9 @@ jobs:
           test -s "releases/$version/agentdeck-linux-x64.tar.gz"
           test -s "releases/$version/agentdeck-linux-arm64.tar.gz"
           test -s AgentDeck-android-debug.apk
-          tar -czf agentdeck-downloads.tar.gz install.sh install.ps1 install-codex.ps1 releases
+          extras=()
+          if [[ -s android/stable.json ]]; then extras=(android); fi
+          tar -czf agentdeck-downloads.tar.gz install.sh install.ps1 install-codex.ps1 releases "${extras[@]}"
           cp releases/"$version"/*.zip releases/"$version"/*.tar.gz .
           sha256sum *.zip *.tar.gz *.apk > SHA256SUMS.txt
           cat > ../release-notes.md <<EOF
@@ -72,12 +75,12 @@ jobs:
 
           - Windows x64：Host ZIP 与 start.ps1，终端登录和后台运行，不需要 WebView2。
           - Linux x64 / ARM64：Host tar.gz；执行任务仍需配置经过验证的本机 Codex 运行时。ARM64 构建基于 Ubuntu 24.04。
-          - agentdeck-downloads.tar.gz：可部署到同域静态下载目录，包含安装脚本、版本包和校验值。
+          - agentdeck-downloads.tar.gz：可部署到 HTTPS 静态下载目录，包含 Host 安装脚本、版本包和校验值；配置固定 Android 签名密钥后附带 Android 更新清单。Host 使用 agentdeck update --check / agentdeck update；Android 设置中检查更新。
           - Android：debug.apk 可直接安装，使用 CI 临时 debug 签名；不同构建或本地安装之间可能无法覆盖升级，卸载会清除本地数据。正式签名尚未配置。
           - SHA256SUMS.txt：下载文件的 SHA-256 校验值。
 
           源码提交：${SOURCE_SHA}
-          应用内部版本号仍由源码构建配置决定，发布标签不自动修改版本号。
+          Android 只有更高 versionCode 且相同签名才能覆盖更新；临时 CI debug 签名不能作为连续更新渠道。正式发布需固定签名，并通过 -PagentdeckVersionCode / -PagentdeckVersionName 指定递增版本，发布标签不自动修改版本号。
           EOF
           gh release create "$tag" --target "$SOURCE_SHA" "${flags[@]}" \
             --title "AgentDeck $tag" --notes-file ../release-notes.md \

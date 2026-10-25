@@ -16,11 +16,22 @@ android {
         }
         minSdk = 28
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.3.0"
+        versionCode = providers.gradleProperty("agentdeckVersionCode").orNull?.toInt() ?: 2
+        versionName = providers.gradleProperty("agentdeckVersionName").orNull ?: "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildTypes { release { isMinifyEnabled = false; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt")) } }
+    signingConfigs {
+        if (System.getenv("AGENTDECK_ANDROID_KEYSTORE") != null) create("updates") {
+            storeFile = file(System.getenv("AGENTDECK_ANDROID_KEYSTORE"))
+            storePassword = System.getenv("AGENTDECK_ANDROID_STORE_PASSWORD")
+            keyAlias = System.getenv("AGENTDECK_ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("AGENTDECK_ANDROID_KEY_PASSWORD")
+        }
+    }
+    buildTypes { release {
+        isMinifyEnabled = false; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+        signingConfig = signingConfigs.findByName("updates")
+    } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }

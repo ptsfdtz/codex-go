@@ -2,7 +2,8 @@ package dev.agentdeck.app
 
 internal data class SettingsDestination(val id:String,val section:String,val title:String,val detail:String,val keywords:String="",val index:Int=1)
 internal val settingsDestinations=listOf(
-    SettingsDestination("appearance","general","外观与通知","主题、任务与审批通知","浅色 深色 跟随系统 提醒"),
+    SettingsDestination("updates","general","应用更新","检查、下载并安装新版 AgentDeck","升级 版本 APK",1),
+    SettingsDestination("appearance","general","外观与通知","主题、任务与审批通知","浅色 深色 跟随系统 提醒",2),
     SettingsDestination("archived","conversations","归档会话","查看、打开与恢复已归档会话","历史 恢复"),
     SettingsDestination("shortcuts","shortcuts","键盘快捷键","查看当前已接通的快捷键","Ctrl Enter Escape Shift 搜索"),
     SettingsDestination("computers","computers","电脑与连接","账户登录、配对、重命名及连接方式","云端 公网 局域网 服务器 密码 证书 指纹 设备 同步 重连 移除"),

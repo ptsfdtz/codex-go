@@ -485,6 +485,15 @@ impl Core {
                 self.attached_runtime.load(Ordering::SeqCst),
                 *self.runtime_protocol.read().unwrap(),
             )),
+            "system.updateCheck" => {
+                let status = crate::host::updates::status().await.map_err(|_| {
+                    Error::new(
+                        "UPDATE_CHECK_FAILED",
+                        "Cannot check the official Host release; retry later",
+                    )
+                })?;
+                Ok(status)
+            }
             "system.diagnostics" => {
                 let mut counts = json!({});
                 for table in ["projects", "sessions", "turns", "events", "devices"] {

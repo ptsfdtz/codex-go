@@ -1,6 +1,7 @@
 //! Local host lifecycle. Shared by the CLI and daemon; independent of a GUI.
 pub mod autostart;
 mod process;
+pub mod updates;
 #[cfg(windows)]
 mod windows;
 pub use process::{background, running, stop, supervise};

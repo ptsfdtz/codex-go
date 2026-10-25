@@ -124,6 +124,7 @@ internal val deckSettingsSections=listOf("general" to "通用","conversations" t
             }
         }}}
         if(section=="conversations")item{ArchivedSettingsCard(state.snapshot.sessions.count{it.archived==1}){showArchived=true}}
+        if(section=="general")item{AppUpdatesCard()}
         if(section=="general")item{OutlinedCard{Column(Modifier.fillMaxWidth().padding(20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
             Text("外观",fontWeight=FontWeight.SemiBold)
             ThemeOptions(state.preferences.theme,repo::setTheme)

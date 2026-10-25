@@ -46,6 +46,8 @@ try {
         }
     }
     $cli = Join-Path $releaseRoot 'agentdeck.exe'
+    [IO.File]::WriteAllText((Join-Path $releaseRoot 'release.txt'), $Version, [Text.Encoding]::ASCII)
+    [IO.File]::WriteAllText((Join-Path $releaseRoot 'update-origin.txt'), $Origin, [Text.Encoding]::ASCII)
     & $cli --version
     if ($LASTEXITCODE -ne 0) { throw 'Downloaded CLI could not run.' }
     $enabled = ((& $cli autostart status | Out-String).Trim().StartsWith('enabled'))

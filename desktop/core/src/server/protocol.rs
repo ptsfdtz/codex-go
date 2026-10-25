@@ -73,6 +73,7 @@ pub fn parse(v: Value) -> Result<Request> {
     let (required, optional): (&[&str], &[&str]) = match r.action.as_str() {
         "system.hello" => (&["client", "version"], &[]),
         "system.capabilities"
+        | "system.updateCheck"
         | "system.diagnostics"
         | "snapshot.get"
         | "models.list"

@@ -44,6 +44,7 @@ for (const name of ['agentdeck', 'agentdeck-service']) {
   if (platform === 'linux') chmodSync(join(staging, file), 0o755);
 }
 const starter = platform === 'windows' ? 'start.ps1' : 'start.sh';
+writeFileSync(join(staging, 'release.txt'), `${version}\n`);
 cpSync(`scripts/host/${starter}`, join(staging, starter));
 if (platform === 'linux') chmodSync(join(staging, starter), 0o755);
 const filename = `agentdeck-${platform}-${arch}.${platform === 'windows' ? 'zip' : 'tar.gz'}`;
@@ -68,7 +69,16 @@ if (platform === 'windows') {
     },
   );
 } else {
-  execFileSync('tar', ['-czf', archive, '-C', staging, 'agentdeck', 'agentdeck-service', starter]);
+  execFileSync('tar', [
+    '-czf',
+    archive,
+    '-C',
+    staging,
+    'agentdeck',
+    'agentdeck-service',
+    starter,
+    'release.txt',
+  ]);
 }
 const sha256 = createHash('sha256').update(readFileSync(archive)).digest('hex');
 writeFileSync(`${archive}.sha256`, `${sha256}\n`);

@@ -8,7 +8,7 @@ use std::io::Write;
 type AnyResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn usage() {
-    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH] [--sandbox-verified]\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
+    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
 }
 fn value(args: &[String], name: &str) -> AnyResult<Option<String>> {
     if let Some(index) = args.iter().position(|v| v == name) {
@@ -268,6 +268,7 @@ async fn run() -> AnyResult<()> {
             Ok(())
         }
         "login" => login(args).await,
+        "update" => host::updates::run(flag(args, "--check"), value(args, "--origin")?).await,
         "start" => {
             ensure_host().await?;
             status(&[]).await

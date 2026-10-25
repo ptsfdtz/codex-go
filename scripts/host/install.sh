@@ -35,6 +35,8 @@ if [ -e "$release_dir" ]; then
 else
     mv "$temporary/package" "$release_dir"
 fi
+printf '%s\n' "$version" > "$release_dir/release.txt"
+printf '%s\n' "$origin" > "$release_dir/update-origin.txt"
 for name in agentdeck agentdeck-service; do
     ln -s "$release_dir/$name" "$bin_dir/.$name.new.$$"
     mv -f "$bin_dir/.$name.new.$$" "$bin_dir/$name"
