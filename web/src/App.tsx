@@ -1,6 +1,7 @@
 import { MotionPresence, useSidebarMotion } from './motion';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
+import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
 import { api, installationId, accountEvent } from './cloud';
 import { Bridge } from './transport/bridge';
 import { AccountPassword } from './AccountPassword';
@@ -12,7 +13,6 @@ import { applyProgress, historyError, mergeHistorySnapshot, finalItem } from './
 
 import type {
   Host,
-  Device,
   Model,
   Session,
   Turn,
@@ -25,6 +25,7 @@ import type {
 import { emptyDraft, canManage, chatProject } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { Composer } from './features/Composer';
+import { PermissionPicker } from './features/PermissionPicker';
 import { ApprovalCard, AsyncQuestions } from './features/Questions';
 import { ComposerStatus } from './features/ComposerStatus';
 import { TurnChanges } from './features/TurnChanges';
@@ -56,7 +57,6 @@ import {
   Search,
   History,
   Clock,
-  EyeOff,
   Target,
   Copy,
   Quote,
@@ -67,9 +67,6 @@ import {
   RefreshCw,
   X,
   FileText,
-  Keyboard,
-  Database,
-  SlidersHorizontal,
 } from 'lucide-react';
 import { ReconnectLoop, connectionLabels, connectionError } from './transport/reconnect';
 import type { ConnectionState } from './transport/reconnect';
@@ -82,8 +79,10 @@ import {
 import type { Packet } from './transport/bridge';
 import { TaskProgress } from './features/TaskProgress';
 import { MessageEditor } from './features/MessageEditor';
+import { answerActions } from './features/answer-actions';
 import { InstallApp } from './features/InstallApp';
 import { AppUpdates } from './features/AppUpdates';
+import { SettingsLayout } from './features/SettingsLayout';
 import { HostUpdates } from './features/HostUpdates';
 
 type HistoryPage = {
@@ -167,7 +166,6 @@ export function App() {
   const connectionEpoch = useRef(0);
   const accountEpoch = useRef(0);
   const [hosts, setHosts] = useState<Host[]>([]);
-  const [devices, setDevices] = useState<Device[]>([]);
   const [directoryFailure, setDirectoryFailure] = useState('');
   const [host, setHost] = useState<Host>();
   const [snapshot, setSnapshot] = useState<Snapshot>({});
@@ -211,7 +209,6 @@ export function App() {
     [filter, setFilter] = useState('all');
   const [find, setFind] = useState(''),
     [findIndex, setFindIndex] = useState(0);
-  const [mask, setMask] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('agentdeck.web.theme') || 'system');
   const [permission, setPermission] = useState('workspace'),
     [fullConfirm, setFullConfirm] = useState(false);
@@ -223,7 +220,6 @@ export function App() {
   const [hostFingerprint, setHostFingerprint] = useState(''),
     [hostLabel, setHostLabel] = useState(''),
     [lastSynced, setLastSynced] = useState('');
-  const [settingsSearch, setSettingsSearch] = useState('');
   const [notification, setNotification] = useState(false);
   const notificationRef = useRef(notification);
   notificationRef.current = notification;
@@ -422,16 +418,27 @@ export function App() {
     localStorage.setItem('agentdeck.web.theme', theme);
   }, [theme]);
   useEffect(() => {
+    let checking: Bridge | undefined;
     const wake = () => {
       if (document.visibilityState === 'hidden') return;
       reconnect.current?.wake();
       const connection = bridge.current;
-      if (connection && document.visibilityState === 'visible')
+      if (connection && checking !== connection && document.visibilityState === 'visible') {
+        checking = connection;
         void connection
-          .request('system.hello', { client: 'AgentDeck Web/0.3.0', version: 1 })
+          .probe()
           .then(() => connection.reconcile())
-          .then(() => scheduleRefresh(true))
-          .catch(() => connection.close());
+          .then(() => {
+            if (bridge.current === connection) scheduleRefresh(true);
+          })
+          .catch(() => {
+            connection.close();
+            reconnect.current?.wake();
+          })
+          .finally(() => {
+            if (checking === connection) checking = undefined;
+          });
+      }
     };
     const offline = () => bridge.current?.close();
     const receiptChanged = (event: StorageEvent) => {
@@ -451,7 +458,6 @@ export function App() {
       setHost(undefined);
       hostRef.current = undefined;
       setHosts([]);
-      setDevices([]);
       setCapabilities({});
       setModels([]);
       setDrafts({});
@@ -475,12 +481,16 @@ export function App() {
     window.addEventListener('storage', receiptChanged);
     window.addEventListener('offline', offline);
     window.addEventListener('online', wake);
+    window.addEventListener('pageshow', wake);
+    window.addEventListener('focus', wake);
     document.addEventListener('visibilitychange', wake);
     window.addEventListener(accountEvent, accountChanged);
     return () => {
       window.removeEventListener('storage', receiptChanged);
       window.removeEventListener('offline', offline);
       window.removeEventListener('online', wake);
+      window.removeEventListener('pageshow', wake);
+      window.removeEventListener('focus', wake);
       document.removeEventListener('visibilitychange', wake);
       window.removeEventListener(accountEvent, accountChanged);
     };
@@ -535,14 +545,10 @@ export function App() {
     const readDirectory = async () => {
       if (pending) return;
       pending = true;
-      await Promise.all([
-        api<{ hosts: Host[] }>('/api/v1/hosts'),
-        api<{ devices: Device[] }>('/api/v1/devices'),
-      ])
-        .then(([hostValue, deviceValue]) => {
+      await api<{ hosts: Host[] }>('/api/v1/hosts')
+        .then((hostValue) => {
           if (cancelled || generation !== accountEpoch.current) return;
           setHosts(hostValue.hosts || []);
-          setDevices(deviceValue.devices || []);
           setDirectoryFailure('');
           if (
             hostRef.current &&
@@ -999,7 +1005,7 @@ export function App() {
           // Heartbeats do not wait for history reads or recovery.
           heartbeat.current = setInterval(() => {
             void value
-              .request('system.hello', { client: 'AgentDeck Web/0.3.0', version: 1 })
+              .probe()
               .then(() => value.reconcile())
               .catch(() => value.close());
           }, 30000);
@@ -1381,17 +1387,6 @@ export function App() {
     }
   }
 
-  async function revokeDevice(deviceId: string) {
-    try {
-      await api(`/api/v1/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
-      setDevices((items) =>
-        items.map((item) => (item.deviceId === deviceId ? { ...item, revoked: true } : item)),
-      );
-    } catch (error) {
-      setError(String(error));
-    }
-  }
-
   function chooseSession(item: Session) {
     setSelectedProject(item.projectId || '');
     selectSession(item.sessionId);
@@ -1542,7 +1537,7 @@ export function App() {
   }
   const [settingsTab, setSettingsTab] = useState('general');
   const titles: Record<string, string> = {
-    computers: '电脑与设备',
+    computers: '电脑',
     settings: '设置',
     manage: '管理会话',
     goal: '会话目标',
@@ -1558,6 +1553,11 @@ export function App() {
   };
   const targetSession =
     snapshot.sessions?.find((s) => s.sessionId === manageSession?.sessionId) || current;
+  const answers = answerActions(
+    renderedHistory,
+    snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId || activeTurn,
+    contentText,
+  );
   const matches = renderedHistory.filter(
     (entry) => find.trim() && contentText(entry.item).toLowerCase().includes(find.toLowerCase()),
   );
@@ -1584,7 +1584,7 @@ export function App() {
   if (!signedIn) return <Login onLogin={() => location.reload()} />;
   if (mustChangePassword) return <AccountPassword />;
   return (
-    <div className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${mask ? 'display-masked' : ''}`}>
+    <div className={`shell ${sidebarOpen ? 'with-sidebar' : ''}`}>
       <Sidebar
         sessions={snapshot.sessions || []}
         projects={projects}
@@ -1746,16 +1746,6 @@ export function App() {
                       </>
                     )}
                     <hr />
-                    <button
-                      role="menuitem"
-                      onClick={() => {
-                        setMask(!mask);
-                        setMenu(false);
-                      }}
-                    >
-                      <EyeOff size={18} />
-                      {mask ? '显示文字' : '遮盖文字'}
-                    </button>
                     <button role="menuitem" onClick={() => openPanel('settings')}>
                       <Settings size={18} />
                       设置
@@ -1889,6 +1879,7 @@ export function App() {
                 assistant =
                   ['agentMessage', 'assistantMessage'].includes(type) || item.role === 'assistant',
                 text = contentText(item),
+                actionText = assistant ? answers.get(entry) : text,
                 editing =
                   messageAction?.kind === 'revise' &&
                   historyKey(messageAction.entry) === historyKey(entry);
@@ -1984,13 +1975,15 @@ export function App() {
                         uncertain={() => bridge.current?.awaitingReceipt === true}
                       />
                     )}
-                  {(user || assistant) && text && !editing && (
+                  {(user || assistant) && actionText && !editing && (
                     <div className="message-actions">
                       <IconButton
                         icon={Copy}
                         label="复制消息"
                         onClick={() =>
-                          void navigator.clipboard.writeText(text).catch((e) => setError(String(e)))
+                          void navigator.clipboard
+                            .writeText(actionText)
+                            .catch((e) => setError(String(e)))
                         }
                       />
                       <IconButton
@@ -1998,7 +1991,7 @@ export function App() {
                         label="引用消息"
                         onClick={() =>
                           updateDraft({
-                            text: `${draft.text}${draft.text ? '\n\n' : ''}${text
+                            text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
                               .split('\n')
                               .map((line) => '> ' + line)
                               .join('\n')}\n\n`,
@@ -2009,7 +2002,12 @@ export function App() {
                         icon={Search}
                         label="阅读完整消息"
                         onClick={() => {
-                          setMessageAction({ entry, kind: 'read' });
+                          setMessageAction({
+                            entry: assistant
+                              ? { ...entry, item: { ...item, text: actionText } }
+                              : entry,
+                            kind: 'read',
+                          });
                         }}
                       />
                       {user && supports('sessionHistoryRevert') && (
@@ -2080,7 +2078,14 @@ export function App() {
                   <p>正在读取会话历史…</p>
                 ) : (
                   <>
-                    <div className="empty-symbol">✳</div>
+                    <div
+                      className="empty-symbol"
+                      aria-hidden="true"
+                      style={{
+                        maskImage: `url("${agentDeckMark}")`,
+                        WebkitMaskImage: `url("${agentDeckMark}")`,
+                      }}
+                    />
                     <h1>{chat ? '聊点什么？' : 'What can we build?'}</h1>
                     <p>
                       {connected
@@ -2133,7 +2138,7 @@ export function App() {
           busy={busy}
           active={!!activeTurn}
           permission={permission}
-          onPermission={(value) => (value === 'full' ? setFullConfirm(true) : setPermission(value))}
+          onPermission={() => setFullConfirm(true)}
           onSend={(kind) => void send(kind)}
           onStop={() => void interrupt()}
           onPanel={openPanel}
@@ -2143,20 +2148,14 @@ export function App() {
       </section>
       <MotionPresence>
         {fullConfirm && (
-          <Modal title="允许完整访问？" onClose={() => setFullConfirm(false)}>
-            <p>接下来的任务将使用电脑允许的完整访问权限。请确认你信任当前项目与任务。</p>
-            <div className="button-row">
-              <button
-                onClick={() => {
-                  setPermission('full');
-                  setFullConfirm(false);
-                }}
-              >
-                使用 Full access
-              </button>
-              <button onClick={() => setFullConfirm(false)}>取消</button>
-            </div>
-          </Modal>
+          <PermissionPicker
+            permission={permission}
+            onClose={() => setFullConfirm(false)}
+            onConfirm={(value) => {
+              setPermission(value);
+              setFullConfirm(false);
+            }}
+          />
         )}
       </MotionPresence>
       <MotionPresence>
@@ -2206,6 +2205,7 @@ export function App() {
           <Modal
             wide={['git', 'files', 'history', 'settings'].includes(panel)}
             title={titles[panel] || panel}
+            className={panel === 'settings' ? 'settings-modal' : ''}
             onClose={() => setPanel('')}
           >
             <div
@@ -2290,73 +2290,18 @@ export function App() {
                       </label>
                     </>
                   )}
-                  <h3>账户设备</h3>
-                  {devices.map((item) => (
-                    <div className="device" key={item.deviceId}>
-                      <span>
-                        {item.displayName}
-                        <small>{item.kind}</small>
-                      </span>
-                      {item.revoked ? (
-                        <small>已撤销</small>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            if (confirm(`撤销设备“${item.displayName}”的连接权限？`))
-                              void revokeDevice(item.deviceId);
-                          }}
-                        >
-                          撤销
-                        </button>
-                      )}
-                    </div>
-                  ))}
                 </div>
               )}
               {panel === 'settings' && (
-                <div className="settings-layout">
-                  <nav className="settings-nav">
-                    <input
-                      className="settings-search"
-                      aria-label="搜索设置"
-                      placeholder="搜索设置"
-                      value={settingsSearch}
-                      onChange={(e) => setSettingsSearch(e.target.value)}
-                    />
-                    {[
-                      ['general', '常规', Settings],
-                      ['configuration', '模型与输出', SlidersHorizontal],
-                      ['conversations', '对话', History],
-                      ['shortcuts', '快捷键', Keyboard],
-                      ['computers', '电脑', Computer],
-                      ['data', '数据', Database],
-                      ['diagnostics', '诊断', FileText],
-                      ['account', 'Codex 账户', Computer],
-                    ]
-                      .filter(([, name]) =>
-                        String(name).toLowerCase().includes(settingsSearch.toLowerCase()),
-                      )
-                      .map(([id, name, Icon]) => {
-                        const SettingsIcon = Icon as typeof Settings;
-                        return (
-                          <button
-                            key={String(id)}
-                            className={settingsTab === id ? 'active' : ''}
-                            onClick={() => setSettingsTab(String(id))}
-                          >
-                            <SettingsIcon size={17} />
-                            {String(name)}
-                          </button>
-                        );
-                      })}
-                  </nav>
-                  <section className="settings-body" key={settingsTab}>
-                    {settingsTab === 'general' && (
-                      <div className="panel-stack">
-                        <InstallApp />
-                        <AppUpdates />
-                        <label>
-                          外观
+                <SettingsLayout active={settingsTab} onChange={setSettingsTab}>
+                  {settingsTab === 'general' && (
+                    <div className="settings-general">
+                      <section className="settings-section panel-stack">
+                        <h3>使用偏好</h3>
+                        <label className="setting-row">
+                          <span>
+                            外观<small>选择适合你的界面主题。</small>
+                          </span>
                           <select
                             aria-label="外观"
                             value={theme}
@@ -2383,15 +2328,22 @@ export function App() {
                             }}
                           />
                         </label>
+                      </section>
+                      <section className="settings-section panel-stack">
+                        <h3>安装应用</h3>
+                        <InstallApp />
+                        <p className="settings-installed">当前已在独立应用窗口中打开。</p>
+                      </section>
+                      <section className="settings-section">
+                        <AppUpdates />
+                      </section>
+                      <section className="settings-section setting-row">
+                        <div>
+                          <h3>AgentDeck 账户</h3>
+                          <p className="muted">退出当前网页或 PWA 的登录。</p>
+                        </div>
                         <button
-                          onClick={() => {
-                            setMask(!mask);
-                          }}
-                        >
-                          <EyeOff size={17} />
-                          {mask ? '显示文字' : '遮盖文字'}
-                        </button>
-                        <button
+                          className="settings-logout"
                           onClick={() =>
                             void api('/api/v1/web/logout', { method: 'POST' })
                               .then(() => location.reload())
@@ -2401,70 +2353,90 @@ export function App() {
                           <LogOut size={17} />
                           退出账户
                         </button>
-                      </div>
-                    )}
-                    {settingsTab === 'configuration' &&
-                      (connected ? (
-                        <ConfigurationPanel request={request} models={models} supports={supports} />
-                      ) : (
-                        <p>连接电脑后查看模型与输出配置。</p>
-                      ))}
-                    {settingsTab === 'data' &&
-                      (connected ? (
-                        <RetentionPanel request={request} />
-                      ) : (
-                        <p>连接电脑后管理缓存。</p>
-                      ))}
-                    {settingsTab === 'diagnostics' &&
-                      (connected ? (
-                        <DiagnosticsPanel request={request} />
-                      ) : (
-                        <p>连接电脑后读取诊断。</p>
-                      ))}
-                    {settingsTab === 'account' &&
-                      (connected && supports('accountSummary') ? (
-                        <AccountPanel request={request} />
-                      ) : (
-                        <p>连接支持账户摘要的电脑后查看。</p>
-                      ))}
-                    {settingsTab === 'shortcuts' && (
-                      <DataFields
-                        value={{
-                          'Ctrl + K': '搜索会话',
-                          'Ctrl + F': '查找已加载消息',
-                          'Alt + ← / →': '切换上一条 / 下一条会话',
-                          Enter: '发送 / 加入队列',
-                          'Shift + Enter': '换行',
-                          'Ctrl + Enter': '发送',
-                          Escape: '关闭菜单或弹窗',
-                          '/plan /goal /default': '切换模式',
-                          '/skills /mention': '技能 / 项目文件',
-                          '/queue /history /compact /new': '队列 / 历史 / 整理 / 新对话',
+                      </section>
+                    </div>
+                  )}
+                  {settingsTab === 'configuration' &&
+                    (connected ? (
+                      <ConfigurationPanel request={request} models={models} supports={supports} />
+                    ) : (
+                      <p>连接电脑后查看模型与输出配置。</p>
+                    ))}
+                  {settingsTab === 'data' &&
+                    (connected ? (
+                      <RetentionPanel request={request} />
+                    ) : (
+                      <p>连接电脑后管理缓存。</p>
+                    ))}
+                  {settingsTab === 'diagnostics' &&
+                    (connected ? (
+                      <DiagnosticsPanel request={request} />
+                    ) : (
+                      <p>连接电脑后读取诊断。</p>
+                    ))}
+                  {settingsTab === 'account' &&
+                    (connected && supports('accountSummary') ? (
+                      <AccountPanel request={request} />
+                    ) : (
+                      <p>连接支持账户摘要的电脑后查看。</p>
+                    ))}
+                  {settingsTab === 'shortcuts' && (
+                    <DataFields
+                      value={{
+                        'Ctrl + K': '搜索会话',
+                        'Ctrl + F': '查找已加载消息',
+                        'Alt + ← / →': '切换上一条 / 下一条会话',
+                        Enter: '发送 / 加入队列',
+                        'Shift + Enter': '换行',
+                        'Ctrl + Enter': '发送',
+                        Escape: '关闭菜单或弹窗',
+                        '/plan /goal /default': '切换模式',
+                        '/skills /mention': '技能 / 项目文件',
+                        '/queue /history /compact /new': '队列 / 历史 / 整理 / 新对话',
+                      }}
+                    />
+                  )}
+                  {settingsTab === 'conversations' && (
+                    <div className="panel-stack">
+                      <button
+                        className="settings-action"
+                        onClick={() => {
+                          setFilter('archived');
+                          setSidebarOpen(true);
+                          setPanel('');
                         }}
-                      />
-                    )}
-                    {settingsTab === 'conversations' && (
-                      <div className="panel-stack">
-                        <button
-                          onClick={() => {
-                            setFilter('archived');
-                            setSidebarOpen(true);
-                            setPanel('');
-                          }}
-                        >
-                          查看归档对话
-                        </button>
-                        <button onClick={() => openPanel('drafts')}>未发送草稿</button>
-                        <button disabled={!connected} onClick={() => void syncIndex()}>
-                          同步电脑已有对话
-                        </button>
-                      </div>
-                    )}
-                    {settingsTab === 'computers' && (
-                      <button onClick={() => openPanel('computers')}>管理电脑与设备</button>
-                    )}
-                  </section>
-                </div>
+                      >
+                        <span>
+                          <strong>查看归档对话</strong>
+                          <small>重新找到暂时收起的历史对话。</small>
+                        </span>
+                      </button>
+                      <button className="settings-action" onClick={() => openPanel('drafts')}>
+                        <span>
+                          <strong>未发送草稿</strong>
+                          <small>继续编辑尚未发送的内容。</small>
+                        </span>
+                      </button>
+                      <button
+                        className="settings-action"
+                        disabled={!connected}
+                        onClick={() => void syncIndex()}
+                      >
+                        <span>
+                          <strong>同步电脑已有对话</strong>
+                          <small>从当前连接的电脑重新核对会话列表。</small>
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                  {settingsTab === 'computers' && (
+                    <div className="settings-section panel-stack">
+                      <h3>电脑连接</h3>
+                      <p className="muted">管理已登录的电脑，查看在线状态并选择要使用的电脑。</p>
+                      <button onClick={() => openPanel('computers')}>管理电脑</button>
+                    </div>
+                  )}
+                </SettingsLayout>
               )}
               {panel === 'manage' && targetSession && connected && (
                 <SessionPanel

@@ -19,7 +19,44 @@
   --code: #f5f5f5;
   --green: #26885c;
   --shadow: 0 8px 40px #0002;
+  --app-safe-top: max(0px, calc(env(safe-area-inset-top) - var(--app-top, 0px)));
+  --app-safe-bottom: env(safe-area-inset-bottom);
   color-scheme: light;
+}
+:root[data-keyboard='open'] {
+  --app-safe-bottom: 0px;
+}
+/* Conversation scrolling belongs to the timeline, never the document. This also
+   prevents Safari's focus scroll from leaving empty space below the app. */
+html:has(.shell),
+body:has(.shell) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+/* Stop edge drags at the owning scroller instead of moving the app viewport.
+   Keep native scrolling, text selection and pinch zoom inside content. */
+.shell,
+.timeline,
+.sidebar-scroll,
+.popover,
+.modal .modal-body,
+.composer textarea {
+  overscroll-behavior: none;
+}
+/* Fixed chrome has no scroll gesture. Do not apply this to menu containers:
+   their scrollable descendants must retain native touch scrolling. */
+.topbar > button,
+.workspace-title,
+.sidebar-brand,
+.sidebar-primary,
+.sidebar-footer,
+.sidebar-scrim,
+.menu-scrim,
+.composer-toolbar > button,
+.composer-toolbar > .menu-anchor > button,
+.composer-hint,
+.empty-symbol {
+  touch-action: pinch-zoom;
 }
 .connection-recovery,
 .task-progress {
@@ -277,8 +314,11 @@ small,
 .shell {
   --sidebar-width: 280px;
   height: var(--app-height, 100dvh);
-  position: relative;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+  position: fixed;
+  top: var(--app-top, 0px);
+  left: 0;
+  width: 100%;
+  padding: var(--app-safe-top) env(safe-area-inset-right) var(--app-safe-bottom)
     env(safe-area-inset-left);
   display: flex;
   overflow: hidden;
@@ -952,8 +992,11 @@ small,
   margin: 8px 0 13px;
 }
 .empty-symbol {
-  font-size: 38px;
-  color: var(--text);
+  width: 48px;
+  height: 48px;
+  background-color: var(--text);
+  mask: center / contain no-repeat;
+  -webkit-mask: center / contain no-repeat;
   margin-bottom: 4px;
 }
 .empty p {
@@ -982,19 +1025,12 @@ small,
   outline-offset: 9px;
   border-radius: 6px;
 }
-.display-masked .message-content,
-.display-masked .session,
-.display-masked .workspace-title > span,
-.display-masked .draft-entry > span {
-  filter: blur(6px);
-  user-select: none;
-}
 .composer-wrap {
   flex-shrink: 0;
   width: 100%;
   max-width: 824px;
   padding: 6px 32px 8px;
-  margin: auto;
+  margin: 0 auto;
 }
 .composer {
   border: 1px solid transparent;
@@ -1224,6 +1260,78 @@ small,
   color: var(--muted);
   font-size: 10px;
   padding: 5px;
+}
+.permission[data-permission='full'] {
+  color: var(--danger);
+}
+.permission-modal .modal-body {
+  display: grid;
+  gap: 18px;
+}
+.permission-intro,
+.permission-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.permission-options {
+  display: grid;
+  gap: 10px;
+}
+.permission-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+}
+.permission-option[data-selected='true'] {
+  border-color: var(--text);
+  background: var(--soft);
+}
+.permission-option > svg,
+.permission-option input {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.permission-option > span {
+  flex: 1;
+  min-width: 0;
+}
+.permission-option strong,
+.permission-option span span {
+  display: block;
+}
+.permission-option strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.permission-option span span {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.permission-option input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--text);
+}
+.permission-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.permission-actions button {
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+.permission-actions .permission-confirm {
+  background: var(--button);
+  color: var(--button-text);
+  border-color: var(--button);
 }
 .send-button {
   background: var(--button);
@@ -1766,32 +1874,141 @@ small,
 .project-setting .confirmation {
   width: 100%;
 }
+.settings-modal[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, calc(100vw - 48px));
+  height: min(
+    720px,
+    calc(var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 48px)
+  );
+  max-height: calc(var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 48px);
+}
+.settings-modal > .modal-title {
+  flex-shrink: 0;
+}
+.settings-modal > .modal-body {
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+.settings-modal .panel-content {
+  height: 100%;
+}
 .settings-layout {
   display: flex;
-  gap: 26px;
-  min-height: 400px;
+  height: 100%;
+  min-height: 0;
 }
 .settings-nav {
-  width: 165px;
+  width: 190px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 18px 12px;
+  background: var(--rail);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overscroll-behavior: none;
 }
 .settings-nav > button {
+  min-height: 44px;
   border: 0;
   background: transparent;
+  color: var(--muted);
   justify-content: flex-start;
-  font-size: 12px;
-  padding: 9px 10px;
+  font-size: 13px;
+  padding: 10px 12px;
+  text-align: left;
+}
+.settings-nav > button svg {
+  flex-shrink: 0;
 }
 .settings-nav > .active {
-  background: var(--soft);
+  background: var(--hover);
+  color: var(--text);
+  font-weight: 600;
 }
 .settings-body {
   flex: 1;
   min-width: 0;
-  padding: 4px 0;
+  min-height: 0;
+  padding: 28px 32px 36px;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  scrollbar-width: thin;
+}
+.settings-heading {
+  margin-bottom: 28px;
+}
+.settings-heading h2 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.settings-heading p,
+.settings-section p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.settings-general {
+  display: flex;
+  flex-direction: column;
+}
+.settings-section {
+  padding: 22px 0;
+  border-top: 1px solid var(--border);
+}
+.settings-section h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.settings-section .setting-row {
+  min-height: 58px;
+}
+.settings-section .setting-row > select {
+  width: auto;
+  max-width: 52%;
+  min-width: 120px;
+}
+.settings-section .panel-stack > button {
+  align-self: flex-start;
+}
+.settings-body .panel-stack > button {
+  align-self: flex-start;
+}
+.settings-body .panel-stack > .settings-action {
+  align-self: stretch;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 16px;
+  background: transparent;
+}
+.settings-action strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+}
+.settings-action small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.settings-logout {
+  flex-shrink: 0;
+  color: var(--danger);
+}
+.settings-installed {
+  display: none;
+}
+.settings-section:not(:has(.pwa-install)) > .settings-installed {
+  display: block;
 }
 .setting-row {
   display: flex !important;
@@ -1805,6 +2022,10 @@ small,
   font-size: 10px;
   font-weight: 400;
   margin-top: 5px;
+}
+.settings-body .setting-row small {
+  font-size: 12px;
+  color: var(--muted);
 }
 .setting-row input {
   width: 18px;
@@ -1972,7 +2193,7 @@ small,
     --sidebar-width: 248px;
   }
   .permission span {
-    display: none;
+    display: inline;
   }
   .tool-preview {
     max-width: 220px;
@@ -1992,8 +2213,8 @@ small,
     z-index: 32;
     width: 300px;
     max-width: 85vw;
-    height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-    top: env(safe-area-inset-top);
+    height: calc(100% - var(--app-safe-top) - var(--app-safe-bottom));
+    top: var(--app-safe-top);
     left: env(safe-area-inset-left);
     box-shadow: 6px 0 40px #0002;
   }
@@ -2086,35 +2307,74 @@ small,
     max-width: calc(100vw - 20px);
     border-radius: 17px;
     max-height: calc(
-      var(--app-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px
+      var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 24px
     );
   }
   .modal-body {
     padding: 18px;
     max-height: calc(
-      var(--app-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 92px
+      var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 92px
     );
   }
   .modal-title {
     height: 58px;
     padding-inline: 18px;
   }
+  .settings-modal[open] {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    height: calc(var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 24px);
+    max-height: calc(
+      var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 24px
+    );
+    border-radius: 16px;
+  }
+  .settings-modal > .modal-body {
+    padding: 0;
+    max-height: none;
+  }
   .settings-layout {
     flex-direction: column;
-    gap: 16px;
   }
   .settings-nav {
-    flex-direction: row;
-    overflow: auto;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
     width: 100%;
-    padding-bottom: 8px;
+    padding: 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: 36%;
   }
   .settings-nav > button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 8px 2px;
+    min-height: 54px;
     white-space: nowrap;
-    flex-shrink: 0;
+  }
+  .settings-body {
+    padding: 20px 18px 28px;
+  }
+  .settings-heading {
+    margin-bottom: 20px;
+  }
+  .settings-heading h2 {
+    font-size: 20px;
+  }
+  .settings-section {
+    padding: 18px 0;
+  }
+  .settings-section > .setting-row {
+    gap: 12px !important;
+  }
+  .settings-section .setting-row small {
+    font-size: 12px;
   }
   .settings-nav svg {
-    width: 14px;
+    width: 17px;
   }
   .data-fields > div {
     grid-template-columns: 100px minmax(0, 1fr);
@@ -2288,7 +2548,7 @@ small,
 .changes-preview [role='tabpanel'] {
   height: min(680px, calc(var(--app-height, 100dvh) * 0.72));
   max-height: calc(
-    var(--app-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 110px
+    var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 110px
   );
 }
 .changes-preview .diff-text {
@@ -2308,35 +2568,11 @@ small,
   font-size: inherit;
   overflow-wrap: anywhere;
 }
-.settings-search {
-  width: 100%;
-  font-size: 11px;
-  padding: 7px 9px;
-  margin-bottom: 7px;
-}
 .host-label {
   font-size: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-.display-masked .file-preview,
-.display-masked .diff-text,
-.display-masked .goal-objective,
-.display-masked .goal-composer-objective,
-.display-masked .panel-content .data-fields dd,
-.display-masked .search-result,
-.display-masked .queue-entry > p,
-.display-masked .message-reader {
-  filter: blur(6px);
-  user-select: none;
-}
-@media (max-width: 760px) {
-  .settings-search {
-    width: 140px;
-    margin-bottom: 0;
-    flex-shrink: 0;
-  }
 }
 .async-questions {
   border: 1px solid var(--border);
@@ -2434,10 +2670,6 @@ small,
 }
 .async-questions > .button-row > button {
   font-size: 12px;
-}
-.display-masked .question-fields {
-  filter: blur(6px);
-  user-select: none;
 }
 .host-update-notice {
   display: flex;

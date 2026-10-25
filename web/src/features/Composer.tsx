@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Expand,
   Shield,
+  ShieldAlert,
   ListChecks,
   Target,
   MessageSquarePlus,
@@ -253,12 +254,14 @@ export function Composer({
           {!chat && (
             <button
               className="permission"
-              title="执行权限"
+              title={`执行权限：${permission === 'full' ? '完整访问' : '工作区权限'}，用于下一次启动的任务`}
+              aria-label={`执行权限：${permission === 'full' ? '完整访问' : '工作区权限'}`}
+              data-permission={permission}
               disabled={disabled || busy}
               onClick={() => onPermission(permission === 'workspace' ? 'full' : 'workspace')}
             >
-              <Shield size={15} />
-              <span>{permission === 'full' ? 'Full access' : 'Workspace'}</span>
+              {permission === 'full' ? <ShieldAlert size={16} /> : <Shield size={16} />}
+              <span>{permission === 'full' ? '完整访问' : '工作区'}</span>
             </button>
           )}
           {active && supports('activeTurnSteering') && !hasResources && (

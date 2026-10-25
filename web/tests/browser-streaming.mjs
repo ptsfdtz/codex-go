@@ -68,6 +68,11 @@ try {
   await page.goto(origin);
   await ready();
   await page.getByText('阅读位置 17', { exact: false }).waitFor();
+  assert.equal(
+    await page.locator('.assistant-turn .message-actions').count(),
+    0,
+    'running answer must not show per-paragraph actions',
+  );
   assert.equal(count('sessions.history'), 1, 'initial entry loads only one latest page');
   assert.equal(
     state.rpc.filter((request) => request.payload.cursor).length,
@@ -75,6 +80,39 @@ try {
     'mount must not page backwards automatically',
   );
   await page.getByLabel('消息', { exact: true }).fill('保留中的草稿');
+  // Returning from a retained page checks liveness and keeps the current view.
+  const helloCount = count('system.hello');
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('pageshow'));
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForFunction(() => document.querySelector('[data-connection-state="connected"]'));
+  await page.waitForTimeout(500);
+  assert.equal(count('system.hello'), helloCount + 1, 'overlapping resume events share a probe');
+  assert.equal(await page.getByLabel('消息', { exact: true }).inputValue(), '保留中的草稿');
+  // A silent old route fails the resume probe without an offline/close event.
+  let failedProbe = false;
+  await page.route('**/__test_rpc', async (route) => {
+    if (!failedProbe && route.request().postDataJSON().action === 'system.hello') {
+      failedProbe = true;
+      return route.abort();
+    }
+    return route.continue();
+  });
+  const snapshotsBeforeResume = count('snapshot.get');
+  await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+  await page.waitForFunction(() => document.querySelector('[data-connection-state="connected"]'));
+  const resumeDeadline = Date.now() + 10000;
+  while (count('snapshot.get') === snapshotsBeforeResume && Date.now() < resumeDeadline)
+    await page.waitForTimeout(20);
+  assert.ok(
+    failedProbe && count('snapshot.get') > snapshotsBeforeResume,
+    'resume reconnects automatically',
+  );
+  await ready();
+  assert.equal(await page.getByLabel('消息', { exact: true }).inputValue(), '保留中的草稿');
+  await page.unroute('**/__test_rpc');
   const start = append('item/started', {
     item: { id: 'stream-answer', type: 'agentMessage', text: '' },
   });
@@ -103,6 +141,7 @@ try {
   await page.mouse.wheel(0, -300);
   await page.waitForTimeout(150);
   const before = await anchor();
+  const replaysBeforeDisconnect = count('events.replay');
   // Disconnect without deleting the view; the host continues producing events.
   state.delayReplay = true;
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
@@ -128,6 +167,12 @@ try {
   while (state.replayPending.length) state.replayPending.shift()();
   await ready();
   await page.getByText('最终结果', { exact: true }).waitFor();
+  await page.locator('.assistant-turn .message-actions').waitFor();
+  assert.equal(
+    await page.locator('.assistant-turn .message-actions').count(),
+    1,
+    'completed answer has exactly one action group',
+  );
   assert.equal(await page.getByText('最终结果', { exact: true }).count(), 1);
   assert.equal(
     await page.getByText('片段'.repeat(30), { exact: true }).count(),
@@ -139,7 +184,7 @@ try {
     reads,
     'ordinary reconnect must not fetch the latest or old history again',
   );
-  assert.equal(count('events.replay'), 1);
+  assert.equal(count('events.replay'), replaysBeforeDisconnect + 1);
   assert.equal(await page.getByLabel('消息', { exact: true }).inputValue(), '保留中的草稿');
   assert.notEqual(
     await page.locator('.tool-record').first().getAttribute('open'),
@@ -194,6 +239,17 @@ try {
       .locator('.timeline')
       .evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight < 50),
   );
+
+  await page
+    .locator('.assistant-turn')
+    .filter({ has: page.getByText('最终结果', { exact: true }) })
+    .getByRole('button', { name: '阅读完整消息', exact: true })
+    .click();
+  const reader = page.locator('.message-reader');
+  await reader.getByText('最终结果', { exact: true }).waitFor();
+  assert.ok((await reader.innerText()).includes('阅读位置 17'), 'reader combines the whole answer');
+  await page.keyboard.press('Escape');
+  await reader.waitFor({ state: 'detached' });
 
   // Retention expiry uses one baseline instead of an endless reconnect loop.
   state.replayGap = true;
