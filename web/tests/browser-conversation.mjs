@@ -46,11 +46,14 @@ try {
   );
   assert.ok(dimensions.width <= dimensions.viewportWidth, 'no horizontal document overflow');
   assert.ok(dimensions.timeline > 200);
-  assert.equal(await page.locator('.tool-preview').innerText(), 'local acceptance command');
+  await page.locator('.tool-record > summary').scrollIntoViewIfNeeded();
+  assert.equal(await page.locator('.tool-preview').textContent(), 'local acceptance command');
   await page.locator('.tool-record > summary').click();
+  await page.locator('pre.command').waitFor({ state: 'visible' });
   assert.equal(await page.locator('pre.command').innerText(), 'local acceptance command');
   assert.equal(await page.locator('.original-command').getAttribute('open'), null);
   await page.locator('.original-command > summary').click();
+  await page.locator('.original-command pre').waitFor({ state: 'visible' });
   assert.ok((await page.locator('.original-command pre').innerText()).includes('powershell.exe'));
   await page.locator('.original-command > summary').click();
   assert.ok(
@@ -61,8 +64,7 @@ try {
 
   // Full App pagination and updates, preserving native identity and viewport.
   await page.locator('[data-connection-state="connected"]').waitFor();
-  await page.locator('.timeline').focus();
-  await page.keyboard.press('Home');
+  await page.getByRole('button', { name: '加载更早记录', exact: true }).click();
   await page.getByText('较早的消息 0', { exact: false }).waitFor();
   await page.locator('.timeline').evaluate((node) => {
     node.scrollTop = 600;
@@ -113,9 +115,9 @@ try {
     ),
   );
   await page.getByRole('button', { name: '渲染验收', exact: true }).click();
-  await page.waitForFunction(() =>
-    document.querySelector('.empty')?.textContent.includes('正在读取'),
-  );
+  // A cached view of s1 may remain visible while it is revalidated. The previous
+  // session's body must disappear regardless of whether a loading hint is needed.
+  await page.getByText('另一会话的正文', { exact: true }).waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: '另一会话', exact: true }).click();
   state.delay = false;
   while (state.pending.length) state.pending.shift()();
@@ -130,6 +132,7 @@ try {
   state.blocked = false;
   await page.getByRole('button', { name: '重试读取' }).click();
   await page.locator('.rich-content h1').waitFor();
+  await page.getByRole('alert').waitFor({ state: 'detached' });
   assert.equal(await page.getByRole('alert').count(), 0);
   assert.equal(await page.locator('.project-list select').count(), 0);
   await page.locator('.project-list').getByRole('button', { name: '项目二', exact: true }).click();

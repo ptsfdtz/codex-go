@@ -19,7 +19,11 @@ try {
         Start-Sleep -Milliseconds 200
         $state = (& $Cli status --json | Out-String | ConvertFrom-Json)
     } while (-not $state.running -and [DateTime]::UtcNow -lt $until)
-    if (-not $state.running -or $state.dataDir -ne $testDirectory) {
+    # MSIX may canonicalize LOCALAPPDATA into its private redirect. Compare the
+    # generated certificate through both paths instead of assuming string identity.
+    if (-not $state.running -or -not $state.dataDir -or
+        (Get-FileHash -LiteralPath (Join-Path $state.dataDir 'tls.dpapi')).Hash -ne
+        (Get-FileHash -LiteralPath (Join-Path $testDirectory 'tls.dpapi')).Hash) {
         throw "Logon command did not start: running=$($state.running), expected=$testDirectory, actual=$($state.dataDir)"
     }
     & $Cli stop

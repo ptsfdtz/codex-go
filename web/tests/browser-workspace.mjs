@@ -152,7 +152,10 @@ try {
   await page.getByRole('textbox', { name: '目标', exact: true }).fill('Updated objective');
   await page.getByRole('spinbutton', { name: 'Token 预算' }).fill('2000');
   await page.getByRole('button', { name: '保存目标' }).click();
-  await page.getByText('Updated objective', { exact: true }).waitFor();
+  await page
+    .locator('.goal-objective')
+    .filter({ hasText: /^Updated objective$/ })
+    .waitFor();
   assert.deepEqual(last('sessions.goal.edit'), {
     sessionId: 's1',
     objective: 'Updated objective',

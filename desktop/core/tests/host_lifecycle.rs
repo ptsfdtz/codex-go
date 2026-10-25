@@ -6,8 +6,15 @@ use std::{
     time::{Duration, Instant},
 };
 
+fn executable() -> std::path::PathBuf {
+    // Explicit package acceptance outside low-integrity build workspaces.
+    std::env::var_os("AGENTDECK_TEST_HOST_CLI")
+        .map(Into::into)
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_agentdeck").into())
+}
+
 fn cli(directory: &Path, port: u16, args: &[&str]) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_agentdeck"))
+    let output = Command::new(executable())
         .args(args)
         .env("AGENTDECK_DATA_DIR", directory)
         .env("AGENTDECK_PORT", port.to_string())
@@ -29,7 +36,7 @@ fn cli(directory: &Path, port: u16, args: &[&str]) -> Value {
 struct Cleanup(std::path::PathBuf, u16);
 impl Drop for Cleanup {
     fn drop(&mut self) {
-        let _ = Command::new(env!("CARGO_BIN_EXE_agentdeck"))
+        let _ = Command::new(executable())
             .arg("stop")
             .env("AGENTDECK_DATA_DIR", &self.0)
             .env("AGENTDECK_PORT", self.1.to_string())

@@ -123,8 +123,7 @@ try {
       document.documentElement.dataset.theme = theme;
     }, theme);
     await page.setViewportSize({ width: 390, height: 844 });
-    if (await page.getByRole('button', { name: '收起会话列表', exact: true }).isVisible())
-      await page.getByRole('button', { name: '收起会话列表', exact: true }).click();
+    await page.locator('.shell:not(.with-sidebar)').waitFor();
     await edit.click();
     await input.fill('手机原位编辑\n第二行\n' + 'Long message content '.repeat(150));
     await editor.scrollIntoViewIfNeeded();

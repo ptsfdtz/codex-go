@@ -6,6 +6,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/artifacts/**',
+      '**/target/**',
       'packages/codex-protocol/**',
       'android/**',
       '.tmp/**',
