@@ -245,6 +245,7 @@ export function App() {
   const historyResourceCache = useRef(new Map<string, HistoryEntry>());
   const timeline = useRef<Timeline>(null);
   const historyStarted = useRef(false);
+  const startingSession = useRef<string | undefined>(undefined);
   const historyVersion = useRef(0);
   const refreshRunning = useRef(false);
   const refreshAgain = useRef(false);
@@ -583,7 +584,14 @@ export function App() {
     };
   }, [signedIn, mustChangePassword, scope]);
   useEffect(() => {
-    if (!bridge.current || !session || !connected || historyStarted.current) return;
+    if (
+      !bridge.current ||
+      !session ||
+      !connected ||
+      historyStarted.current ||
+      startingSession.current === session
+    )
+      return;
     let cancelled = false;
     const version = historyVersion.current;
     const epoch = connectionEpoch.current;
@@ -706,7 +714,7 @@ export function App() {
           (current) => running?.turnId || (current === previousManaged ? undefined : current),
         );
       }
-      if (id && includeHistory) {
+      if (id && includeHistory && startingSession.current !== id) {
         readingHistory = true;
         const before = historyRef.current,
           terminal = terminalVersion.current;
@@ -1140,6 +1148,7 @@ export function App() {
       source = draft,
       epoch = connectionEpoch.current;
     let targetKey = sourceKey;
+    let createdSession: string | undefined;
     sending.current = true;
     setBusy(true);
     setError('');
@@ -1153,9 +1162,15 @@ export function App() {
         if (epoch !== connectionEpoch.current) return;
         id = created.session?.sessionId;
         if (!id) throw new Error('电脑没有返回会话标识');
+        createdSession = id;
+        startingSession.current = id;
         targetKey = JSON.stringify([scope, host?.hostId, id]);
         setDrafts((items) => ({ ...items, [targetKey]: source }));
         selectSession(id);
+        // sessions.create confirms a new empty thread. Codex cannot paginate
+        // its rollout until the first turn starts, so don't race that read
+        // against turn.start. Read the first saved page after acknowledgement.
+        setHistoryReady(true);
       }
       if (epoch !== connectionEpoch.current) return;
       if (activeTurn) {
@@ -1197,6 +1212,7 @@ export function App() {
         }
       }
       if (epoch !== connectionEpoch.current) return;
+      if (startingSession.current === createdSession) startingSession.current = undefined;
       setDrafts((items) => {
         const next = { ...items };
         for (const key of new Set([sourceKey, targetKey]))
@@ -1204,10 +1220,11 @@ export function App() {
             next[key] = { ...source, text: '', attachments: [], skills: [] };
         return next;
       });
-      await refresh(false);
+      await refresh(!session && sessionRef.current === id);
     } catch (error) {
       if (epoch === connectionEpoch.current) setError(String(error));
     } finally {
+      if (startingSession.current === createdSession) startingSession.current = undefined;
       sending.current = false;
       if (epoch === connectionEpoch.current) {
         setBusy(false);

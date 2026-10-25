@@ -9,12 +9,16 @@ const key = 'agentdeck.web.receipts.account:device.host';
 let sent: { id: string; action: string }[];
 let receiptStatus = 'pending';
 let responseCode = '';
+let deferTurn = false;
+let finishTurn: (() => void) | undefined;
 beforeEach(() => {
   vi.stubGlobal('navigator', { locks: testLocks() });
   storage.clear();
   sent = [];
   receiptStatus = 'pending';
   responseCode = '';
+  deferTurn = false;
+  finishTurn = undefined;
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
@@ -42,15 +46,16 @@ beforeEach(() => {
                       : null,
                 }
               : {};
-        queueMicrotask(() =>
+        const reply = () =>
           receive(
             JSON.stringify(
               responseCode && request.action === 'turn.start'
                 ? { type: 'error', id: request.id, code: responseCode }
                 : { type: 'response', id: request.id, payload },
             ),
-          ),
-        );
+          );
+        if (deferTurn && request.action === 'turn.start') finishTurn = reply;
+        else queueMicrotask(reply);
       },
     } as unknown as HostSocket;
   });
@@ -60,6 +65,33 @@ async function connect() {
   await bridge.connect({ hostId: 'host', fingerprint: 'pin', credential: 'grant' });
   return bridge;
 }
+it('keeps an in-flight send reserved without reporting its result as unknown', async () => {
+  const bridge = await connect();
+  deferTurn = true;
+  const sending = bridge.request('turn.start');
+  await vi.waitFor(() => expect(finishTurn).toBeTypeOf('function'));
+  expect(JSON.parse(storage.get(key)!)).toHaveLength(1);
+  expect(bridge.awaitingReceipt).toBe(false);
+  await bridge.request('snapshot.get');
+  expect(bridge.awaitingReceipt).toBe(false);
+  finishTurn!();
+  await sending;
+  expect(bridge.awaitingReceipt).toBe(false);
+  expect(storage.has(key)).toBe(false);
+  bridge.close();
+});
+it('changes an in-flight send to unknown when the connection closes', async () => {
+  const bridge = await connect();
+  deferTurn = true;
+  const sending = bridge.request('turn.start');
+  const rejected = expect(sending).rejects.toThrow('closed');
+  await vi.waitFor(() => expect(finishTurn).toBeTypeOf('function'));
+  expect(bridge.awaitingReceipt).toBe(false);
+  bridge.close();
+  await rejected;
+  expect(bridge.awaitingReceipt).toBe(true);
+  expect(JSON.parse(storage.get(key)!)).toHaveLength(1);
+});
 it('retains an unknown outcome and blocks another mutation', async () => {
   const bridge = await connect();
   responseCode = 'OUTCOME_UNKNOWN';

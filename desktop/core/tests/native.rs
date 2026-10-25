@@ -1209,6 +1209,108 @@ async fn missing_rollout_never_replaces_the_original_thread() {
     }
 }
 #[tokio::test]
+async fn fresh_empty_thread_history_waits_for_the_first_rollout_without_hiding_missing_history() {
+    let h = Harness::fixture().await;
+    let session = h.session("FRESH_EMPTY").await;
+    let id = s(&session, "sessionId");
+    let page = h
+        .core
+        .upstream_history_ordered(id, None, 50, "desc")
+        .await
+        .unwrap();
+    assert!(page["data"].as_array().unwrap().is_empty());
+    assert!(page["nextCursor"].is_null());
+    assert!(h.core.latest_upstream_turn(id).await.unwrap()["turn"].is_null());
+    assert_eq!(
+        h.core
+            .upstream_history_ordered(id, Some("old-page"), 50, "desc")
+            .await
+            .unwrap_err()
+            .code,
+        "UPSTREAM_ERROR"
+    );
+    h.core.loaded.lock().unwrap().clear();
+    assert_eq!(
+        h.core
+            .upstream_history(id, None, 50)
+            .await
+            .unwrap_err()
+            .code,
+        "UPSTREAM_ERROR"
+    );
+    h.core
+        .loaded
+        .lock()
+        .unwrap()
+        .insert(s(&session, "upstreamThreadId").into());
+    h.core
+        .store
+        .set_meta(&format!("freshThread:{id}"), "")
+        .unwrap();
+    assert_eq!(
+        h.core
+            .upstream_history(id, None, 50)
+            .await
+            .unwrap_err()
+            .code,
+        "UPSTREAM_ERROR"
+    );
+    assert_eq!(
+        h.core.latest_upstream_turn(id).await.unwrap_err().code,
+        "UPSTREAM_ERROR"
+    );
+    h.core
+        .store
+        .set_meta(
+            &format!("freshThread:{id}"),
+            s(&session, "upstreamThreadId"),
+        )
+        .unwrap();
+    let turn = h.core.start_turn(id, "hello").await.unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    assert!(
+        !h.core.upstream_history(id, None, 50).await.unwrap()["data"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        h.core
+            .store
+            .meta(&format!("freshThread:{id}"))
+            .unwrap()
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        h.core.store.session(id).unwrap()["upstreamThreadId"],
+        session["upstreamThreadId"]
+    );
+}
+#[tokio::test]
+async fn fresh_empty_history_checks_authoritative_turns_and_workspace() {
+    for (title, expected) in [
+        ("FRESH_FALSE_EMPTY", "UPSTREAM_ERROR"),
+        ("FRESH_WRONG_WORKSPACE", "WORKSPACE_FORBIDDEN"),
+    ] {
+        let h = Harness::fixture().await;
+        let session = h.session(title).await;
+        let id = s(&session, "sessionId");
+        assert_eq!(
+            h.core
+                .upstream_history(id, None, 50)
+                .await
+                .unwrap_err()
+                .code,
+            expected
+        );
+        assert_eq!(
+            h.core.latest_upstream_turn(id).await.unwrap_err().code,
+            expected
+        );
+    }
+}
+#[tokio::test]
 async fn writer_conflict_preserves_identity_with_and_without_history() {
     let h = Harness::fixture().await;
     let session = h.session("writer conflict").await;

@@ -6,7 +6,68 @@ use sha2::{Digest, Sha256};
 
 const PAGE_BYTES: usize = 384 * 1024;
 const CHUNK_BYTES: usize = 48 * 1024;
+pub(crate) fn missing_history_source(error: &crate::Error, thread: &str) -> bool {
+    error.code == "UPSTREAM_ERROR"
+        && error.message
+            == format!("invalid paginated history lineage for {thread}: missing source rollout")
+}
 impl Core {
+    // Codex 0.159.2 cannot paginate a newly created thread before its first
+    // rollout is written. Accept an empty page only for our own untouched,
+    // still-loaded thread, confirmed empty by the authoritative public read.
+    // Missing/corrupt history of existing or imported threads remains an error.
+    pub(crate) async fn read_fresh_empty_thread(
+        &self,
+        rpc: &Rpc,
+        session_id: &str,
+        thread_id: &str,
+        root: &std::path::Path,
+    ) -> Result<Option<Value>> {
+        if self
+            .store
+            .meta(&format!("freshThread:{session_id}"))?
+            .as_deref()
+            != Some(thread_id)
+            || !self.loaded.lock().unwrap().contains(thread_id)
+            || !self.store.turns(Some(session_id))?.is_empty()
+        {
+            return Ok(None);
+        }
+        let read = rpc
+            .request(
+                "thread/read",
+                json!({"threadId":thread_id,"includeTurns":true}),
+            )
+            .await?;
+        rpc.validate("v2/ThreadReadResponse", &read)?;
+        let thread = &read["thread"];
+        ensure(
+            thread["id"] == thread_id
+                && paths::equal(
+                    root,
+                    &paths::canonical(std::path::Path::new(s(thread, "cwd")))?,
+                ),
+            "WORKSPACE_FORBIDDEN",
+            "Upstream thread identity or workspace changed",
+        )?;
+        if !thread["turns"].as_array().unwrap().is_empty() {
+            return Ok(None);
+        }
+        let current = self.store.session(session_id)?;
+        ensure(
+            current["upstreamThreadId"] == thread_id
+                && paths::equal(root, &paths::root(&self.store, s(&current, "projectId"))?)
+                && !self.store.thread_deleted(thread_id)?
+                && rpc.alive.load(std::sync::atomic::Ordering::SeqCst)
+                && self.upstream()?.generation == rpc.generation,
+            "SYNC_CONFLICT",
+            "History source changed during empty thread read",
+        )?;
+        if !self.store.turns(Some(session_id))?.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(thread.clone()))
+    }
     pub(crate) async fn history_source(
         &self,
         session_id: &str,
@@ -39,12 +100,35 @@ impl Core {
             "WORKSPACE_FORBIDDEN",
             "Upstream thread identity or workspace changed",
         )?;
-        let page = rpc
+        let result = rpc
             .request(
                 "thread/items/list",
                 json!({"threadId":thread_id,"cursor":cursor,"limit":limit,"sortDirection":direction}),
             )
-            .await?;
+            .await;
+        let page = match result {
+            Ok(page) => page,
+            Err(error)
+                if cursor.is_none()
+                    && missing_history_source(&error, s(&session, "upstreamThreadId")) =>
+            {
+                if self
+                    .read_fresh_empty_thread(
+                        &rpc,
+                        session_id,
+                        s(&session, "upstreamThreadId"),
+                        &root,
+                    )
+                    .await?
+                    .is_some()
+                {
+                    json!({"data":[],"nextCursor":null})
+                } else {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        };
         rpc.validate("v2/ThreadItemsListResponse", &page)?;
         ensure(
             page["data"].as_array().unwrap().len() <= limit,

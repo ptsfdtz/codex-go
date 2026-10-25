@@ -67,6 +67,8 @@ impl Core {
             .lock()
             .unwrap()
             .insert(s(&response["thread"], "id").into());
+        self.store
+            .set_meta(&format!("freshThread:{id}"), s(&response["thread"], "id"))?;
         let session = self.store.session(&id)?;
         self.store
             .append("session.updated", session.clone(), Some(&id), None)?;
@@ -524,6 +526,7 @@ impl Core {
             "INSERT INTO turns VALUES(?,?,NULL,?,?,NULL,NULL)",
             rusqlite::params![turn, session_id, "queued", now()],
         )?;
+        self.store.set_meta(&format!("freshThread:{session_id}"), "")?;
         self.store.status(session_id, Some(&turn), "queued", None)?;
         self.store.append(
             "turn.queued",

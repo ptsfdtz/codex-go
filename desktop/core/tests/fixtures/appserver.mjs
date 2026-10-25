@@ -359,11 +359,25 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       if (threads.get(p.threadId)?.name === 'INDEX_DUPLICATE')
         result.thread.name = 'authoritative title';
       result.thread.turns = [];
+      if (p.includeTurns && threads.get(p.threadId)?.name === 'FRESH_FALSE_EMPTY')
+        result.thread.turns = [clone(samples.turnStart.turn)];
+      if (p.includeTurns && threads.get(p.threadId)?.name === 'FRESH_WRONG_WORKSPACE')
+        result.thread.cwd = join(result.thread.cwd, '..');
       respond({ thread: result.thread });
       return;
     }
     case 'thread/items/list': {
       const thread = threads.get(p.threadId);
+      if (thread?.name?.startsWith('FRESH_') && !thread.turns.size) {
+        send({
+          id: m.id,
+          error: {
+            code: -1,
+            message: `invalid paginated history lineage for ${p.threadId}: missing source rollout`,
+          },
+        });
+        return;
+      }
       if (thread?.name?.startsWith('HISTORY_IMAGE')) {
         const path = join(
           thread.root,
@@ -405,6 +419,19 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       return;
     }
     case 'thread/turns/list':
+      if (
+        threads.get(p.threadId)?.name?.startsWith('FRESH_') &&
+        !threads.get(p.threadId).turns.size
+      ) {
+        send({
+          id: m.id,
+          error: {
+            code: -1,
+            message: `invalid paginated history lineage for ${p.threadId}: missing source rollout`,
+          },
+        });
+        return;
+      }
       respond({
         data: [...(threads.get(p.threadId)?.turns.values() ?? [])]
           .reverse()

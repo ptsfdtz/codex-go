@@ -32,7 +32,10 @@ export class Bridge {
   private mutations = new Set<string>();
   get awaitingReceipt() {
     try {
-      return this.receipts().length > 0;
+      // A request still awaiting its response on this live connection is in
+      // flight, not an unknown outcome. Keep its reservation in storage so
+      // another tab still cannot submit a competing mutation.
+      return this.receipts().some((id) => !this.pending.has(id));
     } catch {
       return true;
     }

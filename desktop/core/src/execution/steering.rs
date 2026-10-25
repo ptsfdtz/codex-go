@@ -152,7 +152,16 @@ impl Core {
             "WORKSPACE_FORBIDDEN",
             "Thread identity or workspace changed",
         )?;
-        let turns = rpc.request("thread/turns/list",json!({"threadId":session["upstreamThreadId"],"limit":1,"sortDirection":"desc","itemsView":"notLoaded"})).await?;
+        let turns = match rpc.request("thread/turns/list",json!({"threadId":session["upstreamThreadId"],"limit":1,"sortDirection":"desc","itemsView":"notLoaded"})).await {
+            Ok(turns) => turns,
+            Err(error) if super::history::missing_history_source(&error, s(&session, "upstreamThreadId")) => {
+                if let Some(thread) = self.read_fresh_empty_thread(&rpc, session_id, s(&session, "upstreamThreadId"), &root).await? {
+                    return Ok(json!({"contractVersion":1,"sessionId":session_id,"upstreamThreadId":session["upstreamThreadId"],"threadStatus":thread["status"]["type"],"turn":null}));
+                }
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
         rpc.validate("v2/ThreadTurnsListResponse", &turns)?;
         let data = turns["data"].as_array().unwrap();
         ensure(
