@@ -5,6 +5,7 @@ use std::{path::Path, sync::Mutex};
 use tokio::sync::broadcast;
 
 pub struct Store {
+    pub(crate) state_directory: std::path::PathBuf,
     db: Mutex<Connection>,
     pub events: broadcast::Sender<Value>,
 }
@@ -17,6 +18,10 @@ impl Store {
         db.execute_batch(include_str!("schema.sql"))?;
         let (events, _) = broadcast::channel(512);
         let store = Self {
+            state_directory: crate::paths::canonical(path)?
+                .parent()
+                .ok_or_else(|| Error::new("CONFIG_ERROR", "Missing state directory"))?
+                .to_path_buf(),
             db: Mutex::new(db),
             events,
         };

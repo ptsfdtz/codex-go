@@ -621,7 +621,11 @@ impl Core {
                 .await
             }
             "sessions.create" => {
-                Ok(json!({"session":self.create_session(s(p,"projectId"),s(p,"title")).await?}))
+                let project = s(p, "projectId");
+                if project == paths::CHAT_PROJECT {
+                    paths::chat_workspace(&self.store)?;
+                }
+                Ok(json!({"session":self.create_session(project,s(p,"title")).await?}))
             }
             "sessions.detail" => Ok(
                 json!({"session":self.store.session(s(p,"sessionId"))?,"turns":self.store.turns(Some(s(p,"sessionId")))?,"events":self.store.history(s(p,"sessionId"),p["before"].as_str(),p["limit"].as_u64().unwrap_or(100) as usize)?}),

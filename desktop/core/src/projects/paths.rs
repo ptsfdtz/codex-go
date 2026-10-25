@@ -4,6 +4,62 @@ use std::{
     fs::File,
     path::{Component, Path, PathBuf},
 };
+// Reserved internal scope, never a caller-supplied filesystem authorization.
+pub const CHAT_PROJECT: &str = "agentdeck-chat";
+
+pub(crate) fn chat_workspace(store: &Store) -> Result<Value> {
+    let path = store.state_directory.join("chat-workspace");
+    if store
+        .query(
+            "SELECT projectId FROM projects WHERE projectId=?",
+            [CHAT_PROJECT],
+        )?
+        .len()
+        == 1
+    {
+        let root = root(store, CHAT_PROJECT)?;
+        ensure(
+            equal(&path, &root),
+            "WORKSPACE_FORBIDDEN",
+            "Unexpected chat directory",
+        )?;
+        return store.project(CHAT_PROJECT);
+    }
+    std::fs::create_dir_all(&path)?;
+    let root = canonical(&path)?;
+    ensure(
+        equal(&path, &root),
+        "WORKSPACE_FORBIDDEN",
+        "Chat directory must not be redirected",
+    )?;
+    let identity = identity(&open_directory(&root)?)?;
+    if let Ok(project) = store.project(CHAT_PROJECT) {
+        ensure(
+            s(&project, "canonicalPath") == root.to_string_lossy()
+                && s(&project, "identity") == identity,
+            "WORKSPACE_FORBIDDEN",
+            "Chat directory changed",
+        )?;
+    } else {
+        store.exec(
+            "INSERT OR IGNORE INTO projects VALUES(?,?,?,?,1,?)",
+            rusqlite::params![
+                CHAT_PROJECT,
+                "普通聊天",
+                root.to_string_lossy(),
+                identity,
+                now()
+            ],
+        )?;
+    }
+    let project = store.project(CHAT_PROJECT)?;
+    ensure(
+        equal(&path, &self::root(store, CHAT_PROJECT)?),
+        "WORKSPACE_FORBIDDEN",
+        "Unexpected chat directory",
+    )?;
+    Ok(project)
+}
 pub fn valid(path: &Path) -> Result<()> {
     let t = path.to_string_lossy();
     ensure(

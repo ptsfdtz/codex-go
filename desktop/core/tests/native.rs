@@ -20,6 +20,62 @@ struct Harness {
     worker: Option<tokio::task::JoinHandle<()>>,
 }
 
+#[tokio::test]
+async fn projectless_chat_uses_owned_workspace_and_preserves_thread_identity() {
+    let h = Harness::fixture().await;
+    assert!(h.core.store.projects().unwrap().is_empty());
+    let create = request(
+        "sessions.create",
+        json!({"projectId":paths::CHAT_PROJECT,"title":"普通聊天"}),
+        "chat-create",
+    );
+    let result = h.core.dispatch(&create, "fixture").await.unwrap();
+    let session = &result["session"];
+    let id = s(session, "sessionId");
+    assert_eq!(session["projectId"], paths::CHAT_PROJECT);
+    let root = paths::root(&h.core.store, paths::CHAT_PROJECT).unwrap();
+    assert_eq!(
+        root,
+        paths::canonical(&h._directory.path().join("chat-workspace")).unwrap()
+    );
+    assert_eq!(h.core.store.projects().unwrap().len(), 1);
+    for (mode, permission) in [
+        ("goal", "workspace"),
+        ("plan", "workspace"),
+        ("default", "full"),
+    ] {
+        let error = h
+            .core
+            .start_turn_composer(id, "hello", None, None, permission, mode, None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "INVALID_REQUEST");
+    }
+    let turn = h.core.start_turn(id, "hello").await.unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    h.core.loaded.lock().unwrap().clear();
+    let turn = h.core.start_turn(id, "hello again").await.unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+    assert_eq!(
+        h.core.store.session(id).unwrap()["upstreamThreadId"],
+        session["upstreamThreadId"]
+    );
+    let reopened = Store::open(&h._directory.path().join("test.db")).unwrap();
+    assert_eq!(
+        reopened.session(id).unwrap()["upstreamThreadId"],
+        session["upstreamThreadId"]
+    );
+    let again = h.core.dispatch(&create, "fixture").await.unwrap();
+    assert_ne!(again["session"]["sessionId"], session["sessionId"]);
+    assert_eq!(h.core.store.projects().unwrap().len(), 1);
+    std::fs::rename(&root, h._directory.path().join("previous-chat-workspace")).unwrap();
+    std::fs::create_dir(&root).unwrap();
+    assert_eq!(
+        h.core.dispatch(&create, "fixture").await.unwrap_err().code,
+        "WORKSPACE_FORBIDDEN"
+    );
+}
+
 #[test]
 fn remote_pairing_pins_account_and_mobile_without_consuming_wrong_scope_invitation() {
     use agentdeck_service::pairing::{Pairing, RemoteIdentity};

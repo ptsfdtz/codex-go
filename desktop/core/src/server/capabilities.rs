@@ -63,6 +63,7 @@ pub fn describe_profile(
     });
     features["multipleDevices"] = Value::Bool(true);
     features["hostUpdateCheck"] = Value::Bool(true);
+    features["projectlessChat"] = Value::Bool(true);
     features["stableTlsIdentity"] = Value::Bool(true);
     features["pairingV2"] = Value::Bool(true);
     features["projectFileBrowser"] = Value::Bool(true);

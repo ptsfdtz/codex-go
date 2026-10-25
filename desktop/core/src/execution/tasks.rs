@@ -32,7 +32,11 @@ impl Core {
         let rpc = self.upstream()?;
         let root = paths::root(&self.store, project)?;
         codex::settings(&rpc, &root).await?;
-        let response=rpc.request("thread/start",json!({"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"}})).await?;
+        let mut params = json!({"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"}});
+        if project == paths::CHAT_PROJECT {
+            params["developerInstructions"] = json!("This is a general conversation, not a coding task. Answer the user's questions directly. There is no user project attached. Do not inspect projects, run commands, edit files, or create tasks unless the user switches to a project conversation.");
+        }
+        let response = rpc.request("thread/start", params).await?;
         rpc.validate("v2/ThreadStartResponse", &response)?;
         codex::checked_thread(&response, &root, self.verified.load(Ordering::SeqCst))?;
         // Publish the initial title to the authoritative thread, not only our index.
@@ -265,6 +269,16 @@ impl Core {
             goal_resume_revision,
         } = options;
         let session = self.store.session(session_id)?;
+        if s(&session, "projectId") == paths::CHAT_PROJECT {
+            ensure(
+                permission_mode == "workspace"
+                    && mode == "default"
+                    && goal_resume_revision.is_none()
+                    && skills.is_none_or(|v| v.as_array().is_some_and(|a| a.is_empty())),
+                "INVALID_REQUEST",
+                "General chat does not support project skills, task modes or full access",
+            )?;
+        }
         ensure(
             session["archived"] != 1,
             "CONFLICT",
