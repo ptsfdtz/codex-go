@@ -2,6 +2,29 @@ import { defineConfig, loadEnv, type Plugin, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 import type { IncomingMessage } from 'node:http';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+function webVersion(): string {
+  const hash = createHash('sha256');
+  const root = fileURLToPath(new URL('.', import.meta.url));
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(join(root, directory), { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else hash.update(path).update(readFileSync(join(root, path)));
+    }
+  };
+  visit('src');
+  visit('public');
+  for (const path of ['index.html', 'package.json', 'vite.config.ts', '../pnpm-lock.yaml'])
+    hash.update(readFileSync(join(root, path)));
+  hash.update(process.env.VITE_BASE_PATH || '/');
+  return hash.digest('hex');
+}
 
 function localRequest(request: IncomingMessage): boolean {
   const host = request.headers.host || '';
@@ -57,6 +80,7 @@ export function cloudProxy(target: string): Plugin {
 }
 
 export default defineConfig(({ command, mode }) => {
+  const version = webVersion();
   const env = loadEnv(mode, fileURLToPath(new URL('.', import.meta.url)), 'VITE_');
   const target = (env.VITE_CLOUD_ORIGIN || 'https://agent.ptsfdtz.top').replace(/\/$/, '');
   if (command === 'serve' && mode === 'cloud-dev') {
@@ -67,9 +91,20 @@ export default defineConfig(({ command, mode }) => {
       );
   }
   return {
+    define: { __AGENTDECK_WEB_VERSION__: JSON.stringify(version) },
     base: process.env.VITE_BASE_PATH || '/',
     plugins: [
       react(),
+      {
+        name: 'web-update-manifest',
+        generateBundle() {
+          this.emitFile({
+            type: 'asset',
+            fileName: 'version.json',
+            source: JSON.stringify({ version }) + '\n',
+          });
+        },
+      },
       ...(command === 'serve' && mode === 'cloud-dev' ? [cloudProxy(target)] : []),
     ],
     resolve: {

@@ -83,6 +83,7 @@ import type { Packet } from './transport/bridge';
 import { TaskProgress } from './features/TaskProgress';
 import { MessageEditor } from './features/MessageEditor';
 import { InstallApp } from './features/InstallApp';
+import { AppUpdates } from './features/AppUpdates';
 
 type HistoryPage = {
   data?: HistoryEntry[];
@@ -2275,6 +2276,7 @@ export function App() {
                     {settingsTab === 'general' && (
                       <div className="panel-stack">
                         <InstallApp />
+                        <AppUpdates />
                         <label>
                           外观
                           <select
