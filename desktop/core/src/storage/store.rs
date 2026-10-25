@@ -248,6 +248,7 @@ impl Store {
             let mut db = self.db.lock().unwrap();
             let tx = db.transaction()?;
             let mut indexed = 0;
+            let mut content_sessions = Vec::new();
             for entry in entries {
                 let deleted: bool = tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM thread_deletions WHERE threadId=?)",
@@ -286,7 +287,7 @@ impl Store {
                             // Require the complete intervening journal so retention
                             // gaps or any control/metadata event still reject it.
                             let (count, changes): (i64, i64) = tx.query_row(
-                                "SELECT COUNT(*),COALESCE(SUM(CASE WHEN action='session.tokenUsage' OR (action='turn.progress' AND (json_extract(payloadJson,'$.method') LIKE 'item/%' OR json_extract(payloadJson,'$.method')='turn/plan/updated')) THEN 0 ELSE 1 END),0) FROM events WHERE sessionId=? AND seq>? AND seq<=?",
+                                "SELECT COUNT(*),COALESCE(SUM(CASE WHEN action IN ('session.tokenUsage','session.contentChanged') OR (action='turn.progress' AND (json_extract(payloadJson,'$.method') LIKE 'item/%' OR json_extract(payloadJson,'$.method')='turn/plan/updated')) THEN 0 ELSE 1 END),0) FROM events WHERE sessionId=? AND seq>? AND seq<=?",
                                 params![s(existing, "sessionId"), before, current],
                                 |row| Ok((row.get(0)?, row.get(1)?)),
                             )?;
@@ -304,6 +305,9 @@ impl Store {
                     )?;
                     let id = s(existing, "sessionId").to_owned();
                     let active = Self::query_db(&tx, "SELECT turnId FROM turns WHERE sessionId=? AND status IN ('queued','running','waitingApproval','unknown') LIMIT 1", [&id])?;
+                    if active.is_empty() && entry.updated_at.as_str() > s(existing, "updatedAt") {
+                        content_sessions.push(id.clone());
+                    }
                     let status = if !active.is_empty() {
                         s(existing, "status")
                     } else if unknown {
@@ -344,7 +348,7 @@ impl Store {
             }
             let seq:i64 = tx.query_row("INSERT INTO event_sequences(sessionKey,seq) VALUES('',1) ON CONFLICT(sessionKey) DO UPDATE SET seq=seq+1 RETURNING seq", [], |r| r.get(0))?;
             let ts = now();
-            let payload = json!({"indexed":indexed});
+            let payload = json!({"indexed":indexed,"contentSessionIds":content_sessions});
             tx.execute("INSERT INTO events(sessionId,turnId,seq,action,payloadJson,ts) VALUES(NULL,NULL,?,'sessions.synced',?,?)",params![seq,payload.to_string(),ts])?;
             let event_id = tx.last_insert_rowid().to_string();
             tx.commit()?;

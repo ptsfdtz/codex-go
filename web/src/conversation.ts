@@ -5,18 +5,26 @@ export function finalItem(entry?: HistoryEntry): boolean {
   return ['completed', 'failed', 'declined', 'interrupted'].includes(String(entry?.item?.status));
 }
 
-// A read can finish after an item/completed event. Preserve that event's final
-// value, including a shorter answer, instead of reverting to the read's snapshot.
+// A read can finish after streaming or completion events. Preserve concurrent
+// updates, including a shorter final answer, instead of reverting to the snapshot.
 export function mergeHistorySnapshot(
   current: HistoryEntry[],
   incoming: HistoryEntry[],
   atRequest: HistoryEntry[],
 ): HistoryEntry[] {
   const before = new Map(atRequest.map((entry) => [historyKey(entry), entry]));
-  const completed = current.filter(
-    (entry) => finalItem(entry) && before.get(historyKey(entry)) !== entry,
+  const concurrent = current.filter((entry) => before.get(historyKey(entry)) !== entry);
+  const previous = new Map(current.map((entry) => [historyKey(entry), entry]));
+  const merged = mergeHistory(mergeHistory(current, incoming, 'latest'), concurrent, 'latest').map(
+    (entry) => {
+      const old = previous.get(historyKey(entry));
+      return old && JSON.stringify(old) === JSON.stringify(entry) ? old : entry;
+    },
   );
-  return mergeHistory(mergeHistory(current, incoming, 'latest'), completed, 'latest');
+  return merged.length === current.length &&
+    merged.every((entry, index) => entry === current[index])
+    ? current
+    : merged;
 }
 
 export function historyError(error: unknown): string {

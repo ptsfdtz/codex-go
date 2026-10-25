@@ -122,6 +122,7 @@ pub struct Rpc {
     stop: tokio::sync::Notify,
     pub generation: String,
     project_revision: AtomicU64,
+    pub(crate) codex_home: Mutex<Option<std::path::PathBuf>>,
 }
 impl Rpc {
     pub fn project_revision(&self) -> u64 {
@@ -176,6 +177,7 @@ impl Rpc {
             stop: tokio::sync::Notify::new(),
             generation: crate::uid("generation"),
             project_revision: AtomicU64::new(0),
+            codex_home: Mutex::new(None),
         });
         let read_rpc = rpc.clone();
         let read_events = events.clone();
@@ -367,6 +369,7 @@ mod tests {
             stop: tokio::sync::Notify::new(),
             generation: "read-race-test".into(),
             project_revision: AtomicU64::new(0),
+            codex_home: Mutex::new(None),
         });
         let peer = rpc.clone();
         let message = message.to_owned();

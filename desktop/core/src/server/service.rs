@@ -442,12 +442,18 @@ impl Core {
                     return Err(e);
                 }
                 failures = 0;
+                let source_task = {
+                    let owner = self.clone();
+                    let source_rpc = rpc.clone();
+                    tokio::spawn(async move { owner.watch_source_changes(source_rpc).await })
+                };
                 let index_task = {
                     let owner = self.clone();
                     let index_rpc = rpc.clone();
                     tokio::spawn(async move { owner.watch_thread_index(index_rpc).await })
                 };
                 let _ = event_task.await;
+                source_task.abort(); let _ = source_task.await;
                 index_task.abort(); let _ = index_task.await;
                 Ok(())
             }

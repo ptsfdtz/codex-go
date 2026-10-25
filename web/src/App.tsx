@@ -416,7 +416,7 @@ export function App() {
         void connection
           .request('system.hello', { client: 'AgentDeck Web/0.3.0', version: 1 })
           .then(() => connection.reconcile())
-          .then(() => scheduleRefresh())
+          .then(() => scheduleRefresh(true))
           .catch(() => connection.close());
     };
     const offline = () => bridge.current?.close();
@@ -754,7 +754,7 @@ export function App() {
       const needsHistory = refreshNeedsHistory.current;
       refreshNeedsHistory.current = false;
       void refresh(needsHistory).catch(() => undefined);
-    }, 1000);
+    }, 250);
   }
 
   async function connect(next: Host) {
@@ -892,6 +892,19 @@ export function App() {
           setHistoryCursor(undefined);
           scheduleRefresh(true);
         }
+        if (selected && packet.action === 'session.contentChanged') {
+          // A different local runtime saved content. Read one latest page and
+          // merge by native identity, retaining older pages and reading position.
+          // Hidden pages catch up on visibilitychange instead of doing disk reads.
+          if (document.visibilityState === 'visible') scheduleRefresh(true);
+        }
+        if (
+          packet.action === 'sessions.synced' &&
+          Array.isArray(payload.contentSessionIds) &&
+          payload.contentSessionIds.includes(sessionRef.current) &&
+          document.visibilityState === 'visible'
+        )
+          scheduleRefresh(true);
         if (changesDirectory(packet)) scheduleRefresh(false);
       }
       setHistory(entries, true);

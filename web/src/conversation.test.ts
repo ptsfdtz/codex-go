@@ -106,3 +106,16 @@ it('explains authorization failures without suggesting a successful empty conver
   expect(historyError(new Error('WORKSPACE_FORBIDDEN: changed'))).toContain('核对目录');
   expect(historyError(new Error('network timeout'))).toContain('network timeout');
 });
+it('preserves deltas that arrive while a source refresh is reading', () => {
+  const before = applyProgress([], progress('item/agentMessage/delta', { delta: 'first' }));
+  const live = applyProgress(before, progress('item/agentMessage/delta', { delta: ' second' }));
+  expect(mergeHistorySnapshot(live, before, before)).toBe(live);
+  expect(live[0]?.item?.text).toBe('first second');
+});
+it('reuses an unchanged source page so file notifications do not rerender messages', () => {
+  const before = applyProgress([], progress('item/agentMessage/delta', { delta: 'saved' }));
+  expect(mergeHistorySnapshot(before, structuredClone(before), before)).toBe(before);
+  const updated = structuredClone(before);
+  updated[0]!.item!.text = 'saved again';
+  expect(mergeHistorySnapshot(before, updated, before)[0]?.item?.text).toBe('saved again');
+});

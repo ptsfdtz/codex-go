@@ -571,6 +571,47 @@ mod tests {
             .is_empty());
     }
     #[test]
+    fn index_refresh_identifies_only_newer_idle_content_for_old_event_clients() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(&directory.path().join("test.db")).unwrap();
+        let project = paths::add_local(&store, directory.path()).unwrap();
+        let mut entry = ThreadIndexEntry {
+            project_id: s(&project, "projectId").to_owned(),
+            thread_id: "external-content".into(),
+            title: "original".into(),
+            created_at: "2026-10-01T00:00:00.000Z".into(),
+            updated_at: "2026-10-01T00:00:00.000Z".into(),
+            archived: false,
+            metadata: json!({"status":{"type":"idle"}}),
+            expected_updated_at: None,
+            expected_event_seq: None,
+        };
+        store
+            .apply_thread_index(std::slice::from_ref(&entry))
+            .unwrap();
+        let session = store.sessions(None).unwrap().remove(0);
+        let mut events = store.events.subscribe();
+        entry.expected_updated_at = Some(entry.updated_at.clone());
+        entry.expected_event_seq = Some(0);
+        entry.updated_at = "2026-10-01T00:00:01.000Z".into();
+        store
+            .apply_thread_index(std::slice::from_ref(&entry))
+            .unwrap();
+        assert_eq!(
+            events.try_recv().unwrap()["payload"]["contentSessionIds"],
+            json!([session["sessionId"]])
+        );
+        entry.expected_updated_at = Some(entry.updated_at.clone());
+        store
+            .apply_thread_index(std::slice::from_ref(&entry))
+            .unwrap();
+        assert_eq!(
+            events.try_recv().unwrap()["payload"]["contentSessionIds"],
+            json!([])
+        );
+    }
+
+    #[test]
     fn streaming_output_allows_index_sync_but_journal_gaps_do_not() {
         let directory = tempfile::tempdir().unwrap();
         let store = crate::store::Store::open(&directory.path().join("test.db")).unwrap();
@@ -605,6 +646,9 @@ mod tests {
         }
         store
             .append("session.tokenUsage", json!({}), Some(id), None)
+            .unwrap();
+        store
+            .append("session.contentChanged", json!({}), Some(id), None)
             .unwrap();
         assert_eq!(
             store

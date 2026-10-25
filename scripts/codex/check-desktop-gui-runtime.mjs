@@ -94,20 +94,23 @@ if (desktopPluginStartup) {
   const mainEntry = entries[mainNames[0]];
   const start = 8 + archive.readUInt32LE(4) + Number(mainEntry.offset);
   const main = archive.subarray(start, start + mainEntry.size).toString();
-  if (
-    !main.includes('plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled=') ||
-    !main.includes('plugins.code-review@openai-bundled.mcp_servers.code-review.enabled=')
-  )
+  if (!main.includes('plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled='))
     throw new Error('Unknown desktop plugin startup configuration');
 }
+// Match the complete isolation hook, allowing only minifier symbol changes.
+const isolationHook = source.match(
+  /function (\w+)\(\{appDataPath:e,buildFlavor:t,env:n\}\)\{let r=n\.CODEX_ELECTRON_USER_DATA_PATH\?\.trim\(\);if\(r\)return\(0,g\.resolve\)\(r\);/,
+);
+const isolationCall =
+  isolationHook &&
+  source.indexOf(
+    'y.app.setPath(`userData`,' + isolationHook[1] + '({appDataPath:y.app.getPath(`appData`),',
+  );
 if (
-  !source.includes(
-    'function kD({appDataPath:e,buildFlavor:t,env:n}){let r=n.CODEX_ELECTRON_USER_DATA_PATH?.trim();if(r)return(0,g.resolve)(r);',
-  ) ||
-  !source.includes(
-    'y.app.setPath(`userData`,kD({appDataPath:y.app.getPath(`appData`),buildFlavor:pA,env:process.env}))',
-  ) ||
-  source.indexOf('y.app.setPath(`userData`,kD(') > source.indexOf('var hA=DD(')
+  !isolationHook ||
+  isolationCall < 0 ||
+  !source.slice(isolationCall, isolationCall + 220).includes('env:process.env}))') ||
+  !/;var \w+=\w+\(\{isMacOS:/.test(source.slice(isolationCall, isolationCall + 700))
 )
   throw new Error('Unverified user-data isolation; GUI not launched');
 
@@ -909,6 +912,8 @@ try {
         for (const code of startupCodes) if (text.includes(code)) startupDiagnostics.add(code);
         if (text.includes('Desktop bootstrap failed to start the main app'))
           report.checks.desktopBootstrapFailed = true;
+        if (text.includes('Desktop startup policy read failed'))
+          report.checks.desktopStartupPolicyFailed = true;
       }
     }
   }

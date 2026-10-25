@@ -96,6 +96,7 @@ impl Rpc {
             stop: tokio::sync::Notify::new(),
             generation: crate::uid("generation"),
             project_revision: AtomicU64::new(0),
+            codex_home: Mutex::new(None),
         });
         let owner = rpc.clone();
         tokio::spawn(async move {

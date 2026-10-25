@@ -157,6 +157,13 @@ pub(crate) fn check_runtime_identity_for(
 async fn initialize_checked(rpc: &Arc<Rpc>, attached: bool) -> Result<()> {
     let v=rpc.request("initialize",json!({"clientInfo":{"name":"agentdeck","title":"AgentDeck","version":"0.3.0"},"capabilities":{"experimentalApi":true,"requestAttestation":false}})).await?;
     rpc.validate("v1/InitializeResponse", &v)?;
+    let source_home = PathBuf::from(s(&v, "codexHome"));
+    ensure(
+        source_home.is_absolute(),
+        "UPSTREAM_PROTOCOL_ERROR",
+        "Codex returned a relative state directory",
+    )?;
+    *rpc.codex_home.lock().unwrap() = Some(source_home);
     if attached {
         check_runtime_identity_for(crate::s(&v, "userAgent"), rpc.protocol())?;
     }
