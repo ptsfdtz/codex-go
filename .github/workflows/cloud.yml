@@ -48,7 +48,7 @@ jobs:
           node-version-file: .node-version
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @agentdeck/desktop exec playwright install --with-deps chromium
+      - run: pnpm --filter @agentdeck/web exec playwright install --with-deps chromium
       - name: Install matching PostgreSQL client
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg

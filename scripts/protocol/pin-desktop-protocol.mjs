@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { isStandaloneSchema } from '../lib/protocol-schema-files.mjs';
 
 const version = '0.163.0-alpha.10.2';
 const [executable, mode, ...extra] = process.argv.slice(2);
@@ -57,7 +58,7 @@ const walk = (directory, prefix = '') =>
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     return entry.isDirectory()
       ? walk(join(directory, entry.name), path)
-      : entry.name.endsWith('.json')
+      : isStandaloneSchema(entry.name)
         ? [path]
         : [];
   });

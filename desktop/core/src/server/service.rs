@@ -28,6 +28,7 @@ pub struct Core {
     pub tls: Certificate,
     pub rpc: RwLock<Option<Arc<Rpc>>>,
     pub ready: AtomicBool,
+    pub runtime_error: RwLock<Option<Value>>,
     pub attached_runtime: AtomicBool,
     runtime_protocol: RwLock<crate::rpc::ProtocolVersion>,
     pub verified: AtomicBool,
@@ -77,6 +78,7 @@ impl Core {
             tls,
             rpc: RwLock::new(None),
             ready: AtomicBool::new(false),
+            runtime_error: RwLock::new(None),
             attached_runtime: AtomicBool::new(false),
             runtime_protocol: RwLock::new(crate::rpc::ProtocolVersion::Managed),
             verified: AtomicBool::new(false),
@@ -150,6 +152,10 @@ impl Core {
         }
         let mut state = json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.projects()?,"devices":devices,"approvals":approvals,"pairings":self.pairing.pending_all(),"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() });
         state["cloud"] = json!(self.cloud.status());
+        state["runtimeError"] = json!(*self.runtime_error.read().unwrap());
+        state["hostId"] = json!(self.store.meta("hostId")?);
+        state["activeTurns"] = json!(self.store.turns(None)?.len());
+        state["servicePid"] = json!(std::process::id());
         Ok(state)
     }
     pub fn publish(&self) {
@@ -422,6 +428,7 @@ impl Core {
                     rpc.validate("v2/ConfigReadResponse", &config)?;
                     codex::check_policy(&config)?;
                     self.ready.store(true, Ordering::SeqCst);
+                    *self.runtime_error.write().unwrap() = None;
                     self.reconcile(&rpc).await?;
                     self.store
                         .append("host.status", json!({"status":"connected"}), None, None)?;
@@ -450,6 +457,8 @@ impl Core {
             }
             if let Err(e) = result {
                 if e.code != "CONFIG_RESTART" {
+                    *self.runtime_error.write().unwrap() =
+                        Some(json!({"code":e.code,"message":e.message}));
                     self.emit(
                         "error",
                         json!({"message":format!("Codex 尚未就绪（{}），正在重试",e.code)}),

@@ -13,6 +13,7 @@ mod storage;
 pub use storage::store;
 mod authorization;
 pub use authorization::security;
+pub mod host;
 use serde_json::{json, Value};
 use std::fmt;
 

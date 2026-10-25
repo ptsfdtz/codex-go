@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { compareContracts, contract, methodContracts } from '../lib/protocol-contracts.mjs';
+import { isStandaloneSchema } from '../lib/protocol-schema-files.mjs';
 
 const [executable, destination] = process.argv.slice(2);
 if (!executable || !isAbsolute(executable) || !destination) {
@@ -38,7 +39,7 @@ const fingerprint = (directory) => {
   const walk = (path) =>
     readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
       const full = join(path, entry.name);
-      return entry.isDirectory() ? walk(full) : entry.name.endsWith('.json') ? [full] : [];
+      return entry.isDirectory() ? walk(full) : isStandaloneSchema(entry.name) ? [full] : [];
     });
   return Object.fromEntries(
     walk(directory)
@@ -122,6 +123,7 @@ try {
         ]),
       ),
       schemas: {
+        scope: 'standalone-message-schemas',
         count: Object.keys(files).length,
         added: Object.keys(files).filter((file) => !Object.hasOwn(pinnedFiles, file)),
         changed: Object.keys(files).filter(

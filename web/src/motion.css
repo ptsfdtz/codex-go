@@ -1,0 +1,344 @@
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-press: 120ms;
+  --motion-fast: 160ms;
+  --motion-panel: 200ms;
+  --motion-drawer: 280ms;
+}
+
+/* The wrapper keeps exiting surfaces mounted without changing their layout. */
+.motion-presence {
+  display: contents;
+}
+.motion-presence[data-motion='closed'] {
+  pointer-events: none;
+}
+.follow-latest {
+  position: sticky;
+  bottom: 12px;
+  z-index: 2;
+  width: fit-content;
+}
+button,
+input,
+select,
+textarea,
+.session-row,
+.composer,
+.resource-chip,
+.dot {
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease,
+    transform var(--motion-press) var(--ease-out);
+}
+button:active:not(:disabled):not(.menu-scrim):not(.sidebar-scrim) {
+  transform: scale(0.97);
+}
+.send-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+button:disabled {
+  transform: none;
+}
+.rail-heading > svg:last-child,
+.workspace-title > svg,
+.tool-record > summary > svg:last-child {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.message-actions,
+.session-row > .icon-button {
+  transition: opacity var(--motion-fast) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .send-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  .composer:focus-within {
+    border-color: var(--muted);
+  }
+}
+
+/* An absolute rail avoids animating width. The conversation uses a small FLIP. */
+.sidebar {
+  display: flex;
+  position: absolute;
+  z-index: 30;
+  top: env(safe-area-inset-top);
+  left: env(safe-area-inset-left);
+  height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  visibility: hidden;
+  opacity: 0;
+  transform: translateX(-100%);
+  transition:
+    transform var(--motion-drawer) var(--ease-drawer),
+    opacity var(--motion-panel) var(--ease-out),
+    visibility 0s var(--motion-drawer);
+}
+.with-sidebar .sidebar {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+.with-sidebar .conversation {
+  margin-left: 280px;
+}
+.sidebar-scrim {
+  opacity: 0;
+  transition: opacity var(--motion-panel) var(--ease-out);
+}
+.motion-collapse {
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    height var(--motion-panel) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+}
+.motion-collapse > div {
+  display: flow-root;
+}
+.motion-collapse[data-open='true'] {
+  opacity: 1;
+}
+
+.popover {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+.top-menu {
+  transform-origin: top right;
+}
+.composer-menu {
+  transform-origin: bottom left;
+}
+.motion-presence[data-motion='closed'] > .popover {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
+}
+.motion-presence[data-motion='closed'] > .composer-menu {
+  transform: translateY(4px) scale(0.97);
+}
+.modal {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: center;
+  transition:
+    opacity var(--motion-panel) var(--ease-out),
+    transform var(--motion-panel) var(--ease-out);
+}
+.modal::backdrop {
+  background: rgb(0 0 0 / 44%);
+  backdrop-filter: none;
+  transition: background-color var(--motion-panel) ease;
+}
+.modal[data-motion='closed'] {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+}
+.modal[data-motion='closed']::backdrop {
+  background: transparent;
+}
+.settings-body,
+.card.login,
+.empty,
+.saved-image img,
+.connection-error,
+.history-error,
+.connection-recovery,
+.task-progress,
+.approval,
+.follow-latest,
+.resource-chip,
+.goal-composer,
+.context-usage {
+  opacity: 1;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+.motion-presence[data-motion='closed']
+  > :is(.connection-error, .history-error, .connection-recovery, .task-progress, .follow-latest) {
+  opacity: 0;
+}
+.task-progress .dot,
+.connection[data-connection-state='connecting'] .dot,
+.connection[data-connection-state='retrying'] .dot,
+.connection[data-connection-state='syncing'] .dot {
+  animation: breathe 1.5s ease-in-out infinite;
+}
+/* Native details keep native keyboard semantics; supported browsers animate both directions. */
+@supports (interpolate-size: allow-keywords) {
+  details {
+    interpolate-size: allow-keywords;
+  }
+  details::details-content {
+    height: 0;
+    opacity: 0;
+    overflow: clip;
+    transition:
+      height var(--motion-panel) var(--ease-out),
+      opacity var(--motion-fast) var(--ease-out),
+      content-visibility var(--motion-panel) allow-discrete;
+  }
+  details[open]::details-content {
+    height: auto;
+    opacity: 1;
+  }
+}
+
+@starting-style {
+  .with-sidebar .sidebar {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  .popover {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  .composer-menu {
+    transform: translateY(4px) scale(0.97);
+  }
+  .modal {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  .modal::backdrop {
+    background: transparent;
+  }
+  .card.login {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  .settings-body,
+  .empty,
+  .saved-image img,
+  .connection-error,
+  .history-error,
+  .connection-recovery,
+  .task-progress,
+  .approval,
+  .follow-latest,
+  .resource-chip,
+  .goal-composer,
+  .context-usage {
+    opacity: 0;
+  }
+}
+@media (min-width: 761px) and (max-width: 1000px) {
+  .with-sidebar .conversation {
+    margin-left: 248px;
+  }
+}
+@media (max-width: 760px) {
+  .with-sidebar .conversation {
+    margin-left: 0;
+  }
+  .sidebar {
+    z-index: 32;
+  }
+  .sidebar-scrim,
+  .sidebar-scrim.visible {
+    display: block;
+    position: fixed;
+    inset: 0 0 0 min(300px, 85vw);
+    z-index: 31;
+    border: 0;
+    border-radius: 0;
+    background: #0007;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity var(--motion-panel) var(--ease-out),
+      visibility 0s var(--motion-panel);
+  }
+  .sidebar-scrim.visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  *::backdrop {
+    animation: none !important;
+    transition-property: opacity, color, background-color, border-color !important;
+    transition-duration: 100ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .popover,
+  .modal,
+  .sidebar,
+  .card.login,
+  button:active:not(:disabled):not(.menu-scrim):not(.sidebar-scrim),
+  .motion-presence[data-motion='closed'] > .popover,
+  .modal[data-motion='closed'] {
+    transform: none;
+  }
+  @starting-style {
+    .popover,
+    .composer-menu,
+    .modal,
+    .with-sidebar .sidebar,
+    .card.login {
+      transform: none;
+    }
+  }
+}
+/* Shortcuts and keyboard navigation remain immediate. */
+@supports (appearance: base-select) {
+  select::picker(select) {
+    opacity: 0;
+    transform: scale(0.97);
+    transform-origin: top center;
+    transition:
+      opacity var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out),
+      display var(--motion-fast) allow-discrete,
+      overlay var(--motion-fast) allow-discrete;
+  }
+  select:open::picker(select) {
+    opacity: 1;
+    transform: scale(1);
+  }
+  @starting-style {
+    select:open::picker(select) {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    select::picker(select),
+    select:open::picker(select) {
+      transform: none;
+      transition: opacity 100ms ease;
+    }
+    @starting-style {
+      select:open::picker(select) {
+        transform: none;
+      }
+    }
+  }
+  :root[data-motion-input='keyboard'] select::picker(select) {
+    transition: none;
+  }
+}
+:root[data-motion-input='keyboard'] *,
+:root[data-motion-input='keyboard'] *::backdrop {
+  transition: none !important;
+  animation: none !important;
+}

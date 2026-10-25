@@ -19,11 +19,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Require tags to belong to main
+      - name: Require tags to belong to release
         if: github.ref_type == 'tag'
         run: |
-          git fetch origin main
-          git merge-base --is-ancestor "${GITHUB_SHA}^{commit}" origin/main
+          git fetch origin release
+          git merge-base --is-ancestor "${GITHUB_SHA}^{commit}" origin/release
 
   build:
     needs: validate
@@ -59,14 +59,20 @@ jobs:
             flags=(--latest)
           fi
           cd release-assets
-          test -s AgentDeck-windows-x64-setup.exe
-          test -s AgentDeck-windows-x64-portable.zip
+          version="host-${SOURCE_SHA}"
+          test -s "releases/$version/agentdeck-windows-x64.zip"
+          test -s "releases/$version/agentdeck-linux-x64.tar.gz"
+          test -s "releases/$version/agentdeck-linux-arm64.tar.gz"
           test -s AgentDeck-android-debug.apk
-          sha256sum *.exe *.zip *.apk > SHA256SUMS.txt
+          tar -czf agentdeck-downloads.tar.gz install.sh install.ps1 install-codex.ps1 releases
+          cp releases/"$version"/*.zip releases/"$version"/*.tar.gz .
+          sha256sum *.zip *.tar.gz *.apk > SHA256SUMS.txt
           cat > ../release-notes.md <<EOF
           AgentDeck 阶段测试版，尚未完成 Codex 全功能迁移。
 
-          - Windows x64：setup.exe 安装器或 portable.zip 便携包，需要 Windows 11、WebView2、Git。
+          - Windows x64：Host ZIP 与 start.ps1，终端登录和后台运行，不需要 WebView2。
+          - Linux x64 / ARM64：Host tar.gz；执行任务仍需配置经过验证的本机 Codex 运行时。ARM64 构建基于 Ubuntu 24.04。
+          - agentdeck-downloads.tar.gz：可部署到同域静态下载目录，包含安装脚本、版本包和校验值。
           - Android：debug.apk 可直接安装，使用 CI 临时 debug 签名；不同构建或本地安装之间可能无法覆盖升级，卸载会清除本地数据。正式签名尚未配置。
           - SHA256SUMS.txt：下载文件的 SHA-256 校验值。
 
@@ -75,5 +81,5 @@ jobs:
           EOF
           gh release create "$tag" --target "$SOURCE_SHA" "${flags[@]}" \
             --title "AgentDeck $tag" --notes-file ../release-notes.md \
-            AgentDeck-windows-x64-setup.exe AgentDeck-windows-x64-portable.zip \
+            agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-downloads.tar.gz \
             AgentDeck-android-debug.apk SHA256SUMS.txt

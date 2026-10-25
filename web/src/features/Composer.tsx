@@ -1,3 +1,4 @@
+import { MotionPresence } from '../motion';
 import { useRef, useState, type ReactNode } from 'react';
 import {
   ArrowUp,
@@ -135,105 +136,107 @@ export function Composer({
               disabled={disabled || busy}
               onClick={() => setMenu(!menu)}
             />
-            {menu && (
-              <>
-                <button
-                  className="menu-scrim"
-                  aria-label="关闭添加菜单"
-                  onClick={() => setMenu(false)}
-                />
-                <div className="popover composer-menu" role="menu">
-                  {supports('attachments') && (
+            <MotionPresence>
+              {menu && (
+                <>
+                  <button
+                    className="menu-scrim"
+                    aria-label="关闭添加菜单"
+                    onClick={() => setMenu(false)}
+                  />
+                  <div className="popover composer-menu" role="menu">
+                    {supports('attachments') && (
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMenu(false);
+                          file.current?.click();
+                        }}
+                      >
+                        <Paperclip size={17} />
+                        添加文件或图片
+                      </button>
+                    )}
+                    {supports('composerSkills') && (
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMenu(false);
+                          onPanel('skills');
+                        }}
+                      >
+                        <Sparkles size={17} />
+                        技能
+                      </button>
+                    )}
+                    {supports('projectFileBrowser') && (
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMenu(false);
+                          onPanel('files');
+                        }}
+                      >
+                        <FolderOpen size={17} />
+                        浏览项目文件
+                      </button>
+                    )}
+                    <hr />
+                    {[
+                      ['default', 'Default'],
+                      ['plan', 'Plan'],
+                      ['goal', 'Goal'],
+                    ]
+                      .filter(([id]) => id === 'default' || supports(id!))
+                      .map(([id, name]) => (
+                        <button
+                          role="menuitem"
+                          key={id}
+                          onClick={() => {
+                            onChange({ mode: id! });
+                            setMenu(false);
+                          }}
+                        >
+                          {id === 'goal' ? <Target size={17} /> : <ListChecks size={17} />}
+                          <span>{name}</span>
+                          {draft.mode === id && <span>✓</span>}
+                        </button>
+                      ))}
+                    <hr />
                     <button
                       role="menuitem"
                       onClick={() => {
+                        setExpanded(true);
                         setMenu(false);
-                        file.current?.click();
                       }}
                     >
-                      <Paperclip size={17} />
-                      添加文件或图片
+                      <Expand size={17} />
+                      展开编辑器
                     </button>
-                  )}
-                  {supports('composerSkills') && (
                     <button
                       role="menuitem"
                       onClick={() => {
                         setMenu(false);
-                        onPanel('skills');
+                        onNew();
                       }}
                     >
-                      <Sparkles size={17} />
-                      技能
+                      <MessageSquarePlus size={17} />
+                      新对话
                     </button>
-                  )}
-                  {supports('projectFileBrowser') && (
                     <button
                       role="menuitem"
                       onClick={() => {
                         setMenu(false);
-                        onPanel('files');
+                        onPanel('projects');
                       }}
                     >
                       <FolderOpen size={17} />
-                      浏览项目文件
+                      授权电脑项目
                     </button>
-                  )}
-                  <hr />
-                  {[
-                    ['default', 'Default'],
-                    ['plan', 'Plan'],
-                    ['goal', 'Goal'],
-                  ]
-                    .filter(([id]) => id === 'default' || supports(id!))
-                    .map(([id, name]) => (
-                      <button
-                        role="menuitem"
-                        key={id}
-                        onClick={() => {
-                          onChange({ mode: id! });
-                          setMenu(false);
-                        }}
-                      >
-                        {id === 'goal' ? <Target size={17} /> : <ListChecks size={17} />}
-                        <span>{name}</span>
-                        {draft.mode === id && <span>✓</span>}
-                      </button>
-                    ))}
-                  <hr />
-                  <button
-                    role="menuitem"
-                    onClick={() => {
-                      setExpanded(true);
-                      setMenu(false);
-                    }}
-                  >
-                    <Expand size={17} />
-                    展开编辑器
-                  </button>
-                  <button
-                    role="menuitem"
-                    onClick={() => {
-                      setMenu(false);
-                      onNew();
-                    }}
-                  >
-                    <MessageSquarePlus size={17} />
-                    新对话
-                  </button>
-                  <button
-                    role="menuitem"
-                    onClick={() => {
-                      setMenu(false);
-                      onPanel('projects');
-                    }}
-                  >
-                    <FolderOpen size={17} />
-                    授权电脑项目
-                  </button>
-                </div>
-              </>
-            )}
+                  </div>
+                </>
+              )}
+            </MotionPresence>
           </div>
           {draft.mode !== 'default' && (
             <button className="mode-chip" onClick={() => onChange({ mode: 'default' })}>
@@ -331,12 +334,14 @@ export function Composer({
           ? 'Codex is working. Add to the queue or steer the current task.'
           : 'Codex can make mistakes. Review changes before you run them.'}
       </p>
-      {expanded && (
-        <Modal title="编辑消息" wide onClose={() => setExpanded(false)}>
-          {editor}
-          <button onClick={() => setExpanded(false)}>完成</button>
-        </Modal>
-      )}
+      <MotionPresence>
+        {expanded && (
+          <Modal title="编辑消息" wide onClose={() => setExpanded(false)}>
+            {editor}
+            <button onClick={() => setExpanded(false)}>完成</button>
+          </Modal>
+        )}
+      </MotionPresence>
     </div>
   );
 }

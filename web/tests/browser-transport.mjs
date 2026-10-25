@@ -8,7 +8,7 @@ import { X509CertificateGenerator } from '@peculiar/x509';
 import { WebSocketServer } from 'ws';
 import { createServer as createViteServer } from 'vite';
 
-const require = createRequire(new URL('../../desktop/package.json', import.meta.url));
+const require = createRequire(new URL('../../web/package.json', import.meta.url));
 const { chromium } = require('@playwright/test');
 const keys = await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
   'sign',

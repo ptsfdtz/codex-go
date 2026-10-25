@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { startConversationServer } from './conversation-server.mjs';
-const require = createRequire(new URL('../../desktop/package.json', import.meta.url));
+const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('@playwright/test');
 const directory = '.tmp/web-workspace';
 mkdirSync(directory, { recursive: true });
@@ -44,6 +44,20 @@ try {
   await page.getByLabel('外观', { exact: true }).selectOption('dark');
   await close();
   await page.screenshot({ path: join(directory, 'desktop-dark.png') });
+  assert.equal(await page.locator('.sidebar input').count(), 0, 'no persistent search field');
+  await page.getByRole('button', { name: '搜索会话', exact: true }).click();
+  const sessionSearch = page.getByRole('textbox', { name: '搜索会话', exact: true });
+  await sessionSearch.fill('no-matching-session-abcxyz');
+  await page.getByText('没有匹配的会话', { exact: true }).waitFor();
+  await sessionSearch.fill('');
+  assert.ok(await page.locator('dialog .search-result').count(), 'search lists real sessions');
+  await close();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await page.keyboard.press('Control+k');
+  await sessionSearch.waitFor();
+  assert.equal(await sessionSearch.evaluate((node) => node === document.activeElement), true);
+  await close();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
   await menu('浏览项目文件');
   await page.getByRole('button', { name: 'README.md 14 B' }).click();
   await page.getByText('Authorized current file preview', { exact: true }).waitFor();
@@ -184,12 +198,19 @@ try {
       questions: [{ title: 'Choose a season', options: ['Spring', 'Autumn'] }],
     },
   });
-  await page.evaluate(() =>
-    window.dispatchEvent(
-      new CustomEvent('test-packet', {
-        detail: { type: 'event', sessionId: 's1', action: 'session.updated' },
-      }),
-    ),
+  await page.evaluate(
+    (entry) =>
+      window.dispatchEvent(
+        new CustomEvent('test-packet', {
+          detail: {
+            type: 'event',
+            sessionId: 's1',
+            action: 'turn.progress',
+            payload: { method: 'item/completed', turnId: entry.turnId, item: entry.item },
+          },
+        }),
+      ),
+    state.extra.at(-1),
   );
   await page
     .locator('.async-questions')

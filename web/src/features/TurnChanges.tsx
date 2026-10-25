@@ -1,3 +1,4 @@
+import { MotionPresence } from '../motion';
 import { useState } from 'react';
 import { FileDiff } from 'lucide-react';
 import type { HistoryEntry } from '../history';
@@ -52,24 +53,26 @@ export function TurnChanges({ entries, partial }: { entries: HistoryEntry[]; par
           {partial && <small>仅含已加载步骤的累计改动</small>}
         </div>
       )}
-      {open && file && (
-        <Modal title="本轮文件改动" wide onClose={() => setOpen(false)}>
-          <p className="muted">已加载步骤累计，不是当前工作区净差异。</p>
-          <div className="changes-tabs">
-            {files.map((f) => (
-              <button
-                key={f.path}
-                onClick={() => setSelected(f.path)}
-                className={f.path === file.path ? 'selected' : ''}
-              >
-                {f.path.split(/[\\/]/).pop()}
-              </button>
-            ))}
-          </div>
-          <p>{file.path}</p>
-          <DiffText text={file.diffs.join('\n\n')} />
-        </Modal>
-      )}
+      <MotionPresence>
+        {open && file && (
+          <Modal title="本轮文件改动" wide onClose={() => setOpen(false)}>
+            <p className="muted">已加载步骤累计，不是当前工作区净差异。</p>
+            <div className="changes-tabs">
+              {files.map((f) => (
+                <button
+                  key={f.path}
+                  onClick={() => setSelected(f.path)}
+                  className={f.path === file.path ? 'selected' : ''}
+                >
+                  {f.path.split(/[\\/]/).pop()}
+                </button>
+              ))}
+            </div>
+            <p>{file.path}</p>
+            <DiffText text={file.diffs.join('\n\n')} />
+          </Modal>
+        )}
+      </MotionPresence>
     </>
   );
 }

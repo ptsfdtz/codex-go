@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { startConversationServer } from './conversation-server.mjs';
-const require = createRequire(new URL('../../desktop/package.json', import.meta.url));
+const require = createRequire(new URL('../package.json', import.meta.url));
 const { chromium } = require('@playwright/test');
 const directory = process.env.AGENTDECK_WEB_TEST_DIR || '.tmp/web-conversation';
 mkdirSync(directory, { recursive: true });
@@ -60,11 +60,14 @@ try {
   await page.screenshot({ path: join(directory, 'desktop.png') });
 
   // Full App pagination and updates, preserving native identity and viewport.
-  await page.getByRole('button', { name: '加载更早记录' }).click();
+  await page.locator('[data-connection-state="connected"]').waitFor();
+  await page.locator('.timeline').focus();
+  await page.keyboard.press('Home');
   await page.getByText('较早的消息 0', { exact: false }).waitFor();
   await page.locator('.timeline').evaluate((node) => {
     node.scrollTop = 600;
   });
+  await page.waitForTimeout(150);
   const anchor = await page.locator('[data-history-key]').first().boundingBox();
   state.extra.push({
     turnId: 'native-turn',
@@ -102,6 +105,13 @@ try {
   await page.getByRole('button', { name: '另一会话', exact: true }).click();
   await page.getByText('另一会话的正文', { exact: true }).waitFor();
   state.delay = true;
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent('test-packet', {
+        detail: { type: 'event', sessionId: 's1', action: 'session.updated' },
+      }),
+    ),
+  );
   await page.getByRole('button', { name: '渲染验收', exact: true }).click();
   await page.waitForFunction(() =>
     document.querySelector('.empty')?.textContent.includes('正在读取'),

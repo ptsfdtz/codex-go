@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-const require = createRequire(new URL('../../desktop/package.json', import.meta.url));
+const require = createRequire(new URL('../../web/package.json', import.meta.url));
 const { chromium, expect } = require('@playwright/test');
 const origin = process.env.AGENTDECK_TEST_BROWSER_ORIGIN;
 if (!origin) throw new Error('Run this through the PostgreSQL admin browser acceptance test.');

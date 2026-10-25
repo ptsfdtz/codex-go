@@ -1,5 +1,4 @@
 packages:
-  - desktop
   - web
 allowBuilds:
   esbuild: true

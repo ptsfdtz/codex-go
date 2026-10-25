@@ -1,217 +1,372 @@
-//! Cross-platform command line entry point for the native AgentDeck host.
-//! The long-running implementation remains in `agentdeck-service`; this
-//! wrapper keeps login and foreground service startup usable without a GUI.
-use agentdeck_service::management;
+// User-facing CLI for the persistent, headless AgentDeck host.
+use agentdeck_service::{
+    host::{self, Config},
+    management,
+};
 use serde_json::{json, Value};
-use std::{env, path::PathBuf, process::Command};
+use std::io::Write;
+type AnyResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn usage() {
-    eprintln!(
-        "AgentDeck CLI\n\n  agentdeck login --origin https://cloud.example --username NAME\n  agentdeck serve --runtime-ws ws://127.0.0.1:4500 --runtime-token-file PATH [--protocol VERSION] [--sandbox-verified]\n  agentdeck status | stop\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck pair create [--lan ADDRESS] | pending | approve REQUEST_ID CODE | reject REQUEST_ID\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck password\n  agentdeck logout [--unbind]\n"
-    );
+    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH] [--sandbox-verified]\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
 }
-
-fn value(args: &[String], name: &str) -> Option<String> {
-    args.windows(2)
-        .find(|pair| pair[0] == name)
-        .map(|pair| pair[1].clone())
+fn value(args: &[String], name: &str) -> AnyResult<Option<String>> {
+    if let Some(index) = args.iter().position(|v| v == name) {
+        return Ok(Some(
+            args.get(index + 1)
+                .filter(|v| !v.starts_with("--"))
+                .ok_or_else(|| format!("{name} requires a value"))?
+                .clone(),
+        ));
+    }
+    Ok(None)
 }
-
-fn data_dir() -> PathBuf {
-    if let Some(path) = env::var_os("AGENTDECK_DATA_DIR") {
-        return PathBuf::from(path);
-    }
-    if let Some(path) = env::var_os("XDG_STATE_HOME") {
-        return PathBuf::from(path).join("agentdeck");
-    }
-    if let Some(path) = env::var_os("HOME") {
-        return PathBuf::from(path).join(".local/state/agentdeck");
-    }
-    PathBuf::from(".agentdeck")
+fn flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|v| v == name)
 }
-
-fn service_binary() -> PathBuf {
-    if let Some(path) = env::var_os("AGENTDECK_SERVICE_BIN") {
-        return PathBuf::from(path);
-    }
-    env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(PathBuf::from))
-        .map(|path| {
-            path.join(if cfg!(windows) {
-                "agentdeck-service.exe"
-            } else {
-                "agentdeck-service"
-            })
-        })
-        .unwrap_or_else(|| PathBuf::from("agentdeck-service"))
+fn print(value: &Value) -> AnyResult<()> {
+    println!("{}", serde_json::to_string_pretty(value)?);
+    Ok(())
 }
-
-fn spawn_service(extra: &[(&str, &str)]) -> std::io::Result<std::process::ExitStatus> {
-    let data = data_dir();
-    std::fs::create_dir_all(&data)?;
-    let mut command = Command::new(service_binary());
-    command.env("AGENTDECK_DATA_DIR", &data);
-    for (key, value) in extra {
-        command.env(key, value);
-    }
-    if extra.contains(&("AGENTDECK_HEADLESS", "1")) {
-        command.stdin(std::process::Stdio::null());
-        // systemd must supervise and signal the daemon itself, not a wrapper.
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            return Err(command.exec());
-        }
-    }
-    command.status()
+async fn state() -> AnyResult<Value> {
+    management::call(&host::data_dir()?, json!({"action":"state"})).await
 }
-
-async fn login(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let origin = value(args, "--origin").ok_or("--origin is required")?;
-    let username = value(args, "--username").ok_or("--username is required")?;
-    let password = match value(args, "--password") {
-        Some(password) => password,
-        None => rpassword::prompt_password("Cloud password: ")?,
-    };
-    if data_dir().join(management::ENDPOINT_FILE).is_file() {
-        let result = management::call(
-            &data_dir(),
-            json!({"action":"cloud.login","origin":origin,"username":username,"password":password}),
-        )
-        .await?;
-        println!("{}", serde_json::to_string_pretty(&result)?);
+async fn ensure_host() -> AnyResult<()> {
+    if state().await.is_ok() {
         return Ok(());
     }
-    let data = data_dir();
-    std::fs::create_dir_all(&data)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700))?;
-    }
-    let mut password_file = tempfile::NamedTempFile::new_in(&data)?;
-    use std::io::Write;
-    password_file.write_all(password.as_bytes())?;
-    password_file.flush()?;
-    let password_path = password_file.path().to_string_lossy().into_owned();
-    let status = spawn_service(&[
-        ("AGENTDECK_LOGIN_ONLY", "1"),
-        ("AGENTDECK_CLOUD_ORIGIN", &origin),
-        ("AGENTDECK_CLOUD_USERNAME", &username),
-        ("AGENTDECK_CLOUD_PASSWORD_FILE", &password_path),
-    ]);
-    drop(password_file);
-    let status = status?;
-    if status.success() {
-        println!("Cloud login saved in {}", data_dir().display());
-        Ok(())
-    } else {
-        Err(format!("agentdeck-service exited with {status}").into())
-    }
-}
-
-fn serve(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let endpoint = value(args, "--runtime-ws").ok_or("--runtime-ws is required")?;
-    let token_file =
-        value(args, "--runtime-token-file").ok_or("--runtime-token-file is required")?;
-    let protocol = value(args, "--protocol")
-        .or_else(|| env::var("AGENTDECK_RUNTIME_PROTOCOL_VERSION").ok())
-        .unwrap_or_else(|| "0.159.2".into());
-    let mut envs = vec![
-        ("AGENTDECK_HEADLESS", "1"),
-        ("AGENTDECK_RUNTIME_WS_URL", endpoint.as_str()),
-        ("AGENTDECK_RUNTIME_TOKEN_FILE", token_file.as_str()),
-        ("AGENTDECK_RUNTIME_PROTOCOL_VERSION", protocol.as_str()),
-    ];
-    if args.iter().any(|arg| arg == "--sandbox-verified") {
-        envs.push(("AGENTDECK_LINUX_SANDBOX_VERIFIED", "1"));
-    }
-    let status = spawn_service(&envs)?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("agentdeck-service exited with {status}").into())
-    }
-}
-
-async fn manage(args: &[String], command: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let operand = |index: usize| args.get(index).cloned().ok_or("Missing command argument");
-    let action: Value = match command {
-        "status" => json!({"action":"state"}),
-        "stop" => json!({"action":"stop"}),
-        "password" => {
-            let old = rpassword::prompt_password("Current cloud password: ")?;
-            let new = rpassword::prompt_password("New cloud password: ")?;
-            let confirmation = rpassword::prompt_password("Confirm new password: ")?;
-            if new != confirmation {
-                return Err("Passwords do not match".into());
-            }
-            json!({"action":"cloud.password","oldPassword":old,"newPassword":new})
+    host::background()?;
+    for _ in 0..100 {
+        if state().await.is_ok() {
+            return Ok(());
         }
-        "logout" => json!({"action":"cloud.logout","unbind":args.iter().any(|v|v=="--unbind")}),
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Err("Host control is unavailable; run agentdeck logs / doctor. An existing GUI may need to be stopped first.".into())
+}
+fn configure(args: &[String]) -> AnyResult<()> {
+    if host::running()? {
+        return Err("Stop the host before changing its persistent runtime configuration".into());
+    }
+    let mut config = Config::load()?;
+    if let Some(ws) = value(args, "--runtime-ws")? {
+        config.runtime_ws = Some(ws);
+    }
+    if let Some(file) = value(args, "--runtime-token-file")? {
+        config.runtime_token_file = Some(std::fs::canonicalize(file)?);
+    }
+    if let Some(protocol) = value(args, "--protocol")? {
+        config.protocol = Some(protocol);
+    }
+    if let Some(file) = value(args, "--codex-exe")? {
+        config.codex_exe = Some(std::fs::canonicalize(file)?);
+    }
+    if flag(args, "--sandbox-verified") {
+        config.sandbox_verified = true;
+    }
+    config.save()?;
+    println!(
+        "Host settings saved in {}",
+        host::data_dir()?.join("host.json").display()
+    );
+    Ok(())
+}
+async fn password(old: Option<String>) -> AnyResult<String> {
+    let old = match old {
+        Some(v) => v,
+        None => rpassword::prompt_password("Current AgentDeck password: ")?,
+    };
+    let new = rpassword::prompt_password("New AgentDeck password: ")?;
+    let confirmation = rpassword::prompt_password("Confirm new password: ")?;
+    if new != confirmation {
+        return Err("Passwords do not match".into());
+    }
+    management::call(
+        &host::data_dir()?,
+        json!({"action":"cloud.password","oldPassword":old,"newPassword":new}),
+    )
+    .await?;
+    println!("Password changed. Login again with the new password.");
+    Ok(new)
+}
+async fn login(args: &[String]) -> AnyResult<()> {
+    if flag(args, "--password") {
+        return Err("Passwords must be entered at the hidden terminal prompt".into());
+    }
+    let origin = value(args, "--origin")?.unwrap_or_else(|| "https://agent.ptsfdtz.top".into());
+    agentdeck_service::cloud::validate_origin(&origin)?;
+    let username = value(args, "--username")?.ok_or("--username is required")?;
+    ensure_host().await?;
+    let secret = rpassword::prompt_password("AgentDeck password: ")?;
+    management::call(
+        &host::data_dir()?,
+        json!({"action":"cloud.login","origin":origin,"username":username,"password":secret}),
+    )
+    .await?;
+    if state().await?["cloud"]["mustChangePassword"] == true {
+        println!("The temporary password must be changed.");
+        let changed = password(Some(secret)).await?;
+        management::call(
+            &host::data_dir()?,
+            json!({"action":"cloud.login","origin":origin,"username":username,"password":changed}),
+        )
+        .await?;
+    }
+    println!("Signed in. Credentials and computer identity are saved.\nAuthorize a project with agentdeck projects add PATH. Enable logon startup with agentdeck autostart enable.");
+    Ok(())
+}
+async fn manage(command: &str, args: &[String]) -> AnyResult<()> {
+    let operand = |index: usize| args.get(index).cloned().ok_or("Missing command argument");
+    let action = match command {
+        "logout" => json!({"action":"cloud.logout","unbind":flag(args,"--unbind")}),
         "projects" => match operand(0)?.as_str() {
             "list" => json!({"action":"state"}),
-            "add" => {
-                let path = std::fs::canonicalize(operand(1)?)?;
-                json!({"action":"project.add","path":path})
-            }
+            "add" => json!({"action":"project.add","path":dunce::canonicalize(operand(1)?)?}),
             "remove" => json!({"action":"project.remove","projectId":operand(1)?}),
             "sync" => json!({"action":"workspaces.sync"}),
             _ => return Err("Use projects list/add/remove/sync".into()),
-        },
-        "pair" => match operand(0)?.as_str() {
-            "create" => {
-                let address = value(args, "--lan");
-                json!({"action":"pair.invite","address":address.as_deref().unwrap_or("127.0.0.1"),"version":if address.is_some(){2}else{3}})
-            }
-            "pending" => json!({"action":"state"}),
-            "approve" => {
-                json!({"action":"pair.approve","requestId":operand(1)?,"code":operand(2)?})
-            }
-            "reject" => json!({"action":"pair.confirm","requestId":operand(1)?,"approve":false}),
-            _ => return Err("Use pair create/pending/approve/reject".into()),
         },
         "devices" => match operand(0)?.as_str() {
             "list" => json!({"action":"state"}),
             "revoke" => json!({"action":"device.revoke","deviceId":operand(1)?}),
             _ => return Err("Use devices list/revoke".into()),
         },
-        _ => return Err("Unsupported management command".into()),
+        "approvals" => {
+            let decision = operand(0)?;
+            if decision == "list" {
+                json!({"action":"state"})
+            } else {
+                if !["approve", "reject", "cancel"].contains(&decision.as_str()) {
+                    return Err("Use approvals list/approve/reject/cancel".into());
+                }
+                let id = operand(1)?;
+                let snapshot = state().await?;
+                let row = snapshot["approvals"]
+                    .as_array()
+                    .and_then(|rows| rows.iter().find(|row| row["approvalId"] == id))
+                    .ok_or("Approval not found; inspect approvals list")?;
+                json!({"action":"approval.decide","approvalId":id,"sessionId":row["sessionId"],"turnId":row["turnId"],"decision":decision})
+            }
+        }
+        // Legacy commands remain compatible but are omitted from account-login help.
+        "pair" => match operand(0)?.as_str() {
+            "pending" => json!({"action":"state"}),
+            "create" => {
+                let address = value(args, "--lan")?;
+                json!({"action":"pair.invite","address":address.as_deref().unwrap_or("127.0.0.1"),"version":if address.is_some(){2}else{3}})
+            }
+            "approve" => {
+                json!({"action":"pair.approve","requestId":operand(1)?,"code":operand(2)?})
+            }
+            "reject" => json!({"action":"pair.confirm","requestId":operand(1)?,"approve":false}),
+            _ => return Err("Use pair create/pending/approve/reject".into()),
+        },
+        _ => return Err("Unsupported command".into()),
     };
-    let mut result = management::call(&data_dir(), action).await?;
+    let mut result = management::call(&host::data_dir()?, action).await?;
     if matches!(args.first().map(String::as_str), Some("list" | "pending")) {
         result = result[match command {
             "projects" => "projects",
             "devices" => "devices",
+            "approvals" => "approvals",
             _ => "pairings",
         }]
         .take();
     }
-    println!("{}", serde_json::to_string_pretty(&result)?);
+    print(&result)
+}
+async fn status(args: &[String]) -> AnyResult<()> {
+    let snapshot = state().await;
+    if flag(args, "--json") {
+        return print(&match snapshot {
+            Ok(mut s) => {
+                s["running"] = json!(true);
+                s["dataDir"] = json!(host::data_dir()?);
+                s
+            }
+            Err(_) => {
+                json!({"running":false,"supervisorRunning":host::running()?,"dataDir":host::data_dir()?})
+            }
+        });
+    }
+    match snapshot {
+        Ok(s) => {
+            println!(
+                "Host: running\nData: {}\nAccount: {}\nCloud: {}\nCodex: {}\nProjects: {}",
+                host::data_dir()?.display(),
+                s["cloud"]["username"]
+                    .as_str()
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or("not signed in"),
+                if s["cloud"]["online"] == true {
+                    "online"
+                } else {
+                    "offline"
+                },
+                if s["codexReady"] == true {
+                    "ready"
+                } else {
+                    "not ready"
+                },
+                s["projects"].as_array().map_or(0, Vec::len)
+            );
+            if !s["runtimeError"].is_null() {
+                print(&s["runtimeError"])?;
+            }
+        }
+        Err(_) => println!(
+            "Host: {}\nData: {}",
+            if host::running()? {
+                "starting or unavailable; inspect logs"
+            } else {
+                "stopped"
+            },
+            host::data_dir()?.display()
+        ),
+    }
     Ok(())
 }
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = env::args().skip(1).collect::<Vec<_>>();
-    let command = args.first().cloned().unwrap_or_else(|| "help".into());
-    if !args.is_empty() {
-        args.remove(0);
+async fn logs(args: &[String]) -> AnyResult<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let path = host::data_dir()?.join("host.log");
+    let mut offset = 0;
+    loop {
+        if let Ok(mut file) = std::fs::File::open(&path) {
+            let len = file.metadata()?.len();
+            if len < offset {
+                offset = 0;
+            }
+            file.seek(SeekFrom::Start(offset))?;
+            let mut content = String::new();
+            file.read_to_string(&mut content)?;
+            print!("{content}");
+            std::io::stdout().flush()?;
+            offset = len;
+        } else if !flag(args, "--follow") {
+            println!("No host log yet.");
+        }
+        if !flag(args, "--follow") {
+            break;
+        }
+        tokio::select! {_=tokio::signal::ctrl_c()=>break,_=tokio::time::sleep(std::time::Duration::from_secs(1))=>{}}
     }
-    match command.as_str() {
-        "login" => login(&args).await,
-        "serve" => serve(&args),
-        "status" | "stop" | "projects" | "pair" | "devices" | "password" | "logout" => {
-            manage(&args, &command).await
+    Ok(())
+}
+async fn run() -> AnyResult<()> {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    let (command, args) = match args.split_first() {
+        Some((c, a)) => (c.as_str(), a),
+        None => ("help", &[][..]),
+    };
+    match command {
+        "--version" | "version" => {
+            println!("AgentDeck Host {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
         }
         "help" | "--help" | "-h" => {
             usage();
             Ok(())
         }
-        _ => {
-            usage();
-            Err(format!("unknown command: {command}").into())
+        "login" => login(args).await,
+        "start" => {
+            ensure_host().await?;
+            status(&[]).await
         }
+        "stop" => {
+            host::stop().await?;
+            println!("Host stopped. Autostart setting retained.");
+            Ok(())
+        }
+        "restart" => {
+            host::stop().await?;
+            ensure_host().await?;
+            status(&[]).await
+        }
+        "status" => status(args).await,
+        "configure" => configure(args),
+        "serve" => {
+            if !args.is_empty() {
+                configure(args)?;
+            }
+            let mut command = host::service_command()?;
+            command
+                .env("AGENTDECK_HEADLESS", "1")
+                .stdin(std::process::Stdio::null());
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                Err(command.exec().into())
+            }
+            #[cfg(not(unix))]
+            {
+                if command.status()?.success() {
+                    Ok(())
+                } else {
+                    Err("Service failed; inspect logs".into())
+                }
+            }
+        }
+        "host-run" => {
+            host::supervise().await?;
+            Ok(())
+        }
+        "autostart" => {
+            println!(
+                "{}",
+                host::autostart::configure(args.first().map(String::as_str).unwrap_or("status"))?
+            );
+            Ok(())
+        }
+        "password" => {
+            ensure_host().await?;
+            password(None).await.map(|_| ())
+        }
+        "logout" | "projects" | "devices" | "approvals" | "pair" => {
+            ensure_host().await?;
+            manage(command, args).await
+        }
+        "logs" => logs(args).await,
+        "doctor" => {
+            println!(
+                "Platform: {} / {}\nData: {}\nService: {}",
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                host::data_dir()?.display(),
+                std::env::current_exe()?
+                    .parent()
+                    .unwrap()
+                    .join(if cfg!(windows) {
+                        "agentdeck-service.exe"
+                    } else {
+                        "agentdeck-service"
+                    })
+                    .display()
+            );
+            let config = Config::load()?;
+            println!(
+                "Runtime: {}",
+                if config.runtime_ws.is_some() {
+                    "attached (configured)"
+                } else {
+                    "managed Codex"
+                }
+            );
+            if let Ok(exe) = agentdeck_service::codex::find() {
+                println!("Codex: {}", exe.display());
+            } else {
+                println!(
+                    "Codex not found. Install the supported CLI or use configure --codex-exe PATH."
+                );
+            }
+            status(&[]).await
+        }
+        _ => Err(format!("Unknown command: {command}; use agentdeck help").into()),
+    }
+}
+#[tokio::main]
+async fn main() {
+    if let Err(e) = run().await {
+        eprintln!("{}", agentdeck_service::redact(&e.to_string()));
+        std::process::exit(1);
     }
 }

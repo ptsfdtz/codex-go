@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { IconButton } from '../ui';
+import { Collapse } from '../motion';
 import type { Host, Project, Session } from '../workspace';
 export function Sidebar({
   sessions,
@@ -30,8 +31,7 @@ export function Sidebar({
   onSettings,
   onComputers,
   onManage,
-  search,
-  setSearch,
+  onSearch,
   filter,
   setFilter,
 }: {
@@ -49,8 +49,7 @@ export function Sidebar({
   onSettings: () => void;
   onComputers: () => void;
   onManage: (session: Session) => void;
-  search: string;
-  setSearch: (s: string) => void;
+  onSearch: () => void;
   filter: string;
   setFilter: (s: string) => void;
 }) {
@@ -61,10 +60,6 @@ export function Sidebar({
     .filter(
       (s) =>
         (!projectId || s.projectId === projectId) &&
-        (!search ||
-          `${s.title} ${projects.find((p) => p.projectId === s.projectId)?.name}`
-            .toLowerCase()
-            .includes(search.toLowerCase())) &&
         (filter === 'archived'
           ? s.archived === 1
           : s.archived !== 1 &&
@@ -88,7 +83,7 @@ export function Sidebar({
         aria-label="关闭侧栏"
         onClick={onClose}
       />
-      <aside className={`sidebar ${open ? 'open' : ''}`}>
+      <aside className={`sidebar ${open ? 'open' : ''}`} inert={!open} aria-hidden={!open}>
         <div className="sidebar-brand">
           <strong>AgentDeck</strong>
           <IconButton icon={Menu} label="收起会话列表" onClick={onClose} />
@@ -98,28 +93,19 @@ export function Sidebar({
             <MessageSquarePlus size={19} />
             新对话
           </button>
-          <IconButton
-            icon={Search}
-            label="搜索会话"
-            onClick={() => document.getElementById('session-search')?.focus()}
-          />
+          <IconButton icon={Search} label="搜索会话" onClick={onSearch} />
         </div>
-        <label className="quiet-search">
-          <Search size={16} />
-          <input
-            id="session-search"
-            placeholder="搜索会话"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
         <div className="sidebar-scroll">
-          <button className="rail-heading" onClick={() => setExpanded(!expanded)}>
+          <button
+            className="rail-heading"
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+          >
             <Folder size={18} />
             <span>项目</span>
             <ChevronDown size={15} className={expanded ? 'rotate' : ''} />
           </button>
-          {expanded && (
+          <Collapse open={expanded}>
             <div className="project-list">
               <select
                 aria-label="项目"
@@ -144,7 +130,7 @@ export function Sidebar({
                 </button>
               ))}
             </div>
-          )}
+          </Collapse>
           <div className="rail-heading">
             <span>
               {filter === 'archived'
@@ -162,7 +148,7 @@ export function Sidebar({
               onClick={() => setFilters(!filters)}
             />
           </div>
-          {filters && (
+          <Collapse open={filters}>
             <div className="rail-filters">
               <select
                 aria-label="会话筛选"
@@ -185,7 +171,7 @@ export function Sidebar({
                 <option value="title">按名称</option>
               </select>
             </div>
-          )}
+          </Collapse>
           <nav aria-label="会话">
             {visible.map((s) => (
               <div
@@ -204,9 +190,7 @@ export function Sidebar({
                 />
               </div>
             ))}
-            {!visible.length && (
-              <p className="rail-empty">{search ? '没有匹配的会话' : '暂无会话'}</p>
-            )}
+            {!visible.length && <p className="rail-empty">暂无会话</p>}
           </nav>
         </div>
         <div className="sidebar-footer">

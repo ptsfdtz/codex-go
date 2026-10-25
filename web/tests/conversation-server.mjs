@@ -51,6 +51,12 @@ export async function startConversationServer({
     running: false,
     receiptStatus: 'pending',
     approvals: [],
+    events: [],
+    replayGap: false,
+    delayReplay: false,
+    replayPending: [],
+    delayOlder: false,
+    olderPending: [],
   };
   const featureNames =
     'executionConfigView projectSkillCatalog composerSkills accountSummary sessionManagement sessionHistoryRevert sessionResourceRevision sessionSkillRevision sessionHistoryEvents sessionFork sessionForkAtTurn activeTurnSteering latestUpstreamTurn activeTurnInterruption threadIndexRefresh upstreamHistoryPages sessionImages modelSelection plan goal attachments gitRead projectFileBrowser projectTextPreview projectFileReference skillConfiguration outputDefaultsWrite modelDefaultsWrite sessionCompaction sessionGoalResume sessionGoalClear sessionGoalEdit sessionGoalView nativeQueue nativeQueueStart nativeQueueAttachments nativeQueueSkills nativeQueueResourceEdit'.split(
@@ -98,6 +104,7 @@ export async function startConversationServer({
             };
             if (action === 'snapshot.get')
               body = {
+                cursor: state.events.at(-1)?.eventId || '0',
                 projects: actual
                   ? [{ projectId: 'p1', name: 'outsourced-projects' }]
                   : [
@@ -161,7 +168,25 @@ export async function startConversationServer({
               };
             else if (action === 'system.hello') body = { hostId: 'local' };
             else if (action === '__test_receipt') body = { status: state.receiptStatus };
-            else if (action === 'sessions.history') {
+            else if (action === 'events.replay') {
+              if (state.replayGap)
+                return send({ error: 'REPLAY_GAP: event retention expired' }, 409);
+              const events = state.events
+                .filter((event) => BigInt(event.eventId) > BigInt(payload.cursor))
+                .slice(0, payload.limit);
+              body = {
+                events,
+                cursor: events.at(-1)?.eventId || payload.cursor,
+                more: state.events.some(
+                  (event) =>
+                    BigInt(event.eventId) > BigInt(events.at(-1)?.eventId || payload.cursor),
+                ),
+              };
+              if (state.delayReplay) {
+                state.replayPending.push(() => send(body));
+                return;
+              }
+            } else if (action === 'sessions.history') {
               if (state.blocked && payload.sessionId === 's1')
                 return send(
                   { error: 'WORKSPACE_FORBIDDEN: Upstream thread identity or workspace changed' },
@@ -184,6 +209,10 @@ export async function startConversationServer({
                       : { data: [...latest, ...state.extra].reverse(), nextCursor: 'older-page' };
               if (state.delay) {
                 state.pending.push(() => send(body));
+                return;
+              }
+              if (payload.cursor && state.delayOlder) {
+                state.olderPending.push(() => send(body));
                 return;
               }
             } else if (!actual && action === 'sessions.detail')
@@ -211,8 +240,11 @@ export async function startConversationServer({
               body = { goal: state.goal, goalRevision: 'a'.repeat(64) };
             else if (!actual && action === 'turn.latest')
               body = {
-                threadStatus: 'idle',
-                turn: { upstreamTurnId: 'native-turn', status: 'completed' },
+                threadStatus: state.running ? 'active' : 'idle',
+                turn: {
+                  upstreamTurnId: 'native-turn',
+                  status: state.running ? 'inProgress' : 'completed',
+                },
               };
             else if (!actual && action === 'turn.active')
               body = {

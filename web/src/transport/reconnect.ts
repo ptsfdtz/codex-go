@@ -1,4 +1,28 @@
-export type ConnectionState = 'connecting' | 'connected' | 'retrying' | 'blocked' | 'stopped';
+export type ConnectionState =
+  | 'connecting'
+  | 'syncing'
+  | 'connected'
+  | 'retrying'
+  | 'blocked'
+  | 'stopped';
+
+export const connectionLabels: Record<ConnectionState, string> = {
+  connected: '已连接',
+  syncing: '已连接，正在同步',
+  connecting: '正在连接',
+  retrying: '正在重新连接',
+  blocked: '连接需要处理',
+  stopped: '未连接',
+};
+
+export function connectionError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/TimeoutError|timed out|timeout/i.test(message))
+    return '连接请求超时，正在自动重试；电脑在线不代表浏览器连接已完成。';
+  if (/Cloud tunnel|relay|Failed to fetch|NetworkError|network|LAN unavailable/i.test(message))
+    return '浏览器到电脑的连接暂时不可用，正在自动重试。';
+  return message;
+}
 
 // Authentication, storage and identity failures require user action. Network
 // failures may retry; mutations are never part of this loop.
@@ -23,6 +47,7 @@ export class ReconnectLoop {
       current: () => boolean;
       closed: (error: Error) => void;
       own: (dispose: () => void) => void;
+      linked: () => void;
     }) => Promise<void>,
     private readonly state: (state: ConnectionState, error?: unknown) => void,
   ) {}
@@ -57,6 +82,9 @@ export class ReconnectLoop {
     try {
       await this.open({
         current,
+        linked: () => {
+          if (current()) this.state('syncing');
+        },
         own: (dispose) => {
           if (current()) this.dispose = dispose;
           else dispose();

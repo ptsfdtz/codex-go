@@ -31,11 +31,6 @@ if (-not $buildTools -or -not (Test-Path (Join-Path $windowsSdk "10.0.26100.0"))
     throw "Install Visual Studio 2022 Build Tools with C++ x64/x86 tools and Windows 11 SDK 10.0.26100.0."
 }
 
-$webView = Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\*" -ErrorAction SilentlyContinue |
-    Where-Object { $_.name -eq "Microsoft Edge WebView2 Runtime" } |
-    Select-Object -First 1
-if (-not $webView) { throw "Install the Microsoft Edge WebView2 Runtime before developing the desktop app." }
-
 $fnmRoot = Join-Path $toolRoot "fnm"
 $fnm = Join-Path $fnmRoot "fnm.exe"
 if (-not (Test-Path $fnm)) {

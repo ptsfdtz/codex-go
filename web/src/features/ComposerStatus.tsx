@@ -1,3 +1,4 @@
+import { MotionPresence } from '../motion';
 import { useEffect, useState } from 'react';
 import { Target, CircleGauge } from 'lucide-react';
 import { Modal, DataFields } from '../ui';
@@ -15,6 +16,7 @@ export function ComposerStatus({
   revision,
   observedUsage,
   onGoal,
+  enabled = true,
 }: {
   request: Request;
   sessionId: string;
@@ -23,6 +25,7 @@ export function ComposerStatus({
   revision: number;
   observedUsage?: Usage;
   onGoal: () => void;
+  enabled?: boolean;
 }) {
   const [goal, setGoal] = useState<{
       objective: string;
@@ -33,9 +36,8 @@ export function ComposerStatus({
     [error, setError] = useState(''),
     [detail, setDetail] = useState(false);
   useEffect(() => {
+    if (!enabled) return;
     let current = true;
-    setGoal(undefined);
-    setUsage(undefined);
     setError('');
     if (goalSupported)
       void request<{
@@ -47,7 +49,7 @@ export function ComposerStatus({
         .catch((e) => {
           if (current) setError(String(e));
         });
-    if (usageSupported)
+    if (usageSupported && !observedUsage)
       void request<{ events: { action: string; payload?: { tokenUsage?: Usage } }[] }>(
         'sessions.detail',
         { sessionId, limit: 100 },
@@ -62,7 +64,7 @@ export function ComposerStatus({
     return () => {
       current = false;
     };
-  }, [request, sessionId, goalSupported, usageSupported, revision]);
+  }, [request, sessionId, goalSupported, usageSupported, revision, enabled]);
   const counters = observedUsage || usage,
     used = counters?.last?.totalTokens,
     window = counters?.modelContextWindow;
@@ -106,25 +108,27 @@ export function ComposerStatus({
           Goal · 未更新
         </button>
       )}
-      {detail && (
-        <Modal title="用量" onClose={() => setDetail(false)}>
-          {counters ? (
-            <>
-              <p className="muted">来自上游的观测值，不是费用估算。</p>
-              <DataFields
-                value={{
-                  context: percent !== undefined ? `${percent}%` : '未报告',
-                  modelContextWindow: counters.modelContextWindow,
-                  last: counters.last,
-                  total: counters.total,
-                }}
-              />
-            </>
-          ) : (
-            <p className="muted">暂无上游用量数据。</p>
-          )}
-        </Modal>
-      )}
+      <MotionPresence>
+        {detail && (
+          <Modal title="用量" onClose={() => setDetail(false)}>
+            {counters ? (
+              <>
+                <p className="muted">来自上游的观测值，不是费用估算。</p>
+                <DataFields
+                  value={{
+                    context: percent !== undefined ? `${percent}%` : '未报告',
+                    modelContextWindow: counters.modelContextWindow,
+                    last: counters.last,
+                    total: counters.total,
+                  }}
+                />
+              </>
+            ) : (
+              <p className="muted">暂无上游用量数据。</p>
+            )}
+          </Modal>
+        )}
+      </MotionPresence>
     </>
   );
 }

@@ -3,7 +3,7 @@ import { localGateway, openHostTls } from './host';
 import { api } from '../cloud';
 import { connectPinnedTls } from './tls';
 
-vi.mock('../cloud', () => ({ api: vi.fn(), cloudOrigin: 'https://cloud.test' }));
+vi.mock('../cloud', () => ({ api: vi.fn(), cloudEndpoint: 'https://cloud.test' }));
 vi.mock('./tls', () => ({ connectPinnedTls: vi.fn() }));
 const opened: string[] = [];
 class Socket {

@@ -12,7 +12,7 @@ assert.ok(fixturePath, 'Supply the private browser-fixture.json path');
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
 assert.equal(fixture.origin, 'https://127.0.0.1:18444');
 const pairOnly = process.argv.includes('--account-only') || process.argv.includes('--pair-only');
-const require = createRequire(new URL('../../desktop/package.json', import.meta.url));
+const require = createRequire(new URL('../../web/package.json', import.meta.url));
 const { chromium } = require('@playwright/test');
 const control = (action, code) =>
   execFileSync(

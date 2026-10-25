@@ -1,6 +1,35 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { ReconnectLoop } from './reconnect';
+import { ReconnectLoop, connectionError } from './reconnect';
 afterEach(() => vi.useRealTimers());
+it('reports transient timeouts without treating them as authorization failures', async () => {
+  vi.useFakeTimers();
+  const error = new DOMException('signal timed out', 'TimeoutError');
+  const open = vi.fn().mockRejectedValue(error);
+  const states = vi.fn();
+  const loop = new ReconnectLoop(open, states);
+  loop.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(states).toHaveBeenLastCalledWith('retrying', error);
+  expect(connectionError(error)).toContain('自动重试');
+  loop.stop();
+});
+it('distinguishes an authenticated link from completed recovery', async () => {
+  let finish!: () => void;
+  const states = vi.fn();
+  const loop = new ReconnectLoop(async ({ linked }) => {
+    linked();
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  }, states);
+  loop.start();
+  expect(states.mock.calls.map(([state]) => state)).toEqual(['connecting', 'syncing']);
+  finish();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(states).toHaveBeenLastCalledWith('connected');
+  loop.stop();
+});
 it('backs off, wakes immediately on network recovery, and cancels timers on stop', async () => {
   vi.useFakeTimers();
   const open = vi.fn().mockRejectedValue(new Error('Cloud tunnel unavailable'));

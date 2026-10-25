@@ -23,12 +23,12 @@ impl Core {
             return Ok(());
         }
         rpc.validate("v2/ThreadQueueChangedNotification", p)?;
-        if !self
+        if self
             .rpc
             .read()
             .unwrap()
             .as_ref()
-            .is_some_and(|current| current.generation == rpc.generation)
+            .is_none_or(|current| current.generation != rpc.generation)
         {
             return Ok(());
         }

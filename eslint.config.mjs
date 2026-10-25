@@ -8,7 +8,6 @@ export default tseslint.config(
       '**/artifacts/**',
       'packages/codex-protocol/**',
       'android/**',
-      'desktop/src-tauri/**',
       '.tmp/**',
     ],
   },

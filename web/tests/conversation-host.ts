@@ -21,6 +21,7 @@ export class Bridge {
     if (result.status === 'done') localStorage.removeItem('test-receipt');
   }
   private handler?: (packet: Packet) => void;
+  private closed = false;
   private listener = (event: Event) => this.handler?.((event as CustomEvent<Packet>).detail);
   async connect() {
     window.addEventListener('test-packet', this.listener);
@@ -30,7 +31,10 @@ export class Bridge {
     this.handler = handler;
   }
   close() {
+    if (this.closed) return;
+    this.closed = true;
     window.removeEventListener('test-packet', this.listener);
+    this.handler?.({ type: 'closed', message: 'controlled connection closed' });
   }
   async request<T>(action: string, payload: unknown): Promise<T> {
     const result = await fetch('/__test_rpc', {

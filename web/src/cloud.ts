@@ -4,13 +4,18 @@ export const cloudOrigin = (
   import.meta.env.VITE_CLOUD_ORIGIN || 'https://agent.ptsfdtz.top'
 ).replace(/\/$/, '');
 
+export const cloudEndpoint =
+  import.meta.env.DEV && import.meta.env.MODE === 'cloud-dev'
+    ? window.location.origin
+    : cloudOrigin;
+
 let csrf = '';
 
 // The cloud cookie belongs to the cloud origin. Pages cannot read it through
 // document.cookie; obtain only the CSRF token over the allowlisted CORS route.
 async function csrfToken(): Promise<string> {
   if (!csrf) {
-    const response = await fetch(`${cloudOrigin}/api/v1/web/csrf`, {
+    const response = await fetch(`${cloudEndpoint}/api/v1/web/csrf`, {
       credentials: 'include',
       signal: AbortSignal.timeout(15000),
     });
@@ -48,7 +53,7 @@ if (typeof window !== 'undefined') {
   });
 }
 async function refresh(): Promise<boolean> {
-  const session = await fetch(cloudOrigin + '/api/v1/web/session', {
+  const session = await fetch(cloudEndpoint + '/api/v1/web/session', {
     credentials: 'include',
     signal: AbortSignal.timeout(15000),
   });
@@ -60,7 +65,7 @@ async function refresh(): Promise<boolean> {
   if (session.status !== 401) return false;
   const token = await csrfToken();
   if (!token) return false;
-  const response = await fetch(cloudOrigin + '/api/v1/web/refresh', {
+  const response = await fetch(cloudEndpoint + '/api/v1/web/refresh', {
     method: 'POST',
     credentials: 'include',
     headers: { 'x-csrf-token': token },
@@ -118,7 +123,7 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
   if (init.body) headers.set('content-type', 'application/json');
   const write = !['GET', 'HEAD'].includes((init.method || 'GET').toUpperCase());
   if (write && path !== '/api/v1/web/login') headers.set('x-csrf-token', await csrfToken());
-  const response = await fetch(`${cloudOrigin}${path}`, {
+  const response = await fetch(`${cloudEndpoint}${path}`, {
     ...init,
     credentials: 'include',
     signal: init.signal

@@ -3,6 +3,8 @@ import { HostSocket } from './host';
 import type { HostGrant } from '../host-book';
 
 export type Packet = {
+  eventId?: string;
+  seq?: number;
   type?: string;
   id?: string;
   action?: string;

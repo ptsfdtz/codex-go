@@ -6,12 +6,15 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 
-const require = createRequire(new URL('../../desktop/package.json', import.meta.url));
+const require = createRequire(new URL('../../web/package.json', import.meta.url));
 const { chromium } = require('@playwright/test');
 const QRCode = require('qrcode');
 const vite = await createServer({
   root: fileURLToPath(new URL('..', import.meta.url)),
   configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
+  // This test imports pairing lazily after rendering. Prebundle its dependency
+  // before opening tabs so Vite cannot reload them halfway through the assertions.
+  optimizeDeps: { include: ['jsqr'] },
   server: { host: '127.0.0.1', port: 0, open: false },
   plugins: [
     {

@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 jobs:
-  desktop:
+  host-windows:
     runs-on: windows-latest
     steps:
       - run: git config --global core.autocrlf false
@@ -24,44 +24,61 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-          workspaces: |
-            desktop/src-tauri
-            desktop/core
+          workspaces: desktop/core
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm format:check
       - run: pnpm schema:verify
       - run: pnpm audit --prod
-      - run: pnpm desktop:prepare
       - run: cargo fmt --manifest-path desktop/core/Cargo.toml -- --check
-      - run: cargo fmt --manifest-path desktop/src-tauri/Cargo.toml -- --check
       - run: cargo test --locked --manifest-path desktop/core/Cargo.toml
       - run: cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -D warnings
-      - run: pnpm --filter @agentdeck/desktop test
-      - run: cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml
-      - run: cargo clippy --locked --manifest-path desktop/src-tauri/Cargo.toml -- -D warnings
-      - run: pnpm --filter @agentdeck/desktop exec playwright install msedge
-      - run: pnpm --filter @agentdeck/desktop exec playwright test
-      - run: pnpm desktop:build
-      - run: pnpm package:windows
-      - name: Prepare Windows downloads
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path release-assets -Force | Out-Null
-          Copy-Item artifacts/AgentDeck_0.3.0_x64-setup.exe release-assets/AgentDeck-windows-x64-setup.exe
-          Compress-Archive -Path artifacts/AgentDeck-0.3.0-windows -DestinationPath release-assets/AgentDeck-windows-x64-portable.zip
+      - run: pnpm --filter @agentdeck/web test
+      - run: pnpm --filter @agentdeck/web exec playwright install msedge
+      - run: node web/tests/browser-transport.mjs
+      - run: node web/tests/browser-recovery.mjs
+      - run: node web/tests/browser-pwa.mjs
+      - run: node web/tests/browser-mobile.mjs
+      - run: node web/tests/browser-motion.mjs
+      - run: pnpm --filter @agentdeck/web build
+      - run: pnpm host:package
+        env:
+          AGENTDECK_RELEASE_VERSION: host-${{ github.sha }}
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows
-          path: release-assets/*
+          path: artifacts/host-downloads/
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        if: always()
+  host-linux:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          name: agentdeck-tauri-windows
-          path: |
-            desktop/src-tauri/target/release/bundle/nsis/*.exe
-            artifacts/tauri-*
+          node-version-file: .node-version
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/core
+      - run: sh -n scripts/host/install.sh scripts/host/start.sh
+      - run: cargo fmt --manifest-path desktop/core/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path desktop/core/Cargo.toml --lib --test host_lifecycle
+      - run: node scripts/host/package.mjs
+        env:
+          AGENTDECK_RELEASE_VERSION: host-${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: artifacts/host-downloads/
+          if-no-files-found: error
   android:
     runs-on: ubuntu-latest
     steps:

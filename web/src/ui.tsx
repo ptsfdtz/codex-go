@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { X, type LucideIcon } from 'lucide-react';
+import { useMotionPresence } from './motion';
 export function IconButton({
   icon: Icon,
   label,
@@ -38,15 +39,21 @@ export function Modal({
   wide?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const present = useMotionPresence();
   useEffect(() => {
     const node = dialog.current;
     node?.showModal();
     return () => node?.close();
   }, []);
+  useEffect(() => {
+    // A native modal escapes an ancestor's inert state in the top layer.
+    if (dialog.current) dialog.current.inert = !present;
+  }, [present]);
   return (
     <dialog
       ref={dialog}
       className={`modal ${wide ? 'modal-wide' : ''}`}
+      data-motion={present ? 'open' : 'closed'}
       onCancel={(event) => {
         event.preventDefault();
         onClose();

@@ -21,6 +21,17 @@
   --shadow: 0 8px 40px #0002;
   color-scheme: light;
 }
+.connection-recovery,
+.task-progress {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 20px;
+  color: var(--muted);
+  font-size: 12px;
+  background: var(--bg);
+}
 :root[data-theme='dark'] {
   --bg: #212121;
   --rail: #171717;
@@ -62,6 +73,7 @@
 }
 body {
   margin: 0;
+  overscroll-behavior-y: none;
 }
 button,
 input,
@@ -104,6 +116,75 @@ textarea {
 textarea {
   resize: vertical;
   line-height: 1.65;
+}
+select {
+  cursor: pointer;
+}
+select:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+select option,
+select optgroup {
+  color: var(--text);
+  background: var(--bg);
+}
+/* Keep native keyboard, touch and screen-reader behaviour. Older browsers
+   retain the themed system picker; supporting browsers render this panel. */
+@supports (appearance: base-select) {
+  select,
+  select::picker(select) {
+    appearance: base-select;
+  }
+  select {
+    align-items: center;
+    gap: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  select::picker-icon {
+    color: var(--muted);
+  }
+  select::picker(select) {
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 5px;
+    margin-block: 6px;
+    box-shadow: var(--shadow);
+    max-height: min(360px, 50dvh);
+    max-width: calc(100vw - 24px);
+    overflow: auto;
+    scrollbar-width: thin;
+    overscroll-behavior: contain;
+  }
+  select option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    font-size: 13px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    outline-offset: -2px;
+  }
+  select option:checked {
+    background: var(--soft);
+    font-weight: 600;
+  }
+  select option::checkmark {
+    order: 1;
+    margin-inline-start: auto;
+    color: var(--green);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    select option:hover {
+      background: var(--hover);
+    }
+  }
 }
 input:focus,
 textarea:focus,
@@ -149,7 +230,9 @@ small,
   font-size: 13px;
 }
 .center {
-  min-height: 100dvh;
+  min-height: var(--app-height, 100dvh);
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   display: grid;
   place-items: center;
 }
@@ -165,6 +248,25 @@ small,
   font-weight: 700;
   letter-spacing: 0.1em;
 }
+.pwa-install {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.pwa-install summary {
+  cursor: pointer;
+  padding-block: 8px;
+}
+.pwa-install p {
+  margin: 8px 0;
+}
+.pwa-install ul {
+  padding-left: 20px;
+  margin: 8px 0 0;
+}
+.pwa-install li + li {
+  margin-top: 8px;
+}
 .brand span {
   font-weight: 400;
 }
@@ -176,7 +278,10 @@ small,
   color: var(--button-text);
 }
 .shell {
-  height: 100dvh;
+  height: var(--app-height, 100dvh);
+  position: relative;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
   display: flex;
   overflow: hidden;
   background: var(--bg);
@@ -226,22 +331,6 @@ small,
   background: transparent;
   padding-left: 11px;
   font-size: 14px;
-}
-.quiet-search {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 4px 10px;
-  color: var(--muted);
-  margin-bottom: 12px;
-}
-.quiet-search input {
-  width: 100%;
-  padding: 4px 0;
-  background: transparent;
-  border: 0;
-  font-size: 13px;
-  outline: 0;
 }
 .sidebar-scroll {
   flex: 1;
@@ -1529,9 +1618,9 @@ small,
     z-index: 32;
     width: 300px;
     max-width: 85vw;
-    height: 100%;
-    top: 0;
-    left: 0;
+    height: calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    top: env(safe-area-inset-top);
+    left: env(safe-area-inset-left);
     box-shadow: 6px 0 40px #0002;
   }
   .sidebar-scrim.visible {
@@ -1568,14 +1657,14 @@ small,
     padding: 22px 18px 8px;
   }
   .composer-wrap {
-    padding: 6px 12px max(8px, env(safe-area-inset-bottom));
+    padding: 6px 12px 8px;
   }
   .composer {
     border-radius: 23px;
     padding: 10px 8px 8px;
   }
   .composer > textarea {
-    font-size: 15px;
+    font-size: 16px;
     min-height: 62px;
   }
   .composer-model select {
@@ -1629,11 +1718,15 @@ small,
     width: calc(100vw - 20px);
     max-width: calc(100vw - 20px);
     border-radius: 17px;
-    max-height: calc(100dvh - 24px);
+    max-height: calc(
+      var(--app-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px
+    );
   }
   .modal-body {
     padding: 18px;
-    max-height: calc(100dvh - 92px);
+    max-height: calc(
+      var(--app-height, 100dvh) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 92px
+    );
   }
   .modal-title {
     height: 58px;
@@ -1687,8 +1780,6 @@ small,
 }
 @media (prefers-reduced-motion: reduce) {
   * {
-    animation: none !important;
-    transition: none !important;
     scroll-behavior: auto !important;
   }
 }

@@ -18,12 +18,25 @@ use std::{
 #[tokio::main]
 async fn main() {
     let args: Vec<_> = std::env::args_os().collect();
+    if let Some(index) = args.iter().position(|v| v == "--data-dir") {
+        if let Some(directory) = args.get(index + 1) {
+            std::env::set_var("AGENTDECK_DATA_DIR", directory);
+        }
+    }
+    if args.get(1).is_some_and(|v| v == "--host-supervisor") {
+        if let Err(error) = agentdeck_service::host::supervise().await {
+            agentdeck_service::host::log(&error.code, &error.message);
+            std::process::exit(1);
+        }
+        return;
+    }
     if args.get(1).is_some_and(|v| v == "--sandbox-probe") {
         let passed =
             args.len() == 4 && sandbox_probe(&PathBuf::from(&args[2]), &PathBuf::from(&args[3]));
         std::process::exit(if passed { 0 } else { 3 });
     }
     if let Err(e) = run().await {
+        agentdeck_service::host::log(&e.code, &e.message);
         println!(
             "{}",
             json!({"type":"error","payload":{"code":e.code,"message":e.message}})
@@ -35,34 +48,8 @@ async fn run() -> Result<()> {
     let login_only = std::env::var("AGENTDECK_LOGIN_ONLY").as_deref() == Ok("1");
     let headless = std::env::var("AGENTDECK_HEADLESS").as_deref() == Ok("1");
     security::verify_host_integrity()?;
-    let runtime_target = agentdeck_service::runtime::RuntimeTarget::from_environment()?;
-    #[cfg(not(windows))]
-    if !login_only {
-        ensure(
-            runtime_target.attached(),
-            "CONFIG_ERROR",
-            "Linux daemon requires AGENTDECK_RUNTIME_WS_URL and AGENTDECK_RUNTIME_TOKEN_FILE",
-        )?;
-    }
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let directory = std::env::var_os("AGENTDECK_DATA_DIR")
-        .map(PathBuf::from)
-        .or_else(|| {
-            #[cfg(windows)]
-            {
-                std::env::var_os("LOCALAPPDATA").map(|v| PathBuf::from(v).join("AgentDeck"))
-            }
-            #[cfg(not(windows))]
-            {
-                std::env::var_os("XDG_STATE_HOME")
-                    .map(|v| PathBuf::from(v).join("agentdeck"))
-                    .or_else(|| {
-                        std::env::var_os("HOME")
-                            .map(|v| PathBuf::from(v).join(".local/state/agentdeck"))
-                    })
-            }
-        })
-        .ok_or_else(|| Error::new("CONFIG_ERROR", "Data directory unavailable"))?;
+    let directory = agentdeck_service::host::data_dir()?;
     security::restrict_directory(&directory)
         .map_err(|e| Error::new(&e.code, &format!("准备服务数据目录失败：{}", e.message)))?;
     let lock = std::fs::OpenOptions::new()
@@ -114,6 +101,15 @@ async fn run() -> Result<()> {
         use tokio::io::AsyncWriteExt;
         let mut stdout = tokio::io::stdout();
         while let Some(v) = output.recv().await {
+            if headless {
+                if v["type"] == "error" {
+                    agentdeck_service::host::log(
+                        v["payload"]["code"].as_str().unwrap_or("SERVICE_ERROR"),
+                        v["payload"]["message"].as_str().unwrap_or("Service error"),
+                    );
+                }
+                continue;
+            }
             let line = format!("{v}\n");
             if stdout.write_all(line.as_bytes()).await.is_err() || stdout.flush().await.is_err() {
                 owner.request_stop();
@@ -205,56 +201,16 @@ async fn run() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
-    eprintln!("AGENTDECK_DIAG finding codex");
-    let exe = if runtime_target.attached() {
-        PathBuf::from("codex")
-    } else {
-        codex::find()?
-    };
-    eprintln!("AGENTDECK_DIAG found codex {}", exe.display());
-    if !runtime_target.attached() {
-        codex::verify_for(&exe, runtime_target.protocol())?;
-    }
-    #[cfg(windows)]
-    let report = boundary(&exe).await?;
-    #[cfg(not(windows))]
-    let sandbox_verified = std::env::var("AGENTDECK_LINUX_SANDBOX_VERIFIED").as_deref() == Ok("1");
-    #[cfg(not(windows))]
-    let report = json!({"passed":sandbox_verified,"platform":"linux","mode":"attached-runtime","verification":"explicit-operator-declaration"});
-    #[cfg(windows)]
-    let sandbox_verified = report["passed"] == true;
-    std::fs::write(
-        directory.join("sandbox-verification.json"),
-        report.to_string(),
-    )?;
-    #[cfg(windows)]
-    ensure(
-        report["passed"] == true,
-        "SANDBOX_UNVERIFIED",
-        "Native Windows isolation probe failed; inspect sandbox-verification.json",
-    )?;
-    core.verified.store(sandbox_verified, Ordering::SeqCst);
-    core.store.set_meta(
-        "sandboxVerifiedVersion",
-        if sandbox_verified {
-            runtime_target.protocol().version()
-        } else {
-            ""
-        },
-    )?;
-    let desktop_adapter =
-        agentdeck_service::desktop_adapter::DesktopAdapter::from_environment(&runtime_target)
-            .await?;
-    eprintln!("AGENTDECK_DIAG adapter done");
-    if let Some(adapter) = &desktop_adapter {
-        core.emit(
-            "desktop.adapter.status",
-            json!({"status":"listening","port":adapter.port}),
-        );
-    }
     let owner = core.clone();
     let supervisor = tokio::spawn(async move {
-        owner.supervise_runtime(exe, runtime_target).await;
+        while !owner.stopping.load(Ordering::SeqCst) {
+            if let Err(error) = run_runtime(&owner).await {
+                *owner.runtime_error.write().unwrap() =
+                    Some(json!({"code":error.code,"message":error.message}));
+                owner.emit("error", json!({"code":error.code,"message":error.message}));
+            }
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
     });
     let owner = core.clone();
     let git_poll = tokio::spawn(async move {
@@ -287,12 +243,53 @@ async fn run() -> Result<()> {
         }
         core.shutdown().await;
     }
-    drop(desktop_adapter);
     actions.abort();
     refresh.abort();
     git_poll.abort();
     supervisor.abort();
     writer.abort();
+    Ok(())
+}
+
+async fn run_runtime(core: &Arc<Core>) -> Result<()> {
+    let target = agentdeck_service::runtime::RuntimeTarget::from_environment()?;
+    #[cfg(not(windows))]
+    ensure(target.attached(), "CONFIG_ERROR", "Linux requires a configured authenticated runtime; use agentdeck configure --runtime-ws URL --runtime-token-file PATH --protocol VERSION")?;
+    let exe = if target.attached() {
+        PathBuf::from("codex")
+    } else {
+        codex::find()?
+    };
+    if !target.attached() {
+        codex::verify_for(&exe, target.protocol())?;
+    }
+    #[cfg(windows)]
+    let report = boundary(&exe).await?;
+    #[cfg(not(windows))]
+    let report = json!({"passed":std::env::var("AGENTDECK_LINUX_SANDBOX_VERIFIED").as_deref()==Ok("1"),"platform":"linux","mode":"attached-runtime","verification":"explicit-operator-declaration"});
+    let verified = report["passed"] == true;
+    std::fs::write(
+        agentdeck_service::host::data_dir()?.join("sandbox-verification.json"),
+        report.to_string(),
+    )?;
+    #[cfg(windows)]
+    ensure(
+        verified,
+        "SANDBOX_UNVERIFIED",
+        "Native Windows isolation probe failed; inspect sandbox-verification.json",
+    )?;
+    core.verified.store(verified, Ordering::SeqCst);
+    core.store.set_meta(
+        "sandboxVerifiedVersion",
+        if verified {
+            target.protocol().version()
+        } else {
+            ""
+        },
+    )?;
+    let _adapter =
+        agentdeck_service::desktop_adapter::DesktopAdapter::from_environment(&target).await?;
+    core.supervise_runtime(exe, target).await;
     Ok(())
 }
 

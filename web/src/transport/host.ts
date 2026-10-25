@@ -1,4 +1,4 @@
-import { api, cloudOrigin } from '../cloud';
+import { api, cloudEndpoint } from '../cloud';
 import type { BinaryTransport, TlsChannel } from './tls';
 
 const encode = (text: string) => new TextEncoder().encode(text);
@@ -107,7 +107,7 @@ export async function openHostTls(
     body: JSON.stringify({ hostId }),
   });
   const socket = new WebSocket(
-    `${cloudOrigin.replace(/^https:/, 'wss:')}/api/v1/relay/tunnels/${encodeURIComponent(offer.tunnelId)}/client`,
+    `${cloudEndpoint.replace(/^http/, 'ws')}/api/v1/relay/tunnels/${encodeURIComponent(offer.tunnelId)}/client`,
     ['agentdeck-relay-v1', offer.clientTicket],
   );
   socket.binaryType = 'arraybuffer';

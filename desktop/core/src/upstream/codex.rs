@@ -76,7 +76,7 @@ pub fn find() -> Result<PathBuf> {
     let paths = sync_command("where.exe", &["codex"], None).map_err(|_| {
         Error::new(
             "CODEX_CLI_NOT_FOUND",
-            "找不到 Codex CLI。请安装 Codex，或使用 AgentDeck 提供的兼容版本安装按钮。",
+            "找不到 Codex CLI。请安装兼容版本，或执行 agentdeck configure --codex-exe PATH。",
         )
     })?;
     #[cfg(not(windows))]
@@ -96,7 +96,7 @@ pub fn find() -> Result<PathBuf> {
     }
     Err(Error::new(
         "CODEX_CLI_NOT_FOUND",
-        "找不到 Codex CLI。请安装 Codex，或使用 AgentDeck 提供的兼容版本安装按钮。",
+        "找不到 Codex CLI。请安装兼容版本，或执行 agentdeck configure --codex-exe PATH。",
     ))
 }
 pub fn verify(exe: &Path) -> Result<()> {

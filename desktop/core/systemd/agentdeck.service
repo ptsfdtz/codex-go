@@ -2,17 +2,19 @@
 Description=AgentDeck Linux host
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
 EnvironmentFile=-%h/.config/agentdeck/host.env
 Environment=AGENTDECK_DATA_DIR=%h/.local/state/agentdeck
-ExecStart=%h/.local/bin/agentdeck serve --runtime-ws ws://127.0.0.1:4500 --runtime-token-file %h/.config/codex/runtime-token
+ExecStart=%h/.local/bin/agentdeck host-run
 StateDirectory=agentdeck
 StateDirectoryMode=0700
 UMask=0077
 Restart=on-failure
-RestartSec=5
+RestartSec=30
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
