@@ -279,14 +279,8 @@ async fn run_runtime(core: &Arc<Core>) -> Result<()> {
         "Native Windows isolation probe failed; inspect sandbox-verification.json",
     )?;
     core.verified.store(verified, Ordering::SeqCst);
-    core.store.set_meta(
-        "sandboxVerifiedVersion",
-        if verified {
-            target.protocol().version()
-        } else {
-            ""
-        },
-    )?;
+    // Record the actual negotiated runtime version after initialization. A schema
+    // hint is not evidence that this executable passed a boundary check.
     let _adapter =
         agentdeck_service::desktop_adapter::DesktopAdapter::from_environment(&target).await?;
     core.supervise_runtime(exe, target).await;

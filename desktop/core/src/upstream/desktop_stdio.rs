@@ -359,7 +359,7 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         .await
         .map_err(|_| failure("PROXY_IO_TIMEOUT"))?
         .map_err(|_| failure("PROXY_IO_ERROR"))?;
-    let protocol = target.protocol();
+    let mut protocol = target.protocol();
     let gate = async {
         let mut buffered = Vec::new();
         let mut total = 0;
@@ -392,10 +392,16 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                         .split_once('/')
                         .is_some_and(|(originator, version)| {
                             !originator.is_empty()
-                                && version.starts_with(&format!("{} (", protocol.version()))
+                                && super::codex_version::identity_version(version).is_ok()
                         }),
                     "PROXY_VERSION_UNVERIFIED",
-                    "Shared runtime version differs from selected protocol",
+                    "Shared runtime is below the minimum supported Codex version",
+                )?;
+                let (_, version) = crate::s(&value["result"], "userAgent")
+                    .split_once('/')
+                    .unwrap();
+                protocol = crate::codex::protocol_for_version(
+                    &super::codex_version::identity_version(version)?,
                 )?;
                 initialized = true;
                 socket.send(Message::Text(json!({"id":check_id,"method":"config/read","params":{"includeLayers":false}}).to_string().into())).await.map_err(|_|failure("PROXY_IO_ERROR"))?;

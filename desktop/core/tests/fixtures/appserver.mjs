@@ -53,7 +53,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   switch (m.method) {
     case 'initialize':
       respond({
-        userAgent: 'AgentDeck fixture',
+        userAgent: 'agentdeck/0.159.2 (test fixture)',
         codexHome: process.cwd(),
         platformFamily: 'windows',
         platformOs: 'windows',

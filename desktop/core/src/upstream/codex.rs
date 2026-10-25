@@ -5,7 +5,15 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+// Preserve the public schema-baseline constant independently of admission policy.
 pub const VERSION: &str = "0.159.2";
+pub const MIN_SUPPORTED_VERSION: &str = VERSION;
+pub fn protocol_for_version(version: &str) -> Result<crate::rpc::ProtocolVersion> {
+    super::codex_version::profile(version)
+}
+pub fn executable_version(exe: &Path) -> Result<String> {
+    super::codex_version::cli(&sync_command(&exe.to_string_lossy(), &["--version"], None)?)
+}
 pub fn sync_command(exe: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
     let mut cmd = std::process::Command::new(exe);
     cmd.args(args)
@@ -57,39 +65,30 @@ pub fn find() -> Result<PathBuf> {
         )?;
         return paths::canonical(&p);
     }
-    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
-        let managed = PathBuf::from(local_app_data)
-            .join("AgentDeck/tools/codex-cli")
-            .join(VERSION)
-            .join("codex.exe");
-        let packaged = managed.parent().unwrap().join("bin/codex.exe");
-        if packaged.is_file() {
-            return paths::canonical(&packaged);
-        }
-        if managed.is_file() {
-            // Resolve MSIX filesystem redirection before MXC launches its helper.
-            // The sandbox service cannot see the parent's virtualized path.
-            return paths::canonical(&managed);
-        }
-    }
     #[cfg(windows)]
-    let paths = sync_command("where.exe", &["codex"], None).map_err(|_| {
-        Error::new(
-            "CODEX_CLI_NOT_FOUND",
-            "找不到 Codex CLI。请安装兼容版本，或执行 agentdeck configure --codex-exe PATH。",
-        )
-    })?;
+    let paths = sync_command("where.exe", &["codex"], None).unwrap_or_default();
     #[cfg(not(windows))]
-    let paths = sync_command("which", &["codex"], None)
-        .map_err(|_| Error::new("CODEX_CLI_NOT_FOUND", "Codex CLI not found on PATH"))?;
+    let paths = sync_command("which", &["-a", "codex"], None).unwrap_or_default();
     for line in paths.lines() {
         let p = PathBuf::from(line.trim());
-        if cfg!(not(windows)) || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
+        if (cfg!(not(windows)) || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")))
+            && verify(&p).is_ok()
+        {
             return paths::canonical(&p);
         }
         if let Some(parent) = p.parent() {
             let candidate=parent.join("node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe");
-            if candidate.is_file() {
+            if candidate.is_file() && verify(&candidate).is_ok() {
+                return paths::canonical(&candidate);
+            }
+        }
+    }
+    // Prefer the user's compatible PATH installation. An isolated installer is
+    // a fallback, selected by version instead of a hard-coded directory name.
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let directory = PathBuf::from(local_app_data).join("AgentDeck/tools/codex-cli");
+        for candidate in super::codex_version::installed_candidates(&directory) {
+            if verify(&candidate).is_ok() {
                 return paths::canonical(&candidate);
             }
         }
@@ -102,20 +101,10 @@ pub fn find() -> Result<PathBuf> {
 pub fn verify(exe: &Path) -> Result<()> {
     verify_for(exe, crate::rpc::ProtocolVersion::Managed)
 }
-pub fn verify_for(exe: &Path, protocol: crate::rpc::ProtocolVersion) -> Result<()> {
-    let output = sync_command(&exe.to_string_lossy(), &["--version"], None)?;
-    let version = protocol.version();
-    let expected = format!("codex-cli {version}");
-    let actual = output.trim();
-    if actual == expected {
-        return Ok(());
-    }
-    Err(Error::new(
-        "UPSTREAM_VERSION_UNSUPPORTED",
-        &format!(
-            "检测到 {actual}；所选运行时要求 codex-cli {version}。请指定匹配的本机可执行文件；不会替换全局 Codex，也不会自动切换协议版本。"
-        ),
-    ))
+/// The profile argument is retained for source compatibility. Executable
+/// admission uses the common minimum; initialize negotiates the schema adapter.
+pub fn verify_for(exe: &Path, _protocol: crate::rpc::ProtocolVersion) -> Result<()> {
+    executable_version(exe).map(|_| ())
 }
 pub fn filtered_path(path: &str) -> String {
     path.split(';')
@@ -134,29 +123,25 @@ pub fn args() -> Vec<String> {
     ["app-server","--listen","stdio://","-c","windows.sandbox=\"mxc\"","-c","approval_policy=\"on-request\"","-c","approvals_reviewer=\"user\"","-c","default_permissions=\"agentdeck\"","-c","permissions={agentdeck={extends=\":workspace\",filesystem={\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\"},network={enabled=false}}}","-c","web_search=\"disabled\"","-c","mcp_servers={}","-c","hooks={}","-c","shell_environment_policy.inherit=\"core\""].iter().map(|s|s.to_string()).collect()
 }
 pub async fn initialize(rpc: &Arc<Rpc>) -> Result<()> {
-    initialize_checked(rpc, false).await
+    initialize_checked(rpc).await
 }
 pub async fn initialize_attached(rpc: &Arc<Rpc>) -> Result<()> {
-    initialize_checked(rpc, true).await
+    initialize_checked(rpc).await
 }
 pub fn check_runtime_identity(user_agent: &str) -> Result<()> {
     check_runtime_identity_for(user_agent, crate::rpc::ProtocolVersion::Managed)
 }
 pub(crate) fn check_runtime_identity_for(
     user_agent: &str,
-    protocol: crate::rpc::ProtocolVersion,
+    _protocol: crate::rpc::ProtocolVersion,
 ) -> Result<()> {
-    ensure(
-        ["Codex Desktop", "agentdeck"]
-            .iter()
-            .any(|client| user_agent.starts_with(&format!("{client}/{} (", protocol.version()))),
-        "UPSTREAM_VERSION_UNSUPPORTED",
-        "Attached runtime does not match the pinned protocol version",
-    )
+    super::codex_version::identity(user_agent).map(|_| ())
 }
-async fn initialize_checked(rpc: &Arc<Rpc>, attached: bool) -> Result<()> {
+async fn initialize_checked(rpc: &Arc<Rpc>) -> Result<()> {
     let v=rpc.request("initialize",json!({"clientInfo":{"name":"agentdeck","title":"AgentDeck","version":"0.3.0"},"capabilities":{"experimentalApi":true,"requestAttestation":false}})).await?;
     rpc.validate("v1/InitializeResponse", &v)?;
+    let version = super::codex_version::identity(s(&v, "userAgent"))?;
+    rpc.set_runtime_version(&version)?;
     let source_home = PathBuf::from(s(&v, "codexHome"));
     ensure(
         source_home.is_absolute(),
@@ -164,9 +149,6 @@ async fn initialize_checked(rpc: &Arc<Rpc>, attached: bool) -> Result<()> {
         "Codex returned a relative state directory",
     )?;
     *rpc.codex_home.lock().unwrap() = Some(source_home);
-    if attached {
-        check_runtime_identity_for(crate::s(&v, "userAgent"), rpc.protocol())?;
-    }
     rpc.send(json!({"method":"initialized","params":{}}))
 }
 pub fn check_policy(v: &Value) -> Result<()> {

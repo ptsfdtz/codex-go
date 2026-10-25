@@ -88,7 +88,8 @@ impl Rpc {
         let (output, mut writes) = mpsc::channel::<Value>(2);
         let (events, event_rx) = mpsc::channel(128);
         let rpc = Arc::new(Self {
-            protocol,
+            protocol: RwLock::new(protocol),
+            runtime_version: RwLock::new(None),
             output,
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),

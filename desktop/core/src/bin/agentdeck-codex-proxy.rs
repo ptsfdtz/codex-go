@@ -33,7 +33,10 @@ async fn run() -> Result<()> {
         )
     })?;
     if version {
-        println!("codex-cli {}", protocol.version());
+        println!(
+            "codex-cli {}",
+            agentdeck_service::codex::executable_version(&manifest.native_executable)?
+        );
         return Ok(());
     }
     relay(

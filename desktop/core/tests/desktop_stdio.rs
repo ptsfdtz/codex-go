@@ -394,10 +394,11 @@ async fn configuration_gate_never_forwards_a_queued_task_or_its_snapshot() {
 }
 
 #[tokio::test]
-async fn native_version_mismatch_never_releases_initialization_or_queued_task() {
+async fn old_or_unrecognized_native_version_never_releases_initialization_or_queued_task() {
     for user_agent in [
-        "codex_desktop/0.159.2 (fixture)",
-        "codex_desktop/0.163.0-alpha.10.20 (fixture)",
+        "codex_desktop/0.159.1 (fixture)",
+        "codex_desktop/0.159.2-alpha.1 (fixture)",
+        "codex_desktop/invalid (fixture)",
         "/0.163.0-alpha.10.2 (fixture)",
         "0.163.0-alpha.10.2 (fixture)",
     ] {

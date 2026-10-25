@@ -30,19 +30,19 @@ impl RuntimeTarget {
         token_file: Option<std::ffi::OsString>,
         version: Option<std::ffi::OsString>,
     ) -> Result<Self> {
-        let protocol = match version.as_ref().and_then(|v| v.to_str()) {
-            None if version.is_none() => ProtocolVersion::Managed,
-            Some("0.159.2") => ProtocolVersion::Managed,
-            Some("0.163.0-alpha.10.2") => ProtocolVersion::DesktopBaseline,
-            _ => {
-                return Err(Error::new(
-                    "UPSTREAM_VERSION_UNSUPPORTED",
-                    "Runtime protocol version is not supported",
-                ))
+        // Legacy --protocol values remain readable as an initial schema hint.
+        // The authenticated initialize response selects the actual adapter.
+        let protocol = match version.as_ref() {
+            None => ProtocolVersion::Managed,
+            Some(value) if value == "auto" => ProtocolVersion::Managed,
+            Some(value) => {
+                crate::codex::protocol_for_version(value.to_str().ok_or_else(|| {
+                    Error::new("UPSTREAM_VERSION_UNSUPPORTED", "Invalid runtime version")
+                })?)?
             }
         };
         match (endpoint, token_file) {
-            (None, None) if version.is_none() => Ok(Self::Managed),
+            (None, None) if version.as_ref().is_none_or(|v| v == "auto") => Ok(Self::Managed),
             (Some(endpoint), Some(token_file)) => {
                 let endpoint = endpoint
                     .into_string()
@@ -164,22 +164,17 @@ mod tests {
         }
     }
     #[test]
-    fn runtime_identity_requires_the_exact_pinned_version() {
+    fn runtime_identity_requires_a_recognized_client_and_supported_version() {
         assert!(crate::codex::check_runtime_identity_for(
             "agentdeck/0.163.0-alpha.10.2 (Ubuntu 22.4.0; x86_64) unknown (agentdeck; 0.3.0)",
             crate::rpc::ProtocolVersion::DesktopBaseline,
         )
         .is_ok());
-        for agent in [
+        assert!(crate::codex::check_runtime_identity_for(
             "agentdeck/0.163.0-alpha.10.20 (Linux)",
-            "other/0.163.0-alpha.10.2 (Linux)",
-        ] {
-            assert!(crate::codex::check_runtime_identity_for(
-                agent,
-                crate::rpc::ProtocolVersion::DesktopBaseline
-            )
-            .is_err());
-        }
+            crate::rpc::ProtocolVersion::DesktopBaseline
+        )
+        .is_ok());
         assert!(crate::codex::check_runtime_identity(&format!(
             "Codex Desktop/{} (Windows)",
             crate::codex::VERSION
@@ -187,9 +182,10 @@ mod tests {
         .is_ok());
         for value in [
             "AgentDeck fixture",
-            "Codex Desktop/0.163.0-alpha.10.2 (Windows)",
-            "Codex Desktop/0.159.20 (Windows)",
+            "other/0.163.0-alpha.10.2 (Linux)",
+            "Codex Desktop/0.159.1 (Windows)",
             "Codex Desktop/0.159.2-alpha (Windows)",
+            "Codex Desktop/0.159.2-malformed (Windows)",
         ] {
             assert_eq!(
                 crate::codex::check_runtime_identity(value)
@@ -198,9 +194,21 @@ mod tests {
                 "UPSTREAM_VERSION_UNSUPPORTED"
             );
         }
+        for value in [
+            "Codex Desktop/0.163.0-alpha.10.2 (Windows)",
+            "Codex Desktop/0.159.20 (Windows)",
+            "agentdeck/1.0.0 (Linux)",
+        ] {
+            assert!(crate::codex::check_runtime_identity(value).is_ok());
+        }
     }
     #[test]
     fn protocol_selection_requires_a_complete_local_attachment() {
+        assert!(
+            !RuntimeTarget::from_versioned_options(None, None, Some("auto".into()))
+                .unwrap()
+                .attached()
+        );
         let dir = tempfile::tempdir().unwrap();
         let endpoint = Some("ws://127.0.0.1:1234".into());
         let token_file = Some(dir.path().join("token").into_os_string());
@@ -219,11 +227,29 @@ mod tests {
             Some("0.163.0-alpha.10.2".into())
         )
         .is_err());
-        assert!(RuntimeTarget::from_versioned_options(
-            endpoint,
-            token_file,
-            Some("0.163.0".into())
-        )
-        .is_err());
+        for (hint, expected) in [
+            ("auto", ProtocolVersion::Managed),
+            ("0.163.0", ProtocolVersion::DesktopBaseline),
+            ("0.170.0", ProtocolVersion::DesktopBaseline),
+        ] {
+            assert_eq!(
+                RuntimeTarget::from_versioned_options(
+                    endpoint.clone(),
+                    token_file.clone(),
+                    Some(hint.into())
+                )
+                .unwrap()
+                .protocol(),
+                expected
+            );
+        }
+        for hint in ["0.158.0", "0.159.2-alpha.1", "garbage"] {
+            assert!(RuntimeTarget::from_versioned_options(
+                endpoint.clone(),
+                token_file.clone(),
+                Some(hint.into())
+            )
+            .is_err());
+        }
     }
 }

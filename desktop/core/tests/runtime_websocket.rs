@@ -1518,7 +1518,92 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
 }
 
 #[tokio::test]
-async fn attached_initialize_rejects_other_versions_before_ready_notification() {
+#[allow(clippy::result_large_err)] // tungstenite's handshake callback fixes its error type.
+async fn initialize_negotiates_actual_version_instead_of_the_schema_hint() {
+    use agentdeck_service::{codex, rpc::ProtocolVersion};
+    for (version, hint, expected) in [
+        (
+            "0.159.2",
+            ProtocolVersion::DesktopBaseline,
+            ProtocolVersion::Managed,
+        ),
+        (
+            "0.159.20",
+            ProtocolVersion::DesktopBaseline,
+            ProtocolVersion::Managed,
+        ),
+        (
+            "0.163.0-alpha.10.2",
+            ProtocolVersion::Managed,
+            ProtocolVersion::DesktopBaseline,
+        ),
+        (
+            "0.170.0",
+            ProtocolVersion::Managed,
+            ProtocolVersion::DesktopBaseline,
+        ),
+        (
+            "1.0.0+vendor",
+            ProtocolVersion::Managed,
+            ProtocolVersion::DesktopBaseline,
+        ),
+    ] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("ws://{}", listener.local_addr().unwrap());
+        let home = tempfile::tempdir().unwrap();
+        let codex_home = home.path().to_path_buf();
+        let (initialized_tx, initialized_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_hdr_async(stream, |request: &Request, response: Response| {
+                assert_eq!(
+                    request.headers()["authorization"],
+                    format!("Bearer {}", credential())
+                );
+                Ok(response)
+            })
+            .await
+            .unwrap();
+            let request: Value =
+                serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
+                    .unwrap();
+            socket.send(Message::Text(json!({"id":request["id"],"result":{"userAgent":format!("agentdeck/{version} (Windows)"),"codexHome":codex_home,"platformFamily":"windows","platformOs":"windows","futureOptionalField":true}}).to_string().into())).await.unwrap();
+            let initialized: Value =
+                serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
+                    .unwrap();
+            assert_eq!(initialized["method"], "initialized");
+            initialized_tx.send(()).unwrap();
+            while let Some(Ok(message)) = socket.next().await {
+                if message.is_close() {
+                    break;
+                }
+            }
+        });
+        let (rpc, _events) = Rpc::connect_local_websocket_profile(&endpoint, &credential(), hint)
+            .await
+            .unwrap();
+        assert_eq!(rpc.runtime_version(), None);
+        codex::initialize_attached(&rpc).await.unwrap();
+        initialized_rx.await.unwrap();
+        assert_eq!(rpc.runtime_version().as_deref(), Some(version));
+        assert_eq!(rpc.protocol(), expected);
+        // A version upgrade never disables validation of known contract fields.
+        assert!(rpc
+            .validate(
+                "v2/ModelProviderCapabilitiesReadResponse",
+                &json!({"imageGeneration":"invalid","webSearch":false})
+            )
+            .is_err());
+        rpc.stop();
+        tokio::time::timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn attached_initialize_rejects_below_minimum_before_ready_notification() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("ws://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -1527,7 +1612,7 @@ async fn attached_initialize_rejects_other_versions_before_ready_notification() 
         let request: Value =
             serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
         assert_eq!(request["method"], "initialize");
-        socket.send(Message::Text(json!({"id":request["id"],"result":{"userAgent":"Codex Desktop/0.163.0-alpha.10.2 (Windows)","codexHome":"C:/isolated","platformFamily":"windows","platformOs":"windows"}}).to_string().into())).await.unwrap();
+        socket.send(Message::Text(json!({"id":request["id"],"result":{"userAgent":"Codex Desktop/0.159.1 (Windows)","codexHome":"C:/isolated","platformFamily":"windows","platformOs":"windows"}}).to_string().into())).await.unwrap();
         while let Some(Ok(message)) = socket.next().await {
             if message.is_close() {
                 break;

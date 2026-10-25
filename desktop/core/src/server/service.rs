@@ -31,6 +31,7 @@ pub struct Core {
     pub runtime_error: RwLock<Option<Value>>,
     pub attached_runtime: AtomicBool,
     runtime_protocol: RwLock<crate::rpc::ProtocolVersion>,
+    runtime_version: RwLock<Option<String>>,
     pub verified: AtomicBool,
     pub loaded: Mutex<HashSet<String>>,
     pub(crate) observed: Mutex<HashMap<String, String>>,
@@ -81,6 +82,7 @@ impl Core {
             runtime_error: RwLock::new(None),
             attached_runtime: AtomicBool::new(false),
             runtime_protocol: RwLock::new(crate::rpc::ProtocolVersion::Managed),
+            runtime_version: RwLock::new(None),
             verified: AtomicBool::new(false),
             loaded: Mutex::new(HashSet::new()),
             observed: Mutex::new(HashMap::new()),
@@ -128,7 +130,12 @@ impl Core {
     }
     pub fn snapshot(&self) -> Result<Value> {
         let mut snapshot = self.store.snapshot(self.ready.load(Ordering::SeqCst))?;
-        snapshot["host"]["codexVersion"] = json!(self.runtime_protocol.read().unwrap().version());
+        snapshot["host"]["codexVersion"] = json!(self
+            .runtime_version
+            .read()
+            .unwrap()
+            .as_deref()
+            .unwrap_or(""));
         Ok(snapshot)
     }
     pub fn state(&self) -> Result<Value> {
@@ -156,6 +163,12 @@ impl Core {
         state["hostId"] = json!(self.store.meta("hostId")?);
         state["activeTurns"] = json!(self.store.turns(None)?.len());
         state["servicePid"] = json!(std::process::id());
+        state["codexVersion"] = json!(self
+            .runtime_version
+            .read()
+            .unwrap()
+            .as_deref()
+            .unwrap_or(""));
         Ok(state)
     }
     pub fn publish(&self) {
@@ -341,6 +354,7 @@ impl Core {
         let mut discovered = false;
         while !self.stopping.load(Ordering::SeqCst) {
             let result: Result<()> = async {
+                *self.runtime_version.write().unwrap() = None;
                 let (rpc, mut events) = match &target {
                     crate::runtime::RuntimeTarget::Managed => Rpc::start(&exe, &args)?,
                     crate::runtime::RuntimeTarget::Attached { endpoint, .. } => {
@@ -376,6 +390,14 @@ impl Core {
                 let initialized: Result<()> = async {
                     if target.attached() { codex::initialize_attached(&rpc).await?; }
                     else { codex::initialize(&rpc).await?; }
+                    *self.runtime_protocol.write().unwrap() = rpc.protocol();
+                    *self.runtime_version.write().unwrap() = rpc.runtime_version();
+                    let verified_version = if self.verified.load(Ordering::SeqCst) {
+                        rpc.runtime_version().unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    self.store.set_meta("sandboxVerifiedVersion", &verified_version)?;
                     if !discovered && !target.attached() {
                         let config = rpc
                             .request("config/read", json!({"includeLayers":false}))
@@ -485,12 +507,24 @@ impl Core {
             "system.hello" => Ok(
                 json!({"v":1,"hostId":self.store.meta("hostId")?,"serverVersion":"0.3.0","heartbeatSeconds":15}),
             ),
-            "system.capabilities" => Ok(crate::capabilities::describe_profile(
-                self.ready.load(Ordering::SeqCst),
-                self.verified.load(Ordering::SeqCst),
-                self.attached_runtime.load(Ordering::SeqCst),
-                *self.runtime_protocol.read().unwrap(),
-            )),
+            "system.capabilities" => {
+                let mut value = crate::capabilities::describe_profile(
+                    self.ready.load(Ordering::SeqCst),
+                    self.verified.load(Ordering::SeqCst),
+                    self.attached_runtime.load(Ordering::SeqCst),
+                    *self.runtime_protocol.read().unwrap(),
+                );
+                value["codexVersion"] = json!(self
+                    .runtime_version
+                    .read()
+                    .unwrap()
+                    .as_deref()
+                    .unwrap_or(""));
+                value["minimumCodexVersion"] = json!(codex::MIN_SUPPORTED_VERSION);
+                value["runtime"]["schemaBaseline"] =
+                    json!(self.runtime_protocol.read().unwrap().version());
+                Ok(value)
+            }
             "system.updateCheck" => {
                 let status = crate::host::updates::status().await.map_err(|_| {
                     Error::new(
@@ -515,7 +549,7 @@ impl Core {
                 )?["n"]
                     .clone();
                 Ok(
-                    json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":self.runtime_protocol.read().unwrap().version(),"nodeVersion":"Rust native (no Node runtime)","platform":std::env::consts::OS,"upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
+                    json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":self.runtime_version.read().unwrap().as_deref().unwrap_or(""),"minimumCodexVersion":codex::MIN_SUPPORTED_VERSION,"nodeVersion":"Rust native (no Node runtime)","platform":std::env::consts::OS,"upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
                 )
             }
             "settings.execution" => self.execution_config(p["projectId"].as_str()).await,

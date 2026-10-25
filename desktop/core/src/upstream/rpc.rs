@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
@@ -114,7 +114,8 @@ pub(crate) fn checked_packet(v: &Value) -> Result<()> {
     Ok(())
 }
 pub struct Rpc {
-    protocol: ProtocolVersion,
+    protocol: RwLock<ProtocolVersion>,
+    runtime_version: RwLock<Option<String>>,
     output: mpsc::Sender<Value>,
     pending: Mutex<HashMap<String, oneshot::Sender<Result<Value>>>>,
     next: AtomicU64,
@@ -169,7 +170,8 @@ impl Rpc {
         let (output, mut writes) = mpsc::channel::<Value>(2);
         let (events, event_rx) = mpsc::channel(128);
         let rpc = Arc::new(Self {
-            protocol: ProtocolVersion::Managed,
+            protocol: RwLock::new(ProtocolVersion::Managed),
+            runtime_version: RwLock::new(None),
             output,
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
@@ -273,9 +275,9 @@ impl Rpc {
         } else {
             json!({"id":id,"method":method,"params":params})
         };
-        if self.protocol == ProtocolVersion::DesktopBaseline && method == "project/list" {
+        if self.protocol() == ProtocolVersion::DesktopBaseline && method == "project/list" {
             self.validate("experimental/ProjectListParams", &packet["params"])?;
-        } else if self.protocol == ProtocolVersion::DesktopBaseline
+        } else if self.protocol() == ProtocolVersion::DesktopBaseline
             && [
                 "thread/queue/add",
                 "thread/queue/list",
@@ -341,10 +343,19 @@ impl Rpc {
             .map_err(|_| Error::new("RATE_LIMITED", "Upstream write buffer full"))
     }
     pub fn protocol(&self) -> ProtocolVersion {
-        self.protocol
+        *self.protocol.read().unwrap()
+    }
+    pub fn runtime_version(&self) -> Option<String> {
+        self.runtime_version.read().unwrap().clone()
+    }
+    pub(crate) fn set_runtime_version(&self, version: &str) -> Result<()> {
+        let profile = crate::codex::protocol_for_version(version)?;
+        *self.protocol.write().unwrap() = profile;
+        *self.runtime_version.write().unwrap() = Some(version.to_owned());
+        Ok(())
     }
     pub fn validate(&self, name: &str, value: &Value) -> Result<()> {
-        validate_for(self.protocol, name, value)
+        validate_for(self.protocol(), name, value)
     }
     pub fn reject(&self, id: Value) -> Result<()> {
         self.send(json!({"id":id,"error":{"code":-32601,"message":"Request unsupported or no longer authorized"}}))
@@ -361,7 +372,8 @@ mod tests {
     async fn read_race(method: &str, message: &str, succeeds_after: usize) -> (Result<Value>, u64) {
         let (output, mut packets) = mpsc::channel::<Value>(8);
         let rpc = Arc::new(Rpc {
-            protocol: ProtocolVersion::Managed,
+            protocol: RwLock::new(ProtocolVersion::Managed),
+            runtime_version: RwLock::new(None),
             output,
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(0),
