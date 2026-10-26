@@ -202,6 +202,23 @@ async function loadAccounts() {
           await loadAccounts();
         }),
       );
+      actions.append(
+        button('删除用户', async () => {
+          if (
+            !window.confirm(
+              `永久删除用户 ${account.username} 及其全部设备和登录凭据？电脑本地文件和会话会保留，此操作无法撤销。`,
+            )
+          )
+            return;
+          await request(`/accounts/${encodeURIComponent(account.accountId)}`, 'DELETE');
+          if (account.accountId === identity.accountId) {
+            showLogin();
+            return;
+          }
+          await loadAccounts();
+          await loadStatus();
+        }),
+      );
       const state = account.disabled
         ? '已停用'
         : account.mustChangePassword
@@ -219,6 +236,33 @@ async function loadAccounts() {
     }),
   );
 }
+function deviceActions(device) {
+  const actions = element('div');
+  if (!device.revoked)
+    actions.append(
+      button('撤销', async () => {
+        if (!window.confirm(`撤销 ${device.username} 的 ${device.displayName} 并关闭连接？`))
+          return;
+        await request(`/devices/${encodeURIComponent(device.deviceId)}`, 'DELETE');
+        await loadDevices();
+        await loadStatus();
+      }),
+    );
+  actions.append(
+    button('删除设备', async () => {
+      if (
+        !window.confirm(
+          `永久删除 ${device.username} 的 ${device.displayName} 并关闭连接？需要重新登录才能再次使用，电脑本地文件和会话会保留。`,
+        )
+      )
+        return;
+      await request(`/devices/${encodeURIComponent(device.deviceId)}/registration`, 'DELETE');
+      await loadDevices();
+      await loadStatus();
+    }),
+  );
+  return actions;
+}
 async function loadDevices() {
   const { devices } = await request('/devices');
   const kinds = { desktop: '电脑', mobile: '移动设备', adminWeb: '管理浏览器' };
@@ -230,19 +274,7 @@ async function loadDevices() {
           device.username,
           kinds[device.kind] || device.kind,
           device.revoked ? '已撤销' : '已登记',
-          device.revoked
-            ? '—'
-            : button('撤销', async () => {
-                if (
-                  !window.confirm(
-                    `撤销 ${device.username} 的 ${device.displayName} 并关闭对应公网连接？`,
-                  )
-                )
-                  return;
-                await request(`/devices/${encodeURIComponent(device.deviceId)}`, 'DELETE');
-                await loadDevices();
-                await loadStatus();
-              }),
+          deviceActions(device),
         ],
         ['名称', '账户', '类型', '状态', '操作'],
       ),
@@ -255,6 +287,8 @@ async function loadAudit() {
     'account.created': '创建账户',
     'account.updated': '修改账户与配额',
     'account.password_changed': '修改或重置密码',
+    'account.deleted': '删除用户',
+    'device.deleted': '删除设备',
     'device.revoked': '撤销设备',
     'host.unbound': '解绑电脑',
     'session.created': '创建登录会话',
@@ -265,7 +299,7 @@ async function loadAudit() {
       row(
         [
           new Date(entry.createdAt).toLocaleString(),
-          entry.actor || '服务器管理员',
+          entry.actor || '系统或已删除账户',
           names[entry.action] || entry.action,
           entry.subjectId || '—',
         ],

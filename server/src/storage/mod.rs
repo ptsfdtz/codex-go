@@ -296,6 +296,83 @@ impl Store {
         tx.commit().await?;
         Ok(())
     }
+    async fn remove_device(tx: &tokio_postgres::Transaction<'_>, device: &str) -> Result<()> {
+        tx.execute("DELETE FROM host_access WHERE host_device_id=$1 OR session_id IN(SELECT id FROM sessions WHERE device_id=$1)", &[&device]).await?;
+        tx.execute("DELETE FROM refresh_tokens WHERE session_id IN(SELECT id FROM sessions WHERE device_id=$1)", &[&device]).await?;
+        tx.execute("DELETE FROM sessions WHERE device_id=$1", &[&device])
+            .await?;
+        tx.execute("DELETE FROM hosts WHERE device_id=$1", &[&device])
+            .await?;
+        tx.execute("DELETE FROM devices WHERE id=$1", &[&device])
+            .await?;
+        Ok(())
+    }
+    pub async fn delete_device(
+        &self,
+        actor: &str,
+        account: Option<&str>,
+        device: &str,
+    ) -> Result<()> {
+        let mut connection = self.pool.get().await?;
+        let tx = connection.transaction().await?;
+        let owner: String = tx.query_opt("SELECT a.id FROM accounts a JOIN devices d ON d.account_id=a.id WHERE d.id=$1 AND ($2::text IS NULL OR a.id=$2) FOR UPDATE OF a", &[&device, &account]).await?.ok_or_else(Error::forbidden)?.get(0);
+        tx.query_opt(
+            "SELECT id FROM devices WHERE id=$1 AND account_id=$2 FOR UPDATE",
+            &[&device, &owner],
+        )
+        .await?
+        .ok_or_else(Error::forbidden)?;
+        Self::remove_device(&tx, device).await?;
+        tx.execute(
+            "INSERT INTO audit(actor_id,action,subject_id) VALUES($1,'device.deleted',$2)",
+            &[&actor, &device],
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+    pub async fn delete_account(&self, actor: &str, account: &str) -> Result<()> {
+        let mut connection = self.pool.get().await?;
+        let tx = connection.transaction().await?;
+        let admins = tx.query("SELECT id FROM accounts WHERE role='admin' AND NOT disabled ORDER BY id FOR UPDATE", &[]).await?;
+        if admins.len() <= 1 && admins.iter().any(|r| r.get::<_, String>(0) == account) {
+            return Err(Error::new(
+                axum::http::StatusCode::CONFLICT,
+                "LAST_ADMIN",
+                "必须保留一个可用管理员",
+            ));
+        }
+        tx.query_opt(
+            "SELECT id FROM accounts WHERE id=$1 FOR UPDATE",
+            &[&account],
+        )
+        .await?
+        .ok_or_else(Error::forbidden)?;
+        for device in tx
+            .query(
+                "SELECT id FROM devices WHERE account_id=$1 ORDER BY id FOR UPDATE",
+                &[&account],
+            )
+            .await?
+        {
+            Self::remove_device(&tx, &device.get::<_, String>(0)).await?;
+        }
+        tx.execute(
+            "INSERT INTO audit(actor_id,action,subject_id) VALUES($1,'account.deleted',$2)",
+            &[&actor, &account],
+        )
+        .await?;
+        // Preserve audit entries after deleting their actor.
+        tx.execute(
+            "UPDATE audit SET actor_id=NULL WHERE actor_id=$1",
+            &[&account],
+        )
+        .await?;
+        tx.execute("DELETE FROM accounts WHERE id=$1", &[&account])
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
     pub async fn register_host(&self, auth: &Auth, host_id: &str, name: &str) -> Result<()> {
         if auth.kind != "desktop" {
             return Err(Error::forbidden());

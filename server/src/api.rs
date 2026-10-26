@@ -38,6 +38,10 @@ pub fn router(state: Arc<State>) -> Router {
         .route("/api/v1/account", get(account))
         .route("/api/v1/devices", get(devices))
         .route("/api/v1/devices/{id}", delete(revoke_device))
+        .route(
+            "/api/v1/devices/{id}/registration",
+            delete(browser_delete_device),
+        )
         .route("/api/v1/hosts", get(hosts))
         .route("/api/v1/hosts/self", put(register_host))
         .route("/api/v1/hosts/{id}/access", post(host_access))
@@ -59,13 +63,20 @@ pub fn router(state: Arc<State>) -> Router {
             "/api/v1/admin/accounts",
             get(admin_accounts).post(admin_create),
         )
-        .route("/api/v1/admin/accounts/{id}", put(admin_update))
+        .route(
+            "/api/v1/admin/accounts/{id}",
+            put(admin_update).delete(admin_delete_account),
+        )
         .route(
             "/api/v1/admin/accounts/{id}/reset-password",
             post(admin_reset),
         )
         .route("/api/v1/admin/devices", get(admin_devices))
         .route("/api/v1/admin/devices/{id}", delete(admin_revoke))
+        .route(
+            "/api/v1/admin/devices/{id}/registration",
+            delete(admin_delete_device),
+        )
         .route("/api/v1/admin/status", get(admin_status))
         .route("/api/v1/admin/audit", get(admin_audit))
         .route(
@@ -524,6 +535,9 @@ async fn web_logout(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -
     let auth = browser_auth(&state, &headers, true, false).await?;
     state.store.logout(&auth).await?;
     state.hub.disconnect_session(&auth.session_id);
+    Ok((clear_web_cookies(), Json(json!({"ok":true}))).into_response())
+}
+fn clear_web_cookies() -> HeaderMap {
     let mut cookies = HeaderMap::new();
     for name in [
         "__Host-agentdeck_web_access",
@@ -538,7 +552,7 @@ async fn web_logout(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -
             .unwrap(),
         );
     }
-    Ok((cookies, Json(json!({"ok":true}))).into_response())
+    cookies
 }
 async fn change_password(state: &State, auth: &Auth, input: PasswordChange) -> Result<Json<Value>> {
     if !state
@@ -960,4 +974,41 @@ async fn admin_audit(
 ) -> Result<Json<Value>> {
     web_auth(&state, &headers, false, true).await?;
     Ok(Json(json!({"entries":state.store.audit().await?})))
+}
+
+async fn browser_delete_device(
+    AppState(state): AppState<Arc<State>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let auth = browser_auth(&state, &headers, true, true).await?;
+    state
+        .store
+        .delete_device(&auth.account_id, Some(&auth.account_id), &id)
+        .await?;
+    state.hub.disconnect_device(&id);
+    Ok(Json(json!({"ok":true})))
+}
+async fn admin_delete_device(
+    AppState(state): AppState<Arc<State>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let auth = web_auth(&state, &headers, true, true).await?;
+    state
+        .store
+        .delete_device(&auth.account_id, None, &id)
+        .await?;
+    state.hub.disconnect_device(&id);
+    Ok(Json(json!({"ok":true})))
+}
+async fn admin_delete_account(
+    AppState(state): AppState<Arc<State>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let auth = web_auth(&state, &headers, true, true).await?;
+    state.store.delete_account(&auth.account_id, &id).await?;
+    state.hub.disconnect_account(&id);
+    Ok(Json(json!({"ok":true})))
 }
