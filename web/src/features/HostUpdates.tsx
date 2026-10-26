@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Project, Request } from '../workspace';
 import { Modal } from '../ui';
+import { MotionPresence } from '../motion';
 
 export type HostRelease = {
   current: string | null;
@@ -125,37 +126,41 @@ export function HostUpdates({
         </button>
       )}
       {!projects.length && <small>先在电脑端授权项目，或连接支持普通聊天的 Host。</small>}
-      {open && (
-        <Modal title={`更新 ${name}`} onClose={() => setOpen(false)}>
-          <div className="panel-stack">
-            <p>将在这台电脑新建更新会话并发送以下提示词。沿用工作区权限和正常审批，不自动重启。</p>
-            <label>
-              更新会话所在工作区
-              <select
-                aria-label="更新工作区"
-                value={project}
-                onChange={(event) => setProject(event.target.value)}
+      <MotionPresence>
+        {open && (
+          <Modal title={`更新 ${name}`} onClose={() => setOpen(false)}>
+            <div className="panel-stack">
+              <p>
+                将在这台电脑新建更新会话并发送以下提示词。沿用工作区权限和正常审批，不自动重启。
+              </p>
+              <label>
+                更新会话所在工作区
+                <select
+                  aria-label="更新工作区"
+                  value={project}
+                  onChange={(event) => setProject(event.target.value)}
+                >
+                  {projects.map((item) => (
+                    <option key={item.projectId} value={item.projectId}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <pre className="host-update-prompt">{updatePrompt(release)}</pre>
+              <button
+                disabled={disabled || !projects.some((p) => p.projectId === project)}
+                onClick={async () => {
+                  await onUpdate(updatePrompt(release), project);
+                  if (alive.current) setOpen(false);
+                }}
               >
-                {projects.map((item) => (
-                  <option key={item.projectId} value={item.projectId}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <pre className="host-update-prompt">{updatePrompt(release)}</pre>
-            <button
-              disabled={disabled || !projects.some((p) => p.projectId === project)}
-              onClick={async () => {
-                await onUpdate(updatePrompt(release), project);
-                if (alive.current) setOpen(false);
-              }}
-            >
-              发送更新提示词
-            </button>
-          </div>
-        </Modal>
-      )}
+                发送更新提示词
+              </button>
+            </div>
+          </Modal>
+        )}
+      </MotionPresence>
     </aside>
   );
 }

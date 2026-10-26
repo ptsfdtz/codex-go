@@ -8,15 +8,19 @@ import {
   Play,
   Trash2,
   Copy,
-  Check,
   RefreshCw,
   Plus,
   Pin,
   Archive,
   GitFork,
   Minimize2,
+  Save,
+  Pencil,
+  PinOff,
+  ArchiveRestore,
 } from 'lucide-react';
 import { DataFields, IconButton } from '../ui';
+import { MotionList, MotionPresence } from '../motion';
 import type { Capabilities, Model, Project, Request, Session, Skill } from '../workspace';
 import { canManage, output, statusLabel } from '../workspace';
 import { contentText } from '../RichContent';
@@ -114,18 +118,22 @@ function useAction() {
     busy,
     run,
     feedback: (
-      <>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
+      <MotionPresence>
+        {(error || done) && (
+          <div className="action-feedback" aria-live="polite">
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+            {done && (
+              <p className="muted" role="status">
+                {done}
+              </p>
+            )}
+          </div>
         )}
-        {done && (
-          <p className="muted" role="status">
-            {done}
-          </p>
-        )}
-      </>
+      </MotionPresence>
     ),
   };
 }
@@ -174,115 +182,121 @@ export function SessionPanel({
           if (canRename) void mutate('sessions.rename', { title: title.trim() });
         }}
       >
-        <label>
-          对话名称
-          <input
-            value={title}
-            disabled={action.busy || !safe}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={200}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && title !== savedTitle) {
-                event.preventDefault();
-                event.stopPropagation();
-                setTitle(savedTitle);
-              }
-            }}
-          />
-        </label>
-        <button type="submit" disabled={!canRename}>
-          保存名称
+        <input
+          aria-label="对话名称"
+          value={title}
+          disabled={action.busy || !safe}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={200}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && title !== savedTitle) {
+              event.preventDefault();
+              event.stopPropagation();
+              setTitle(savedTitle);
+            }
+          }}
+        />
+        <button
+          className="icon-button"
+          type="submit"
+          aria-label="保存名称"
+          title="保存名称"
+          disabled={!canRename}
+        >
+          <Save size={18} aria-hidden="true" />
         </button>
       </form>
-      <div className="panel-list session-actions">
-        <button
+      <div className="compact-actions session-actions" aria-label="会话操作">
+        <IconButton
+          icon={session.pinned === 1 ? PinOff : Pin}
+          label={session.pinned === 1 ? '取消置顶' : '置顶会话'}
+          pressed={session.pinned === 1}
           disabled={action.busy || !safe}
           onClick={() => void mutate('sessions.pin', { pinned: session.pinned !== 1 })}
-        >
-          <Pin size={16} />
-          <span>{session.pinned === 1 ? '取消置顶' : '置顶'}</span>
-        </button>
+        />
         {supports('sessionFork') && (
-          <button disabled={action.busy || !safe} onClick={() => void mutate('sessions.fork')}>
-            <GitFork size={16} />
-            <span>分叉会话</span>
-          </button>
+          <IconButton
+            icon={GitFork}
+            label="分叉会话"
+            disabled={action.busy || !safe}
+            onClick={() => void mutate('sessions.fork')}
+          />
         )}
         {supports('sessionCompaction') && (
-          <button disabled={action.busy || !safe} onClick={() => setConfirmation('compact')}>
-            <Minimize2 size={17} />
-            <span>整理上下文</span>
-          </button>
+          <IconButton
+            icon={Minimize2}
+            label="整理上下文"
+            disabled={action.busy || !safe}
+            onClick={() => setConfirmation('compact')}
+          />
         )}
-        <button
+        <IconButton
+          icon={session.archived === 1 ? ArchiveRestore : Archive}
+          label={session.archived === 1 ? '恢复会话' : '归档会话'}
           disabled={action.busy || !safe}
           onClick={() => setConfirmation(session.archived === 1 ? 'restore' : 'archive')}
-        >
-          <Archive size={17} />
-          <span>{session.archived === 1 ? '恢复会话' : '归档会话'}</span>
-        </button>
-      </div>
-      <div className="session-danger">
-        <button
+        />
+        <IconButton
+          icon={Trash2}
+          label="永久删除会话"
           className="danger"
           disabled={action.busy || !safe}
           onClick={() => setConfirmation('delete')}
-        >
-          <Trash2 size={17} />
-          <span>永久删除会话</span>
-        </button>
+        />
       </div>
-      {confirmation && (
-        <div className="confirmation">
-          <p>
-            {confirmation === 'delete'
-              ? '永久删除此会话？此操作无法撤销。'
-              : confirmation === 'compact'
-                ? '整理此会话的上下文？电脑会重新核对最新轮次。'
-                : confirmation === 'archive'
-                  ? '归档此会话？稍后可从归档列表恢复。'
-                  : '恢复此归档会话？'}
-          </p>
-          <div className="button-row">
-            <button
-              className={confirmation === 'delete' ? 'danger' : ''}
-              disabled={action.busy}
-              onClick={async () => {
-                let completed;
-                if (confirmation === 'compact') {
-                  completed = await action.run(async () => {
-                    const latest = await request<{
-                      turn?: { upstreamTurnId?: string };
-                      threadStatus?: string;
-                    }>('turn.latest', { sessionId: session.sessionId, contractVersion: 1 });
-                    if (!latest.turn?.upstreamTurnId || latest.threadStatus !== 'idle')
-                      throw new Error('请先停止或核对当前任务');
-                    await request('sessions.compact', {
-                      sessionId: session.sessionId,
-                      expectedLastTurnId: latest.turn.upstreamTurnId,
+      <MotionPresence>
+        {confirmation && (
+          <div className="confirmation">
+            <p>
+              {confirmation === 'delete'
+                ? '永久删除此会话？此操作无法撤销。'
+                : confirmation === 'compact'
+                  ? '整理此会话的上下文？电脑会重新核对最新轮次。'
+                  : confirmation === 'archive'
+                    ? '归档此会话？稍后可从归档列表恢复。'
+                    : '恢复此归档会话？'}
+            </p>
+            <div className="button-row">
+              <button
+                className={confirmation === 'delete' ? 'danger' : ''}
+                disabled={action.busy}
+                onClick={async () => {
+                  let completed;
+                  if (confirmation === 'compact') {
+                    completed = await action.run(async () => {
+                      const latest = await request<{
+                        turn?: { upstreamTurnId?: string };
+                        threadStatus?: string;
+                      }>('turn.latest', { sessionId: session.sessionId, contractVersion: 1 });
+                      if (!latest.turn?.upstreamTurnId || latest.threadStatus !== 'idle')
+                        throw new Error('请先停止或核对当前任务');
+                      await request('sessions.compact', {
+                        sessionId: session.sessionId,
+                        expectedLastTurnId: latest.turn.upstreamTurnId,
+                      });
+                      onChanged();
                     });
-                    onChanged();
-                  });
-                } else completed = await mutate(`sessions.${confirmation}`);
-                if (completed) setConfirmation('');
-              }}
-            >
-              {action.busy
-                ? '处理中…'
-                : confirmation === 'delete'
-                  ? '永久删除'
-                  : confirmation === 'compact'
-                    ? '整理上下文'
-                    : confirmation === 'archive'
-                      ? '归档'
-                      : '恢复'}
-            </button>
-            <button disabled={action.busy} onClick={() => setConfirmation('')}>
-              取消
-            </button>
+                  } else completed = await mutate(`sessions.${confirmation}`);
+                  if (completed) setConfirmation('');
+                }}
+              >
+                {action.busy
+                  ? '处理中…'
+                  : confirmation === 'delete'
+                    ? '永久删除'
+                    : confirmation === 'compact'
+                      ? '整理上下文'
+                      : confirmation === 'archive'
+                        ? '归档'
+                        : '恢复'}
+              </button>
+              <button disabled={action.busy} onClick={() => setConfirmation('')}>
+                取消
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </MotionPresence>
       {!safe && <p className="muted">请先停止或核对正在进行的任务，再管理会话。</p>}
       {action.feedback}
       <LoadState {...{ error, loading, reload }} />
@@ -711,8 +725,7 @@ export function SkillsPanel({
     'skills.catalog',
     { projectId },
   );
-  const [query, setQuery] = useState(''),
-    [detail, setDetail] = useState<Skill>();
+  const [query, setQuery] = useState('');
   const action = useAction();
   return (
     <div className="panel-stack">
@@ -722,7 +735,15 @@ export function SkillsPanel({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      <p className="muted">已选择 {selected.length} / 8 个技能</p>
+      <div className="skills-summary">
+        <strong>技能</strong>
+        <span>{selected.length} / 8 已选择</span>
+        {selected.length > 0 && (
+          <button className="text-button" onClick={() => onSelect([])}>
+            清空
+          </button>
+        )}
+      </div>
       <LoadState {...{ error, loading, reload }} />
       {value?.skills
         .filter((s) =>
@@ -730,13 +751,12 @@ export function SkillsPanel({
         )
         .map((s) => (
           <div className="skill-row" key={s.id}>
-            <button className="skill-info" onClick={() => setDetail(s)}>
+            <div className="skill-info">
               <strong>{s.displayName || s.name}</strong>
-              <small>{s.shortDescription || s.description}</small>
-            </button>
-            <IconButton
-              icon={selected.some((v) => v.id === s.id) ? Check : Plus}
-              label={`${selected.some((v) => v.id === s.id) ? '移除' : '引用'}技能 ${s.name}`}
+            </div>
+            <button
+              className={`skill-select ${selected.some((v) => v.id === s.id) ? 'selected' : ''}`}
+              aria-label={`${selected.some((v) => v.id === s.id) ? '移除' : '添加'}技能 ${s.name}`}
               disabled={
                 !s.enabled || (!selected.some((v) => v.id === s.id) && selected.length >= 8)
               }
@@ -747,7 +767,9 @@ export function SkillsPanel({
                     : [...selected, s],
                 )
               }
-            />
+            >
+              {selected.some((v) => v.id === s.id) ? '已添加' : '添加'}
+            </button>
             {configure && (
               <label className="switch">
                 <input
@@ -772,13 +794,6 @@ export function SkillsPanel({
           </div>
         ))}
       {value?.errorCount ? <p className="muted">有 {value.errorCount} 个技能无法读取。</p> : null}
-      {detail && (
-        <details open>
-          <summary>{detail.displayName || detail.name}</summary>
-          <p>{detail.description}</p>
-          <small>{detail.scope}</small>
-        </details>
-      )}
       {action.feedback}
     </div>
   );
@@ -821,78 +836,85 @@ export function QueuePanel({
         <IconButton icon={RefreshCw} label="刷新队列" onClick={reload} />
       </div>
       <LoadState {...{ error, loading, reload }} />
-      {value?.data.map((entry, index) => (
-        <div className="queue-entry" key={entry.id}>
-          <p>{contentText(entry.input)}</p>
-          {entry.input.some(
-            (p) => !!p && typeof p === 'object' && (p as { type?: string }).type !== 'text',
-          ) && <p className="muted">包含附件或技能；编辑时保留原资源。</p>}
-          <small>{statusLabel(entry.status)}</small>
-          <div className="button-row">
-            <button
-              disabled={
-                action.busy ||
-                (!supports('nativeQueueResourceEdit') &&
-                  entry.input.some(
-                    (p) => typeof p === 'object' && p && (p as { type?: string }).type !== 'text',
-                  ))
-              }
-              onClick={() => {
-                setEditing(entry);
-                setText(contentText(entry.input));
-              }}
-            >
-              编辑
-            </button>
-            {supports('nativeQueueStart') && (
-              <IconButton
-                icon={Play}
-                label="立即发送队列消息"
-                disabled={action.busy}
-                onClick={() => void mutate('start', { submissionId: entry.id })}
-              />
-            )}
-            <IconButton
-              icon={ArrowUp}
-              label="上移消息"
-              disabled={action.busy || index === 0}
-              onClick={() => {
-                const ids = value.data.map((e) => e.id);
-                [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
-                void mutate('reorder', { submissionIds: ids });
-              }}
-            />
-            <IconButton
-              icon={ArrowDown}
-              label="下移消息"
-              disabled={action.busy || index === value.data.length - 1}
-              onClick={() => {
-                const ids = value.data.map((e) => e.id);
-                [ids[index], ids[index + 1]] = [ids[index + 1]!, ids[index]!];
-                void mutate('reorder', { submissionIds: ids });
-              }}
-            />
-            <IconButton
-              icon={Trash2}
-              label="删除队列消息"
-              disabled={action.busy}
-              onClick={() => setDeleting(entry.id)}
-            />
-          </div>
-          {deleting === entry.id && (
-            <div className="confirmation">
-              <p>删除这条待发送消息？</p>
-              <button
-                disabled={action.busy}
-                onClick={() => void mutate('delete', { submissionId: entry.id })}
-              >
-                确认删除
-              </button>
-              <button onClick={() => setDeleting('')}>取消</button>
+      <MotionList className="panel-stack">
+        {value?.data.map((entry, index) => (
+          <div className="queue-entry" data-motion-item key={entry.id}>
+            <p>{contentText(entry.input)}</p>
+            {entry.input.some(
+              (p) => !!p && typeof p === 'object' && (p as { type?: string }).type !== 'text',
+            ) && <p className="muted">包含附件或技能；编辑时保留原资源。</p>}
+            <div className="queue-toolbar">
+              <small>{statusLabel(entry.status)}</small>
+              <div className="compact-actions">
+                <IconButton
+                  icon={Pencil}
+                  label="编辑队列消息"
+                  disabled={
+                    action.busy ||
+                    (!supports('nativeQueueResourceEdit') &&
+                      entry.input.some(
+                        (p) =>
+                          typeof p === 'object' && p && (p as { type?: string }).type !== 'text',
+                      ))
+                  }
+                  onClick={() => {
+                    setEditing(entry);
+                    setText(contentText(entry.input));
+                  }}
+                />
+                {supports('nativeQueueStart') && (
+                  <IconButton
+                    icon={Play}
+                    label="立即发送队列消息"
+                    disabled={action.busy}
+                    onClick={() => void mutate('start', { submissionId: entry.id })}
+                  />
+                )}
+                <IconButton
+                  icon={ArrowUp}
+                  label="上移消息"
+                  disabled={action.busy || index === 0}
+                  onClick={() => {
+                    const ids = value.data.map((e) => e.id);
+                    [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
+                    void mutate('reorder', { submissionIds: ids });
+                  }}
+                />
+                <IconButton
+                  icon={ArrowDown}
+                  label="下移消息"
+                  disabled={action.busy || index === value.data.length - 1}
+                  onClick={() => {
+                    const ids = value.data.map((e) => e.id);
+                    [ids[index], ids[index + 1]] = [ids[index + 1]!, ids[index]!];
+                    void mutate('reorder', { submissionIds: ids });
+                  }}
+                />
+                <IconButton
+                  icon={Trash2}
+                  label="删除队列消息"
+                  disabled={action.busy}
+                  onClick={() => setDeleting(entry.id)}
+                />
+              </div>
             </div>
-          )}
-        </div>
-      ))}
+            <MotionPresence>
+              {deleting === entry.id && (
+                <div className="confirmation">
+                  <p>删除这条待发送消息？</p>
+                  <button
+                    disabled={action.busy}
+                    onClick={() => void mutate('delete', { submissionId: entry.id })}
+                  >
+                    确认删除
+                  </button>
+                  <button onClick={() => setDeleting('')}>取消</button>
+                </div>
+              )}
+            </MotionPresence>
+          </div>
+        ))}
+      </MotionList>
       {value && !value.data.length && <p className="muted">暂无待发送消息。</p>}
       {editing && (
         <form
@@ -940,63 +962,71 @@ export function ProjectsPanel({
   const action = useAction();
   return (
     <div className="panel-stack">
-      <p className="muted">
-        {supports('codexWorkspaceDiscovery')
-          ? '自动显示 Codex 已有工作区。移除后不再自动添加，电脑上的文件和 Codex 会话不会删除。'
-          : '此电脑需要更新 Host 才能自动同步 Codex 工作区；当前仍可在电脑上使用 agentdeck projects add PATH 添加。'}
-      </p>
-      <button
-        disabled={action.busy || !supports('codexWorkspaceDiscovery')}
-        onClick={() =>
-          void action.run(async () => {
-            await request('projects.add', {});
-            onChanged();
-          })
-        }
-      >
-        <Plus size={16} />
-        同步 Codex 工作区
-      </button>
-      {projects.map((p) => (
-        <div className="project-setting" key={p.projectId}>
-          <button onClick={() => onProject(p.projectId)}>
-            <Folder size={18} />
-            <span>
-              {p.name}
-              <small>{p.canonicalPath}</small>
-            </span>
-          </button>
-          <IconButton
-            icon={Trash2}
-            label={`移除项目 ${p.name}`}
-            disabled={action.busy}
-            onClick={() => setRemove(p.projectId)}
-          />
-          {remove === p.projectId && (
-            <div className="confirmation">
-              <p>
-                从 Web 移除此工作区并撤销访问？不会删除电脑文件或 Codex 会话，也不会自动重新添加。
-              </p>
-              <button
-                disabled={action.busy}
-                onClick={() =>
-                  void action.run(async () => {
-                    const response = await request('projects.remove', { projectId: p.projectId });
-                    if (response.status === 'awaitingLocalConfirmation') {
-                      throw new Error('请更新电脑 Host 后再移除工作区。');
+      <div className="panel-heading">
+        <p className="muted">
+          {supports('codexWorkspaceDiscovery')
+            ? '自动显示 Codex 已有工作区。移除后不再自动添加，电脑上的文件和 Codex 会话不会删除。'
+            : '此电脑需要更新 Host 才能自动同步 Codex 工作区；当前仍可在电脑上使用 agentdeck projects add PATH 添加。'}
+        </p>
+        <IconButton
+          icon={RefreshCw}
+          label="同步 Codex 工作区"
+          disabled={action.busy || !supports('codexWorkspaceDiscovery')}
+          onClick={() =>
+            void action.run(async () => {
+              await request('projects.add', {});
+              onChanged();
+            })
+          }
+        />
+      </div>
+      <MotionList>
+        {projects.map((p) => (
+          <div className="project-setting" data-motion-item key={p.projectId}>
+            <button onClick={() => onProject(p.projectId)}>
+              <Folder size={18} />
+              <span>
+                {p.name}
+                <small>{p.canonicalPath}</small>
+              </span>
+            </button>
+            <IconButton
+              icon={Trash2}
+              label={`移除项目 ${p.name}`}
+              disabled={action.busy}
+              onClick={() => setRemove(p.projectId)}
+            />
+            <MotionPresence>
+              {remove === p.projectId && (
+                <div className="confirmation">
+                  <p>
+                    从 Web 移除此工作区并撤销访问？不会删除电脑文件或 Codex
+                    会话，也不会自动重新添加。
+                  </p>
+                  <button
+                    disabled={action.busy}
+                    onClick={() =>
+                      void action.run(async () => {
+                        const response = await request('projects.remove', {
+                          projectId: p.projectId,
+                        });
+                        if (response.status === 'awaitingLocalConfirmation') {
+                          throw new Error('请更新电脑 Host 后再移除工作区。');
+                        }
+                        setRemove('');
+                        onChanged();
+                      })
                     }
-                    setRemove('');
-                    onChanged();
-                  })
-                }
-              >
-                确认移除
-              </button>
-              <button onClick={() => setRemove('')}>取消</button>
-            </div>
-          )}
-        </div>
-      ))}
+                  >
+                    确认移除
+                  </button>
+                  <button onClick={() => setRemove('')}>取消</button>
+                </div>
+              )}
+            </MotionPresence>
+          </div>
+        ))}
+      </MotionList>
       {supports('nativeProjectReadViews') && (
         <NativeProjects request={request} onProject={onProject} />
       )}

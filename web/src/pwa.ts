@@ -1,9 +1,39 @@
 export function initializePwa() {
+  // Safari can ignore user-scalable=no; cancel its native zoom gesture too.
+  document.addEventListener('gesturestart', (event) => event.preventDefault(), { passive: false });
+  document.addEventListener('gesturechange', (event) => event.preventDefault(), { passive: false });
+  document.addEventListener(
+    'touchmove',
+    (event) => {
+      if (event.touches.length > 1) event.preventDefault();
+    },
+    { passive: false },
+  );
+  window.addEventListener(
+    'wheel',
+    (event) => {
+      if (event.ctrlKey || event.metaKey) event.preventDefault();
+    },
+    { passive: false },
+  );
+  window.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && ['+', '=', '-', '0'].includes(event.key)) {
+      event.preventDefault();
+    }
+  });
   const root = document.documentElement;
   const viewport = window.visualViewport;
   const standalone = matchMedia('(display-mode: standalone)');
+  // Measure the fixed containing block independently of Safari's cached window
+  // metrics. In an installed iOS app even innerHeight/clientHeight can retain
+  // the browser toolbar or dismissed keyboard's shorter height.
+  const bounds = document.createElement('div');
+  bounds.setAttribute('aria-hidden', 'true');
+  bounds.style.cssText =
+    'position:fixed;inset:0;visibility:hidden;pointer-events:none;contain:strict;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);';
+  root.appendChild(bounds);
   const resize = () => {
-    // Keep pinch zoom available; only keyboard/window resizing changes the shell.
+    // Ignore transient zoom metrics; browser zoom gestures are disabled above.
     if (viewport && viewport.scale !== 1) return;
     const focused = document.activeElement;
     const editing =
@@ -11,16 +41,31 @@ export function initializePwa() {
       focused.matches(
         'textarea, input:not([type="checkbox"]):not([type="radio"]), [contenteditable="true"]',
       );
-    // iOS standalone can report a smaller visual viewport even with no keyboard.
-    // Let CSS size the normal window; use the visual viewport only for an overlay keyboard.
-    const keyboard = !!viewport && editing && root.clientHeight - viewport.height > 120;
+    const windowHeight = bounds.getBoundingClientRect().height || root.clientHeight;
+    const keyboard = !!viewport && editing && windowHeight - viewport.height > 120;
     const installed =
       standalone.matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    // Safari can leave dvh shorter than the installed window after dismissing
-    // the keyboard. Use the layout window rather than that stale CSS unit.
-    const height = installed ? `${Math.max(window.innerHeight, root.clientHeight)}px` : '100dvh';
+    const safeTop = parseFloat(getComputedStyle(bounds).paddingTop) || 0;
+    const safeBottom = parseFloat(getComputedStyle(bounds).paddingBottom) || 0;
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const translucent =
+      document
+        .querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+        ?.getAttribute('content') === 'black-translucent';
+    const screenHeight =
+      window.innerWidth > windowHeight
+        ? Math.min(screen.width, screen.height)
+        : Math.max(screen.width, screen.height);
+    const statusBarDeficit = screenHeight - windowHeight;
+    const fullHeight =
+      installed && ios && translucent && safeTop > 0 && Math.abs(statusBarDeficit - safeTop) <= 2
+        ? windowHeight + Math.min(statusBarDeficit, safeBottom)
+        : windowHeight;
     root.dataset.keyboard = keyboard ? 'open' : 'closed';
-    root.style.setProperty('--app-height', keyboard ? `${viewport.height}px` : height);
+    root.style.setProperty(
+      '--app-height',
+      keyboard ? `${viewport.height}px` : installed ? `${fullHeight}px` : '100dvh',
+    );
     root.style.setProperty('--app-top', keyboard ? `${viewport.offsetTop}px` : '0px');
   };
   resize();
@@ -30,6 +75,9 @@ export function initializePwa() {
   window.addEventListener('resize', resize);
   window.addEventListener('pageshow', resize);
   standalone.addEventListener('change', resize);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) requestAnimationFrame(resize);
+  });
   document.addEventListener('focusin', resize);
   document.addEventListener('focusout', () => requestAnimationFrame(resize));
 

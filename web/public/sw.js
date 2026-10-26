@@ -16,7 +16,7 @@ self.addEventListener('fetch', (event) => {
       () =>
         new Response(
           `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-          <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+          <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
           <meta name="theme-color" content="#ffffff"><title>AgentDeck · 网络不可用</title>
           <style>:root{font:16px/1.7 system-ui;color:#171717;background:#fff}
           body{margin:0;min-height:100dvh;display:grid;place-items:center}

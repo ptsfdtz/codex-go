@@ -15,6 +15,9 @@
 .motion-presence[data-motion='closed'] {
   pointer-events: none;
 }
+.motion-presence[data-motion='closed'] > :not(.menu-scrim):not(dialog) {
+  opacity: 0;
+}
 .follow-latest {
   position: sticky;
   bottom: 12px;
@@ -63,7 +66,7 @@ button:disabled {
   }
 }
 
-/* An absolute rail avoids animating width. The conversation uses a small FLIP. */
+/* One shared WAAPI timeline drives the drawer, scrim and desktop FLIP. */
 .sidebar {
   display: flex;
   position: absolute;
@@ -72,25 +75,17 @@ button:disabled {
   left: env(safe-area-inset-left);
   height: calc(100% - var(--app-safe-top) - var(--app-safe-bottom));
   visibility: hidden;
-  opacity: 0;
   transform: translateX(-100%);
-  transition:
-    transform var(--motion-drawer) var(--ease-drawer),
-    opacity var(--motion-panel) var(--ease-out),
-    visibility 0s var(--motion-drawer);
 }
 .with-sidebar .sidebar {
   visibility: visible;
-  opacity: 1;
   transform: translateX(0);
-  transition-delay: 0s;
 }
 .with-sidebar .conversation {
   margin-left: var(--sidebar-width);
 }
 .sidebar-scrim {
   opacity: 0;
-  transition: opacity var(--motion-panel) var(--ease-out);
 }
 .motion-collapse {
   overflow: hidden;
@@ -198,10 +193,6 @@ button:disabled {
 }
 
 @starting-style {
-  .with-sidebar .sidebar {
-    opacity: 0;
-    transform: translateX(-100%);
-  }
   .popover {
     opacity: 0;
     transform: translateY(-4px) scale(0.97);
@@ -253,15 +244,11 @@ button:disabled {
     background: #0007;
     visibility: hidden;
     pointer-events: none;
-    transition:
-      opacity var(--motion-panel) var(--ease-out),
-      visibility 0s var(--motion-panel);
   }
   .sidebar-scrim.visible {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
-    transition-delay: 0s;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -294,7 +281,7 @@ button:disabled {
     }
   }
 }
-/* Shortcuts and keyboard navigation remain immediate. */
+/* Progressive enhancement for the browser's native select surface. */
 @supports (appearance: base-select) {
   select::picker(select) {
     opacity: 0;
@@ -328,11 +315,10 @@ button:disabled {
       }
     }
   }
-  :root[data-motion-input='keyboard'] select::picker(select) {
-    transition: none;
-  }
 }
-.model-picker-popup {
+.model-picker-popup,
+.permission-popup,
+.device-delete-confirmation {
   opacity: 0;
   transform: translateY(4px) scale(0.97);
   transform-origin: bottom left;
@@ -342,12 +328,16 @@ button:disabled {
     display var(--motion-fast) allow-discrete,
     overlay var(--motion-fast) allow-discrete;
 }
-.model-picker-popup:popover-open {
+.model-picker-popup:popover-open,
+.permission-popup:popover-open,
+.device-delete-confirmation:popover-open {
   opacity: 1;
   transform: translateY(0) scale(1);
 }
 @starting-style {
-  .model-picker-popup:popover-open {
+  .model-picker-popup:popover-open,
+  .permission-popup:popover-open,
+  .device-delete-confirmation:popover-open {
     opacity: 0;
     transform: translateY(4px) scale(0.97);
   }
@@ -361,13 +351,93 @@ button:disabled {
     opacity: 0;
   }
 }
-.effort-fill,
+.effort-fill {
+  transition: width var(--motion-fast) var(--ease-out);
+}
 .effort-thumb {
   transition: transform var(--motion-fast) var(--ease-out);
 }
 .effort-slider:active .effort-fill,
 .effort-slider:active .effort-thumb {
   transition: none;
+}
+
+/* Shared state changes: content fades, while layout changes stay local to
+   accordions and keyed lists. Streaming text keeps its reading position. */
+.panel-content,
+.confirmation,
+.approval-review,
+.action-feedback,
+.message-editor,
+.question-fields,
+.question-options,
+.queue-entry,
+.project-setting,
+.host-device-card,
+.computer-entry,
+.session-row,
+.file-list > button,
+.search-result,
+.draft-entry,
+.host-update-notice,
+.mode-chip,
+.turn,
+.icon-button > svg {
+  opacity: 1;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+.permission-popup,
+.device-delete-confirmation {
+  transform-origin: bottom right;
+}
+.motion-presence[data-motion='closed']
+  > :is(.confirmation, .approval-review, .action-feedback, .mode-chip) {
+  opacity: 0;
+}
+.composer > textarea {
+  transition:
+    min-height var(--motion-panel) var(--ease-out),
+    max-height var(--motion-panel) var(--ease-out);
+}
+.model-picker-model-toggle svg {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.icon-button[aria-pressed='true'] {
+  background: var(--hover);
+}
+.pending-icon {
+  animation: pending-spin 800ms linear infinite;
+}
+@keyframes pending-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@starting-style {
+  .panel-content,
+  .confirmation,
+  .approval-review,
+  .action-feedback,
+  .message-editor,
+  .question-fields,
+  .queue-entry,
+  .project-setting,
+  .host-device-card,
+  .computer-entry,
+  .session-row,
+  .file-list > button,
+  .search-result,
+  .draft-entry,
+  .host-update-notice,
+  .mode-chip,
+  .turn,
+  .icon-button > svg {
+    opacity: 0;
+  }
 }
 :root:not([data-motion-input='keyboard']) .model-picker-trigger:focus,
 :root:not([data-motion-input='keyboard']) .model-picker-popup button:focus {
@@ -380,11 +450,17 @@ button:disabled {
 }
 @media (prefers-reduced-motion: reduce) {
   .model-picker-popup,
-  .model-picker-popup:popover-open {
+  .model-picker-popup:popover-open,
+  .permission-popup,
+  .permission-popup:popover-open,
+  .device-delete-confirmation,
+  .device-delete-confirmation:popover-open {
     transform: none;
   }
   @starting-style {
-    .model-picker-popup:popover-open {
+    .model-picker-popup:popover-open,
+    .permission-popup:popover-open,
+    .device-delete-confirmation:popover-open {
       transform: none;
     }
   }
@@ -392,9 +468,4 @@ button:disabled {
   .effort-thumb {
     transition: none;
   }
-}
-:root[data-motion-input='keyboard'] *,
-:root[data-motion-input='keyboard'] *::backdrop {
-  transition: none !important;
-  animation: none !important;
 }

@@ -1,5 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { X, type LucideIcon } from 'lucide-react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { LoaderCircle, X, type LucideIcon } from 'lucide-react';
 import { useMotionPresence } from './motion';
 export function IconButton({
   icon: Icon,
@@ -7,12 +7,16 @@ export function IconButton({
   onClick,
   disabled = false,
   className = '',
+  pressed,
+  pending = false,
 }: {
   icon: LucideIcon;
   label: string;
   onClick: () => void;
   disabled?: boolean;
   className?: string;
+  pressed?: boolean;
+  pending?: boolean;
 }) {
   return (
     <button
@@ -20,10 +24,16 @@ export function IconButton({
       className={`icon-button ${className}`}
       title={label}
       aria-label={label}
-      disabled={disabled}
+      disabled={disabled || pending}
+      aria-pressed={pressed}
+      aria-busy={pending || undefined}
       onClick={onClick}
     >
-      <Icon size={19} strokeWidth={1.6} />
+      {pending ? (
+        <LoaderCircle className="pending-icon" size={19} aria-hidden="true" />
+      ) : (
+        <Icon size={19} strokeWidth={1.6} aria-hidden="true" />
+      )}
     </button>
   );
 }
@@ -44,12 +54,22 @@ export function Modal({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const present = useMotionPresence();
-  useEffect(() => {
+  const [entered, setEntered] = useState(false);
+  useLayoutEffect(() => {
     const node = dialog.current;
-    node?.showModal();
-    return () => node?.close();
+    if (!node) return;
+    node.showModal();
+    // Commit the hidden state in the top layer before transitioning. Safari
+    // can skip @starting-style when showModal runs after the first render.
+    getComputedStyle(node).getPropertyValue('opacity');
+    getComputedStyle(node, '::backdrop').getPropertyValue('background-color');
+    const frame = requestAnimationFrame(() => setEntered(true));
+    return () => {
+      cancelAnimationFrame(frame);
+      node.close();
+    };
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     // A native modal escapes an ancestor's inert state in the top layer.
     if (dialog.current) dialog.current.inert = !present;
   }, [present]);
@@ -58,7 +78,7 @@ export function Modal({
       ref={dialog}
       className={`modal ${wide ? 'modal-wide' : ''} ${className}`}
       aria-label={title}
-      data-motion={present ? 'open' : 'closed'}
+      data-motion={present && entered ? 'open' : 'closed'}
       onCancel={(event) => {
         event.preventDefault();
         onClose();

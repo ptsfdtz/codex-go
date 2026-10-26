@@ -1,4 +1,4 @@
-export type Host = { hostId: string; displayName: string; online: boolean };
+export type Host = { cloudDeviceId?: string; hostId: string; displayName: string; online: boolean };
 export const chatProject = 'agentdeck-chat';
 export type Device = { deviceId: string; kind: string; displayName: string; revoked?: boolean };
 export type Model = {

@@ -52,13 +52,14 @@ export function SettingsLayout({
         {categories.map(({ id, name, icon: Icon }) => (
           <button
             key={id}
+            aria-label={name}
+            title={name}
             className={active === id ? 'active' : ''}
             aria-current={active === id ? 'page' : undefined}
             aria-controls="settings-content"
             onClick={() => onChange(id)}
           >
             <Icon size={18} />
-            <span>{name}</span>
           </button>
         ))}
       </nav>

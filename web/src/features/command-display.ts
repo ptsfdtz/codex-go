@@ -1,5 +1,5 @@
-// Presentation only. Keep the original command available; never execute or
-// rewrite history while removing recognizable shell launch boilerplate.
+// Presentation only. Never execute or rewrite history while removing
+// recognizable shell launch boilerplate.
 function payloadText(value: string): string | undefined {
   if (!/^['"]/.test(value)) return value;
   let quote = '',

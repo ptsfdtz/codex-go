@@ -1,8 +1,53 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { CheckCircle, MessageCircle, ChevronLeft } from 'lucide-react';
+import {
+  CheckCircle,
+  MessageCircle,
+  ChevronLeft,
+  ChevronRight,
+  Send,
+  SkipForward,
+  Check,
+  CheckCheck,
+  X,
+  RefreshCw,
+} from 'lucide-react';
 import type { Approval, Request } from '../workspace';
 import type { HistoryEntry } from '../history';
 import { messageQuestions, confirmedAnswers, replyText, type Question } from './question-replies';
+import { DataFields, IconButton } from '../ui';
+import { MotionPresence } from '../motion';
+
+function ApprovalDetails({ approval }: { approval: Approval }) {
+  const context = approval.context || {};
+  const labels: Record<string, string> = {
+    command: '命令',
+    cwd: '目录',
+    reason: '原因',
+    grantRoot: '授权目录',
+    permissions: '申请权限',
+    additionalPermissions: '额外权限',
+    networkApprovalContext: '网络访问',
+    proposedExecpolicyAmendment: '命令规则变更',
+  };
+  const fields = Object.fromEntries(
+    Object.entries(context)
+      .filter(
+        ([key, value]) =>
+          value != null &&
+          !['threadId', 'turnId', 'itemId', 'approvalId', 'availableDecisions'].includes(key),
+      )
+      .map(([key, value]) => [labels[key] || key, value]),
+  );
+  return (
+    <div className="approval-details">
+      {Object.keys(fields).length > 0 && <DataFields value={fields} />}
+      <details open={!Object.keys(fields).length}>
+        <summary>请求详情</summary>
+        <pre className="approval-context">{JSON.stringify(context, null, 2)}</pre>
+      </details>
+    </div>
+  );
+}
 
 function QuestionFields({
   questions,
@@ -46,7 +91,7 @@ function QuestionFields({
   if (!q) return null;
   const last = currentIndex >= questions.length - 1;
   return (
-    <div className="question-fields" ref={fields}>
+    <div className="question-fields" ref={fields} key={q.id}>
       {questions.length > 1 && (
         <div className="question-pager" aria-live="polite">
           <span>
@@ -102,27 +147,29 @@ function QuestionFields({
       <div className="question-actions">
         {secondary && <div className="question-secondary">{secondary}</div>}
         {questions.length > 1 && (
-          <button
+          <IconButton
+            icon={ChevronLeft}
+            label="上一个问题"
             disabled={disabled || currentIndex === 0}
             onClick={() => navigate(currentIndex - 1)}
-          >
-            <ChevronLeft size={15} />
-            上一个
-          </button>
+          />
         )}
         {last ? (
-          <button
+          <IconButton
+            icon={Send}
+            label="提交回答"
             disabled={
               disabled || !canSubmit || questions.some((question) => !answers[question.id]?.trim())
             }
             onClick={onSubmit}
-          >
-            提交回答
-          </button>
+          />
         ) : (
-          <button disabled={disabled || !answers[q.id]?.trim()} onClick={advance}>
-            下一个
-          </button>
+          <IconButton
+            icon={ChevronRight}
+            label="下一个问题"
+            disabled={disabled || !answers[q.id]?.trim()}
+            onClick={advance}
+          />
         )}
       </div>
     </div>
@@ -182,6 +229,17 @@ export function ApprovalCard({
     expired ||
     phase !== 'editing' ||
     !!(approval.status && approval.status !== 'pending');
+  const approvalTitle =
+    approval.method === 'item/commandExecution/requestApproval'
+      ? '执行命令'
+      : approval.method === 'item/fileChange/requestApproval'
+        ? '修改文件'
+        : approval.method === 'item/permissions/requestApproval'
+          ? '申请权限'
+          : '操作审批';
+  const allowLabel =
+    approval.method === 'item/permissions/requestApproval' ? '允许本轮' : '允许一次';
+  const decisions = approval.allowedDecisions || ['approve', 'reject'];
   async function decide(decision: string) {
     if (
       locked ||
@@ -216,9 +274,55 @@ export function ApprovalCard({
   return (
     <section className="approval">
       <div className="approval-copy">
-        <strong>
-          {phase === 'sent' ? '已处理' : questions.length ? 'Codex 需要你的回答' : '需要你的确认'}
-        </strong>
+        <div className="approval-heading">
+          <strong>
+            {phase === 'sent' ? '已处理' : questions.length ? 'Codex 需要你的回答' : approvalTitle}
+          </strong>
+          {phase === 'editing' && !questions.length && (
+            <div className="compact-actions approval-actions">
+              {confirmation ? (
+                <>
+                  <IconButton
+                    icon={ChevronLeft}
+                    label="返回审批选项"
+                    disabled={locked}
+                    onClick={() => setConfirmation(false)}
+                  />
+                  <IconButton
+                    icon={CheckCheck}
+                    label={`确认${allowLabel}`}
+                    className="approval-allow"
+                    disabled={locked}
+                    pending={busy}
+                    onClick={() => void decide('approve')}
+                  />
+                </>
+              ) : (
+                <>
+                  {(decisions.includes('reject') || decisions.includes('cancel')) && (
+                    <IconButton
+                      icon={X}
+                      label="拒绝操作"
+                      disabled={locked}
+                      onClick={() =>
+                        void decide(decisions.includes('reject') ? 'reject' : 'cancel')
+                      }
+                    />
+                  )}
+                  {decisions.includes('approve') && (
+                    <IconButton
+                      icon={Check}
+                      label={allowLabel}
+                      className="approval-allow"
+                      disabled={locked}
+                      onClick={() => setConfirmation(true)}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
         {phase === 'editing' && (
           <>
             {questions.length ? (
@@ -228,54 +332,32 @@ export function ApprovalCard({
                 onSubmit={() => void decide('approve')}
                 canSubmit={(approval.allowedDecisions || ['approve']).includes('approve')}
                 secondary={
-                  <button disabled={locked} onClick={() => void decide('cancel')}>
-                    跳过
-                  </button>
+                  <IconButton
+                    icon={SkipForward}
+                    label="跳过问题"
+                    disabled={locked}
+                    onClick={() => void decide('cancel')}
+                  />
                 }
               />
             ) : (
-              <>
-                <p>{approval.method}</p>
-                <pre className="approval-context">{JSON.stringify(approval.context, null, 2)}</pre>
-              </>
+              <ApprovalDetails approval={approval} />
             )}
             {expired && <p className="muted">请求已过期。</p>}
           </>
         )}
         {phase === 'unknown' && <p>发送结果待确认，请核对会话后再操作。</p>}
         {error && <p className="error">{error}</p>}
-        {confirmation && (
-          <div className="confirmation">
-            <p>允许这一次操作？请核对命令、目录和权限范围。</p>
-            <button disabled={locked} onClick={() => void decide('approve')}>
-              允许一次
-            </button>
-            <button onClick={() => setConfirmation(false)}>取消</button>
-          </div>
-        )}
-      </div>
-      {phase === 'editing' && !questions.length && (
-        <div className="button-row">
-          <button
-            disabled={locked}
-            onClick={() => void decide(questions.length ? 'cancel' : 'reject')}
-          >
-            {questions.length ? '跳过' : '拒绝'}
-          </button>
-          {(approval.allowedDecisions || ['approve']).includes('approve') && (
-            <button
-              disabled={locked || questions.some((q) => !answers[q.id]?.trim())}
-              onClick={() => (questions.length ? void decide('approve') : setConfirmation(true))}
-            >
-              {questions.length ? '提交回答' : '检查并允许一次'}
-            </button>
+        <MotionPresence>
+          {confirmation && (
+            <p className="approval-review" role="status">
+              请核对以上内容，再确认{allowLabel}。
+            </p>
           )}
-        </div>
-      )}
+        </MotionPresence>
+      </div>
       {phase === 'unknown' && (
-        <button disabled={disabled} onClick={onRefresh}>
-          核对会话
-        </button>
+        <IconButton icon={RefreshCw} label="核对会话" disabled={disabled} onClick={onRefresh} />
       )}
     </section>
   );
@@ -438,9 +520,12 @@ export function AsyncQuestions({
             onSubmit={() => void submit()}
             secondary={
               phase !== 'editing' && (
-                <button disabled={disabled} onClick={onRefresh}>
-                  核对会话
-                </button>
+                <IconButton
+                  icon={RefreshCw}
+                  label="核对会话"
+                  disabled={disabled}
+                  onClick={onRefresh}
+                />
               )
             }
           />

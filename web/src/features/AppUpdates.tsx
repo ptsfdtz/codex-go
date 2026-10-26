@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { RefreshCw, X } from 'lucide-react';
+import { MotionPresence } from '../motion';
+import { IconButton } from '../ui';
 
 export function AppUpdates() {
   const [busy, setBusy] = useState(false);
@@ -6,6 +9,7 @@ export function AppUpdates() {
   const [available, setAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState(false);
+  const [confirmReload, setConfirmReload] = useState(false);
   useEffect(() => {
     if (!import.meta.env.PROD || !checking) return;
     const controller = new AbortController();
@@ -73,16 +77,20 @@ export function AppUpdates() {
         {busy ? '正在检查…' : '检查更新'}
       </button>
       {!import.meta.env.PROD && <small>开发模式使用热更新。</small>}
-      {checked && available && (
-        <button
-          onClick={() => {
-            if (window.confirm('重新加载以更新？未发送的草稿可能丢失，请先保存。'))
-              window.location.reload();
-          }}
-        >
-          重新加载更新
-        </button>
-      )}
+      {checked && available && <button onClick={() => setConfirmReload(true)}>重新加载更新</button>}
+      <MotionPresence>
+        {confirmReload && (
+          <div className="confirmation">
+            <p>重新加载以更新？未发送的草稿可能丢失，请先保存。</p>
+            <IconButton icon={X} label="取消更新" onClick={() => setConfirmReload(false)} />
+            <IconButton
+              icon={RefreshCw}
+              label="确认重新加载"
+              onClick={() => window.location.reload()}
+            />
+          </div>
+        )}
+      </MotionPresence>
     </div>
   );
 }

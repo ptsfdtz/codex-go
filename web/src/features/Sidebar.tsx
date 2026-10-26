@@ -15,7 +15,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { IconButton } from '../ui';
-import { Collapse } from '../motion';
+import { Collapse, MotionList } from '../motion';
 import type { Host, Project, Session } from '../workspace';
 export function Sidebar({
   sessions,
@@ -64,7 +64,7 @@ export function Sidebar({
   const visible = sessions
     .filter(
       (s) =>
-        (!projectId || s.projectId === projectId) &&
+        (filter === 'archived' || !projectId || s.projectId === projectId) &&
         (filter === 'archived'
           ? s.archived === 1
           : s.archived !== 1 &&
@@ -172,9 +172,10 @@ export function Sidebar({
               </select>
             </div>
           </Collapse>
-          <nav aria-label="会话">
+          <MotionList as="nav" label="会话">
             {visible.map((s) => (
               <div
+                data-motion-item
                 className={`session-row ${s.sessionId === sessionId ? 'selected' : ''}`}
                 key={s.sessionId}
               >
@@ -191,7 +192,7 @@ export function Sidebar({
               </div>
             ))}
             {!visible.length && <p className="rail-empty">暂无会话</p>}
-          </nav>
+          </MotionList>
         </div>
         <div className="sidebar-footer">
           <button onClick={onComputers}>

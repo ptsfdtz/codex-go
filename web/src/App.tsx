@@ -1,9 +1,10 @@
-import { MotionPresence, useSidebarMotion } from './motion';
+import { MotionPresence, MotionList, useSidebarMotion } from './motion';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
 import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
 import { api, installationId, accountEvent } from './cloud';
 import { Bridge } from './transport/bridge';
+import { AccountDevices, DeleteDevice } from './features/AccountDevices';
 import { AccountPassword } from './AccountPassword';
 import type { HostGrant } from './host-book';
 import { contentText, RichContent } from './RichContent';
@@ -25,7 +26,6 @@ import type {
 import { emptyDraft, canManage, chatProject } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { Composer } from './features/Composer';
-import { PermissionPicker } from './features/PermissionPicker';
 import { ApprovalCard, AsyncQuestions } from './features/Questions';
 import { ComposerStatus } from './features/ComposerStatus';
 import { TurnChanges } from './features/TurnChanges';
@@ -84,6 +84,11 @@ import { InstallApp } from './features/InstallApp';
 import { AppUpdates } from './features/AppUpdates';
 import { SettingsLayout } from './features/SettingsLayout';
 import { HostUpdates } from './features/HostUpdates';
+import {
+  readComposerPreferences,
+  saveComposerPreferences,
+  type ComposerPreferences,
+} from './features/composer-preferences';
 
 type HistoryPage = {
   data?: HistoryEntry[];
@@ -210,8 +215,7 @@ export function App() {
   const [find, setFind] = useState(''),
     [findIndex, setFindIndex] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem('agentdeck.web.theme') || 'system');
-  const [permission, setPermission] = useState('workspace'),
-    [fullConfirm, setFullConfirm] = useState(false);
+  const [preferences, setPreferences] = useState<Record<string, ComposerPreferences>>({});
   const [receiptBlocked, setReceiptBlocked] = useState(false);
   const [messageAction, setMessageAction] = useState<{ entry: HistoryEntry; kind: string }>();
   const [editText, setEditText] = useState('');
@@ -232,8 +236,30 @@ export function App() {
   const hostRef = useRef(host);
   hostRef.current = host;
   const draftKey = JSON.stringify([scope, host?.hostId, session || `new:${selectedProject}`]);
-  const draft = drafts[draftKey] || emptyDraft();
+  const preferenceKey = host ? JSON.stringify([scope, host.hostId]) : '';
+  const preference = useMemo(
+    () => preferences[preferenceKey] || readComposerPreferences(preferenceKey),
+    [preferences, preferenceKey],
+  );
+  const permission = preference.permission;
+  const storedDraft = drafts[draftKey];
+  const draft = {
+    ...(storedDraft || emptyDraft()),
+    model: preference.model,
+    effort: preference.effort,
+  };
+  function updatePreferences(change: Partial<ComposerPreferences>) {
+    const next = { ...preference, ...change };
+    saveComposerPreferences(preferenceKey, next);
+    setPreferences((items) => ({ ...items, [preferenceKey]: next }));
+  }
   function updateDraft(change: Partial<Draft>) {
+    if (change.model !== undefined || change.effort !== undefined) {
+      updatePreferences({
+        model: change.model ?? preference.model,
+        effort: change.effort ?? preference.effort,
+      });
+    }
     setDrafts((items) => ({
       ...items,
       [draftKey]: { ...(items[draftKey] || emptyDraft()), ...change },
@@ -453,8 +479,6 @@ export function App() {
       bridge.current = undefined;
       setConnected(false);
       setBusy(false);
-      setFullConfirm(false);
-      setPermission('workspace');
       setHost(undefined);
       hostRef.current = undefined;
       setHosts([]);
@@ -803,7 +827,6 @@ export function App() {
       setPanel('');
       setCapabilities({});
       setModels([]);
-      setPermission('workspace');
       setHostLabel(localStorage.getItem('agentdeck.web.label.' + scope + '.' + next.hostId) || '');
       setHostFingerprint('');
       setLastSynced('');
@@ -1254,7 +1277,7 @@ export function App() {
       setDrafts((items) => {
         const next = { ...items };
         for (const key of new Set([sourceKey, targetKey]))
-          if (next[key] === draft)
+          if (next[key] === storedDraft || next[key] === source)
             next[key] =
               planText === undefined
                 ? { ...source, text: '', attachments: [], skills: [] }
@@ -2138,7 +2161,7 @@ export function App() {
           busy={busy}
           active={!!activeTurn}
           permission={permission}
-          onPermission={() => setFullConfirm(true)}
+          onPermission={(permission) => updatePreferences({ permission })}
           onSend={(kind) => void send(kind)}
           onStop={() => void interrupt()}
           onPanel={openPanel}
@@ -2146,18 +2169,6 @@ export function App() {
           onError={setError}
         />
       </section>
-      <MotionPresence>
-        {fullConfirm && (
-          <PermissionPicker
-            permission={permission}
-            onClose={() => setFullConfirm(false)}
-            onConfirm={(value) => {
-              setPermission(value);
-              setFullConfirm(false);
-            }}
-          />
-        )}
-      </MotionPresence>
       <MotionPresence>
         {messageAction && messageAction.kind !== 'revise' && (
           <Modal
@@ -2234,42 +2245,64 @@ export function App() {
                       {connectionFailure}
                     </p>
                   )}
-                  {hosts.map((item) => (
-                    <div className="computer-entry" key={item.hostId}>
-                      <button
-                        className={`host ${item.hostId === host?.hostId ? 'selected' : ''}`}
-                        onClick={() => {
-                          setPanel('');
-                          void connect(item);
-                        }}
-                      >
-                        <span className={`dot ${item.online ? 'online' : ''}`} />
-                        <span>{item.displayName}</span>
-                        <small>
-                          {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
-                        </small>
-                      </button>
-                      {item.hostId === host?.hostId && (
-                        <div className="button-row">
-                          <button disabled={busy} onClick={() => void connect(item)}>
-                            <RefreshCw size={15} />
-                            重新连接
-                          </button>
+                  <MotionList className="computer-list">
+                    {hosts.map((item) => (
+                      <div className="computer-entry" data-motion-item key={item.hostId}>
+                        <button
+                          className="host"
+                          aria-current={item.hostId === host?.hostId ? 'true' : undefined}
+                          onClick={() => {
+                            setPanel('');
+                            void connect(item);
+                          }}
+                        >
+                          <span className={`dot ${item.online ? 'online' : ''}`} />
+                          <span>{item.displayName}</span>
+                          <small>
+                            {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
+                          </small>
+                        </button>
+                        <div className="computer-actions">
+                          {item.cloudDeviceId && (
+                            <DeleteDevice
+                              onDeleted={() =>
+                                setHosts((current) =>
+                                  current.filter((entry) => entry.hostId !== item.hostId),
+                                )
+                              }
+                              device={{
+                                deviceId: item.cloudDeviceId,
+                                displayName: item.displayName,
+                                kind: 'desktop',
+                              }}
+                            />
+                          )}
+                          {item.hostId === host?.hostId && (
+                            <IconButton
+                              icon={RefreshCw}
+                              label="重新连接"
+                              disabled={busy}
+                              onClick={() => void connect(item)}
+                            />
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    ))}
+                  </MotionList>
                   {!hosts.length && <p>尚未绑定电脑。请先在电脑端登录同一账户。</p>}
                   {host && (
-                    <DataFields
-                      value={{
-                        hostId: host.hostId,
-                        fingerprint: hostFingerprint,
-                        lastSynced,
-                        codexVersion: capabilities.codexVersion,
-                        status: connectionLabels[connectionState],
-                      }}
-                    />
+                    <details className="technical-details">
+                      <summary>连接详情</summary>
+                      <DataFields
+                        value={{
+                          hostId: host.hostId,
+                          fingerprint: hostFingerprint,
+                          lastSynced,
+                          codexVersion: capabilities.codexVersion,
+                          status: connectionLabels[connectionState],
+                        }}
+                      />
+                    </details>
                   )}
                   {host && (
                     <>
@@ -2354,6 +2387,7 @@ export function App() {
                           退出账户
                         </button>
                       </section>
+                      <AccountDevices />
                     </div>
                   )}
                   {settingsTab === 'configuration' &&

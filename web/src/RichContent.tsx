@@ -361,12 +361,6 @@ function ToolContent({
         {type === 'commandExecution' && (
           <>
             <pre className="command">{command}</pre>
-            {command !== rawCommand.trim() && (
-              <details className="technical-details original-command">
-                <summary>Original command</summary>
-                <pre>{rawCommand}</pre>
-              </details>
-            )}
             <div className="tool-meta">
               {typeof item.cwd === 'string' && <span>{item.cwd}</span>}
               {item.exitCode !== undefined && item.exitCode !== null && (

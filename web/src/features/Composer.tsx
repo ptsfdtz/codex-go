@@ -9,17 +9,17 @@ import {
   Sparkles,
   FolderOpen,
   Expand,
-  Shield,
-  ShieldAlert,
+  Minimize2,
   ListChecks,
   Target,
   MessageSquarePlus,
   Clock,
   CornerDownLeft,
 } from 'lucide-react';
-import { IconButton, Modal } from '../ui';
+import { IconButton } from '../ui';
 import type { Draft, Model } from '../workspace';
 import { readAttachments } from './composer-input';
+import { PermissionPicker } from './PermissionPicker';
 import { ModelPicker } from './ModelPicker';
 
 export function Composer({
@@ -94,7 +94,7 @@ export function Composer({
   return (
     <div className="composer-wrap">
       {status && <div className="composer-status">{status}</div>}
-      <div className="composer">
+      <div className={`composer${expanded ? ' is-expanded' : ''}`}>
         {(draft.attachments.length > 0 || draft.skills.length > 0) && (
           <div className="composer-resources">
             {draft.attachments.map((f, index) => (
@@ -127,7 +127,7 @@ export function Composer({
             ))}
           </div>
         )}
-        {!expanded && editor}
+        {editor}
         <div className="composer-toolbar">
           <div className="menu-anchor">
             <IconButton
@@ -252,17 +252,14 @@ export function Composer({
             onChange={onChange}
           />
           {!chat && (
-            <button
-              className="permission"
-              title={`执行权限：${permission === 'full' ? '完整访问' : '工作区权限'}，用于下一次启动的任务`}
-              aria-label={`执行权限：${permission === 'full' ? '完整访问' : '工作区权限'}`}
-              data-permission={permission}
+            <PermissionPicker
+              permission={permission}
               disabled={disabled || busy}
-              onClick={() => onPermission(permission === 'workspace' ? 'full' : 'workspace')}
-            >
-              {permission === 'full' ? <ShieldAlert size={16} /> : <Shield size={16} />}
-              <span>{permission === 'full' ? '完整访问' : '工作区'}</span>
-            </button>
+              onConfirm={onPermission}
+            />
+          )}
+          {expanded && (
+            <IconButton icon={Minimize2} label="收起编辑器" onClick={() => setExpanded(false)} />
           )}
           {active && supports('activeTurnSteering') && !hasResources && (
             <IconButton
@@ -308,19 +305,6 @@ export function Composer({
           }}
         />
       </div>
-      <p className="composer-hint">
-        {active
-          ? 'Codex is working. Add to the queue or steer the current task.'
-          : 'Codex can make mistakes. Review changes before you run them.'}
-      </p>
-      <MotionPresence>
-        {expanded && (
-          <Modal title="编辑消息" wide onClose={() => setExpanded(false)}>
-            {editor}
-            <button onClick={() => setExpanded(false)}>完成</button>
-          </Modal>
-        )}
-      </MotionPresence>
     </div>
   );
 }
