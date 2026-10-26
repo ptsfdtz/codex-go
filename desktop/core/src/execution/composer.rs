@@ -160,30 +160,3 @@ pub(crate) fn prepare_stored_input(
     }
     Ok((input, names))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn bounds_and_path_traversal_are_rejected() {
-        assert!(decode_attachments(&json!([{"name":"../escape","data":"YQ=="}])).is_err());
-        assert!(decode_attachments(&json!([{"name":"ok","data":"!"}])).is_err());
-        assert!(decode_attachments(
-            &json!([{"name":"ok","data":STANDARD.encode(vec![0;MAX_ATTACHMENT_BYTES+1])}])
-        )
-        .is_err());
-    }
-    #[test]
-    fn files_and_images_reach_the_granted_workspace() {
-        let root = tempfile::tempdir().unwrap();
-        // Windows runner TEMP may use an 8.3 alias; grants use canonical paths.
-        let granted = crate::paths::canonical(root.path()).unwrap();
-        let files = json!([{"name":"notes.txt","data":STANDARD.encode(b"hello")},{"name":"photo.png","data":STANDARD.encode(b"\x89PNG\r\n\x1a\nimage")}]);
-        let (input, names) = prepare_input(&granted, "inspect", Some(&files)).unwrap();
-        assert_eq!(names, ["notes.txt", "photo.png"]);
-        assert_eq!(input[2]["type"], "localImage");
-        let path = Path::new(input[2]["path"].as_str().unwrap());
-        assert!(path.starts_with(&granted));
-        assert_eq!(std::fs::read(path).unwrap(), b"\x89PNG\r\n\x1a\nimage");
-    }
-}

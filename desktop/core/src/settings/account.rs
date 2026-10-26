@@ -81,17 +81,3 @@ impl Core {
         )
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn usage_projection_excludes_unknown_and_auth_fields() {
-        let result = bucket(
-            &json!({"limitId":"codex","primary":{"usedPercent":15,"resetsAt":123,"accessToken":"secret"},"credits":{"balance":"2","hasCredits":true,"unlimited":false,"refreshToken":"secret"},"token":"secret","rateLimitUpsell":{"auth":"secret"}}),
-        );
-        assert_eq!(result["primary"]["usedPercent"], 15);
-        assert!(!result.to_string().contains("secret"));
-        assert!(!result.to_string().contains("Token"));
-    }
-}

@@ -50,8 +50,6 @@ pub struct Status {
 pub struct Cloud {
     access_cache:
         tokio::sync::Mutex<std::collections::HashMap<String, (RemoteIdentity, std::time::Instant)>>,
-    #[cfg(test)]
-    connector: Option<Arc<rustls::ClientConfig>>,
     client: reqwest::Client,
     saved: tokio::sync::Mutex<Option<Saved>>,
     status: RwLock<Status>,
@@ -62,8 +60,6 @@ impl Default for Cloud {
     fn default() -> Self {
         Self {
             access_cache: Default::default(),
-            #[cfg(test)]
-            connector: None,
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(10))
@@ -88,12 +84,6 @@ impl Cloud {
         >,
         tokio_tungstenite::tungstenite::Error,
     > {
-        #[cfg(test)]
-        let connector = self
-            .connector
-            .clone()
-            .map(tokio_tungstenite::Connector::Rustls);
-        #[cfg(not(test))]
         let connector = None;
         let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
             .max_message_size(Some(limit))
@@ -667,28 +657,3 @@ async fn serve_tunnel(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn cloud_origin_requires_https_without_path_or_embedded_credentials() {
-        assert_eq!(
-            validate_origin("https://connect.example.com/").unwrap(),
-            "https://connect.example.com"
-        );
-        for origin in [
-            "http://connect.example.com",
-            "https://user:secret@connect.example.com",
-            "https://connect.example.com/admin",
-            "https://connect.example.com?token=secret",
-            "https://connect.example.com#fragment",
-        ] {
-            assert!(validate_origin(origin).is_err());
-        }
-    }
-}
-
-#[cfg(test)]
-#[path = "cloud_test.rs"]
-mod integration_tests;

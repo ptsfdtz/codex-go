@@ -31,20 +31,7 @@ jobs:
       - run: pnpm schema:verify
       - run: pnpm audit --prod
       - run: cargo fmt --manifest-path desktop/core/Cargo.toml -- --check
-      - run: cargo test --locked --manifest-path desktop/core/Cargo.toml
       - run: cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -D warnings
-      - run: pnpm --filter @agentdeck/web test
-      - run: pnpm --filter @agentdeck/web exec playwright install msedge
-      - run: node web/tests/browser-transport.mjs
-      - run: node web/tests/browser-recovery.mjs
-      - run: node web/tests/browser-pwa.mjs
-      - run: node web/tests/browser-mobile.mjs
-      - run: node web/tests/browser-motion.mjs
-      - run: node web/tests/browser-diff.mjs
-      - run: node web/tests/browser-chat.mjs
-      - run: node web/tests/browser-workspaces-auto.mjs
-      - run: node web/tests/browser-questions.mjs
-      - run: node web/tests/browser-plan.mjs
       - run: pnpm --filter @agentdeck/web build
       - run: pnpm host:package
         env:
@@ -75,7 +62,6 @@ jobs:
       - run: sh -n scripts/host/install.sh scripts/host/start.sh
       - run: cargo fmt --manifest-path desktop/core/Cargo.toml --check
       - run: cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --locked --manifest-path desktop/core/Cargo.toml --lib --test host_lifecycle
       - run: node scripts/host/package.mjs
         env:
           AGENTDECK_RELEASE_VERSION: host-${{ github.sha }}

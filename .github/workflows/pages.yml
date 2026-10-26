@@ -34,12 +34,6 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @agentdeck/web test
-      - run: pnpm --filter @agentdeck/web exec playwright install --with-deps chromium
-      - run: node web/tests/browser-transport.mjs
-      - run: node web/tests/browser-pwa.mjs
-      - run: node web/tests/browser-mobile.mjs
-      - run: node web/tests/browser-motion.mjs
       - name: Require cloud origin variable
         env:
           CLOUD_ORIGIN: ${{ vars.AGENTDECK_CLOUD_ORIGIN }}

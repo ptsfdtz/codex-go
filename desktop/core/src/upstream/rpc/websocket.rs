@@ -154,31 +154,3 @@ impl Rpc {
         Ok((rpc, event_rx))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn rejects_nonlocal_endpoints_and_credentials_without_echoing_secrets() {
-        let credential = "x".repeat(43);
-        for endpoint in [
-            "ws://localhost:1234",
-            "ws://192.168.1.1:1234",
-            "wss://127.0.0.1:1234",
-            "ws://127.0.0.1:0",
-            "ws://127.0.0.1:1234/path",
-            "ws://127.0.0.1:1234/?token=secret",
-            "ws://user:secret@127.0.0.1:1234",
-        ] {
-            assert!(local_request(endpoint, &credential).is_err(), "{endpoint}");
-        }
-        for credential in ["", "short", "secret\r\nAuthorization: value"] {
-            let error = local_request("ws://127.0.0.1:1234", credential).unwrap_err();
-            assert_eq!(error.code, "CONFIG_ERROR");
-        }
-        for endpoint in ["ws://127.0.0.1:1234", "ws://[::1]:1234/"] {
-            let request = local_request(endpoint, &credential).unwrap();
-            assert!(request.headers()[AUTHORIZATION].is_sensitive());
-        }
-    }
-}

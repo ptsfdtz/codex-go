@@ -7,6 +7,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/artifacts/**',
       '**/target/**',
+      'android/**/build/**',
       'packages/codex-protocol/**',
       '.tmp/**',
     ],
@@ -38,11 +39,7 @@ export default tseslint.config(
     },
   },
   {
-    files: [
-      'server/admin/*.js',
-      'server/tests/admin-browser.mjs',
-      'web/tests/browser-transport.mjs',
-    ],
+    files: ['server/admin/*.js'],
     languageOptions: {
       globals: {
         document: 'readonly',

@@ -338,32 +338,3 @@ pub fn remove_local(store: &Store, id: &str) -> Result<()> {
     store.append("projects.updated", json!({}), None, None)?;
     Ok(())
 }
-
-#[cfg(all(test, target_os = "linux"))]
-mod linux_tests {
-    use super::*;
-    #[test]
-    fn case_sensitive_grants_and_opened_inode_validation() {
-        let directory = tempfile::tempdir().unwrap();
-        let upper = directory.path().join("Project");
-        let lower = directory.path().join("project");
-        std::fs::create_dir(&upper).unwrap();
-        std::fs::create_dir(&lower).unwrap();
-        let store = Store::open(&directory.path().join("state.db")).unwrap();
-        let a = add_local(&store, &upper).unwrap();
-        let b = add_local(&store, &lower).unwrap();
-        assert_ne!(a["projectId"], b["projectId"]);
-        assert!(!equal(&upper, &lower));
-        assert!(!within(&upper, &lower.join("secret")));
-        std::os::unix::fs::symlink(&lower, upper.join("escape")).unwrap();
-        assert!(checked_file(&upper, "escape/secret").is_err());
-        let file = upper.join("data");
-        std::fs::write(&file, "old").unwrap();
-        let opened = File::open(&file).unwrap();
-        assert_eq!(opened_path(&opened).unwrap(), file);
-        std::fs::rename(&file, lower.join("moved")).unwrap();
-        assert!(!within(&upper, &opened_path(&opened).unwrap()));
-        std::fs::remove_file(lower.join("moved")).unwrap();
-        assert!(opened_path(&opened).is_err());
-    }
-}

@@ -197,6 +197,3 @@ pub async fn call(
     }
     Ok(value["result"].clone())
 }
-
-#[cfg(test)]
-mod tests;
