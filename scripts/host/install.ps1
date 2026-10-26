@@ -44,6 +44,15 @@ try {
         foreach ($name in @('agentdeck.exe', 'agentdeck-service.exe')) {
             if ((Get-FileHash -LiteralPath (Join-Path $releaseRoot $name)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $staging $name)).Hash) { throw 'Existing release directory has different binaries; it was left untouched.' }
         }
+        # Preserve old release compatibility while checking the optional native
+        # desktop adapter as part of an immutable version's contents.
+        $adapterName = 'agentdeck-codex-proxy.exe'
+        $installedAdapter = Join-Path $releaseRoot $adapterName
+        $stagedAdapter = Join-Path $staging $adapterName
+        $hasInstalledAdapter = Test-Path -LiteralPath $installedAdapter -PathType Leaf
+        $hasStagedAdapter = Test-Path -LiteralPath $stagedAdapter -PathType Leaf
+        if ($hasInstalledAdapter -ne $hasStagedAdapter) { throw 'Existing release has different desktop adapter contents; it was left untouched.' }
+        if ($hasInstalledAdapter -and ((Get-FileHash -LiteralPath $installedAdapter).Hash -ne (Get-FileHash -LiteralPath $stagedAdapter).Hash)) { throw 'Existing release desktop adapter differs; it was left untouched.' }
     }
     $cli = Join-Path $releaseRoot 'agentdeck.exe'
     [IO.File]::WriteAllText((Join-Path $releaseRoot 'release.txt'), $Version, [Text.Encoding]::ASCII)

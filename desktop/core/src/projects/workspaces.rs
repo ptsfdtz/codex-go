@@ -8,23 +8,14 @@ use std::{
 };
 
 impl Core {
-    pub(crate) async fn discover_codex_workspaces(&self) -> Result<()> {
+    pub(crate) async fn discover_codex_workspaces(&self) -> Result<Option<Vec<Value>>> {
         let rpc = self.upstream()?;
         let mut roots = HashSet::<PathBuf>::new();
         let started = Instant::now();
-        let config = rpc
-            .request("config/read", json!({"includeLayers":false}))
-            .await?;
-        rpc.validate("v2/ConfigReadResponse", &config)?;
-        if let Some(projects) = config["config"]["projects"].as_object() {
-            for (path, project) in projects {
-                if project["trust_level"] == "trusted" {
-                    roots.insert(PathBuf::from(path));
-                }
-            }
-        }
+        let mut catalog = None;
         // Native project/list also includes workspaces with no conversations.
         if rpc.protocol() == ProtocolVersion::DesktopBaseline {
+            catalog = Some(Vec::new());
             let mut cursor = None;
             let mut seen = HashSet::new();
             for page in 0..100 {
@@ -44,13 +35,18 @@ impl Core {
                                 .iter()
                                 .any(|word| error.message.to_lowercase().contains(word)) =>
                     {
-                        break
+                        catalog = None;
+                        break;
                     }
                     Err(error) => return Err(error),
                 };
                 for project in response["data"].as_array().unwrap() {
                     for root in project["roots"].as_array().unwrap() {
                         roots.insert(PathBuf::from(s(root, "path")));
+                        catalog
+                            .as_mut()
+                            .unwrap()
+                            .push(json!({"path":root["path"],"name":project["name"]}));
                     }
                 }
                 ensure(
@@ -76,10 +72,15 @@ impl Core {
                     "SYNC_LIMIT",
                     "Workspace discovery timed out",
                 )?;
-                let response = rpc.request_timeout("thread/list", json!({
-                    "cursor":cursor,"limit":100,"archived":archived,"modelProviders":[],
-                    "sourceKinds":["cli","vscode","exec","appServer","subAgent","subAgentReview","subAgentCompact","subAgentThreadSpawn","subAgentOther","unknown"]
-                }), Duration::from_secs(15)).await?;
+                let response = rpc
+                    .request_timeout(
+                        "thread/list",
+                        json!({
+                            "cursor":cursor,"limit":100,"archived":archived,"modelProviders":[]
+                        }),
+                        Duration::from_secs(15),
+                    )
+                    .await?;
                 rpc.validate("v2/ThreadListResponse", &response)?;
                 for thread in response["data"].as_array().unwrap() {
                     if thread["ephemeral"] != true {
@@ -117,6 +118,27 @@ impl Core {
         for path in roots {
             paths::add_discovered(&self.store, &path)?;
         }
-        Ok(())
+        let catalog = catalog
+            .map(|source| -> Result<Vec<Value>> {
+                let grants = self.store.projects()?;
+                let mut seen = HashSet::new();
+                let mut visible = Vec::new();
+                for entry in source {
+                    let Ok(path) = paths::canonical(std::path::Path::new(s(&entry, "path"))) else {
+                        continue;
+                    };
+                    if let Some(grant) = grants.iter().find(|grant| {
+                        paths::equal(std::path::Path::new(s(grant, "canonicalPath")), &path)
+                    }) {
+                        let id = s(grant, "projectId");
+                        if seen.insert(id.to_owned()) && paths::root(&self.store, id).is_ok() {
+                            visible.push(json!({"projectId":id,"name":entry["name"]}));
+                        }
+                    }
+                }
+                Ok(visible)
+            })
+            .transpose()?;
+        Ok(catalog)
     }
 }

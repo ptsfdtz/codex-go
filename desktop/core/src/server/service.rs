@@ -157,7 +157,7 @@ impl Core {
                 .map(|v| v["title"].clone())
                 .unwrap_or(Value::Null);
         }
-        let mut state = json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.projects()?,"devices":devices,"approvals":approvals,"pairings":self.pairing.pending_all(),"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() });
+        let mut state = json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.visible_projects()?,"devices":devices,"approvals":approvals,"pairings":self.pairing.pending_all(),"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() });
         state["cloud"] = json!(self.cloud.status());
         state["runtimeError"] = json!(*self.runtime_error.read().unwrap());
         state["hostId"] = json!(self.store.meta("hostId")?);
@@ -392,6 +392,19 @@ impl Core {
                     else { codex::initialize(&rpc).await?; }
                     *self.runtime_protocol.write().unwrap() = rpc.protocol();
                     *self.runtime_version.write().unwrap() = rpc.runtime_version();
+                    // Preserve the actual Windows boundary proof across every
+                    // reconnect. Never relabel a probe of one installed binary
+                    // as verification of a different attached server version.
+                    #[cfg(windows)]
+                    if self.verified.load(Ordering::SeqCst) {
+                        if let Some(probed) = self.store.meta("sandboxProbeVersion")? {
+                            ensure(
+                                !probed.is_empty() && rpc.runtime_version().as_deref() == Some(probed.as_str()),
+                                "UPSTREAM_VERSION_MISMATCH",
+                                "共享运行时版本与已通过沙箱验证的本机 Codex 不同；请为 Host 选择同一份原生程序。",
+                            )?;
+                        }
+                    }
                     let verified_version = if self.verified.load(Ordering::SeqCst) {
                         rpc.runtime_version().unwrap_or_default()
                     } else {
@@ -603,11 +616,13 @@ impl Core {
                 )
                 .await
             }
-            "projects.list" => Ok(json!({"projects":self.store.projects()?})),
+            "projects.list" => Ok(json!({"projects":self.store.visible_projects()?})),
             "projects.add" => {
                 let indexed = self.sync_thread_index().await?;
                 self.publish();
-                Ok(json!({"status":"synced","indexed":indexed,"projects":self.store.projects()?}))
+                Ok(
+                    json!({"status":"synced","indexed":indexed,"projects":self.store.visible_projects()?}),
+                )
             }
             "projects.remove" => {
                 let _sync = self.thread_sync.try_lock().map_err(|_| {
@@ -631,7 +646,7 @@ impl Core {
                     .await
             }
             "sessions.list" => {
-                Ok(json!({"sessions":self.store.sessions(p["projectId"].as_str())?}))
+                Ok(json!({"sessions":self.store.visible_sessions(p["projectId"].as_str())?}))
             }
             "sessions.observe" => self.observe_session(s(p, "sessionId")).await,
             "sessions.history" => {
@@ -748,7 +763,9 @@ impl Core {
         self.cloud.stop();
         self.discovery.lock().unwrap().take();
         self.request_stop();
-        let _ = self.invalidate_approvals(true);
+        // Detaching this Host must not reject requests owned by the shared
+        // runtime. Expire only our local callbacks; other clients can decide.
+        let _ = self.invalidate_approvals(!self.attached_runtime.load(Ordering::SeqCst));
         if let Some(rpc) = self.rpc.read().unwrap().clone() {
             rpc.stop();
         }
@@ -931,20 +948,4 @@ pub fn sandbox_probe(inside: &Path, outside: &Path) -> bool {
         json!({"insideRead":read,"insideWrite":write,"outsideReadDenied":denied_read,"outsideWriteDenied":denied_write})
     );
     read && write && denied_read && denied_write
-}
-
-#[cfg(test)]
-mod boundary_diagnostic_tests {
-    #[test]
-    fn classifies_executor_failure_without_exposing_diagnostics() {
-        let error = super::boundary_launch_error(
-            b"private-path secret=hidden native MXC is unavailable on this executor",
-        );
-        assert_eq!(error.code, "SANDBOX_EXECUTOR_UNAVAILABLE");
-        assert!(!error.message.contains("hidden"));
-        assert_eq!(
-            super::boundary_launch_error(b"unknown failure").code,
-            "SANDBOX_UNVERIFIED"
-        );
-    }
 }

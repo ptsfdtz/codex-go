@@ -69,22 +69,31 @@ pub fn find() -> Result<PathBuf> {
     let paths = sync_command("where.exe", &["codex"], None).unwrap_or_default();
     #[cfg(not(windows))]
     let paths = sync_command("which", &["-a", "codex"], None).unwrap_or_default();
+    let mut candidates = Vec::new();
     for line in paths.lines() {
         let p = PathBuf::from(line.trim());
-        if (cfg!(not(windows)) || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")))
-            && verify(&p).is_ok()
-        {
-            return paths::canonical(&p);
+        if cfg!(not(windows)) || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
+            candidates.push(p.clone());
         }
         if let Some(parent) = p.parent() {
             let candidate=parent.join("node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe");
-            if candidate.is_file() && verify(&candidate).is_ok() {
-                return paths::canonical(&candidate);
+            if candidate.is_file() {
+                candidates.push(candidate);
             }
         }
     }
-    // Prefer the user's compatible PATH installation. An isolated installer is
-    // a fallback, selected by version instead of a hard-coded directory name.
+    // Desktop updates use hash directories, not version directory names. Probe
+    // the actual native binary and reuse it instead of requiring a private copy.
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        candidates.extend(super::codex_version::desktop_candidates(
+            &PathBuf::from(&local_app_data).join("OpenAI/Codex/bin"),
+        ));
+    }
+    if let Some(candidate) = super::codex_version::select_candidate(candidates, executable_version)
+    {
+        return paths::canonical(&candidate);
+    }
+    // AgentDeck's older isolated installations remain a last-resort fallback.
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
         let directory = PathBuf::from(local_app_data).join("AgentDeck/tools/codex-cli");
         for candidate in super::codex_version::installed_candidates(&directory) {
@@ -212,6 +221,19 @@ pub fn checked_thread_with_full(
     verified: bool,
     previously_full: bool,
 ) -> Result<()> {
+    checked_thread_for_turn(v, root, verified, previously_full, false)
+}
+// Loaded shared threads report their original workspace roots on resume,
+// even after a desktop continuation changes cwd. Only the immediate turn
+// path may accept those historical roots: it supplies a complete sandboxPolicy
+// for the authorized current root before any execution can start.
+pub(crate) fn checked_thread_for_turn(
+    v: &Value,
+    root: &Path,
+    verified: bool,
+    previously_full: bool,
+    replaces_workspace_policy: bool,
+) -> Result<()> {
     for cwd in [&v["cwd"], &v["thread"]["cwd"]] {
         let p = paths::canonical(Path::new(cwd.as_str().unwrap_or("")))?;
         ensure(
@@ -252,11 +274,9 @@ pub fn checked_thread_with_full(
             .as_array()
             .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Missing roots"))?
         {
+            let previous_root = paths::canonical(Path::new(p.as_str().unwrap_or("")))?;
             ensure(
-                paths::within(
-                    root,
-                    &paths::canonical(Path::new(p.as_str().unwrap_or("")))?,
-                ),
+                replaces_workspace_policy || paths::within(root, &previous_root),
                 "WORKSPACE_FORBIDDEN",
                 "Writable root outside project",
             )?;
@@ -306,6 +326,42 @@ impl Drop for Job {
     fn drop(&mut self) {
         unsafe {
             windows_sys::Win32::Foundation::CloseHandle(self.0 as _);
+        }
+    }
+}
+#[cfg(test)]
+mod shared_resume_policy_tests {
+    use super::*;
+
+    #[test]
+    fn historical_roots_require_explicit_turn_policy_and_keep_other_guards() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("current");
+        let old = directory.path().join("previous");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&old).unwrap();
+        let root = paths::canonical(&root).unwrap();
+        let response = json!({
+            "cwd":root,"thread":{"cwd":root},
+            "approvalPolicy":"on-request","approvalsReviewer":"user",
+            "sandbox":{"type":"workspaceWrite","writableRoots":[old],
+                "networkAccess":false,"excludeTmpdirEnvVar":true,"excludeSlashTmp":true}
+        });
+        assert!(checked_thread(&response, &root, true).is_err());
+        assert!(checked_thread_for_turn(&response, &root, true, false, true).is_ok());
+        assert!(checked_thread_for_turn(&response, &root, false, false, true).is_err());
+        for (pointer, value) in [
+            ("/sandbox/networkAccess", json!(true)),
+            ("/sandbox/excludeTmpdirEnvVar", json!(false)),
+            ("/sandbox/excludeSlashTmp", json!(false)),
+            ("/sandbox/type", json!("dangerFullAccess")),
+            ("/approvalPolicy", json!("never")),
+            ("/approvalsReviewer", json!("auto_review")),
+            ("/thread/cwd", json!(old)),
+        ] {
+            let mut unsafe_response = response.clone();
+            *unsafe_response.pointer_mut(pointer).unwrap() = value;
+            assert!(checked_thread_for_turn(&unsafe_response, &root, true, false, true).is_err());
         }
     }
 }

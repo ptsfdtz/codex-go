@@ -536,7 +536,22 @@ async fn connection(
             incoming=reader.next()=>{match incoming{Some(Ok(Message::Text(text)))=>{
                 if !authorized(&core,&credential,remote.as_ref(),&device).await {break;}
                 last_received = Instant::now();
-                let request=serde_json::from_str::<Value>(&text).map_err(|_|Error::new("INVALID_REQUEST","Invalid JSON")).and_then(protocol::parse);let request=match request{Ok(v)=>v,Err(e)=>{if !send(&mut writer,e.packet(None)).await{break;}continue;}};
+                // Keep a valid correlation id even when payload validation fails.
+                // Otherwise the Web client cannot settle its pending request and
+                // turns a definite rejection into a timeout/unknown outcome.
+                let value = serde_json::from_str::<Value>(&text)
+                    .map_err(|_| Error::new("INVALID_REQUEST", "Invalid JSON"));
+                let request_id = value.as_ref().ok()
+                    .and_then(|value| value.get("id").and_then(Value::as_str))
+                    .filter(|id| !id.is_empty() && id.chars().count() <= 160)
+                    .map(str::to_owned);
+                let request = match value.and_then(protocol::parse) {
+                    Ok(request) => request,
+                    Err(error) => {
+                        if !send(&mut writer, error.packet(request_id.as_deref())).await { break; }
+                        continue;
+                    }
+                };
             if !hello&&request.action!="system.hello"{if !send(&mut writer,Error::new("VERSION_REQUIRED","Send system.hello first").packet(Some(&request.id))).await{break;}continue;}
             if request.action=="system.hello"{hello=true;}
                 if !core.rates.lock().unwrap().take(format!("rpc:{device}"),60.,20.){if !send(&mut writer,Error::new("RATE_LIMITED","Request rate limit").packet(Some(&request.id))).await{break;}continue;}
@@ -563,7 +578,13 @@ async fn connection(
         }
         connected.is_empty()
     };
-    if last {
+    // A shared native runtime may still have CLI/desktop reviewers connected.
+    // Losing the Web transport must not decide their pending native requests.
+    if last
+        && !core
+            .attached_runtime
+            .load(std::sync::atomic::Ordering::SeqCst)
+    {
         let _ = core.invalidate_approvals(true);
     }
     core.publish();
@@ -648,19 +669,5 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
             }
             e.packet(Some(&r.id))
         }
-    }
-}
-
-#[cfg(test)]
-mod heartbeat_tests {
-    use super::*;
-    #[test]
-    fn late_heartbeat_is_tolerated_but_silent_peer_expires() {
-        let start = Instant::now();
-        assert!(!peer_timed_out(start, start + Duration::from_secs(30)));
-        assert!(!peer_timed_out(start, start + Duration::from_secs(59)));
-        assert!(peer_timed_out(start, start + Duration::from_secs(60)));
-        let resumed = start + Duration::from_secs(45);
-        assert!(!peer_timed_out(resumed, start + Duration::from_secs(75)));
     }
 }

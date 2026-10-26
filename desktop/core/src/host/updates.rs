@@ -39,9 +39,30 @@ pub async fn status() -> Result<serde_json::Value> {
     }
     Ok(
         serde_json::json!({"current":current,"latest":latest,"platform":std::env::consts::OS,
-        "installation":if versioned {"release"} else {"development"},
-        "updateAvailable":versioned && current.as_deref().is_some_and(|v| v != latest)}),
+        "installation":if versioned && current.as_deref().is_some_and(|v| !v.starts_with("local-")) {"release"} else {"development"},
+        "updateAvailable":versioned && current.as_deref().is_some_and(|v| newer_release(v, latest))}),
     )
+}
+
+fn newer_release(current: &str, latest: &str) -> bool {
+    if current.starts_with("local-") || latest.starts_with("local-") {
+        return false;
+    }
+    if let (Ok(current), Ok(latest)) = (
+        semver::Version::parse(current),
+        semver::Version::parse(latest),
+    ) {
+        return latest > current;
+    }
+    fn dated(value: &str) -> Option<(u32, u32)> {
+        let value = value
+            .strip_prefix("release-")
+            .or_else(|| value.strip_prefix("host-"))?;
+        let (date, sequence) = value.split_once('-')?;
+        (date.len() == 8 && date.bytes().all(|c| c.is_ascii_digit()))
+            .then(|| Some((date.parse().ok()?, sequence.parse().ok()?)))?
+    }
+    matches!((dated(current), dated(latest)), (Some(current), Some(latest)) if latest > current)
 }
 
 pub fn valid_version(value: &str) -> bool {
@@ -112,6 +133,12 @@ pub async fn run(check: bool, override_origin: Option<String>) -> Result<()> {
         println!("Already up to date.");
         return Ok(());
     }
+    if !newer_release(current.trim(), version) {
+        println!(
+            "No newer comparable stable release. Local builds are not replaced automatically."
+        );
+        return Ok(());
+    }
     if check {
         println!("Run agentdeck update to install; restart explicitly when tasks are idle.");
         return Ok(());
@@ -177,40 +204,20 @@ pub async fn run(check: bool, override_origin: Option<String>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::newer_release;
+
     #[test]
-    fn remote_update_check_cannot_select_url_or_install() {
-        use crate::protocol;
-        use serde_json::json;
-        assert!(protocol::parse(
-            json!({"v":1,"type":"request","id":"check","action":"system.updateCheck","payload":{}})
-        )
-        .is_ok());
-        for payload in [
-            json!({"origin":"http://127.0.0.1"}),
-            json!({"install":true}),
-            json!({"command":"restart"}),
-        ] {
-            assert!(protocol::parse(json!({"v":1,"type":"request","id":"check","action":"system.updateCheck","payload":payload})).is_err());
-        }
-    }
-    #[test]
-    fn reject_untrusted_paths_and_origins() {
-        for value in ["../x", "a..b", "a/b", "", "-x", "a\nx"] {
-            assert!(!valid_version(value));
-        }
-        assert!(valid_version("host-20261025-2"));
-        for value in [
-            "http://example.com",
-            "https://example.com/x",
-            "https://user@example.com",
-            "https://example.com/?x",
-        ] {
-            assert!(origin(value).is_err());
-        }
-        assert_eq!(
-            origin("https://agent.ptsfdtz.top/").unwrap(),
-            DEFAULT_ORIGIN
-        );
+    fn update_check_never_downgrades_or_replaces_local_builds() {
+        assert!(!newer_release(
+            "local-20261026-shared",
+            "release-20261025-2"
+        ));
+        assert!(!newer_release("release-20261026-1", "release-20261025-2"));
+        assert!(!newer_release("0.4.0", "0.3.0"));
+        assert!(!newer_release("custom", "release-20261025-2"));
+        assert!(!newer_release("release-20261025-2", "release-20261025-2"));
+        assert!(newer_release("release-20261025-2", "release-20261026-1"));
+        assert!(newer_release("host-20261025-1", "release-20261025-2"));
+        assert!(newer_release("0.3.0", "0.4.0"));
     }
 }

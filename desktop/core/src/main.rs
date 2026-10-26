@@ -2,7 +2,7 @@
 #[cfg(windows)]
 use agentdeck_service::service::boundary;
 use agentdeck_service::{
-    codex, ensure, now, security,
+    codex, ensure, security,
     service::{sandbox_probe, Core},
     store::Store,
     Error, Result,
@@ -22,6 +22,13 @@ async fn main() {
         if let Some(directory) = args.get(index + 1) {
             std::env::set_var("AGENTDECK_DATA_DIR", directory);
         }
+    }
+    if args.get(1).is_some_and(|v| v == "--runtime-supervisor") {
+        if let Err(error) = agentdeck_service::host::shared_runtime::supervise().await {
+            agentdeck_service::host::log(&error.code, &error.message);
+            std::process::exit(1);
+        }
+        return;
     }
     if args.get(1).is_some_and(|v| v == "--host-supervisor") {
         if let Err(error) = agentdeck_service::host::supervise().await {
@@ -95,6 +102,7 @@ async fn run() -> Result<()> {
     core.store.recover()?;
     core.store.set_meta("listenPort", &port.to_string())?;
     core.store.set_meta("sandboxVerifiedVersion", "")?;
+    core.store.set_meta("sandboxProbeVersion", "")?;
     core.store.retain()?;
     let owner = core.clone();
     let writer = tokio::spawn(async move {
@@ -219,30 +227,15 @@ async fn run() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
-    if std::env::var("AGENTDECK_STARTUP_CHECK").as_deref() == Ok("1") {
-        let until = tokio::time::Instant::now() + Duration::from_secs(90);
-        while !core.ready.load(Ordering::SeqCst) && tokio::time::Instant::now() < until {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+    if headless {
+        tokio::select! {
+            _ = core.stop.notified() => {},
+            result = shutdown_signal() => { result?; core.request_stop(); },
         }
-        let passed = core.ready.load(Ordering::SeqCst);
-        std::fs::write(directory.join("startup-check.json"),json!({"at":now(),"result":if passed{"PASS"}else{"FAIL"},"backend":"Rust","codexVersion":core.snapshot()?["host"]["codexVersion"],"runtimeMode":if core.attached_runtime.load(Ordering::SeqCst){"attached-local-ws"}else{"managed-stdio"},"codexReady":passed,"sandboxVerified":core.verified.load(Ordering::SeqCst),"dpapiCertificate":true,"address":address}).to_string())?;
-        core.shutdown().await;
-        ensure(
-            passed,
-            "UPSTREAM_UNAVAILABLE",
-            "Native startup check failed",
-        )?;
     } else {
-        if headless {
-            tokio::select! {
-                _ = core.stop.notified() => {},
-                result = shutdown_signal() => { result?; core.request_stop(); },
-            }
-        } else {
-            core.stop.notified().await;
-        }
-        core.shutdown().await;
+        core.stop.notified().await;
     }
+    core.shutdown().await;
     actions.abort();
     refresh.abort();
     git_poll.abort();
@@ -255,12 +248,15 @@ async fn run_runtime(core: &Arc<Core>) -> Result<()> {
     let target = agentdeck_service::runtime::RuntimeTarget::from_environment()?;
     #[cfg(not(windows))]
     ensure(target.attached(), "CONFIG_ERROR", "Linux requires a configured authenticated runtime; use agentdeck configure --runtime-ws URL --runtime-token-file PATH --protocol VERSION")?;
-    let exe = if target.attached() {
+    // Windows must probe the selected native executable even when attaching.
+    // A PATH lookup for `codex` can select an older npm shim and certify a
+    // different binary from the one that actually executes shared threads.
+    let exe = if target.attached() && !cfg!(windows) {
         PathBuf::from("codex")
     } else {
-        codex::find()?
+        agentdeck_service::host::Config::load()?.codex_executable()?
     };
-    if !target.attached() {
+    if !target.attached() || cfg!(windows) {
         codex::verify_for(&exe, target.protocol())?;
     }
     #[cfg(windows)]
@@ -278,6 +274,9 @@ async fn run_runtime(core: &Arc<Core>) -> Result<()> {
         "SANDBOX_UNVERIFIED",
         "Native Windows isolation probe failed; inspect sandbox-verification.json",
     )?;
+    #[cfg(windows)]
+    core.store
+        .set_meta("sandboxProbeVersion", &codex::executable_version(&exe)?)?;
     core.verified.store(verified, Ordering::SeqCst);
     // Record the actual negotiated runtime version after initialization. A schema
     // hint is not evidence that this executable passed a boundary check.

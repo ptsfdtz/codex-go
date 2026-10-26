@@ -343,11 +343,12 @@ impl Core {
                 .meta(&format!("permissionMode:{session_id}"))?
                 .as_deref()
                 == Some("full");
-            codex::checked_thread_with_full(
+            codex::checked_thread_for_turn(
                 &response,
                 &root,
                 self.verified.load(Ordering::SeqCst),
                 previously_full,
+                self.attached_runtime.load(Ordering::SeqCst),
             )?;
             self.loaded
                 .lock()

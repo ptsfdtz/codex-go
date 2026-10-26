@@ -1,6 +1,9 @@
 //! Local host lifecycle. Shared by the CLI and daemon; independent of a GUI.
 pub mod autostart;
+pub mod codex_client;
+pub mod desktop_client;
 mod process;
+pub mod shared_runtime;
 pub mod updates;
 #[cfg(windows)]
 mod windows;
@@ -56,6 +59,33 @@ pub struct Config {
     pub codex_exe: Option<PathBuf>,
 }
 impl Config {
+    /// Match service configuration precedence for local terminal/diagnostic use.
+    pub fn codex_executable(&self) -> Result<PathBuf> {
+        if std::env::var_os("AGENTDECK_CODEX_EXE").is_none() {
+            if let Some(executable) = &self.codex_exe {
+                return crate::paths::canonical(executable);
+            }
+            if let Some(executable) = shared_runtime::active_executable(&self.runtime_target()?)? {
+                return Ok(executable);
+            }
+        }
+        crate::codex::find()
+    }
+    /// The CLI client and service resolve the same explicit attachment. An absent
+    /// attachment must never silently launch an independent conversation runtime.
+    pub fn runtime_target(&self) -> Result<crate::runtime::RuntimeTarget> {
+        crate::runtime::RuntimeTarget::from_versioned_options(
+            std::env::var_os("AGENTDECK_RUNTIME_WS_URL")
+                .or_else(|| self.runtime_ws.as_ref().map(Into::into)),
+            std::env::var_os("AGENTDECK_RUNTIME_TOKEN_FILE").or_else(|| {
+                self.runtime_token_file
+                    .as_ref()
+                    .map(|p| p.as_os_str().to_owned())
+            }),
+            std::env::var_os("AGENTDECK_RUNTIME_PROTOCOL_VERSION")
+                .or_else(|| self.protocol.as_ref().map(Into::into)),
+        )
+    }
     pub fn load() -> Result<Self> {
         let path = data_dir()?.join("host.json");
         match std::fs::read(path) {
@@ -103,7 +133,10 @@ impl Config {
         }
         if std::env::var_os("AGENTDECK_CODEX_EXE").is_none() {
             if let Some(path) = &self.codex_exe {
-                command.env("AGENTDECK_CODEX_EXE", path);
+                // Earlier configure versions persisted std::fs::canonicalize's
+                // Windows verbatim prefix. Restore a regular local path before
+                // the child's explicit executable admission check.
+                command.env("AGENTDECK_CODEX_EXE", dunce::simplified(path));
             }
         }
         if self.sandbox_verified && std::env::var_os("AGENTDECK_LINUX_SANDBOX_VERIFIED").is_none() {

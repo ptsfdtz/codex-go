@@ -23,6 +23,7 @@ execFileSync(
     'agentdeck',
     '--bin',
     'agentdeck-service',
+    ...(platform === 'windows' ? ['--bin', 'agentdeck-codex-proxy'] : []),
   ],
   { stdio: 'inherit', windowsHide: true },
 );
@@ -38,7 +39,11 @@ const releases = join(output, 'releases', version);
 const staging = resolve(`artifacts/host-${platform}-${arch}-${version}`);
 mkdirSync(staging, { recursive: true });
 mkdirSync(releases, { recursive: true });
-for (const name of ['agentdeck', 'agentdeck-service']) {
+for (const name of [
+  'agentdeck',
+  'agentdeck-service',
+  ...(platform === 'windows' ? ['agentdeck-codex-proxy'] : []),
+]) {
   const file = name + (platform === 'windows' ? '.exe' : '');
   cpSync(join(metadata.target_directory, 'release', file), join(staging, file));
   if (platform === 'linux') chmodSync(join(staging, file), 0o755);

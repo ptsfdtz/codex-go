@@ -8,7 +8,7 @@ use std::io::Write;
 type AnyResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn usage() {
-    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
+    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH|auto] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck codex [THREAD_ID]\n  agentdeck desktop ABSOLUTE_DESKTOP_EXE [THREAD_ID]\n  agentdeck runtime-start | runtime-serve\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
 }
 fn value(args: &[String], name: &str) -> AnyResult<Option<String>> {
     if let Some(index) = args.iter().position(|v| v == name) {
@@ -45,21 +45,26 @@ async fn ensure_host() -> AnyResult<()> {
     Err("Host control is unavailable; run agentdeck logs / doctor. An existing GUI may need to be stopped first.".into())
 }
 fn configure(args: &[String]) -> AnyResult<()> {
-    if host::running()? {
-        return Err("Stop the host before changing its persistent runtime configuration".into());
+    let _configuration = host::shared_runtime::configuration_guard()?;
+    if host::running()? || host::shared_runtime::running()? {
+        return Err("Stop the host and shared runtime owner before changing persistent runtime configuration".into());
     }
     let mut config = Config::load()?;
     if let Some(ws) = value(args, "--runtime-ws")? {
         config.runtime_ws = Some(ws);
     }
     if let Some(file) = value(args, "--runtime-token-file")? {
-        config.runtime_token_file = Some(std::fs::canonicalize(file)?);
+        config.runtime_token_file = Some(dunce::canonicalize(file)?);
     }
     if let Some(protocol) = value(args, "--protocol")? {
         config.protocol = Some(protocol);
     }
     if let Some(file) = value(args, "--codex-exe")? {
-        config.codex_exe = Some(std::fs::canonicalize(file)?);
+        config.codex_exe = if file == "auto" {
+            None
+        } else {
+            Some(dunce::canonicalize(file)?)
+        };
     }
     if flag(args, "--sandbox-verified") {
         config.sandbox_verified = true;
@@ -285,6 +290,35 @@ async fn run() -> AnyResult<()> {
         }
         "status" => status(args).await,
         "configure" => configure(args),
+        "desktop" => {
+            if !(1..=2).contains(&args.len()) {
+                return Err("Use agentdeck desktop ABSOLUTE_DESKTOP_EXE [THREAD_ID]".into());
+            }
+            let executable = std::path::Path::new(&args[0]);
+            host::desktop_client::launch(executable, args.get(1).map(String::as_str)).await?;
+            println!("Original Codex desktop launched against the configured shared runtime.");
+            Ok(())
+        }
+        "codex" => {
+            if args.len() > 1 {
+                return Err("Use agentdeck codex [THREAD_ID]".into());
+            }
+            let config = Config::load()?;
+            let target = config.runtime_target()?;
+            let executable = config.codex_executable()?;
+            let mut client =
+                host::codex_client::command(&executable, target, args.first().map(String::as_str))
+                    .await?;
+            let status = client.status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(
+                    "Codex terminal exited unsuccessfully; no independent runtime was started"
+                        .into(),
+                )
+            }
+        }
         "serve" => {
             if !args.is_empty() {
                 configure(args)?;
@@ -306,6 +340,15 @@ async fn run() -> AnyResult<()> {
                     Err("Service failed; inspect logs".into())
                 }
             }
+        }
+        "runtime-start" if args.is_empty() => {
+            host::shared_runtime::background().await?;
+            println!("Shared native runtime ready. Host and client exits do not stop it.");
+            Ok(())
+        }
+        "runtime-serve" if args.is_empty() => {
+            host::shared_runtime::supervise().await?;
+            Ok(())
         }
         "host-run" => {
             host::supervise().await?;
@@ -346,13 +389,13 @@ async fn run() -> AnyResult<()> {
             let config = Config::load()?;
             println!(
                 "Runtime: {}",
-                if config.runtime_ws.is_some() {
+                if config.runtime_target()?.attached() {
                     "attached (configured)"
                 } else {
                     "managed Codex"
                 }
             );
-            if let Ok(exe) = agentdeck_service::codex::find() {
+            if let Ok(exe) = config.codex_executable() {
                 println!("Codex: {}", exe.display());
             } else {
                 println!(

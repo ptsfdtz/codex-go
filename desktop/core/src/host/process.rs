@@ -63,39 +63,18 @@ pub fn background() -> Result<()> {
 
 #[cfg(windows)]
 fn spawn_detached_windows() -> Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::{Foundation::CloseHandle, System::Threading::*};
-    // bInheritHandles=false is essential: Command::spawn can otherwise retain an
-    // unrelated CLI capture pipe in grandchildren, preventing the CLI caller from exiting.
-    let command = service_command()?;
-    let exe = command.get_program();
-    let mut line = super::windows_command(exe, &data_dir()?);
-    let app: Vec<_> = exe.encode_wide().chain(Some(0)).collect();
-    unsafe {
-        let mut startup: STARTUPINFOW = std::mem::zeroed();
-        startup.cb = std::mem::size_of_val(&startup) as u32;
-        let mut process: PROCESS_INFORMATION = std::mem::zeroed();
-        ensure(
-            CreateProcessW(
-                app.as_ptr(),
-                line.as_mut_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                0,
-                CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
-                std::ptr::null(),
-                std::ptr::null(),
-                &startup,
-                &mut process,
-            ) != 0,
-            "HOST_START_FAILED",
-            "Cannot launch the detached host supervisor",
-        )?;
-        CloseHandle(process.hThread);
-        CloseHandle(process.hProcess);
-    }
+    let directory = data_dir()?;
+    super::windows::spawn_detached(
+        &service_command()?,
+        &[
+            std::ffi::OsStr::new("--host-supervisor"),
+            std::ffi::OsStr::new("--data-dir"),
+            directory.as_os_str(),
+        ],
+    )?;
     Ok(())
 }
+
 pub async fn stop() -> Result<()> {
     let directory = data_dir()?;
     let managed = running()?;
@@ -211,10 +190,10 @@ pub async fn supervise() -> Result<()> {
 }
 
 #[cfg(windows)]
-struct Job(windows_sys::Win32::Foundation::HANDLE);
+pub(super) struct Job(windows_sys::Win32::Foundation::HANDLE);
 #[cfg(windows)]
 impl Job {
-    fn assign(child: &std::process::Child) -> Result<Self> {
+    pub(super) fn assign(child: &std::process::Child) -> Result<Self> {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::{Foundation::CloseHandle, System::JobObjects::*};
         unsafe {

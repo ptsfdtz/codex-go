@@ -82,29 +82,48 @@ impl Core {
             }
             // Rejoining a running thread establishes the native notification
             // subscription. Omitted overrides preserve the source configuration.
-            let joined = rpc
-                .request(
-                    "thread/resume",
-                    json!({"threadId":thread_id,"cwd":root,"excludeTurns":true}),
-                )
-                .await?;
-            rpc.validate("v2/ThreadResumeResponse", &joined)?;
-            check_identity(&joined["thread"], thread_id, &root)?;
+            // Native resume can replay approvals immediately after its response,
+            // before this task wakes. Register the already checked, loaded
+            // identity first so that the event reader can accept that replay.
             paths::root(&self.store, s(&session, "projectId"))?;
-            ensure(
-                !self.store.thread_deleted(thread_id)?,
-                "THREAD_NOT_FOUND",
-                "Original thread was deleted",
-            )?;
-            ensure(
-                self.upstream()?.generation == rpc.generation,
-                "UPSTREAM_UNAVAILABLE",
-                "Runtime changed during subscription",
-            )?;
             self.observed
                 .lock()
                 .unwrap()
                 .insert(session_id.to_owned(), rpc.generation.clone());
+            let joined_result: Result<Value> = async {
+                let joined = rpc
+                    .request(
+                        "thread/resume",
+                        json!({"threadId":thread_id,"cwd":root,"excludeTurns":true}),
+                    )
+                    .await?;
+                rpc.validate("v2/ThreadResumeResponse", &joined)?;
+                check_identity(&joined["thread"], thread_id, &root)?;
+                paths::root(&self.store, s(&session, "projectId"))?;
+                ensure(
+                    !self.store.thread_deleted(thread_id)?,
+                    "THREAD_NOT_FOUND",
+                    "Original thread was deleted",
+                )?;
+                ensure(
+                    self.upstream()?.generation == rpc.generation,
+                    "UPSTREAM_UNAVAILABLE",
+                    "Runtime changed during subscription",
+                )?;
+                Ok(joined)
+            }
+            .await;
+            let joined = match joined_result {
+                Ok(joined) => joined,
+                Err(error) => {
+                    let mut observed = self.observed.lock().unwrap();
+                    if observed.get(session_id) == Some(&rpc.generation) {
+                        observed.remove(session_id);
+                    }
+                    rpc.stop();
+                    return Err(error);
+                }
+            };
             self.store.append(
                 "session.observed",
                 json!({"upstreamThreadId":thread_id,"observing":true,"model":joined["model"],"approvalPolicy":joined["approvalPolicy"],"sandbox":joined["sandbox"]}),
