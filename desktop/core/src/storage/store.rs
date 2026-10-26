@@ -6,6 +6,7 @@ use tokio::sync::broadcast;
 
 pub struct Store {
     pub(crate) state_directory: std::path::PathBuf,
+    pub(super) attachment_lock: Mutex<()>,
     db: Mutex<Connection>,
     pub events: broadcast::Sender<Value>,
 }
@@ -18,6 +19,7 @@ impl Store {
         db.execute_batch(include_str!("schema.sql"))?;
         let (events, _) = broadcast::channel(512);
         let store = Self {
+            attachment_lock: Mutex::new(()),
             state_directory: crate::paths::canonical(path)?
                 .parent()
                 .ok_or_else(|| Error::new("CONFIG_ERROR", "Missing state directory"))?
@@ -635,7 +637,8 @@ impl Store {
         tx.execute("UPDATE requests SET responseJson=NULL,status='unknown' WHERE createdAt<? AND responseJson IS NOT NULL",[&cutoff])?;
         tx.execute("DELETE FROM requests WHERE deviceId IN (SELECT deviceId FROM devices WHERE revokedAt IS NOT NULL AND revokedAt<?)",[cutoff])?;
         tx.commit()?;
-        Ok(())
+        drop(db);
+        self.retain_attachments()
     }
     pub fn reserve(
         &self,

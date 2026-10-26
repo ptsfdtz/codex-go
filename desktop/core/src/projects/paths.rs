@@ -233,6 +233,45 @@ pub fn add_local(store: &Store, path: &Path) -> Result<Value> {
         .find(|v| v["projectId"] == id)
         .unwrap())
 }
+pub(crate) fn add_discovered(store: &Store, path: &Path) -> Result<()> {
+    if valid(path).is_err() {
+        return Ok(());
+    }
+    let Ok(root) = canonical(path) else {
+        return Ok(());
+    };
+    if !root.is_dir()
+        || root.parent().is_none()
+        || equal(&store.state_directory, &root)
+        || within(&store.state_directory.join("chat-workspace"), &root)
+    {
+        return Ok(());
+    }
+    let Ok(handle) = open_directory(&root) else {
+        return Ok(());
+    };
+    let Ok(opened) = opened_path(&handle) else {
+        return Ok(());
+    };
+    if !equal(&root, &opened) {
+        return Ok(());
+    }
+    let identity = identity(&handle)?;
+    let name = root.file_name().unwrap_or_default().to_string_lossy();
+    let path = root.to_string_lossy();
+    let count = store.exec(
+        if cfg!(windows) {
+            "INSERT OR IGNORE INTO projects SELECT ?,?,?,?,1,? WHERE NOT EXISTS(SELECT 1 FROM projects WHERE canonicalPath=? COLLATE NOCASE)"
+        } else {
+            "INSERT OR IGNORE INTO projects SELECT ?,?,?,?,1,? WHERE NOT EXISTS(SELECT 1 FROM projects WHERE canonicalPath=?)"
+        },
+        rusqlite::params![uid("project"), name, path, identity, now(), path],
+    )?;
+    if count > 0 {
+        store.append("projects.updated", json!({"source":"codex"}), None, None)?;
+    }
+    Ok(())
+}
 pub fn root(store: &Store, id: &str) -> Result<PathBuf> {
     let project = store.project(id)?;
     let path = Path::new(s(&project, "canonicalPath"));
@@ -289,8 +328,9 @@ pub fn checked_file(root: &Path, relative: &str) -> Result<PathBuf> {
 pub fn remove_local(store: &Store, id: &str) -> Result<()> {
     store.project(id)?;
     let active=store.query("SELECT t.turnId FROM turns t JOIN sessions s ON t.sessionId=s.sessionId WHERE s.projectId=? AND t.status IN ('queued','running','waitingApproval','unknown')",[id])?;
+    let external = store.query("SELECT sessionId FROM sessions WHERE projectId=? AND status IN ('queued','running','waitingApproval','unknown')", [id])?;
     ensure(
-        active.is_empty(),
+        active.is_empty() && external.is_empty(),
         "CONFLICT",
         "Interrupt or reconcile tasks first",
     )?;

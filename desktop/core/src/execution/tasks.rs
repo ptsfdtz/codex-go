@@ -383,6 +383,7 @@ impl Core {
         let (mut input, file_names) = if let Some(input) = native_input {
             self.authorize_native_resources(
                 s(&session, "projectId"),
+                session_id,
                 &root,
                 &json!({"input":input}),
             )
@@ -400,7 +401,7 @@ impl Core {
                 .collect::<Vec<_>>();
             (input.to_vec(), names)
         } else {
-            crate::composer::prepare_input(&root, text, attachments)?
+            crate::composer::prepare_stored_input(&self.store, session_id, text, attachments)?
         };
         input.extend(skill_input);
         ensure(
@@ -1059,7 +1060,7 @@ impl Core {
                 skipped += 1;
                 continue;
             }
-            if paths::add_local(&self.store, root).is_ok() {
+            if paths::add_discovered(&self.store, root).is_ok() {
                 synced += 1;
             } else {
                 skipped += 1;

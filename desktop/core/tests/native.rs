@@ -813,6 +813,9 @@ async fn imports_existing_thread_ids_with_archives_provenance_and_atomic_paginat
     let active = external(&rpc, &root, "INDEX_ACTIVE").await;
     let outside = h._directory.path().join("not-granted");
     std::fs::create_dir(&outside).unwrap();
+    // Explicitly excluded roots stay excluded even though Codex knows them.
+    let excluded = paths::add_local(&h.core.store, &outside).unwrap();
+    paths::remove_local(&h.core.store, s(&excluded, "projectId")).unwrap();
     external(&rpc, &outside, "INDEX_OUTSIDE").await;
     let refresh = request(
         "sessions.refreshIndex",
@@ -933,6 +936,88 @@ async fn imports_existing_thread_ids_with_archives_provenance_and_atomic_paginat
     );
 }
 #[tokio::test]
+async fn codex_workspaces_discover_remove_persist_and_explicitly_restore() {
+    let h = Harness::fixture().await;
+    let root = h._directory.path().join("existing-codex-workspace");
+    std::fs::create_dir(&root).unwrap();
+    let root = paths::canonical(&root).unwrap();
+    let rpc = h.core.upstream().unwrap();
+    let native = rpc
+        .request(
+            "thread/start",
+            json!({"cwd":root,"sandbox":"read-only","approvalPolicy":"on-request"}),
+        )
+        .await
+        .unwrap();
+    let thread = s(&native["thread"], "id");
+    assert!(h.core.store.projects().unwrap().is_empty());
+    let sync = request("projects.add", json!({}), "workspace-sync");
+    assert_eq!(
+        h.core.dispatch(&sync, "fixture").await.unwrap()["status"],
+        "synced"
+    );
+    let projects = h.core.store.projects().unwrap();
+    assert_eq!(projects.len(), 1);
+    let project = &projects[0];
+    assert_eq!(
+        paths::root(&h.core.store, s(project, "projectId")).unwrap(),
+        root
+    );
+    assert_eq!(
+        h.core.store.sessions(None).unwrap()[0]["upstreamThreadId"],
+        thread
+    );
+    let removal = request(
+        "projects.remove",
+        json!({"projectId":project["projectId"]}),
+        "workspace-remove",
+    );
+    assert_eq!(
+        h.core.dispatch(&removal, "fixture").await.unwrap()["status"],
+        "removed"
+    );
+    h.core.sync_thread_index().await.unwrap();
+    assert!(h.core.store.projects().unwrap().is_empty());
+    assert!(h.core.store.sessions(None).unwrap().is_empty());
+    assert!(root.is_dir());
+    rpc.request(
+        "thread/read",
+        json!({"threadId":thread,"includeTurns":false}),
+    )
+    .await
+    .unwrap();
+    let reopened = Store::open(&h._directory.path().join("test.db")).unwrap();
+    assert_eq!(
+        reopened
+            .query(
+                "SELECT enabled FROM projects WHERE projectId=?",
+                [s(project, "projectId")]
+            )
+            .unwrap()[0]["enabled"],
+        0
+    );
+    let restored = paths::add_local(&h.core.store, &root).unwrap();
+    assert_eq!(restored["projectId"], project["projectId"]);
+    h.core.sync_thread_index().await.unwrap();
+    assert_eq!(h.core.store.projects().unwrap().len(), 1);
+    let session = h.core.store.sessions(None).unwrap()[0].clone();
+    let turn = h
+        .core
+        .start_turn_options(
+            s(&session, "sessionId"),
+            "hello",
+            Some("fixture-model"),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        h.core.dispatch(&removal, "fixture").await.unwrap_err().code,
+        "CONFLICT"
+    );
+    h.wait(s(&turn, "turnId"), "completed").await;
+}
+#[tokio::test]
 async fn capabilities_reports_live_readiness_without_claiming_desktop_parity() {
     let h = Harness::new();
     let request = protocol::parse(json!({
@@ -977,6 +1062,20 @@ async fn composer_forwards_files_and_resets_plan_and_goal() {
             .unwrap()
             .as_deref(),
         Some("paused")
+    );
+    let root = paths::root(&h.core.store, s(&session, "projectId")).unwrap();
+    assert!(std::fs::read_dir(root).unwrap().all(|entry| !entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".agentdeck-attachments")));
+    assert_eq!(
+        h.core
+            .store
+            .query("SELECT * FROM attachment_blobs", [])
+            .unwrap()
+            .len(),
+        2
     );
 }
 #[tokio::test]
@@ -2070,6 +2169,103 @@ async fn fixture_file_and_permission_approval_contracts() {
         .await;
     }
 }
+
+#[tokio::test]
+async fn attachment_read_approval_is_explicit_and_cannot_grant_the_library_or_other_sessions() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let h = Harness::fixture().await;
+    let foreign = h.session("foreign-attachment").await;
+    let other_files =
+        json!([{"name":"other.txt","data":STANDARD.encode(b"private other attachment")}]);
+    let other_turn = h
+        .core
+        .start_turn_composer(
+            s(&foreign, "sessionId"),
+            "upload",
+            None,
+            None,
+            "workspace",
+            "default",
+            Some(&other_files),
+        )
+        .await
+        .unwrap();
+    h.wait(s(&other_turn, "turnId"), "completed").await;
+    let session = h.session("attachment-approval").await;
+    let id = s(&session, "sessionId");
+    let files = json!([{"name":"notes.txt","data":STANDARD.encode(b"attachment text")}]);
+    let turn = h
+        .core
+        .start_turn_composer(
+            id,
+            "PERMISSION_APPROVAL",
+            None,
+            None,
+            "workspace",
+            "default",
+            Some(&files),
+        )
+        .await
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "waitingApproval").await;
+    let approval = h.core.store.approvals(Some(id)).unwrap().remove(0);
+    let aid = s(&approval, "approvalId");
+    let row = h
+        .core
+        .store
+        .one(
+            "SELECT contextJson FROM approvals WHERE approvalId=?",
+            [aid],
+        )
+        .unwrap();
+    let context: Value = serde_json::from_str(s(&row, "contextJson")).unwrap();
+    let hash = agentdeck_service::digest(b"attachment text");
+    let directory = paths::canonical(h._directory.path())
+        .unwrap()
+        .join("attachments");
+    let path = directory.join(&hash);
+    let other_path = directory.join(agentdeck_service::digest(b"private other attachment"));
+    for (target, access) in [
+        (&directory, "read"),
+        (&path, "write"),
+        (&other_path, "read"),
+    ] {
+        let mut invalid = context.clone();
+        invalid["permissions"]["fileSystem"] = json!({"read":null,"write":null,"entries":[{"path":{"type":"path","path":target},"access":access}]});
+        h.core
+            .store
+            .exec(
+                "UPDATE approvals SET contextJson=? WHERE approvalId=?",
+                rusqlite::params![invalid.to_string(), aid],
+            )
+            .unwrap();
+        assert_eq!(
+            h.core
+                .decide(id, s(&turn, "turnId"), aid, "approve")
+                .unwrap_err()
+                .code,
+            "WORKSPACE_FORBIDDEN"
+        );
+    }
+    let mut allowed = context;
+    allowed["permissions"]["fileSystem"] = json!({"read":[path],"write":null});
+    h.core
+        .store
+        .exec(
+            "UPDATE approvals SET contextJson=? WHERE approvalId=?",
+            rusqlite::params![allowed.to_string(), aid],
+        )
+        .unwrap();
+    assert_eq!(
+        h.core.store.approvals(Some(id)).unwrap().len(),
+        1,
+        "denied grants stay pending for a user decision"
+    );
+    h.core
+        .decide(id, s(&turn, "turnId"), aid, "approve")
+        .unwrap();
+    h.wait(s(&turn, "turnId"), "completed").await;
+}
 #[tokio::test]
 async fn restart_retains_snapshot_and_expire_pending() {
     let h = Harness::fixture().await;
@@ -2947,6 +3143,7 @@ async fn native_queue_start_checks_boundary_and_deduplicates_native_turn() {
 }
 async fn native_queue_workflow(start: bool) {
     use agentdeck_service::rpc::ProtocolVersion;
+    use base64::{engine::general_purpose::STANDARD, Engine};
     let h = Harness::new();
     let (project, root) = h.project("queue-root");
     let samples: Value = serde_json::from_str(
@@ -3069,7 +3266,7 @@ async fn native_queue_workflow(start: bool) {
         .unwrap();
     let add = request(
         "queue.add",
-        json!({"sessionId":"queue-session","text":"one"}),
+        json!({"sessionId":"queue-session","text":"one","attachments":[{"name":"queued.png","data":STANDARD.encode(b"\x89PNG\r\n\x1a\nqueued")}]}),
         "queue-once",
     );
     let first = transport::handle_request(&h.core, &add, "queue-device").await;
@@ -3101,10 +3298,15 @@ async fn native_queue_workflow(start: bool) {
         .unwrap();
     assert_eq!(state["data"].as_array().unwrap().len(), 2);
     assert_eq!(state["data"][0]["id"], "q2");
+    let image = &state["data"][1]["input"][1];
+    assert_eq!(image["type"], "localImage");
+    assert!(
+        std::path::Path::new(s(image, "path")).starts_with(h._directory.path().join("attachments"))
+    );
     h.core
         .native_queue(
             "queue.update",
-            &json!({"sessionId":"queue-session","submissionId":"q1","text":"changed"}),
+            &json!({"sessionId":"queue-session","submissionId":"q1","text":"changed","expectedInputRevision":state["data"][1]["inputRevision"]}),
             "update",
         )
         .await
@@ -3250,6 +3452,24 @@ async fn session_resource_revision_retains_native_image_and_deduplicates_replace
     h.wait(s(&original, "turnId"), "completed").await;
     let latest = h.core.latest_upstream_turn(id).await.unwrap();
     let target = s(&latest["turn"], "upstreamTurnId");
+    let image = h
+        .core
+        .session_image(id, target, &format!("user-{target}"), 1, 0, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        STANDARD.decode(s(&image, "data")).unwrap(),
+        b"\x89PNG\r\n\x1a\nimage"
+    );
+    h.core.store.retain().unwrap();
+    assert_eq!(
+        h.core
+            .store
+            .query("SELECT * FROM attachment_refs WHERE sessionId=?", [id])
+            .unwrap()
+            .len(),
+        1
+    );
     let bad = json!({"sessionId":id,"beforeTurnId":target,"expectedLastTurnId":target,"itemId":"missing","text":"replacement"});
     assert_eq!(
         h.core

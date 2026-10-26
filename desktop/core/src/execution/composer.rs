@@ -1,4 +1,5 @@
-//! Bounded client attachments, stored only inside an explicitly granted project.
+//! Bounded client attachments. Production uploads use the Host-owned library;
+//! the original project-local helper remains for public Rust API compatibility.
 use crate::{ensure, protocol, uid, Error, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
@@ -124,6 +125,36 @@ pub fn prepare_input(
             || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP"));
         input.push(if image { json!({"type":"localImage","path":path}) } else {
             json!({"type":"text","text":format!("用户上传的附件：{name}\n文件路径：{}", path.display()),"text_elements":[]})
+        });
+        names.push(name);
+    }
+    Ok((input, names))
+}
+
+pub(crate) fn prepare_stored_input(
+    store: &crate::store::Store,
+    session_id: &str,
+    text: &str,
+    files: Option<&Value>,
+) -> Result<(Vec<Value>, Vec<String>)> {
+    let decoded = files
+        .map(decode_attachments)
+        .transpose()?
+        .unwrap_or_default();
+    let mut input = vec![json!({"type":"text","text":text,"text_elements":[]})];
+    let mut names = Vec::new();
+    for (name, bytes) in decoded {
+        let saved = store.save_attachment(session_id, &name, &bytes)?;
+        let image = bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+            || bytes.starts_with(b"\xff\xd8\xff")
+            || bytes.starts_with(b"GIF8")
+            || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP"));
+        input.push(if image {
+            json!({"type":"localImage","path":saved["path"]})
+        } else {
+            // Ordinary files keep the runtime's normal on-request sandbox
+            // approval. Never grant access to the whole Host state directory.
+            json!({"type":"text","text":format!("用户上传的附件：{name}\n附件 ID：{}\n文件路径：{}", saved["attachmentId"].as_str().unwrap(), saved["path"].as_str().unwrap()),"text_elements":[]})
         });
         names.push(name);
     }

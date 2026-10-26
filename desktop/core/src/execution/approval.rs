@@ -231,11 +231,11 @@ impl Core {
             }
             if row["method"] == "item/permissions/requestApproval" {
                 let fs = &context["permissions"]["fileSystem"];
-                let mut paths: Vec<&str> = vec![];
+                let mut paths: Vec<(&str, bool)> = vec![];
                 for key in ["read", "write"] {
                     if let Some(a) = fs[key].as_array() {
                         for p in a {
-                            paths.push(p.as_str().unwrap_or(""));
+                            paths.push((p.as_str().unwrap_or(""), key == "read"));
                         }
                     }
                 }
@@ -246,11 +246,17 @@ impl Core {
                             "WORKSPACE_FORBIDDEN",
                             "Special permission roots forbidden",
                         )?;
-                        paths.push(s(&e["path"], "path"));
+                        paths.push((s(&e["path"], "path"), e["access"] == "read"));
                     }
                 }
-                for p in paths {
+                for (p, read_only) in paths {
                     paths::valid(Path::new(p))?;
+                    if self
+                        .store
+                        .attachment_permission(session_id, Path::new(p), read_only)?
+                    {
+                        continue;
+                    }
                     ensure(
                         paths::within(&root, Path::new(p)),
                         "WORKSPACE_FORBIDDEN",

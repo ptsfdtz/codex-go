@@ -135,8 +135,12 @@ impl Core {
                 } else {
                     Vec::new()
                 };
-                let (mut input, _) =
-                    crate::composer::prepare_input(&root, s(p, "text"), p.get("attachments"))?;
+                let (mut input, _) = crate::composer::prepare_stored_input(
+                    &self.store,
+                    id,
+                    s(p, "text"),
+                    p.get("attachments"),
+                )?;
                 input.extend(skill_input);
                 params["input"] = json!(input);
                 ensure(
@@ -173,6 +177,7 @@ impl Core {
                     params["input"] = json!(replace_resource_text(entry, s(p, "text"))?);
                     self.authorize_native_resources(
                         s(&session, "projectId"),
+                        id,
                         &root,
                         &json!({"input":params["input"]}),
                     )
@@ -281,7 +286,7 @@ impl Core {
             "CONFLICT",
             "Pause the active goal before starting a queued message",
         )?;
-        self.authorize_native_resources(s(session, "projectId"), &root, entry)
+        self.authorize_native_resources(s(session, "projectId"), id, &root, entry)
             .await?;
         let resumed=rpc.request("thread/resume",json!({"threadId":session["upstreamThreadId"],"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":"workspace-write","config":{"default_permissions":"agentdeck"},"excludeTurns":true})).await?;
         rpc.validate("v2/ThreadResumeResponse", &resumed)?;
@@ -291,7 +296,7 @@ impl Core {
             "UPSTREAM_PROTOCOL_ERROR",
             "Queue resume changed thread identity",
         )?;
-        self.authorize_native_resources(s(session, "projectId"), &root, entry)
+        self.authorize_native_resources(s(session, "projectId"), id, &root, entry)
             .await?;
         let current = self.store.session(id)?;
         ensure(
@@ -372,6 +377,7 @@ impl Core {
     pub(crate) async fn authorize_native_resources(
         &self,
         project_id: &str,
+        session_id: &str,
         root: &std::path::Path,
         entry: &Value,
     ) -> Result<()> {
@@ -379,11 +385,26 @@ impl Core {
             .as_array()
             .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Missing queued input"))?;
         self.authorize_skill_parts(project_id, input).await?;
-        let resources = input
-            .iter()
-            .filter(|part| part["type"] != "skill")
-            .cloned()
-            .collect::<Vec<_>>();
+        let mut resources = Vec::new();
+        for part in input.iter().filter(|part| part["type"] != "skill") {
+            if part["type"] == "localImage" {
+                if let Some(bytes) = self
+                    .store
+                    .read_attachment(session_id, std::path::Path::new(s(part, "path")))?
+                {
+                    ensure(
+                        bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+                            || bytes.starts_with(b"\xff\xd8\xff")
+                            || bytes.starts_with(b"GIF8")
+                            || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP")),
+                        "UNSUPPORTED",
+                        "Unsupported stored image format",
+                    )?;
+                    continue;
+                }
+            }
+            resources.push(part.clone());
+        }
         authorize_queue_input(root, &json!({"input":resources}))
     }
 }

@@ -74,9 +74,10 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     let executable =
         std::env::var_os("AGENTDECK_DESKTOP_PROBE_EXE").expect("set desktop baseline executable");
     let version = codex::sync_command(&executable.to_string_lossy(), &["--version"], None).unwrap();
+    let native_version = version.trim().strip_prefix("codex-cli ").unwrap();
     assert_eq!(
-        version.trim(),
-        format!("codex-cli {}", ProtocolVersion::DesktopBaseline.version())
+        codex::protocol_for_version(native_version).unwrap(),
+        ProtocolVersion::DesktopBaseline
     );
     let boundary = agentdeck_service::service::boundary_runtime(
         std::path::Path::new(&executable),
@@ -93,6 +94,10 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     let project = directory.path().join("project");
     std::fs::create_dir(&home).unwrap();
     std::fs::create_dir(&project).unwrap();
+    // Resolve Windows AppData/MSIX redirection before source project creation;
+    // the authorization projection correctly rejects noncanonical roots.
+    let home = agentdeck_service::paths::canonical(&home).unwrap();
+    let project = agentdeck_service::paths::canonical(&project).unwrap();
     let answer = "Persisted synthetic answer: 中文 😀\n```text\noriginal content\n```";
     let response_gate = std::sync::Arc::new(tokio::sync::Notify::new());
     let provider_gate = response_gate.clone();
@@ -475,7 +480,7 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
         );
         assert_eq!(
             String::from_utf8(version.stdout).unwrap().trim(),
-            "codex-cli 0.163.0-alpha.10.2"
+            format!("codex-cli {native_version}")
         );
         let loaded_before =
             a.request("thread/loaded/list", json!({})).await.unwrap()["data"].clone();
@@ -749,10 +754,7 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     .unwrap();
     assert_eq!(report["result"], "PASS");
     assert_eq!(report["runtimeMode"], "attached-local-ws");
-    assert_eq!(
-        report["codexVersion"],
-        ProtocolVersion::DesktopBaseline.version()
-    );
+    assert_eq!(report["codexVersion"], native_version);
     let startup_store =
         agentdeck_service::store::Store::open(&startup_directory.join("agentdeck.db")).unwrap();
     assert_eq!(
@@ -760,7 +762,7 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
             .meta("sandboxVerifiedVersion")
             .unwrap()
             .as_deref(),
-        Some(ProtocolVersion::DesktopBaseline.version())
+        Some(native_version)
     );
     let store = std::sync::Arc::new(
         agentdeck_service::store::Store::open(&directory.path().join("bridge.db")).unwrap(),
@@ -804,7 +806,7 @@ async fn desktop_baseline_contracts(with_history: bool, with_steering: bool) {
     );
     assert_eq!(
         core.snapshot().unwrap()["host"]["codexVersion"],
-        ProtocolVersion::DesktopBaseline.version()
+        native_version
     );
     let session = core
         .create_session(

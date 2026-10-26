@@ -605,13 +605,25 @@ impl Core {
             }
             "projects.list" => Ok(json!({"projects":self.store.projects()?})),
             "projects.add" => {
-                self.emit("project.addRequest", json!({}));
-                Ok(json!({"status":"awaitingLocalConfirmation"}))
+                let indexed = self.sync_thread_index().await?;
+                self.publish();
+                Ok(json!({"status":"synced","indexed":indexed,"projects":self.store.projects()?}))
             }
             "projects.remove" => {
-                self.store.project(s(p, "projectId"))?;
-                self.emit("project.removeRequest", json!({"projectId":p["projectId"]}));
-                Ok(json!({"status":"awaitingLocalConfirmation"}))
+                let _sync = self.thread_sync.try_lock().map_err(|_| {
+                    Error::new("CONFLICT", "Workspace sync in progress; retry removal")
+                })?;
+                {
+                    let busy = self.busy.lock().unwrap();
+                    ensure(
+                        busy.is_empty(),
+                        "CONFLICT",
+                        "Conversation operation in progress; retry removal",
+                    )?;
+                    paths::remove_local(&self.store, s(p, "projectId"))?;
+                }
+                self.publish();
+                Ok(json!({"status":"removed"}))
             }
             "queue.list" | "queue.add" | "queue.update" | "queue.delete" | "queue.reorder"
             | "queue.start" => {
@@ -797,6 +809,9 @@ pub async fn boundary(exe: &Path) -> Result<Value> {
     boundary_runtime(exe, &std::env::current_exe()?).await
 }
 pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
+    // Tests and diagnostics also call this directly, outside main's host gate.
+    // A low-integrity parent cannot launch MXC even from a normal terminal.
+    security::verify_host_integrity()?;
     // Keep the probe next to the app data instead of the system temp folder:
     // restricted Windows sessions can make %TEMP% read-only for the service.
     let base_root = std::env::var_os("AGENTDECK_DATA_DIR")
@@ -896,7 +911,7 @@ fn boundary_launch_error(stderr: &[u8]) -> Error {
     if message.contains("native mxc is unavailable on this executor") {
         Error::new(
             "SANDBOX_EXECUTOR_UNAVAILABLE",
-            "当前启动环境不支持 Windows MXC 隔离，请从普通 Windows Terminal 启动 AgentDeck",
+            "原生 Codex 无法在当前执行器启动 Windows MXC；请检查进程完整性、Windows MXC 支持及组织策略，切换终端不保证解决",
         )
     } else {
         Error::new(

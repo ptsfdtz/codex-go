@@ -112,7 +112,7 @@ async fn login(args: &[String]) -> AnyResult<()> {
         )
         .await?;
     }
-    println!("Signed in. Credentials and computer identity are saved.\nAuthorize a project with agentdeck projects add PATH. Enable logon startup with agentdeck autostart enable.");
+    println!("Signed in. Credentials and computer identity are saved.\nExisting Codex workspaces appear automatically in Web. Add another directory with agentdeck projects add PATH. Enable logon startup with agentdeck autostart enable.");
     Ok(())
 }
 async fn manage(command: &str, args: &[String]) -> AnyResult<()> {

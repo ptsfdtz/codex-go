@@ -76,6 +76,65 @@ pub struct Startup {
     overrides: Vec<(Vec<String>, Value)>,
     analytics_default: bool,
 }
+
+/// The desktop performs this one-shot native policy read before opening its
+/// JSON-RPC transport. Keep native output/errors intact; it is not a fabricated
+/// initialize response and must never start another conversation runtime.
+pub fn is_startup_policy_command(args: &[String]) -> Result<bool> {
+    if !args.iter().any(|arg| arg == "--print-startup-config") {
+        return Ok(false);
+    }
+    let mut transport_args = Vec::new();
+    let mut print = false;
+    let mut client = false;
+    let mut sign_out = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "-c" | "--config" | "--enable" | "--disable" | "--listen" => {
+                transport_args.push(args[index].clone());
+                index += 1;
+                transport_args.push(
+                    args.get(index)
+                        .ok_or_else(|| failure("PROXY_ARGUMENT_UNSUPPORTED"))?
+                        .clone(),
+                );
+            }
+            "--print-startup-config" if !print => print = true,
+            "--startup-sign-out" if !sign_out => sign_out = true,
+            "--startup-client-info" if !client => {
+                client = true;
+                index += 1;
+                let info: Value = serde_json::from_str(
+                    args.get(index)
+                        .ok_or_else(|| failure("PROXY_ARGUMENT_UNSUPPORTED"))?,
+                )
+                .map_err(|_| failure("PROXY_ARGUMENT_UNSUPPORTED"))?;
+                ensure(
+                    info.is_object()
+                        && info["name"].as_str().is_some_and(|v| !v.is_empty())
+                        && info["version"].is_string(),
+                    "PROXY_ARGUMENT_UNSUPPORTED",
+                    "Invalid startup client identity",
+                )?;
+            }
+            "--print-startup-config" | "--startup-sign-out" | "--startup-client-info" => {
+                return Err(failure("PROXY_ARGUMENT_UNSUPPORTED"));
+            }
+            _ => transport_args.push(args[index].clone()),
+        }
+        index += 1;
+    }
+    // Apply the same finite allowlist, limits and config parsing as transport
+    // startup. A startup policy invocation cannot delegate arbitrary CLI work.
+    ensure(
+        args.len() <= 128 && args.iter().map(String::len).sum::<usize>() <= 32768,
+        "PROXY_ARGUMENT_UNSUPPORTED",
+        "Startup policy arguments exceed limit",
+    )?;
+    Startup::parse(&transport_args)?;
+    Ok(print)
+}
 impl Startup {
     pub fn parse(args: &[String]) -> Result<Self> {
         ensure(

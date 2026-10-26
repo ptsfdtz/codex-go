@@ -12,6 +12,60 @@ fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| v.to_string()).collect()
 }
 
+#[test]
+fn startup_policy_delegation_is_limited_to_native_policy_reads() {
+    use agentdeck_service::desktop_stdio::is_startup_policy_command;
+    assert!(!is_startup_policy_command(&args(&["app-server"])).unwrap());
+    for sign_out in [false, true] {
+        let mut command = args(&[
+            "-c",
+            "features.code_mode_host=true",
+            "app-server",
+            "--analytics-default-enabled",
+            "--print-startup-config",
+            "--startup-client-info",
+            r#"{"name":"codex_desktop","title":"Codex Desktop","version":"test"}"#,
+        ]);
+        if sign_out {
+            command.push("--startup-sign-out".into());
+        }
+        assert!(is_startup_policy_command(&command).unwrap());
+    }
+    for command in [
+        args(&["exec", "--print-startup-config"]),
+        args(&[
+            "app-server",
+            "--print-startup-config",
+            "--listen",
+            "ws://0.0.0.0:9999",
+        ]),
+        args(&[
+            "app-server",
+            "--print-startup-config",
+            "--startup-client-info",
+            "{}",
+        ]),
+        args(&[
+            "app-server",
+            "--print-startup-config",
+            "--startup-client-info",
+        ]),
+        args(&[
+            "app-server",
+            "--print-startup-config",
+            "--print-startup-config",
+        ]),
+        args(&[
+            "app-server",
+            "--print-startup-config",
+            "--startup-sign-out",
+            "--startup-sign-out",
+        ]),
+    ] {
+        assert!(is_startup_policy_command(&command).is_err());
+    }
+}
+
 #[tokio::test]
 #[ignore = "explicit installed native CLI; isolated HOME, configuration reads only"]
 async fn real_desktop_baseline_startup_override_semantics() {

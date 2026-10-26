@@ -214,14 +214,20 @@ impl Core {
         )?;
         let target = std::path::Path::new(path);
         paths::valid(target)?;
+        let original_target = target.to_path_buf();
         let target = paths::canonical(target)?;
-        ensure(
-            paths::within(&root, &target),
-            "WORKSPACE_FORBIDDEN",
-            "Image is outside the authorized project",
-        )?;
         let read_root = root.clone();
+        let store = self.store.clone();
+        let image_session = session_id.to_owned();
         let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+            if let Some(bytes) = store.read_attachment(&image_session, &original_target)? {
+                return Ok(bytes);
+            }
+            ensure(
+                paths::within(&read_root, &target),
+                "WORKSPACE_FORBIDDEN",
+                "Image is outside the authorized project",
+            )?;
             let file = std::fs::File::open(&target)?;
             ensure(
                 paths::within(&read_root, &paths::opened_path(&file)?),

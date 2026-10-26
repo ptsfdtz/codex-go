@@ -313,8 +313,19 @@ try {
     timeout: 15000,
     stdio: ['ignore', 'pipe', 'ignore'],
   }).trim();
-  if (version !== 'codex-cli 0.163.0-alpha.10.2') throw new Error('Native version mismatch');
-  report.nativeVersion = '0.163.0-alpha.10.2';
+  const nativeVersion = version.match(/^codex-cli (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/)?.[1];
+  if (!nativeVersion) throw new Error('Native version missing');
+  report.nativeVersion = nativeVersion;
+  // Export from the actual executable; never rewrite a checked-in schema to
+  // make a newer desktop look compatible with the reviewed baseline.
+  const exportedSchema = join(root, 'schema');
+  execFileSync(native, ['app-server', 'generate-json-schema', '--out', exportedSchema], {
+    env,
+    windowsHide: true,
+    timeout: 30000,
+    stdio: 'ignore',
+  });
+  report.checks.actualNativeSchemaExported = true;
   const endpoint = `ws://127.0.0.1:${await freePort()}`;
   const server = launch(native, [
     'app-server',
@@ -549,6 +560,16 @@ try {
         }
         if (packet.method === 'project/list') report.checks.desktopRequestedProjects = true;
         if (seededThread && packet.params?.threadId === seededThread) {
+          if (packet.method === 'turn/start') report.checks.desktopSentContinuation = true;
+          report.seedRequestShapes ??= [];
+          const shape = { method: packet.method, keys: Object.keys(packet.params).sort() };
+          if (
+            report.seedRequestShapes.length < 64 &&
+            !report.seedRequestShapes.some(
+              (entry) => JSON.stringify(entry) === JSON.stringify(shape),
+            )
+          )
+            report.seedRequestShapes.push(shape);
           if (packet.method === 'thread/read' && packet.params.includeTurns === true)
             report.checks.desktopRequestedSeedReadWithTurns = true;
           if (packet.method === 'thread/turns/list') report.checks.desktopRequestedSeedTurns = true;
@@ -594,9 +615,18 @@ try {
     upstream.on('message', (data, binary) => {
       try {
         const packet = JSON.parse(data.toString());
+        if (
+          packet.method === 'turn/completed' &&
+          packet.params?.threadId === seededThread &&
+          packet.params?.turn?.id !== seededTurn &&
+          packet.params?.turn?.status === 'completed'
+        )
+          report.checks.desktopReceivedContinuationCompleted = true;
         const observedRequest = pending.get(String(packet.id));
         const method = observedRequest?.method;
         if (method && packet.result != null) {
+          if (method !== 'initialize' && method !== 'config/read')
+            report.checks.desktopOperationalRequestSucceeded = true;
           if (method === 'initialize') {
             report.checks.desktopInitializeSucceeded = true;
             const userAgent = packet.result.userAgent;
@@ -711,7 +741,10 @@ try {
   report.checks.proxyVersionWithDesktopOverride = true;
   const gui = launch(
     desktop,
-    [`--user-data-dir=${userData}`, ...(sharedIndex ? [`codex://threads/${seededThread}`] : [])],
+    [
+      `--user-data-dir=${userData}`,
+      ...(sharedIndex ? [`codex://threads/${seededThread}?hostId=local`] : []),
+    ],
     {
       ...env,
       CODEX_CLI_PATH: proxyPath,
@@ -719,7 +752,7 @@ try {
   );
   for (let i = 0; i < 600; i++) {
     if (
-      report.checks.desktopInitializedNotification ||
+      report.checks.desktopOperationalRequestSucceeded ||
       gui.exitCode != null ||
       report.checks.processSpawnFailed
     )
@@ -727,7 +760,7 @@ try {
     await pause(100);
   }
   report.checks.guiStayedRunning = gui.exitCode == null && !report.checks.processSpawnFailed;
-  if (sharedIndex && report.checks.desktopInitializedNotification) {
+  if (sharedIndex && report.checks.desktopOperationalRequestSucceeded) {
     for (let i = 0; i < 300 && !report.checks.desktopOpenedSeededThread; i++) await pause(100);
     await request('thread/name/set', { threadId: seededThread, name: renamedTitle });
     if (nativeProject) {
@@ -776,7 +809,7 @@ try {
     'desktopInitializeSucceeded',
     'initializeUserAgentVersionMatched',
     'sameSocketConfigurationRead',
-    'desktopInitializedNotification',
+    'desktopOperationalRequestSucceeded',
     'guiStayedRunning',
   ].every((key) => report.checks[key] === true);
   if (sharedIndex)

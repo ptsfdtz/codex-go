@@ -26,3 +26,9 @@ INSERT OR IGNORE INTO migrations VALUES(5,datetime('now'));
 
 CREATE TABLE IF NOT EXISTS device_cloud_grants(deviceId TEXT PRIMARY KEY REFERENCES devices(deviceId),issuer TEXT NOT NULL,accountId TEXT NOT NULL,cloudDeviceId TEXT NOT NULL);
 INSERT OR IGNORE INTO migrations VALUES(6,datetime('now'));
+
+-- Host-owned, content-addressed files; references survive event journal retention.
+CREATE TABLE IF NOT EXISTS attachment_blobs(sha256 TEXT PRIMARY KEY,bytes INTEGER NOT NULL,createdAt TEXT NOT NULL,orphanedAt TEXT);
+CREATE TABLE IF NOT EXISTS attachment_refs(attachmentId TEXT PRIMARY KEY,sessionId TEXT NOT NULL REFERENCES sessions(sessionId) ON DELETE CASCADE,scopeKey TEXT NOT NULL,sha256 TEXT NOT NULL REFERENCES attachment_blobs(sha256),name TEXT NOT NULL,createdAt TEXT NOT NULL,UNIQUE(sessionId,scopeKey,sha256,name));
+CREATE INDEX IF NOT EXISTS attachment_refs_blob ON attachment_refs(sha256);
+INSERT OR IGNORE INTO migrations VALUES(7,datetime('now'));

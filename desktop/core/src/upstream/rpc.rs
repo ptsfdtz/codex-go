@@ -69,6 +69,20 @@ pub fn validate_for(version: ProtocolVersion, name: &str, value: &Value) -> Resu
     )
 }
 const LIMIT: usize = 8 * 1024 * 1024;
+
+// Classify the native filesystem-helper regression without publishing its raw
+// launch environment or suggesting a broader permission profile as a workaround.
+fn upstream_error(message: &str) -> Error {
+    if message.contains("fs sandbox helper failed")
+        && message.contains("missing the required variable(s): SYSTEMROOT")
+    {
+        return Error::new(
+            "UPSTREAM_SANDBOX_HELPER_INCOMPATIBLE",
+            "当前 Codex 的 Windows 文件沙箱辅助进程遗漏 SYSTEMROOT，无法安全加载项目指令；需要包含上游 SystemRoot 修复的运行时。切换终端或在 Host 外层补变量无法解决。",
+        );
+    }
+    Error::new("UPSTREAM_ERROR", message)
+}
 pub async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
 ) -> Result<Option<Value>> {
@@ -196,7 +210,7 @@ impl Rpc {
                 } else if let Some(id) = v.get("id") {
                     if let Some(tx) = read_rpc.pending.lock().unwrap().remove(&id.to_string()) {
                         let result = if let Some(error) = v.get("error") {
-                            Err(Error::new("UPSTREAM_ERROR", crate::s(error, "message")))
+                            Err(upstream_error(crate::s(error, "message")))
                         } else {
                             Ok(v["result"].clone())
                         };
@@ -367,6 +381,24 @@ impl Rpc {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn broken_native_fs_helper_is_distinct_from_permissions_and_writer_conflicts() {
+        let error = super::upstream_error(
+            "private-path fs sandbox helper failed with status exit code: 1: MXC launcher: missing the required variable(s): SYSTEMROOT. secret=hidden",
+        );
+        assert_eq!(error.code, "UPSTREAM_SANDBOX_HELPER_INCOMPATIBLE");
+        assert!(!error.message.contains("private-path"));
+        assert!(!error.message.contains("hidden"));
+        for message in [
+            "fs sandbox helper failed: permission denied",
+            "already has an active writer",
+            "no rollout found for thread id original",
+        ] {
+            let error = super::upstream_error(message);
+            assert_eq!(error.code, "UPSTREAM_ERROR");
+            assert_eq!(error.message, message);
+        }
+    }
     use super::*;
 
     async fn read_race(method: &str, message: &str, succeeds_after: usize) -> (Result<Value>, u64) {

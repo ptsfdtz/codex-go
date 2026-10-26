@@ -42,7 +42,13 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       terminal(
         waiting.threadId,
         waiting.turnId,
-        m.result?.decision === 'accept' || m.result?.answers?.approach?.answers?.[0] === 'A'
+        m.result?.decision === 'accept' ||
+          m.result?.answers?.approach?.answers?.[0] === 'A' ||
+          (m.result?.scope === 'turn' &&
+            m.result?.permissions?.fileSystem &&
+            Object.values(m.result.permissions.fileSystem).some(
+              (value) => Array.isArray(value) && value.length > 0,
+            ))
           ? 'completed'
           : 'interrupted',
       );

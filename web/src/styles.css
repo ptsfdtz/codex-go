@@ -461,6 +461,8 @@ small,
   border-radius: 9px;
   padding: 9px 11px;
   font-size: 13px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 .session-row > .icon-button {
   width: 28px;

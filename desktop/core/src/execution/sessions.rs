@@ -534,8 +534,13 @@ impl Core {
             "Original input exceeds revision capacity",
         )?;
         let input = crate::queue::replace_resource_text(&json!({"input":parts}), s(p, "text"))?;
-        self.authorize_native_resources(s(session, "projectId"), &root, &json!({"input":input}))
-            .await?;
+        self.authorize_native_resources(
+            s(session, "projectId"),
+            id,
+            &root,
+            &json!({"input":input}),
+        )
+        .await?;
         ensure(
             self.upstream()?.generation == rpc.generation
                 && crate::paths::equal(
@@ -830,6 +835,7 @@ impl Core {
             let fork_id = self
                 .store
                 .index_fork(project, thread, fork, s(session, "title"))?;
+            self.store.inherit_attachments(id, &fork_id)?;
             let forked = self.store.session(&fork_id)?;
             self.store
                 .append("session.updated", forked.clone(), Some(&fork_id), None)?;

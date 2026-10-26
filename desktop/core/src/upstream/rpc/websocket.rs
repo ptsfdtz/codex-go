@@ -132,7 +132,7 @@ impl Rpc {
                         } else if let Some(id) = value.get("id") {
                             if let Some(sender) = owner.pending.lock().unwrap().remove(&id.to_string()) {
                                 let result = if let Some(error) = value.get("error") {
-                                    Err(Error::new("UPSTREAM_ERROR", crate::s(error, "message")))
+                                    Err(super::upstream_error(crate::s(error, "message")))
                                 } else { Ok(value["result"].clone()) };
                                 let _ = sender.send(result);
                             }

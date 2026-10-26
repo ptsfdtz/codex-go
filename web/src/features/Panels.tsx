@@ -940,9 +940,13 @@ export function ProjectsPanel({
   const action = useAction();
   return (
     <div className="panel-stack">
-      <p className="muted">项目目录由电脑授权。新增项目会在电脑上请求选择文件夹。</p>
+      <p className="muted">
+        {supports('codexWorkspaceDiscovery')
+          ? '自动显示 Codex 已有工作区。移除后不再自动添加，电脑上的文件和 Codex 会话不会删除。'
+          : '此电脑需要更新 Host 才能自动同步 Codex 工作区；当前仍可在电脑上使用 agentdeck projects add PATH 添加。'}
+      </p>
       <button
-        disabled={action.busy}
+        disabled={action.busy || !supports('codexWorkspaceDiscovery')}
         onClick={() =>
           void action.run(async () => {
             await request('projects.add', {});
@@ -951,7 +955,7 @@ export function ProjectsPanel({
         }
       >
         <Plus size={16} />
-        在电脑上授权项目
+        同步 Codex 工作区
       </button>
       {projects.map((p) => (
         <div className="project-setting" key={p.projectId}>
@@ -970,12 +974,17 @@ export function ProjectsPanel({
           />
           {remove === p.projectId && (
             <div className="confirmation">
-              <p>撤销该项目的授权？电脑上的文件不会删除。</p>
+              <p>
+                从 Web 移除此工作区并撤销访问？不会删除电脑文件或 Codex 会话，也不会自动重新添加。
+              </p>
               <button
                 disabled={action.busy}
                 onClick={() =>
                   void action.run(async () => {
-                    await request('projects.remove', { projectId: p.projectId });
+                    const response = await request('projects.remove', { projectId: p.projectId });
+                    if (response.status === 'awaitingLocalConfirmation') {
+                      throw new Error('请更新电脑 Host 后再移除工作区。');
+                    }
                     setRemove('');
                     onChanged();
                   })

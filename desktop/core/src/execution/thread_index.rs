@@ -41,7 +41,8 @@ impl Core {
         Ok(())
     }
     /// Reconcile on connect, grants, notifications and while a phone is connected.
-    /// This worker never blocks the RPC event reader or grants a new directory.
+    /// This worker never blocks the RPC event reader. Existing Codex workspaces
+    /// are registered automatically, except roots explicitly removed by the user.
     pub(crate) async fn watch_thread_index(
         self: std::sync::Arc<Self>,
         rpc: std::sync::Arc<crate::rpc::Rpc>,
@@ -95,13 +96,14 @@ impl Core {
         }
     }
 
-    // Also called by Windows-local sync; both paths use existing local grants.
+    // Also called by local sync; discover authoritative workspaces before indexing.
     pub async fn sync_thread_index(&self) -> Result<usize> {
         let _sync = self
             .thread_sync
             .try_lock()
             .map_err(|_| Error::new("CONFLICT", "Thread index sync already in progress"))?;
         let rpc = self.upstream()?;
+        self.discover_codex_workspaces().await?;
         {
             let busy = self.busy.lock().unwrap();
             ensure(
@@ -421,7 +423,7 @@ impl Core {
 mod tests {
     use super::*;
     #[tokio::test]
-    async fn managed_runtime_indexes_existing_threads_on_start_and_new_grants() {
+    async fn managed_runtime_indexes_existing_and_new_codex_workspaces_automatically() {
         use std::sync::{atomic::Ordering, Arc};
         let directory = tempfile::tempdir().unwrap();
         let canonical = paths::canonical(directory.path()).unwrap();
@@ -454,7 +456,6 @@ mod tests {
             .await
             .unwrap();
         }
-        paths::add_local(&core.store, &granted).unwrap();
         let worker = tokio::spawn(core.clone().watch_thread_index(rpc.clone()));
         async fn wait_count(core: &Core, count: usize) {
             tokio::time::timeout(Duration::from_secs(20), async {
@@ -465,22 +466,26 @@ mod tests {
             .await
             .unwrap();
         }
-        wait_count(&core, 1).await;
+        wait_count(&core, 2).await;
+        assert_eq!(core.store.projects().unwrap().len(), 2);
         assert!(!core.attached_runtime.load(Ordering::SeqCst));
-        // Adding a local grant must trigger discovery without reconnecting.
+        // An explicit re-add remains supported without reconnecting.
         core.local_action(json!({"action":"project.add","path":later}))
             .await
             .unwrap();
         wait_count(&core, 2).await;
         // A separate runtime's persisted additions have no local notification.
         core.connected.lock().unwrap().insert("phone".into(), 1);
+        let new_workspace = canonical.join("discovered-later");
+        std::fs::create_dir(&new_workspace).unwrap();
         rpc.request(
             "thread/start",
-            json!({"cwd":granted,"sandbox":"read-only","approvalPolicy":"on-request"}),
+            json!({"cwd":new_workspace,"sandbox":"read-only","approvalPolicy":"on-request"}),
         )
         .await
         .unwrap();
         wait_count(&core, 3).await;
+        assert_eq!(core.store.projects().unwrap().len(), 3);
         worker.abort();
         let _ = worker.await;
         let session = core.store.sessions(None).unwrap().remove(0);
