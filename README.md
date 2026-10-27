@@ -21,6 +21,8 @@
 
 ## 实际验证与下一步
 
+`0.4.0` 首轮候选（`8e7552a`）三平台及云端构建、候选下载暂存通过，尚未正式发布。Windows 真实网页更新完成下载、任务阻塞/取消、空闲切换及同身份重连，但真实工具执行发现共享运行时未过滤应用附带的 PowerShell 路径；已补齐与 managed 启动一致的 PATH 处理，该候选不予晋升，修复后须重新构建和验收。Linux x64、原生 ARM64 隔离环境的项目内读写/外部拒绝及真实模型基线通过，不能代替新候选实测。临时 ARM64 测试机由 `Native ARM64 release test machine` workflow 提供，通过专用密钥及 VPS 回环端口访问；它不自动生成通过记录，运行结束后须清理临时凭据和测试账户。
+
 更新与发布自动化（未发布）：网页原生更新、持久状态/空闲切换、本地候选通道、候选构建与正式晋升门槛已实现。Windows Host 严格 Clippy、4 项更新定向测试，Web 类型/ESLint/生产构建、workflow actionlint、shell 语法及 schema 核验通过；发布门槛 10 项定向测试在 Windows 与隔离 Linux 临时目录通过，未改线上服务。尚未执行 Linux Host 本次编译、真实更新切换、浏览器交互、三平台真实端到端验收和 Actions/VPS 全流程；部署凭据与环境保护仍须配置。本轮检查不能代替正式发布前的强制实测。
 
 Linux `10.249.254.57` 的 Host/认证运行时已切至 root，保留账户、电脑与 Web 设备身份，使用 `/root/.codex` 和 `/root/.local/state/agentdeck`；旧账号服务停用，root 服务启用常驻。原生接口登记现有 `/root/workspace` 及既有对话；主程序和同版本 `codex-code-mode-host`、`codex-linux-sandbox` 配套放在 `/usr/bin`，修正 `/usr/local/bin` 入口。Host 普通轮次改用已有协议的命名 `agentdeck` 权限，逐轮重设 cwd/工作区根，修复 legacy `workspaceWrite` 覆盖丢失系统读取范围、导致 bwrap 无法启动工具的问题；完整访问后再切回也恢复隔离。

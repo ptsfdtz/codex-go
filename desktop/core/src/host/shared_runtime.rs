@@ -316,6 +316,9 @@ pub async fn supervise() -> Result<()> {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
+            if let Some(path) = std::env::var_os("PATH") {
+                command.env("PATH", codex::filtered_path(&path.to_string_lossy()));
+            }
             command.creation_flags(0x08000000);
         }
         let started = std::time::Instant::now();
