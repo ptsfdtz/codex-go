@@ -1,0 +1,57 @@
+name: Native ARM64 release test machine
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-arm64-release-test-machine
+  cancel-in-progress: false
+
+jobs:
+  machine:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    environment: candidate
+    steps:
+      - name: Provision temporary native test machine
+        env:
+          CLIENT_PUBLIC_KEY: ${{ vars.AGENTDECK_E2E_CLIENT_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test -n "$CLIENT_PUBLIC_KEY"
+          sudo apt-get update -qq
+          sudo apt-get install -y openssh-server
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$CLIENT_PUBLIC_KEY" > ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          sudo systemctl start ssh
+          sudo loginctl enable-linger "$USER"
+          mkdir machine
+          cp /etc/ssh/ssh_host_ed25519_key.pub machine/host-key.pub
+          printf '%s\n' "$USER" > machine/username.txt
+          uname -a > machine/platform.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-arm64-test-machine
+          path: machine
+          retention-days: 1
+      - name: Keep private operator connection available for real E2E
+        env:
+          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          TUNNEL_KEY: ${{ secrets.AGENTDECK_E2E_TUNNEL_KEY }}
+          KNOWN_HOSTS: ${{ secrets.AGENTDECK_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" && test -n "$TUNNEL_KEY" && test -n "$KNOWN_HOSTS"
+          printf '%s\n' "$TUNNEL_KEY" > ~/.ssh/e2e-tunnel
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/e2e-tunnel ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/e2e-tunnel' EXIT
+          # Only a loopback port is exposed on the existing VPS. This provisions
+          # a machine; it never creates passing release evidence or deploys.
+          timeout 6600 ssh -i ~/.ssh/e2e-tunnel -o BatchMode=yes -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -N -R 127.0.0.1:22404:127.0.0.1:22 "$DEPLOY_HOST"
