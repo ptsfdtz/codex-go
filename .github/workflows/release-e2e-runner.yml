@@ -2,6 +2,9 @@ name: Native ARM64 release test machine
 
 on:
   workflow_dispatch:
+  push:
+    branches: [release]
+    paths: ['.github/workflows/release-e2e-runner.yml']
 
 permissions:
   contents: read
