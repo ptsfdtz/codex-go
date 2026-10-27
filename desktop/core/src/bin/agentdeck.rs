@@ -8,7 +8,7 @@ use std::io::Write;
 type AnyResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn usage() {
-    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH|auto] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck codex [THREAD_ID]\n  agentdeck desktop ABSOLUTE_DESKTOP_EXE [THREAD_ID]\n  agentdeck runtime-start | runtime-serve\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
+    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH|auto] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck codex [THREAD_ID]\n  agentdeck desktop ABSOLUTE_DESKTOP_EXE [THREAD_ID]\n  agentdeck runtime-check [--codex-exe PATH] (Windows)\n  agentdeck runtime-start | runtime-serve\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
 }
 fn value(args: &[String], name: &str) -> AnyResult<Option<String>> {
     if let Some(index) = args.iter().position(|v| v == name) {
@@ -370,6 +370,25 @@ async fn run() -> AnyResult<()> {
             manage(command, args).await
         }
         "logs" => logs(args).await,
+        #[cfg(windows)]
+        "runtime-check" => {
+            let executable = value(args, "--codex-exe")?
+                .map(std::path::PathBuf::from)
+                .map(Ok)
+                .unwrap_or_else(|| Config::load()?.codex_executable());
+            let service = host::service_command()?.get_program().to_owned();
+            let (selected, report) =
+                host::runtime_compatibility::resolve(executable, std::path::Path::new(&service))
+                    .await?;
+            print(
+                &json!({"executable":selected,"version":agentdeck_service::codex::executable_version(&selected)?,"verification":report}),
+            )?;
+            if report["passed"] == true {
+                Ok(())
+            } else {
+                Err("Native runtime compatibility check failed".into())
+            }
+        }
         "doctor" => {
             println!(
                 "Platform: {} / {}\nData: {}\nService: {}",

@@ -1,8 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #[cfg(windows)]
-use agentdeck_service::service::boundary;
+use agentdeck_service::codex;
 use agentdeck_service::{
-    codex, ensure, security,
+    ensure, security,
     service::{sandbox_probe, Core},
     store::Store,
     Error, Result,
@@ -251,16 +251,21 @@ async fn run_runtime(core: &Arc<Core>) -> Result<()> {
     // Windows must probe the selected native executable even when attaching.
     // A PATH lookup for `codex` can select an older npm shim and certify a
     // different binary from the one that actually executes shared threads.
-    let exe = if target.attached() && !cfg!(windows) {
-        PathBuf::from("codex")
+    let requested = if target.attached() && !cfg!(windows) {
+        Ok(PathBuf::from("codex"))
     } else {
-        agentdeck_service::host::Config::load()?.codex_executable()?
+        agentdeck_service::host::Config::load()?.codex_executable()
     };
-    if !target.attached() || cfg!(windows) {
-        codex::verify_for(&exe, target.protocol())?;
-    }
     #[cfg(windows)]
-    let report = boundary(&exe).await?;
+    let (exe, report) = agentdeck_service::host::runtime_compatibility::resolve(
+        requested.clone(),
+        &std::env::current_exe()?,
+    )
+    .await?;
+    #[cfg(windows)]
+    ensure(!target.attached() || requested.as_ref().is_ok_and(|p| agentdeck_service::paths::equal(&exe, p)), "SHARED_RUNTIME_RESTART_REQUIRED", "已准备官方兼容运行时；现有共享运行时仍使用有缺陷的 Codex，请在任务空闲后重启其所有者，不能在任务中途替换")?;
+    #[cfg(not(windows))]
+    let exe = requested?;
     #[cfg(not(windows))]
     let report = json!({"passed":std::env::var("AGENTDECK_LINUX_SANDBOX_VERIFIED").as_deref()==Ok("1"),"platform":"linux","mode":"attached-runtime","verification":"explicit-operator-declaration"});
     let verified = report["passed"] == true;

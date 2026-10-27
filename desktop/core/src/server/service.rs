@@ -927,7 +927,10 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
         && report["outsideReadDenied"] == true
         && report["outsideWriteDenied"] == true
         && !outside.join("written.txt").exists();
-    Ok(json!({"passed":passed,"at":now(),"details":report}))
+    if passed {
+        crate::upstream::instruction_probe::check(exe, base.path()).await?;
+    }
+    Ok(json!({"passed":passed,"at":now(),"details":report,"instructionLoading":passed}))
 }
 fn boundary_launch_error(stderr: &[u8]) -> Error {
     let message = String::from_utf8_lossy(stderr).to_lowercase();

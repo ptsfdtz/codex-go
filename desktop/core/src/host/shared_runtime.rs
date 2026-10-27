@@ -150,7 +150,20 @@ pub async fn background() -> Result<()> {
         "SHARED_RUNTIME_REQUIRED",
         "Configure an authenticated shared runtime first",
     )?;
-    let executable = config.codex_executable()?;
+    let requested = config.codex_executable();
+    #[cfg(windows)]
+    let executable = if running()? {
+        requested?
+    } else {
+        super::runtime_compatibility::resolve(
+            requested,
+            std::path::Path::new(super::service_command()?.get_program()),
+        )
+        .await?
+        .0
+    };
+    #[cfg(not(windows))]
+    let executable = requested?;
     target.credential()?;
     if !running()? {
         preflight(&executable)?;
@@ -174,10 +187,10 @@ pub async fn background() -> Result<()> {
                     unreachable!()
                 };
                 if running()?
-                    && ready.executable == executable
+                    && ready.executable == config.codex_executable()?
                     && ready.endpoint == *endpoint
                     && ready.live()
-                    && super::codex_client::verify_runtime(&executable, &target)
+                    && super::codex_client::verify_runtime(&ready.executable, &target)
                         .await
                         .is_ok()
                     && ready.live()
@@ -188,7 +201,8 @@ pub async fn background() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     };
-    tokio::time::timeout(Duration::from_secs(40), readiness)
+    // A first compatibility repair may need to download the official runtime.
+    tokio::time::timeout(Duration::from_secs(1000), readiness)
         .await
         .map_err(|_| {
             Error::new(
@@ -238,8 +252,17 @@ pub async fn supervise() -> Result<()> {
     };
     // Validate credential and CLI capabilities before launching any process.
     target.credential()?;
-    let executable = config.codex_executable()?;
+    let requested = config.codex_executable();
     drop(configuration);
+    #[cfg(windows)]
+    let executable = super::runtime_compatibility::resolve(
+        requested,
+        std::path::Path::new(super::service_command()?.get_program()),
+    )
+    .await?
+    .0;
+    #[cfg(not(windows))]
+    let executable = requested?;
     let version = preflight(&executable)?;
     // Do not attach to or replace another listener, even one with matching auth.
     let url = reqwest::Url::parse(endpoint)
