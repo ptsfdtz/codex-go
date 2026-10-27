@@ -25,6 +25,7 @@ import { ModelPicker } from './ModelPicker';
 export function Composer({
   draft,
   status,
+  prompts,
   onChange,
   models,
   supports,
@@ -42,6 +43,7 @@ export function Composer({
 }: {
   draft: Draft;
   status?: ReactNode;
+  prompts?: ReactNode;
   onChange: (change: Partial<Draft>) => void;
   models: Model[];
   supports: (key: string) => boolean;
@@ -93,6 +95,11 @@ export function Composer({
   );
   return (
     <div className="composer-wrap">
+      {prompts && (
+        <div className="composer-prompts" aria-label="待处理请求">
+          {prompts}
+        </div>
+      )}
       {status && <div className="composer-status">{status}</div>}
       <div className={`composer${expanded ? ' is-expanded' : ''}`}>
         {(draft.attachments.length > 0 || draft.skills.length > 0) && (

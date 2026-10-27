@@ -74,6 +74,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "system.hello" => (&["client", "version"], &[]),
         "system.capabilities"
         | "system.updateCheck"
+        | "system.updateStatus"
         | "system.diagnostics"
         | "snapshot.get"
         | "models.list"
@@ -82,6 +83,8 @@ pub fn parse(v: Value) -> Result<Request> {
         | "settings.get"
         | "devices.revokeSelf" => (&[], &[]),
         "requests.status" => (&["requestId"], &[]),
+        "system.updateInstall" => (&["version"], &[]),
+        "system.updateApply" | "system.updateCancel" => (&["jobId"], &[]),
         "sessions.refreshIndex" => (&["contractVersion"], &[]),
         "projects.nativePage" => (&["contractVersion"], &["cursor", "limit"]),
         "settings.update" => (&["days", "maxMiB"], &[]),
@@ -167,6 +170,22 @@ pub fn parse(v: Value) -> Result<Request> {
         _ => return Err(Error::new("INVALID_REQUEST", "Unsupported action")),
     };
     fields(p, required, optional)?;
+    if r.action == "system.updateInstall" {
+        text(p, "version", 1, 80)?;
+        ensure(
+            crate::host::updates::valid_version(crate::s(p, "version")),
+            "INVALID_REQUEST",
+            "Invalid release version",
+        )?;
+    }
+    if ["system.updateApply", "system.updateCancel"].contains(&r.action.as_str()) {
+        text(p, "jobId", 36, 36)?;
+        ensure(
+            uuid::Uuid::parse_str(crate::s(p, "jobId")).is_ok(),
+            "INVALID_REQUEST",
+            "Invalid update job ID",
+        )?;
+    }
     if r.action == "sessions.goal.edit"
         || r.action == "sessions.goal.clear"
         || r.action == "sessions.goal.resume"

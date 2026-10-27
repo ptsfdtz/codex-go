@@ -8,7 +8,7 @@ use std::io::Write;
 type AnyResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn usage() {
-    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH|auto] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck codex [THREAD_ID]\n  agentdeck desktop ABSOLUTE_DESKTOP_EXE [THREAD_ID]\n  agentdeck runtime-check [--codex-exe PATH] (Windows)\n  agentdeck runtime-start | runtime-serve\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
+    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH|auto] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck update-channel stable | candidate X.Y.Z\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck codex [THREAD_ID]\n  agentdeck desktop ABSOLUTE_DESKTOP_EXE [THREAD_ID]\n  agentdeck runtime-check [--codex-exe PATH] (Windows)\n  agentdeck runtime-start | runtime-serve\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
 }
 fn value(args: &[String], name: &str) -> AnyResult<Option<String>> {
     if let Some(index) = args.iter().position(|v| v == name) {
@@ -265,7 +265,18 @@ async fn run() -> AnyResult<()> {
     };
     match command {
         "--version" | "version" => {
-            println!("AgentDeck Host {}", env!("CARGO_PKG_VERSION"));
+            let release = std::env::current_exe()
+                .ok()
+                .and_then(|p| std::fs::read_to_string(p.parent()?.join("release.txt")).ok());
+            if let Some(release) = release.filter(|v| host::updates::valid_version(v.trim())) {
+                println!(
+                    "AgentDeck Host {} (core {})",
+                    release.trim(),
+                    env!("CARGO_PKG_VERSION")
+                );
+            } else {
+                println!("AgentDeck Host {} (development)", env!("CARGO_PKG_VERSION"));
+            }
             Ok(())
         }
         "help" | "--help" | "-h" => {
@@ -274,6 +285,15 @@ async fn run() -> AnyResult<()> {
         }
         "login" => login(args).await,
         "update" => host::updates::run(flag(args, "--check"), value(args, "--origin")?).await,
+        "update-channel" => host::updates::configure_channel(
+            args.first().map(String::as_str).unwrap_or(""),
+            args.get(1).map(String::as_str),
+        ),
+        "update-install-worker" | "update-activate-worker" => {
+            let id = args.first().ok_or("Update job ID required")?;
+            host::update_job::worker(id, command == "update-activate-worker").await?;
+            Ok(())
+        }
         "start" => {
             ensure_host().await?;
             status(&[]).await

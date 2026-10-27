@@ -48,6 +48,7 @@ import { IconButton, Modal, DataFields } from './ui';
 import {
   Menu,
   ChevronDown,
+  Check,
   Computer,
   MoreHorizontal,
   MessageSquarePlus,
@@ -1045,13 +1046,14 @@ export function App() {
               .catch(() => value.close());
           }, 30000);
           const snap = await value.request<Snapshot>('snapshot.get', {});
-          if (!configuration) {
-            const [caps, modelList] = await Promise.all([
-              value.request<Capabilities>('system.capabilities', {}),
-              value.request<{ models?: Model[] }>('models.list', {}).catch(() => ({ models: [] })),
-            ]);
-            configuration = { caps, models: modelList.models || [] };
-          }
+          // Reconnecting may follow a Host upgrade; refresh its feature flags.
+          const [caps, modelList] = await Promise.all([
+            value.request<Capabilities>('system.capabilities', {}),
+            value.request<{ models?: Model[] }>('models.list', {}).catch(() => ({
+              models: configuration?.models || [],
+            })),
+          ]);
+          configuration = { caps, models: modelList.models || [] };
           if (!context.current() || epoch !== connectionEpoch.current) return;
           setSnapshot(snap);
           setLastSynced(new Date().toISOString());
@@ -1296,67 +1298,6 @@ export function App() {
       await refresh(!session && sessionRef.current === id);
     } catch (error) {
       if (epoch === connectionEpoch.current) setError(String(error));
-    } finally {
-      if (startingSession.current === createdSession) startingSession.current = undefined;
-      sending.current = false;
-      if (epoch === connectionEpoch.current) {
-        setBusy(false);
-        setReceiptBlocked(connection.awaitingReceipt);
-      }
-    }
-  }
-
-  async function sendHostUpdate(text: string, projectId: string) {
-    const connection = bridge.current;
-    if (
-      !connection ||
-      !connected ||
-      sending.current ||
-      busy ||
-      receiptBlocked ||
-      !(
-        (projectId === chatProject && supports('projectlessChat')) ||
-        projects.some((p) => p.projectId === projectId)
-      )
-    )
-      return;
-    const epoch = connectionEpoch.current;
-    sending.current = true;
-    setBusy(true);
-    setError('');
-    let createdSession: string | undefined;
-    try {
-      const created = await connection.request<{ session?: Session }>('sessions.create', {
-        projectId,
-        title: '更新 AgentDeck Host',
-      });
-      if (epoch !== connectionEpoch.current) return;
-      const id = created.session?.sessionId;
-      if (!id) throw new Error('电脑没有返回更新会话标识');
-      createdSession = id;
-      startingSession.current = id;
-      setSelectedProject(projectId);
-      selectSession(id);
-      setHistoryReady(true);
-      setPanel('');
-      const result = await connection.request<{ turn?: Turn }>('turn.start', {
-        sessionId: id,
-        ...turnOptions(
-          { ...emptyDraft(), text, model: draft.model, effort: draft.effort },
-          'workspace',
-        ),
-      });
-      if (epoch !== connectionEpoch.current) return;
-      if (sessionRef.current === id) {
-        activityVersion.current++;
-        managedActiveTurn.current = result.turn?.turnId;
-        setActiveTurn(result.turn?.turnId);
-      }
-      startingSession.current = undefined;
-      await refresh(sessionRef.current === id);
-    } catch (error) {
-      if (epoch === connectionEpoch.current)
-        setError(`更新提示词未确认发送成功，请先核对更新会话，勿重复发送。${String(error)}`);
     } finally {
       if (startingSession.current === createdSession) startingSession.current = undefined;
       sending.current = false;
@@ -1678,8 +1619,19 @@ export function App() {
             className={sidebarOpen ? 'rail-toggle' : ''}
           />
           <div className="workspace-anchor">
-            <button className="workspace-title" onClick={() => setWorkspaceMenu(!workspaceMenu)}>
-              <span>{current?.title || (chat ? '普通聊天' : 'AgentDeck')}</span>
+            <button
+              className="workspace-title"
+              aria-label="切换项目"
+              aria-expanded={workspaceMenu}
+              onClick={() => setWorkspaceMenu(!workspaceMenu)}
+            >
+              <span>
+                {current
+                  ? current.title || '未命名会话'
+                  : chat
+                    ? '普通聊天'
+                    : projects.find((p) => p.projectId === selectedProject)?.name || '选择项目'}
+              </span>
               <ChevronDown size={16} />
             </button>
             <MotionPresence>
@@ -1691,15 +1643,10 @@ export function App() {
                     onClick={() => setWorkspaceMenu(false)}
                   />
                   <div className="popover workspace-menu">
-                    <button onClick={() => openPanel('computers')}>
-                      <Computer size={18} />
-                      {host ? hostName(host) : '连接电脑'}
-                    </button>
-                    <p className="menu-caption">{connected ? 'Connected' : 'Disconnected'}</p>
-                    <hr />
                     {projects.map((p) => (
                       <button
                         key={p.projectId}
+                        aria-current={p.projectId === selectedProject ? 'true' : undefined}
                         onClick={() => {
                           setSelectedProject(p.projectId);
                           selectSession(undefined);
@@ -1707,7 +1654,8 @@ export function App() {
                         }}
                       >
                         <FolderOpen size={17} />
-                        {p.name}
+                        <span>{p.name}</span>
+                        {p.projectId === selectedProject && <Check size={16} />}
                       </button>
                     ))}
                     {connected && (
@@ -1808,15 +1756,9 @@ export function App() {
             key={host.hostId}
             request={request}
             supported={supports('hostUpdateCheck')}
-            disabled={busy || receiptBlocked || !!activeTurn}
+            disabled={busy || receiptBlocked}
             name={hostName(host)}
-            projects={
-              supports('projectlessChat')
-                ? [{ projectId: chatProject, name: '普通聊天（更新会话）' }, ...projects]
-                : projects
-            }
-            selectedProject={selectedProject}
-            onUpdate={sendHostUpdate}
+            managed={supports('hostUpdateManage')}
           />
         )}
         <MotionPresence>
@@ -1879,18 +1821,6 @@ export function App() {
             </div>
           )}
         </MotionPresence>
-        {(snapshot.approvals || [])
-          .filter((a) => a.sessionId === session)
-          .map((a) => (
-            <ApprovalCard
-              key={a.approvalId}
-              approval={a}
-              disabled={!connected || receiptBlocked}
-              uncertain={() => bridge.current?.awaitingReceipt === true}
-              onRefresh={() => void refresh()}
-              onDecide={decide}
-            />
-          ))}
         <TaskProgress
           entries={renderedHistory}
           active={!!activeTurn}
@@ -1995,33 +1925,6 @@ export function App() {
                       />
                     )}
                   </div>
-                  {assistant &&
-                    Array.isArray(item.questions) &&
-                    item.questions.length > 0 &&
-                    session && (
-                      <AsyncQuestions
-                        entry={entry}
-                        history={renderedHistory}
-                        request={request}
-                        receiptKey={`agentdeck.web.question.${scope}.${host?.hostId}.${session}.${item.id}`}
-                        disabled={
-                          !connected ||
-                          receiptBlocked ||
-                          !historyReady ||
-                          current?.archived === 1 ||
-                          !supports('activeTurnSteering')
-                        }
-                        options={{
-                          sessionId: session,
-                          permissionMode: permission,
-                          mode: draft.mode,
-                          ...(draft.model ? { model: draft.model } : {}),
-                          ...(draft.effort ? { effort: draft.effort } : {}),
-                        }}
-                        onRefresh={() => void refresh()}
-                        uncertain={() => bridge.current?.awaitingReceipt === true}
-                      />
-                    )}
                   {(user || assistant) && actionText && !editing && (
                     <div className="message-actions">
                       <IconButton
@@ -2156,6 +2059,55 @@ export function App() {
         <Composer
           key={draftKey}
           draft={draft}
+          prompts={
+            <>
+              {(snapshot.approvals || [])
+                .filter((a) => a.sessionId === session)
+                .map((a) => (
+                  <ApprovalCard
+                    key={a.approvalId}
+                    approval={a}
+                    disabled={!connected || receiptBlocked}
+                    uncertain={() => bridge.current?.awaitingReceipt === true}
+                    onRefresh={() => void refresh()}
+                    onDecide={decide}
+                  />
+                ))}
+              {session &&
+                renderedHistory
+                  .filter(
+                    (entry) =>
+                      ['agentMessage', 'assistantMessage'].includes(String(entry.item?.type)) &&
+                      Array.isArray(entry.item?.questions) &&
+                      entry.item.questions.length > 0,
+                  )
+                  .map((entry) => (
+                    <AsyncQuestions
+                      key={`${host?.hostId}.${session}.${historyKey(entry)}`}
+                      entry={entry}
+                      history={renderedHistory}
+                      request={request}
+                      receiptKey={`agentdeck.web.question.${scope}.${host?.hostId}.${session}.${entry.item?.id}`}
+                      disabled={
+                        !connected ||
+                        receiptBlocked ||
+                        !historyReady ||
+                        current?.archived === 1 ||
+                        !supports('activeTurnSteering')
+                      }
+                      options={{
+                        sessionId: session,
+                        permissionMode: permission,
+                        mode: draft.mode,
+                        ...(draft.model ? { model: draft.model } : {}),
+                        ...(draft.effort ? { effort: draft.effort } : {}),
+                      }}
+                      onRefresh={() => void refresh()}
+                      uncertain={() => bridge.current?.awaitingReceipt === true}
+                    />
+                  ))}
+            </>
+          }
           status={
             session && host ? (
               <ComposerStatus

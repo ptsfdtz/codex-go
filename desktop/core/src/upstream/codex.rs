@@ -261,8 +261,8 @@ pub fn checked_thread_with_full(
 }
 // Loaded shared threads report their original workspace roots on resume,
 // even after a desktop continuation changes cwd. Only the immediate turn
-// path may accept those historical roots: it supplies a complete sandboxPolicy
-// for the authorized current root before any execution can start.
+// path may accept those historical roots: it replaces runtime workspace roots
+// and permissions for the authorized current root before execution can start.
 pub(crate) fn checked_thread_for_turn(
     v: &Value,
     root: &Path,

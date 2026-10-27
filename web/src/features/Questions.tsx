@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  CheckCircle,
   MessageCircle,
   ChevronLeft,
   ChevronRight,
@@ -15,7 +14,7 @@ import type { Approval, Request } from '../workspace';
 import type { HistoryEntry } from '../history';
 import { messageQuestions, confirmedAnswers, replyText, type Question } from './question-replies';
 import { DataFields, IconButton } from '../ui';
-import { MotionPresence } from '../motion';
+import { Collapse, MotionPresence } from '../motion';
 
 function ApprovalDetails({ approval }: { approval: Approval }) {
   const context = approval.context || {};
@@ -497,41 +496,41 @@ export function AsyncQuestions({
     }
   }
   return (
-    <section className="async-questions">
-      <div className="questions-heading">
-        {allSent ? <CheckCircle size={18} /> : <MessageCircle size={18} />}
-        <strong>{allSent ? '已回答 Codex 的问题' : 'Codex 需要你的回答'}</strong>
-        <small>
-          {allSent
-            ? '已提交'
-            : busy
+    <Collapse open={!allSent}>
+      <section className="async-questions">
+        <div className="questions-heading">
+          <MessageCircle size={18} />
+          <strong>Codex 需要你的回答</strong>
+          <small>
+            {busy
               ? '发送中…'
               : phase === 'unknown' && !reconciled
                 ? '等待确认'
                 : `${done.size + remaining.filter((q) => answers[q.id]?.trim()).length} / ${questions.length}`}
-        </small>
-      </div>
-      {!allSent && (
-        <>
-          <QuestionFields
-            questions={remaining}
-            {...{ answers, setAnswers }}
-            disabled={locked}
-            onSubmit={() => void submit()}
-            secondary={
-              phase !== 'editing' && (
-                <IconButton
-                  icon={RefreshCw}
-                  label="核对会话"
-                  disabled={disabled}
-                  onClick={onRefresh}
-                />
-              )
-            }
-          />
-        </>
-      )}
-      {error && <p className="error">{error}</p>}
-    </section>
+          </small>
+        </div>
+        {!allSent && (
+          <>
+            <QuestionFields
+              questions={remaining}
+              {...{ answers, setAnswers }}
+              disabled={locked}
+              onSubmit={() => void submit()}
+              secondary={
+                phase !== 'editing' && (
+                  <IconButton
+                    icon={RefreshCw}
+                    label="核对会话"
+                    disabled={disabled}
+                    onClick={onRefresh}
+                  />
+                )
+              }
+            />
+          </>
+        )}
+        {error && <p className="error">{error}</p>}
+      </section>
+    </Collapse>
   );
 }

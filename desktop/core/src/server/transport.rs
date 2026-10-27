@@ -615,6 +615,9 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
     let mutate = matches!(
         r.action.as_str(),
         "sessions.create"
+            | "system.updateInstall"
+            | "system.updateApply"
+            | "system.updateCancel"
             | "skills.setEnabled"
             | "settings.outputDefaults"
             | "settings.modelDefaults"
@@ -645,6 +648,22 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
             | "devices.revokeSelf"
             | "settings.update"
     );
+    let _update_guard = if mutate {
+        Some(core.update_gate.read().await)
+    } else {
+        None
+    };
+    if mutate
+        && core
+            .update_draining
+            .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return Error::new(
+            "UPDATE_RESTARTING",
+            "Host is switching versions; reconnect before changing state",
+        )
+        .packet(Some(&r.id));
+    }
     if mutate {
         match core.store.reserve(device, &r.id, &r.action, &r.payload) {
             Ok(Some(v)) => return v,

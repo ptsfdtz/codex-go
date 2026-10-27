@@ -133,6 +133,7 @@ pub async fn supervise() -> Result<()> {
             .stderr(Stdio::null());
         let started = Instant::now();
         let mut child = command.spawn()?;
+        let mut last_update_poll = Instant::now();
         #[cfg(windows)]
         let _job = match Job::assign(&child) {
             Ok(job) => job,
@@ -157,6 +158,12 @@ pub async fn supervise() -> Result<()> {
                 }
                 child.wait()?;
                 return Ok(());
+            }
+            if last_update_poll.elapsed() >= Duration::from_secs(2) {
+                if let Err(error) = super::update_job::poll_activation().await {
+                    log(&error.code, &error.message);
+                }
+                last_update_poll = Instant::now();
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         };

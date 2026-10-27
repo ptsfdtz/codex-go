@@ -536,12 +536,16 @@ impl Core {
             Some(&turn),
         )?;
         let mut params = json!({"threadId":session["upstreamThreadId"],"input":input,"collaborationMode":{"mode":if mode == "plan" { "plan" } else { "default" },"settings":{"model":mode_model,"reasoning_effort":if selected_effort.is_empty() { Value::Null } else { json!(selected_effort) },"developer_instructions":null}},"approvalPolicy":"on-request","approvalsReviewer":"user"});
-        // Set both policies on every turn so switching back never inherits full access.
+        // Reset roots and permissions every turn, including after full access or
+        // a native client continuation. Legacy workspaceWrite drops :minimal
+        // reads when combined with our deny-root profile, breaking Linux tools.
+        params["cwd"] = json!(root);
+        params["runtimeWorkspaceRoots"] = json!([root]);
         if permission_mode == "full" {
             params["approvalPolicy"] = json!("never");
             params["sandboxPolicy"] = json!({"type":"dangerFullAccess"});
         } else {
-            params["sandboxPolicy"] = json!({"type":"workspaceWrite","writableRoots":[root],"networkAccess":false,"excludeTmpdirEnvVar":true,"excludeSlashTmp":true});
+            params["permissions"] = json!("agentdeck");
         }
         if !selected_model.is_empty() {
             params["model"] = json!(selected_model);

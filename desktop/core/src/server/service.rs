@@ -47,6 +47,8 @@ pub struct Core {
     pub port: u16,
     pub stop: Notify,
     pub stopping: AtomicBool,
+    pub(crate) update_gate: tokio::sync::RwLock<()>,
+    pub(crate) update_draining: AtomicBool,
     pub local: mpsc::Sender<Value>,
     pub network: tokio::sync::Mutex<
         Option<(
@@ -98,6 +100,8 @@ impl Core {
             port,
             stop: Notify::new(),
             stopping: AtomicBool::new(false),
+            update_gate: tokio::sync::RwLock::new(()),
+            update_draining: AtomicBool::new(false),
             local,
             network: tokio::sync::Mutex::new(None),
             rpc_slots: Arc::new(Semaphore::new(32)),
@@ -163,6 +167,10 @@ impl Core {
         state["hostId"] = json!(self.store.meta("hostId")?);
         state["activeTurns"] = json!(self.store.turns(None)?.len());
         state["servicePid"] = json!(std::process::id());
+        state["runningVersion"] = json!(std::env::current_exe()
+            .ok()
+            .and_then(|p| std::fs::read_to_string(p.parent()?.join("release.txt")).ok())
+            .map(|v| v.trim().to_owned()));
         state["codexVersion"] = json!(self
             .runtime_version
             .read()
@@ -240,7 +248,13 @@ impl Core {
         Ok(qr)
     }
     pub async fn local_action(self: &Arc<Self>, v: Value) -> Result<bool> {
+        let _update_guard = self.update_gate.read().await;
         let action = s(&v, "action");
+        ensure(
+            action == "stop" || !self.update_draining.load(Ordering::SeqCst),
+            "UPDATE_RESTARTING",
+            "Host is switching versions; reconnect before changing state",
+        )?;
         let allowed: &[&str] = match action {
             "workspaces.sync" | "stop" => &[],
             "project.add" => &["path"],
@@ -547,6 +561,24 @@ impl Core {
                 })?;
                 Ok(status)
             }
+            "system.updateStatus" => {
+                let running = self.state()?["runningVersion"].clone();
+                crate::host::update_job::observe_ready(
+                    running.as_str().unwrap_or(""),
+                    self.ready.load(Ordering::SeqCst)
+                        && self.cloud.status().online
+                        && self.runtime_error.read().unwrap().is_none(),
+                )?;
+                let mut value = crate::host::update_job::status()?;
+                value["host"] = json!({"version":running,
+                    "cloudOnline":self.cloud.status().online,
+                    "codexReady":self.ready.load(Ordering::SeqCst),
+                    "runtimeError":*self.runtime_error.read().unwrap()});
+                Ok(value)
+            }
+            "system.updateInstall" => crate::host::update_job::install(s(p, "version")).await,
+            "system.updateApply" => crate::host::update_job::apply(s(p, "jobId")),
+            "system.updateCancel" => crate::host::update_job::cancel(s(p, "jobId")),
             "system.diagnostics" => {
                 let mut counts = json!({});
                 for table in ["projects", "sessions", "turns", "events", "devices"] {

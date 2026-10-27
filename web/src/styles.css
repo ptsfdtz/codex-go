@@ -925,6 +925,12 @@ small,
   width: 36px;
   height: 36px;
   margin: 0 auto 14px;
+  min-width: 36px;
+  max-width: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  aspect-ratio: 1;
+  flex-shrink: 0;
   border-radius: 50%;
   padding: 0;
   color: var(--muted);
@@ -1040,6 +1046,29 @@ small,
   max-width: 824px;
   padding: 6px 32px 8px;
   margin: 0 auto;
+}
+.composer-prompts {
+  max-height: min(38dvh, 360px, calc(var(--app-height, 100dvh) * 0.38));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.composer-prompts > .approval,
+.composer-prompts .async-questions {
+  margin: 0 0 8px;
+  padding: 12px;
+  border-radius: 16px;
+  max-height: none;
+}
+.composer-prompts .questions-heading {
+  margin-bottom: 8px;
+}
+.composer-prompts .question-fields {
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.composer-prompts .question-options {
+  max-height: none;
 }
 .composer {
   border: 1px solid transparent;

@@ -1,16 +1,22 @@
-name: Release
+name: Prepare candidate
 
 on:
-  push:
-    branches: [release]
-    tags: ['*']
-    paths-ignore: ['README.md', 'docs/**']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Public version X.Y.Z (build once, test, then promote)'
+        required: true
+        type: string
+      notes:
+        description: 'User-facing changes and upgrade notes'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: candidate-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
@@ -20,65 +26,86 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Require tags to belong to release
-        if: github.ref_type == 'tag'
+      - name: Validate release branch and unused version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          git fetch origin release
-          git merge-base --is-ancestor "${GITHUB_SHA}^{commit}" origin/release
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/release
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          ! git rev-parse --verify "refs/tags/candidate-$VERSION"
+          ! git rev-parse --verify "refs/tags/v$VERSION"
+      - run: python3 -m unittest discover -s scripts/release -p 'test_*.py'
 
   build:
     needs: validate
     uses: ./.github/workflows/ci.yml
+    with:
+      version: ${{ inputs.version }}
     secrets: inherit
 
-  publish:
-    needs: build
+  cloud:
+    needs: validate
+    uses: ./.github/workflows/cloud.yml
+    secrets: inherit
+
+  candidate:
+    needs: [build, cloud]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
           merge-multiple: true
-          path: release-assets
-      - name: Publish release
+          path: candidate
+      - uses: actions/download-artifact@v4
+        with:
+          name: agentdeck-cloud-linux-x64
+          path: cloud-artifact
+      - name: Seal candidate
         env:
+          VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          SOURCE_SHA: ${{ github.sha }}
-          SOURCE_REF_TYPE: ${{ github.ref_type }}
-          SOURCE_REF_NAME: ${{ github.ref_name }}
-          RUN_NUMBER: ${{ github.run_number }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        shell: bash
+          RELEASE_NOTES: ${{ inputs.notes }}
         run: |
           set -euo pipefail
-          tag="pre-${RUN_NUMBER}-${RUN_ATTEMPT}"
-          flags=(--prerelease --latest=false)
-          if [[ "$SOURCE_REF_TYPE" == tag ]]; then
-            tag="$SOURCE_REF_NAME"
-            flags=(--latest)
-          fi
-          cd release-assets
-          version="host-${SOURCE_SHA}"
-          test -s "releases/$version/agentdeck-windows-x64.zip"
-          test -s "releases/$version/agentdeck-linux-x64.tar.gz"
-          test -s "releases/$version/agentdeck-linux-arm64.tar.gz"
-          tar -czf agentdeck-downloads.tar.gz install.sh install.ps1 install-codex.ps1 releases
-          cp releases/"$version"/*.zip releases/"$version"/*.tar.gz .
-          sha256sum *.zip *.tar.gz > SHA256SUMS.txt
-          cat > ../release-notes.md <<EOF
-          AgentDeck 阶段测试版，尚未完成 Codex 全功能迁移。
+          cp cloud-artifact/agentdeck-cloud candidate/agentdeck-cloud
+          cp scripts/release/gate.py candidate/release-gate.py
+          python3 -c 'import os,pathlib; pathlib.Path("candidate-notes.txt").write_text(os.environ["RELEASE_NOTES"], encoding="utf-8")'
+          python3 scripts/release/gate.py manifest candidate --version "$VERSION" --commit "$GITHUB_SHA" --notes-file candidate-notes.txt
+          tar -czf candidate.tar.gz -C candidate .
+          sha256sum candidate.tar.gz > candidate.tar.gz.sha256
+          printf 'Candidate %s\n\nCommit: %s\nRequires Windows x64, Linux x64 and Linux ARM64 real E2E attestations before promotion.\n' "$VERSION" "$GITHUB_SHA" > candidate-notes.md
+          cat candidate-notes.txt >> candidate-notes.md
+          gh release create "candidate-$VERSION" --target "$GITHUB_SHA" --prerelease --latest=false --title "AgentDeck $VERSION candidate" --notes-file candidate-notes.md candidate.tar.gz candidate.tar.gz.sha256
 
-          - Windows x64：Host ZIP 与 start.ps1，终端登录和后台运行，不需要 WebView2。
-          - Linux x64 / ARM64：Host tar.gz；执行任务仍需配置经过验证的本机 Codex 运行时。ARM64 构建基于 Ubuntu 24.04。
-          - agentdeck-downloads.tar.gz：Host 安装脚本、版本包和校验值，可部署到 HTTPS 下载目录；支持 agentdeck update --check / agentdeck update。
-          - SHA256SUMS.txt：下载文件的 SHA-256 校验值。
-
-          源码提交：${SOURCE_SHA}
-          EOF
-          gh release create "$tag" --target "$SOURCE_SHA" "${flags[@]}" \
-            --title "AgentDeck $tag" --notes-file ../release-notes.md \
-            agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-downloads.tar.gz \
-            SHA256SUMS.txt
+  stage:
+    needs: candidate
+    runs-on: ubuntu-latest
+    environment: candidate
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage immutable packages for real update E2E
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.AGENTDECK_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.AGENTDECK_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          gh release download "candidate-$VERSION" --pattern candidate.tar.gz --pattern candidate.tar.gz.sha256
+          sha256sum -c candidate.tar.gz.sha256
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          remote_dir=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" 'mktemp -d /var/tmp/agentdeck-publish.XXXXXXXX')
+          [[ "$remote_dir" =~ ^/var/tmp/agentdeck-publish\.[a-zA-Z0-9]+$ ]]
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes candidate.tar.gz scripts/release/stage-candidate.sh scripts/release/extract.py scripts/release/gate.py "$DEPLOY_HOST:$remote_dir/"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" "sh '$remote_dir/stage-candidate.sh' '$remote_dir'"

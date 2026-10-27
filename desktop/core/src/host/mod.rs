@@ -6,6 +6,7 @@ mod process;
 #[cfg(windows)]
 pub mod runtime_compatibility;
 pub mod shared_runtime;
+pub mod update_job;
 pub mod updates;
 #[cfg(windows)]
 mod windows;

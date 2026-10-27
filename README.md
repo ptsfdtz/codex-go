@@ -21,9 +21,19 @@
 
 ## 实际验证与下一步
 
+更新与发布自动化（未发布）：网页原生更新、持久状态/空闲切换、本地候选通道、候选构建与正式晋升门槛已实现。Windows Host 严格 Clippy、4 项更新定向测试，Web 类型/ESLint/生产构建、workflow actionlint、shell 语法及 schema 核验通过；发布门槛 10 项定向测试在 Windows 与隔离 Linux 临时目录通过，未改线上服务。尚未执行 Linux Host 本次编译、真实更新切换、浏览器交互、三平台真实端到端验收和 Actions/VPS 全流程；部署凭据与环境保护仍须配置。本轮检查不能代替正式发布前的强制实测。
+
+Linux `10.249.254.57` 的 Host/认证运行时已切至 root，保留账户、电脑与 Web 设备身份，使用 `/root/.codex` 和 `/root/.local/state/agentdeck`；旧账号服务停用，root 服务启用常驻。原生接口登记现有 `/root/workspace` 及既有对话；主程序和同版本 `codex-code-mode-host`、`codex-linux-sandbox` 配套放在 `/usr/bin`，修正 `/usr/local/bin` 入口。Host 普通轮次改用已有协议的命名 `agentdeck` 权限，逐轮重设 cwd/工作区根，修复 legacy `workspaceWrite` 覆盖丢失系统读取范围、导致 bwrap 无法启动工具的问题；完整访问后再切回也恢复隔离。
+
+该服务器运行本机修复版 `local-root-policy-repair-20261027`（基于 `b9817e05`，仅含执行权限修复；服务 SHA-256 `aa3adc581d2096b281fa5c24b44acb2d85af66d666064f0845a817d9023e1f6c`），未晋升正式发布或修改公开下载。Codex `0.164.0` / `gpt-6.1-sol` 在共享运行时、隔离候选 Host 和实际 Host 的真实终端链路均完成“普通→完整访问→普通”三轮：内读写/外读写拒绝、root 身份、真实磁盘读取、权限恢复通过；实际 Host 空闲重启后原授权、电脑及原生会话 UUID 保持，读回 12 条历史。Windows 全目标检查/严格 Clippy、Linux 构建/严格 Clippy、格式及 schema 核验通过。备份、候选证据和实际 Host 报告在 `/root/agentdeck-migration-20261027T093113Z/`，测试自建会话已归档、测试授权已撤销。未做整机重启、手机原会话及云端转发链路复测；Windows 本次未发送真实模型任务。
+
+Web 顶部下拉框用于切换项目并标记当前项目；未选对话时显示所选项目名，选中对话后显示对话标题。类型、定向 ESLint、格式及生产构建通过；浏览器/手机交互待验收，尚未发布。
+
+Linux x64 干净环境已安装当前稳定 Host 与官方 Codex `0.164.0`，沿用本机 API 配置；实际模型回复、沙箱内读写及外部读写拒绝均通过。Host 与认证运行时的 systemd 用户服务已启用，重启服务后账户、设备身份与在线状态保持。旧环境隔离到 root 私有回退目录，未载入新环境；未做整机重启及 ARM64 实机验收。
+
 本次 Host 热修复：Windows 正式 ZIP 在本机构建并完成真实回归，Linux x64/ARM64 的严格 Clippy 与 CI 打包通过；停止重复 Windows CI 构建，以已验收的同提交产物发布。三个平台清单、包内版本、稳定指针及公开文件完整 SHA-256、GitHub 资产摘要一致；Linux 线上安装及 CLI 运行通过。只原子更新下载，云端 PID/启动时间保持不变，Web/管理端健康与文件校验正常；下载指针和脚本回退备份在 `/var/backups/agentdeck/downloads-release-20261027-2/`。已有用户在任务空闲后升级 Host，运行中的任务不会被此次发布切换。
 
-消息列表“回到最新”改为下箭头；底部跟随新消息和流式增量，上滑暂停，向下回到底部或点击箭头恢复。Web 类型检查与生产构建通过；滚轮、触摸和滚动条交互尚待浏览器实测。
+Web 提问与审批移到输入框上方独立区域，待回答问题不再嵌入消息历史，全部提交后平滑收起，保留回执与结果未知核对；区域随手机可用高度限制并可滚动。修复“回到最新”按钮被宽度覆盖成椭圆，固定为 36×36 圆形。版本 `2d21a6fe` 已发布；类型、定向 ESLint、格式、生产构建及线上 12 个文件哈希、健康检查通过。真实会话 390×844 浏览器视口验证问题位置、无横向溢出、按钮宽高及点击恢复底部通过，未提交真实回答；iPhone 软键盘与触摸仍待真机复核。备份：`/var/backups/agentdeck/web-question-dock-2d21a6fe/web.tar.gz`。
 
 本次类型/ESLint、格式、生产构建、依赖审计、Host/云端严格 Clippy、图片读取/分块/完整性/取消定向检查与 schema 核验通过。锁文件缺少 lucide-react 解析记录的问题已修复，并在全新目录完成冻结安装、检查和构建。历史测试/夹具及依赖按此前要求删除，不再沿用旧测试数量作为当前证据。
 
@@ -102,6 +112,22 @@ Windows 自启使用当前用户的 `HKCU/Software/Microsoft/Windows/CurrentVers
 
 更新入口（已上线）沿用 **yecaoyun / `https://agent.ptsfdtz.top`**，未迁移到 aly。Host 使用 `agentdeck update --check` 检查、`agentdeck update` 下载校验并安装；只执行程序内置的安装脚本，保留旧版本和正在运行的服务，空闲后显式 `agentdeck restart`。旧 Host 首次仍需重跑安装命令才能获得更新命令；更新源可用 `--origin HTTPS_ORIGIN` 或 `AGENTDECK_DOWNLOAD_ORIGIN` 指定，安装器保存来源和发布版本。网页/PWA 在“设置→常规”检查当前站点的新构建，提示手动重新加载，不自动丢弃草稿。
 
+### 用户更新软件
+
+Host 更新命令必须在网页当前选中的**被控制电脑**执行；更新网页不会更新该电脑。已有更新命令时按以下顺序操作，旧版不支持时先重跑对应系统的安装命令：
+
+```sh
+agentdeck update --check
+agentdeck update
+# 确认任务已结束、审批和未知发送结果已核对后再重启
+agentdeck restart
+agentdeck status --json
+```
+
+“安装成功”只表示文件已安装；`restart` 返回也不表示 Codex 已就绪。首次启动可能正在下载和校验兼容运行时；待 `cloud.online`、`codexReady` 均为 `true` 且 `runtimeError` 为 `null`，再从 Web/PWA 打开会话核对历史和实际使用。持续未就绪时查看 `agentdeck logs`、`agentdeck doctor`；无需因初始化等待重新登录或添加项目。更新保留身份、账户、项目和会话状态。
+
+网页直接更新（已实现，未发布）：发现新版后点“查看更新”，阅读版本与更新说明，再点“下载并安装更新”；安装不打断任务，完成后可选择“空闲后重启并完成更新”，等待期间可取消待重启。专用接口沿用电脑授权及操作回执，不依赖 Codex 或 AI 会话，不接收任意命令或下载 URL。Host 持久化更新状态，刷新、断线或更新进程异常后可重新核对；切换前阻止新操作进入并核对全部任务、审批及未知任务结果，重连后确认实际运行版本、云端连接和 Codex 就绪才标为完成。Linux systemd Host 使用独立用户更新服务下载安装和切换，保留原 Host 的隔离配置。旧 Host 显示一次性安装命令，必须在被控制电脑执行；开发版不自动替换。网页/PWA 自身更新仍在“设置→常规”重新加载。
+
 旧桌面实例仍运行时，先在任务空闲后从旧托盘“停止并退出”，再启动 Host。不会强杀原实例或生成另一套身份。已有 MSIX 私有数据需要沿用该实际目录，可显式设置 `AGENTDECK_DATA_DIR`；不再通过 `.tmp/desktop-dev-data-dir.txt` 隐式切换，不能仅凭云端账户恢复电脑证书。
 
 ## Linux 运行时
@@ -123,6 +149,52 @@ agentdeck status
 
 ## 下载发布与 VPS
 
+### 正式发布流程与强制验收
+
+**每次正式发布前，必须在 Windows 和 Linux 上使用本次候选产物完成真实端到端测试，全部通过后才能发布。** 适用于 Host、Web/PWA、云端的正式更新及热修复；仅修改其中一个组件也须验证两端完整链路。构建、Clippy、接口健康、下载校验、CLI 启动、模拟数据及历史版本测试均不能代替本次验收。任一端失败、未测或环境不可用时，只能保留候选版，不得发布正式版、更新生产 Web/云端或推进稳定下载指针。
+
+1. **准备候选版**：固定源码提交、版本及更新说明，完成必要静态检查和构建；绑定 Windows/Linux 包、Web、云端的版本与 SHA-256，未变组件记录其实际版本。候选产物独立存放，不更新生产入口或稳定指针。
+2. **两端真实验收**：分别在真实 Windows、Linux 环境安装候选 Host，通过候选 Web/PWA、真实云端连接及真实 Codex/模型完成下表。发布包覆盖的架构分别记录结果，Linux x64 通过不等于 ARM64 通过；缺少某架构实测时不得将其列为本次已验收正式更新。
+3. **记录结论**：在本 README 的“实际验证与下一步”简短记录候选版本/提交、产物哈希、系统与架构、Codex 版本、实际测试结果及未验证项，不记录凭据。既有“已发布”与历史验证描述不构成本次发布准入。
+4. **发布已验收产物**：取得当次发布授权后，备份并部署同一批产物，不重新构建替换；产物变化必须重新验收。核对线上版本、文件校验和健康状态后再开放稳定更新；失败停止后续步骤，按组件恢复旧程序、静态资源或下载指针，数据库迁移单独判断，不自动回滚数据库。
+
+| 两端必测链路     | 通过标准                                                                                             |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| 安装与升级       | 实际安装候选包，并从当前稳定版升级；身份、账户、项目授权和历史保留，实际运行版本正确                 |
+| Web/PWA 远程连接 | 通过实际云端转发连接对应 Host，确认所选电脑与身份一致、Codex 就绪；候选环境不替换日常生产服务        |
+| 会话与真实任务   | 读取已有会话历史，新建会话并发送真实模型任务，接收流式结果及完成状态，重开后通过原生接口读回同一会话 |
+| 项目与权限       | 实际读取项目指令、在授权项目读写文件，验证一次性审批和拒绝、沙箱外未授权读写被阻止，不关闭沙箱兜底   |
+| 重启与恢复       | 空闲重启后自动重连、身份与历史保持；实际断线重连后核对任务结果，不丢审批、不重复发送未知结果任务     |
+| 本次改动         | 在两端真实链路中验证变更功能及相关旧客户端兼容；涉及更新时验证下载安装、空闲切换、就绪判定与失败恢复 |
+
+发布自动化（已实现，未在线运行）：推送代码只运行检查，不再自动发布或部署 Pages。在 GitHub Actions 的 **Prepare candidate** 选择 `release` 分支，填写公开版本号 `X.Y.Z` 和更新说明；构建三个平台 Host、正式 Web、Pages 与云端，生成绑定提交及全部文件 SHA-256 的 `candidate.json`，保存为 `candidate-X.Y.Z` 预发布。随后只上传不可变候选下载文件，不切换生产 Web、云端或稳定指针，供实测机验证真正的下载安装。正式流程 **Promote tested release** 仅下载这批产物，强制验证 Windows x64、Linux x64/ARM64 的实测记录，备份并部署 VPS、核对健康和公开文件、部署 Pages，最后开放稳定更新并生成 `vX.Y.Z` 正式 Release。构建、证据验证、VPS、Pages 任一步失败都不进入后续步骤；VPS/Pages 跨服务并非原子事务，部署部分成功时需核对 Actions 及备份后重试，不能宣称全部发布完成。下载发布脚本本身也强制验收门槛，缺少证据不得手动推进稳定指针；正式晋升拒绝用较低版本覆盖现有稳定版。
+
+候选版下载并解包后，用 Python ≥3.11 生成实测记录模板；模板所有检查默认为未通过，不生成模拟通过记录：
+
+```sh
+gh release download candidate-X.Y.Z --pattern candidate.tar.gz --pattern candidate.tar.gz.sha256
+# 先按 .sha256 核对归档，再解包到独立候选目录
+python scripts/release/extract.py candidate.tar.gz artifacts/candidate
+python scripts/release/gate.py template artifacts/candidate --evidence artifacts/evidence
+```
+
+原生更新测试在隔离实测机本地执行 `agentdeck update-channel candidate X.Y.Z`，网页刷新更新检查后即可下载安装已暂存的候选版本；测试完用 `agentdeck update-channel stable` 恢复稳定通道。选择保存在该机状态目录，网页不能切换通道或下载源，已开始的更新始终固定到已确认版本。首次引入原生更新能力时，可使用两个实际构建的候选版本验证升级前后链路，同时核对稳定版安装升级；不得改写 `release.txt` 假装升级，也不得提前切换生产稳定指针。
+
+分别在对应 Windows/Linux 实测机安装候选包并从当前稳定版升级，使用候选 Web、真实云端、Codex 和模型完成上表；填写该平台 JSON 中的 `tester`、真实 `sessionId`、每项 `passed` 与 `observed`，在 `logs` 中列出已脱敏证据文件相对路径（值先留空）。在该机用候选版 CLI 执行 `record`，自动读取真实 Host 状态，核对实际系统/架构、运行版本、云端/Codex 就绪及沙箱验证，记录电脑身份、Codex 版本、时间并计算证据哈希；它不代替真实模型、审批、重连及变更功能测试，也不自动把检查改为通过。
+
+```sh
+# 每台实测机只录入自身平台；另两台分别用 linux-x64、linux-arm64
+python scripts/release/gate.py record artifacts/candidate --evidence artifacts/evidence --platform windows-x64 --agentdeck "C:/Users/NAME/AppData/Local/Programs/AgentDeck/versions/X.Y.Z/agentdeck.exe"
+# 汇总三个平台 JSON 和各自的脱敏证据文件后执行
+python scripts/release/gate.py verify artifacts/candidate --evidence artifacts/evidence
+tar -czf e2e-evidence.tar.gz -C artifacts/evidence .
+gh release upload candidate-X.Y.Z e2e-evidence.tar.gz
+```
+
+证据文件不得包含令牌、密码、未脱敏日志或完整聊天；不可用历史测试或改模板冒充实测。全部通过且取得当次发布授权后，才在 Actions 运行 **Promote tested release** 并填写同一版本。候选归档或清单变化会使原证据失效；缺少 ARM64 实测时本流程也会阻止正式晋升。CLI `--version` 同时显示安装发布版本和内核版本，提交哈希保留用于产物诊断。
+
+首次启用自动部署需配置 GitHub `candidate` 与 `production` environments 的分支规则，并为 `production` 设置发布审核；设置变量 `AGENTDECK_CLOUD_ORIGIN`、`AGENTDECK_DEPLOY_HOST`（SSH 目标），以及 secrets `AGENTDECK_DEPLOY_KEY`、`AGENTDECK_DEPLOY_KNOWN_HOSTS`（固定服务器指纹，不临时信任扫描结果）。VPS 需 Python ≥3.11、curl、tar、sha256sum、flock，现有 Nginx/systemd 与可成功执行的 `agentdeck-backup.service`；部署用户须具备既有发布目录及服务管理权限。在受保护的 `/etc/agentdeck/release.env` 设置 `AGENTDECK_WEB_LINK` 为现有 Nginx 文档根目录的绝对符号链接，云端链接默认 `/opt/agentdeck/current`，下载目录默认 `/opt/agentdeck/downloads`，公网域名默认 `https://agent.ptsfdtz.top`；脚本拒绝猜测或覆盖普通目录。只有已确认数据库向后兼容时才设置 `AGENTDECK_ROLLBACK_SAFE_VERSION=X.Y.Z`（仅授权该版本的程序回退）；默认失败只恢复静态资源、保留数据库和诊断，不擅自回退云端程序。配置与真实候选验收完成前不能上线本次自动化。
+
 正式 Web：[agent.ptsfdtz.top](https://agent.ptsfdtz.top/)，管理端 [/admin](https://agent.ptsfdtz.top/admin)。生产使用现有 Nginx、Rust/systemd 和 PostgreSQL 17，Cloudflare 仅做 DNS。云端账户 schema v3 支持电脑证书/地址登记、会话绑定的短期凭据、撤销和刷新轮换；VPS 继续只转发加密业务字节。
 
 `pnpm host:package` 在当前平台构建发布包，输出到 `artifacts/host-downloads/`：
@@ -135,7 +207,7 @@ releases/版本号/agentdeck-linux-x64.tar.gz[.sha256]
 releases/版本号/agentdeck-linux-arm64.tar.gz[.sha256]
 ```
 
-使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64 和 ARM64，合并后的 `agentdeck-downloads.tar.gz` 可直接上传 VPS；ARM64 基于 Ubuntu 24.04，x64 CI 基于 Ubuntu 22.04。旧独立 Linux workflow 和桌面安装器发布路径已移除。
+使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64 和 ARM64；单独运行打包命令仅生成 Host 包，不满足正式发布准入。完整候选版须包含 Web、云端、安装脚本、版本清单及实测证据；正式流程输出的 `agentdeck-downloads.tar.gz` 包含这些文件，供已通过门槛的部署使用。ARM64 基于 Ubuntu 24.04，x64 CI 基于 Ubuntu 22.04。旧独立 Linux workflow 和桌面安装器发布路径已移除。
 
 Web 构建自动生成 `version.json`，与资源一同部署并保持该清单不缓存。
 

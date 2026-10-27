@@ -22,7 +22,6 @@
   position: sticky;
   bottom: 12px;
   z-index: 2;
-  width: fit-content;
 }
 button,
 input,
@@ -365,6 +364,7 @@ button:disabled {
 /* Shared state changes: content fades, while layout changes stay local to
    accordions and keyed lists. Streaming text keeps its reading position. */
 .panel-content,
+.async-questions,
 .confirmation,
 .approval-review,
 .action-feedback,
@@ -419,6 +419,7 @@ button:disabled {
 }
 @starting-style {
   .panel-content,
+  .async-questions,
   .confirmation,
   .approval-review,
   .action-feedback,
