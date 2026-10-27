@@ -4,6 +4,7 @@ import json
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import gate
@@ -110,6 +111,13 @@ class ReleaseGateTests(unittest.TestCase):
             gate.check_promotion("1.2.3", path)
         gate.check_promotion("1.3.0", path)
         gate.check_promotion("1.4.0", path)
+
+    def test_macos_evidence_uses_package_platform_name(self):
+        with mock.patch.object(gate.sys, "platform", "darwin"), mock.patch.object(
+            gate.system_platform, "machine", return_value="arm64"
+        ):
+            self.assertEqual(gate.recorded_platform(), "macos-arm64")
+        self.assertIn("macos-arm64", gate.PLATFORMS)
 
     def test_artifact_traversal_rejected(self):
         with self.assertRaisesRegex(ValueError, "escapes"):

@@ -78,7 +78,7 @@ jobs:
           python3 scripts/release/gate.py manifest candidate --version "$VERSION" --commit "$GITHUB_SHA" --notes-file candidate-notes.txt
           tar -czf candidate.tar.gz -C candidate .
           sha256sum candidate.tar.gz > candidate.tar.gz.sha256
-          printf 'Candidate %s\n\nCommit: %s\nRequires Windows x64, Linux x64 and Linux ARM64 real E2E attestations before promotion.\n' "$VERSION" "$GITHUB_SHA" > candidate-notes.md
+          printf 'Candidate %s\n\nCommit: %s\nRequires Windows x64, Linux x64/ARM64 and macOS arm64 real E2E attestations before promotion.\n' "$VERSION" "$GITHUB_SHA" > candidate-notes.md
           cat candidate-notes.txt >> candidate-notes.md
           gh release create "candidate-$VERSION" --target "$GITHUB_SHA" --prerelease --latest=false --title "AgentDeck $VERSION candidate" --notes-file candidate-notes.md candidate.tar.gz candidate.tar.gz.sha256
 

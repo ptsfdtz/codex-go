@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-PLATFORMS = ("windows-x64", "linux-x64", "linux-arm64")
+PLATFORMS = ("windows-x64", "linux-x64", "linux-arm64", "macos-arm64")
 CHECKS = ("installUpgrade", "remoteConnection", "realModelHistory",
           "projectSandboxApproval", "restartReconnect", "changedFeatures")
 
@@ -107,6 +107,18 @@ def verify(root, evidence):
     return manifest
 
 
+def recorded_platform():
+    machine = system_platform.machine().lower()
+    arch = "arm64" if machine in ("aarch64", "arm64") else "x64" if machine in ("amd64", "x86_64") else "unsupported"
+    if sys.platform == "win32":
+        system = "windows"
+    elif sys.platform == "darwin":
+        system = "macos"
+    else:
+        system = sys.platform
+    return system + "-" + arch
+
+
 def check_promotion(version, current_stable):
     if current_stable is None or not current_stable.exists():
         return
@@ -162,11 +174,8 @@ def main():
         manifest = validate_candidate(root)
         if args.evidence is None or args.platform is None:
             parser.error("--evidence and --platform are required")
-        machine = system_platform.machine().lower()
-        arch = "arm64" if machine in ("aarch64", "arm64") else "x64" if machine in ("amd64", "x86_64") else "unsupported"
-        host_platform = ("windows" if sys.platform == "win32" else sys.platform) + "-" + arch
-        if host_platform != args.platform:
-            raise ValueError("Record evidence on the actual matching Windows/Linux device")
+        if recorded_platform() != args.platform:
+            raise ValueError("Record evidence on the actual matching Windows/Linux/macOS device")
         path = args.evidence / f"{args.platform}.json"
         report = load(path)
         state = json.loads(subprocess.check_output([args.agentdeck, "status", "--json"], timeout=30, encoding="utf-8"))
