@@ -1845,6 +1845,21 @@ small,
   padding: 6px 0;
   border-bottom: 1px solid var(--faint);
 }
+.project-image-preview {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--soft);
+}
+.project-image-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+}
 .skills-summary {
   display: flex;
   align-items: center;
@@ -2184,6 +2199,21 @@ small,
 }
 .computer-entry > .host small {
   flex-shrink: 0;
+}
+.computer-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+.computer-name > span,
+.computer-name > .computer-original-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.computer-original-name {
+  color: var(--muted);
 }
 .computer-actions {
   display: flex;

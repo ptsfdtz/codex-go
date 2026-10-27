@@ -25,6 +25,7 @@ import type { Capabilities, Model, Project, Request, Session, Skill } from '../w
 import { canManage, output, statusLabel } from '../workspace';
 import { contentText } from '../RichContent';
 import { DiffText } from './DiffText';
+import { isProjectImage, readProjectImage } from './project-image';
 
 function useRead<T>(
   request: Request,
@@ -521,11 +522,13 @@ export function FilesPanel({
   projectId,
   onReference,
   initialPath,
+  imagePreview = false,
 }: {
   request: Request;
   projectId: string;
   onReference: (text: string) => void;
   initialPath?: string;
+  imagePreview?: boolean;
 }) {
   const [directory, setDirectory] = useState(''),
     [selected, setSelected] = useState<FileEntry | undefined>(() =>
@@ -534,6 +537,8 @@ export function FilesPanel({
         : undefined,
     ),
     [text, setText] = useState(''),
+    [imageUrl, setImageUrl] = useState(''),
+    [fileRevision, setFileRevision] = useState(0),
     [fileError, setFileError] = useState(''),
     [fileLoading, setFileLoading] = useState(false);
   const { value, error, loading, reload } = useRead<{ entries: FileEntry[]; truncated?: boolean }>(
@@ -542,15 +547,33 @@ export function FilesPanel({
     { projectId, ...(directory ? { directory } : {}) },
   );
   const action = useAction();
+  const image = !!selected && isProjectImage(selected.path);
   useEffect(() => {
     let active = true;
+    let objectUrl = '';
     setText('');
+    setImageUrl('');
     setFileError('');
-    if (!selected) return;
+    if (!selected) {
+      setFileLoading(false);
+      return;
+    }
+    if (image && !imagePreview) {
+      setFileLoading(false);
+      setFileError('当前电脑尚不支持图片预览，请升级 Host。');
+      return;
+    }
     setFileLoading(true);
-    void request<{ text: string }>('files.readText', { projectId, path: selected.path })
+    const read = image
+      ? readProjectImage(request, projectId, selected.path, () => active)
+      : request<{ text: string }>('files.readText', { projectId, path: selected.path });
+    void read
       .then((v) => {
-        if (active) setText(v.text);
+        if (!active) return;
+        if (v instanceof Blob) {
+          objectUrl = URL.createObjectURL(v);
+          setImageUrl(objectUrl);
+        } else setText(v.text);
       })
       .catch((e) => {
         if (active) setFileError(String(e));
@@ -560,8 +583,9 @@ export function FilesPanel({
       });
     return () => {
       active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [selected, projectId, request]);
+  }, [selected, projectId, request, image, imagePreview, fileRevision]);
   return (
     <div className="panel-stack">
       <div className="breadcrumb">
@@ -580,14 +604,36 @@ export function FilesPanel({
           }}
         />
         <span>{selected?.path || directory || '项目根目录'}</span>
-        <IconButton icon={RefreshCw} label="刷新文件" onClick={reload} />
+        <IconButton
+          icon={RefreshCw}
+          label="刷新文件"
+          onClick={() => {
+            reload();
+            setFileRevision((n) => n + 1);
+          }}
+        />
       </div>
       {selected ? (
         <>
-          <p className="muted">当前授权文件 · UTF-8 · 最多 256 KiB</p>
+          <p className="muted">
+            {image ? '当前授权图片 · 最多 8 MiB' : '当前授权文件 · UTF-8 · 最多 256 KiB'}
+          </p>
           {fileLoading && <p>读取中…</p>}
           {fileError && <p className="error">{fileError}</p>}
-          <pre className="file-preview">{text}</pre>
+          {image ? (
+            imageUrl &&
+            !fileError && (
+              <div className="project-image-preview">
+                <img
+                  src={imageUrl}
+                  alt={selected.name}
+                  onError={() => setFileError('无法渲染此图片，请检查文件格式或刷新重试。')}
+                />
+              </div>
+            )
+          ) : (
+            <pre className="file-preview">{text}</pre>
+          )}
           <button
             disabled={action.busy || fileLoading || !!fileError}
             onClick={() =>
@@ -1092,7 +1138,7 @@ export function ConfigurationPanel({
   supports: (s: string) => boolean;
 }) {
   const { value, error, loading, reload } = useRead<{
-    values?: unknown;
+    values?: Record<string, unknown>;
     origins?: unknown;
     userRevision?: string;
     workspacePolicyCompatible?: boolean;
@@ -1102,6 +1148,20 @@ export function ConfigurationPanel({
     [effort, setEffort] = useState(''),
     [verbosity, setVerbosity] = useState('default'),
     [summary, setSummary] = useState('default');
+  useEffect(() => {
+    if (!value) return;
+    const current = value.values || {};
+    setModel(typeof current.model === 'string' ? current.model : '');
+    setEffort(
+      typeof current.model_reasoning_effort === 'string' ? current.model_reasoning_effort : '',
+    );
+    setVerbosity(typeof current.model_verbosity === 'string' ? current.model_verbosity : 'default');
+    setSummary(
+      typeof current.model_reasoning_summary === 'string'
+        ? current.model_reasoning_summary
+        : 'default',
+    );
+  }, [value]);
   const action = useAction();
   return (
     <div className="panel-stack">
@@ -1137,6 +1197,9 @@ export function ConfigurationPanel({
                 }}
               >
                 <option value="">选择模型</option>
+                {model && !models.some((m) => (m.id || m.model) === model) && (
+                  <option value={model}>{model}</option>
+                )}
                 {models.map((m) => {
                   const id = m.id || m.model;
                   return id ? (
@@ -1152,6 +1215,12 @@ export function ConfigurationPanel({
                 onChange={(e) => setEffort(e.target.value)}
               >
                 <option value="">模型默认</option>
+                {effort &&
+                  !models
+                    .find((m) => (m.id || m.model) === model)
+                    ?.supportedReasoningEfforts?.some(
+                      (e) => (typeof e === 'string' ? e : e.reasoningEffort) === effort,
+                    ) && <option value={effort}>{effort}</option>}
                 {models
                   .find((m) => (m.id || m.model) === model)
                   ?.supportedReasoningEfforts?.map((e) => {
@@ -1206,14 +1275,17 @@ export function ConfigurationPanel({
   );
 }
 export function RetentionPanel({ request }: { request: Request }) {
-  const { value, error, loading, reload } = useRead<Record<string, unknown>>(
-    request,
-    'settings.get',
-    {},
-  );
+  const { value, error, loading, reload } = useRead<{
+    retention: { days: number; maxMiB: number };
+  }>(request, 'settings.get', {});
   const [days, setDays] = useState(''),
     [mib, setMib] = useState(''),
     [confirm, setConfirm] = useState(false);
+  useEffect(() => {
+    if (!value) return;
+    setDays(String(value.retention.days));
+    setMib(String(value.retention.maxMiB));
+  }, [value]);
   const action = useAction();
   return (
     <div className="panel-stack">

@@ -124,6 +124,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "skills.catalog" => (&["projectId"], &[]),
         "skills.setEnabled" => (&["projectId", "skillId", "enabled", "expectedEnabled"], &[]),
         "files.list" => (&["projectId"], &["directory"]),
+        "files.readImage" => (&["projectId", "path", "offset"], &["sha256"]),
         "files.readText" => (&["projectId", "path"], &[]),
         "files.reference" => (&["projectId", "path"], &[]),
         "account.status" => (&[], &[]),
@@ -263,7 +264,7 @@ pub fn parse(v: Value) -> Result<Request> {
     if p.get("directory").is_some() {
         text(p, "directory", 0, 4096)?;
     }
-    if ["files.readText", "files.reference"].contains(&r.action.as_str()) {
+    if ["files.readText", "files.readImage", "files.reference"].contains(&r.action.as_str()) {
         text(p, "path", 1, 4096)?;
     }
     if r.action == "system.hello" {
@@ -359,7 +360,7 @@ pub fn parse(v: Value) -> Result<Request> {
             "Invalid submission IDs",
         )?;
     }
-    if r.action == "sessions.image" {
+    if ["sessions.image", "files.readImage"].contains(&r.action.as_str()) {
         integer(p, "offset", 0, 8 * 1024 * 1024)?;
         if p.get("contentIndex").is_some() {
             integer(p, "contentIndex", 0, 255)?;

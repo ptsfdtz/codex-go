@@ -251,13 +251,11 @@ export function Composer({
             disabled={disabled || busy}
             onChange={onChange}
           />
-          {!chat && (
-            <PermissionPicker
-              permission={permission}
-              disabled={disabled || busy}
-              onConfirm={onPermission}
-            />
-          )}
+          <PermissionPicker
+            permission={permission}
+            disabled={disabled || busy}
+            onConfirm={onPermission}
+          />
           {expanded && (
             <IconButton icon={Minimize2} label="收起编辑器" onClick={() => setExpanded(false)} />
           )}

@@ -571,6 +571,12 @@ impl Core {
             "skills.catalog" => self.skill_catalog(s(p, "projectId")).await,
             "skills.setEnabled" => self.set_skill_enabled(p).await,
             "files.list" => self.project_files(s(p, "projectId"), s(p, "directory")),
+            "files.readImage" => self.project_file_image(
+                s(p, "projectId"),
+                s(p, "path"),
+                p["offset"].as_u64().unwrap() as usize,
+                p["sha256"].as_str(),
+            ),
             "files.readText" => self.project_file_text(s(p, "projectId"), s(p, "path")),
             "files.reference" => self.project_file_reference(s(p, "projectId"), s(p, "path")),
             "account.status" => self.account_status().await,

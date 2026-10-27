@@ -84,6 +84,7 @@ import { InstallApp } from './features/InstallApp';
 import { AppUpdates } from './features/AppUpdates';
 import { SettingsLayout } from './features/SettingsLayout';
 import { HostUpdates } from './features/HostUpdates';
+import { usePreference } from './features/preferences';
 import {
   readComposerPreferences,
   saveComposerPreferences,
@@ -224,7 +225,11 @@ export function App() {
   const [hostFingerprint, setHostFingerprint] = useState(''),
     [hostLabel, setHostLabel] = useState(''),
     [lastSynced, setLastSynced] = useState('');
-  const [notification, setNotification] = useState(false);
+  const [notification, setNotification] = usePreference(
+    'agentdeck.web.notifications',
+    false,
+    (value): value is boolean => typeof value === 'boolean',
+  );
   const notificationRef = useRef(notification);
   notificationRef.current = notification;
   const [statusRevision, setStatusRevision] = useState(0);
@@ -235,6 +240,13 @@ export function App() {
   const connectRef = useRef<(h: Host) => void>(undefined);
   const hostRef = useRef(host);
   hostRef.current = host;
+  function hostName(item: Host) {
+    const label =
+      item.hostId === host?.hostId
+        ? hostLabel
+        : localStorage.getItem(`agentdeck.web.label.${scope}.${item.hostId}`);
+    return label?.trim() || item.displayName;
+  }
   const draftKey = JSON.stringify([scope, host?.hostId, session || `new:${selectedProject}`]);
   const preferenceKey = host ? JSON.stringify([scope, host.hostId]) : '';
   const preference = useMemo(
@@ -1261,10 +1273,7 @@ export function App() {
       } else {
         const result = await connection.request<{ turn?: Turn }>('turn.start', {
           sessionId: id,
-          ...turnOptions(
-            chat ? { ...source, mode: 'default', skills: [] } : source,
-            chat ? 'workspace' : permission,
-          ),
+          ...turnOptions(chat ? { ...source, mode: 'default', skills: [] } : source, permission),
         });
         if (epoch === connectionEpoch.current && sessionRef.current === id) {
           activityVersion.current++;
@@ -1558,7 +1567,22 @@ export function App() {
           ?.focus({ preventScroll: true }),
       );
   }
-  const [settingsTab, setSettingsTab] = useState('general');
+  const [settingsTab, setSettingsTab] = usePreference(
+    'agentdeck.web.settingsTab',
+    'general',
+    (value): value is string =>
+      typeof value === 'string' &&
+      [
+        'general',
+        'configuration',
+        'conversations',
+        'shortcuts',
+        'computers',
+        'data',
+        'diagnostics',
+        'account',
+      ].includes(value),
+  );
   const titles: Record<string, string> = {
     computers: '电脑',
     settings: '设置',
@@ -1622,7 +1646,7 @@ export function App() {
             );
           if (matchMedia('(max-width:760px)').matches) setSidebarOpen(false);
         }}
-        host={host ? { ...host, displayName: hostLabel || host.displayName } : undefined}
+        host={host ? { ...host, displayName: hostName(host) } : undefined}
         sessionId={session}
         projectId={selectedProject}
         open={sidebarOpen}
@@ -1669,7 +1693,7 @@ export function App() {
                   <div className="popover workspace-menu">
                     <button onClick={() => openPanel('computers')}>
                       <Computer size={18} />
-                      {host?.displayName || '连接电脑'}
+                      {host ? hostName(host) : '连接电脑'}
                     </button>
                     <p className="menu-caption">{connected ? 'Connected' : 'Disconnected'}</p>
                     <hr />
@@ -1785,7 +1809,7 @@ export function App() {
             request={request}
             supported={supports('hostUpdateCheck')}
             disabled={busy || receiptBlocked || !!activeTurn}
-            name={hostLabel || host.displayName}
+            name={hostName(host)}
             projects={
               supports('projectlessChat')
                 ? [{ projectId: chatProject, name: '普通聊天（更新会话）' }, ...projects]
@@ -2257,7 +2281,12 @@ export function App() {
                           }}
                         >
                           <span className={`dot ${item.online ? 'online' : ''}`} />
-                          <span>{item.displayName}</span>
+                          <span className="computer-name">
+                            <span>{hostName(item)}</span>
+                            {hostName(item) !== item.displayName && (
+                              <small className="computer-original-name">{item.displayName}</small>
+                            )}
+                          </span>
                           <small>
                             {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
                           </small>
@@ -2272,7 +2301,7 @@ export function App() {
                               }
                               device={{
                                 deviceId: item.cloudDeviceId,
-                                displayName: item.displayName,
+                                displayName: hostName(item),
                                 kind: 'desktop',
                               }}
                             />
@@ -2355,12 +2384,25 @@ export function App() {
                             disabled={!('Notification' in window)}
                             onChange={async (e) => {
                               if (e.target.checked) {
-                                const result = await Notification.requestPermission();
-                                setNotification(result === 'granted');
+                                try {
+                                  const result = await Notification.requestPermission();
+                                  setNotification(result === 'granted');
+                                  if (result !== 'granted')
+                                    setError('浏览器尚未允许通知，请在系统或网站设置中开启。');
+                                } catch (error) {
+                                  setError(String(error));
+                                }
                               } else setNotification(false);
                             }}
                           />
                         </label>
+                        {notification &&
+                          (!('Notification' in window) ||
+                            Notification.permission !== 'granted') && (
+                            <p className="muted" role="status">
+                              通知偏好已保存，当前浏览器尚未允许通知；请在系统或网站设置中开启。
+                            </p>
+                          )}
                       </section>
                       <section className="settings-section panel-stack">
                         <h3>安装应用</h3>
@@ -2494,6 +2536,7 @@ export function App() {
               )}
               {panel === 'files' && selectedProject && connected && (
                 <FilesPanel
+                  imagePreview={supports('projectImagePreview')}
                   request={request}
                   projectId={selectedProject}
                   initialPath={filePath}

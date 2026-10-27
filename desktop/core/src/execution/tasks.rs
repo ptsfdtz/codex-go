@@ -273,12 +273,11 @@ impl Core {
         let session = self.store.session(session_id)?;
         if s(&session, "projectId") == paths::CHAT_PROJECT {
             ensure(
-                permission_mode == "workspace"
-                    && mode == "default"
+                mode == "default"
                     && goal_resume_revision.is_none()
                     && skills.is_none_or(|v| v.as_array().is_some_and(|a| a.is_empty())),
                 "INVALID_REQUEST",
-                "General chat does not support project skills, task modes or full access",
+                "General chat does not support project skills or task modes",
             )?;
         }
         ensure(

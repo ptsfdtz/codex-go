@@ -1,11 +1,12 @@
-//! Bounded, project-granted directory metadata and explicit text previews.
+//! Bounded, project-granted directory metadata and explicit text and image previews.
 use crate::{ensure, paths, service::Core, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Component, Path};
 
-fn read_text(root: &Path, file_path: &str) -> Result<Value> {
+fn read_bytes(root: &Path, file_path: &str, limit: u64) -> Result<Vec<u8>> {
     let target = paths::canonical(&root.join(relative(file_path)?))?;
     ensure(
         paths::within(root, &target),
@@ -20,17 +21,16 @@ fn read_text(root: &Path, file_path: &str) -> Result<Value> {
         "WORKSPACE_FORBIDDEN",
         "File handle outside project or not a regular file",
     )?;
-    const LIMIT: u64 = 256 * 1024;
     ensure(
-        before.len() <= LIMIT,
+        before.len() <= limit,
         "UPSTREAM_CONTENT_TOO_LARGE",
-        "Text preview supports files up to 256 KiB",
+        "File exceeds preview size limit",
     )?;
     let mut bytes = Vec::new();
-    (&file).take(LIMIT + 1).read_to_end(&mut bytes)?;
+    (&file).take(limit + 1).read_to_end(&mut bytes)?;
     let after = file.metadata()?;
     ensure(
-        bytes.len() as u64 <= LIMIT,
+        bytes.len() as u64 <= limit,
         "UPSTREAM_CONTENT_TOO_LARGE",
         "File grew beyond preview limit",
     )?;
@@ -42,6 +42,11 @@ fn read_text(root: &Path, file_path: &str) -> Result<Value> {
         "CONTENT_CHANGED",
         "File changed during preview; refresh",
     )?;
+    Ok(bytes)
+}
+
+fn read_text(root: &Path, file_path: &str) -> Result<Value> {
+    let bytes = read_bytes(root, file_path, 256 * 1024)?;
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| crate::Error::new("UNSUPPORTED", "Only UTF-8 text previews are supported"))?;
     ensure(
@@ -110,6 +115,38 @@ impl Core {
         )?;
         result["projectId"] = json!(project_id);
         Ok(result)
+    }
+    pub fn project_file_image(
+        &self,
+        project_id: &str,
+        file_path: &str,
+        offset: usize,
+        expected: Option<&str>,
+    ) -> Result<Value> {
+        let root = paths::root(&self.store, project_id)?;
+        let bytes = read_bytes(&root, file_path, 8 * 1024 * 1024)?;
+        let mime = preview_image_mime(file_path, &bytes)
+            .ok_or_else(|| crate::Error::new("UNSUPPORTED", "Unsupported image format"))?;
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        ensure(
+            expected.is_none_or(|v| v == hash),
+            "CONTENT_CHANGED",
+            "Image changed during preview; refresh",
+        )?;
+        ensure(
+            offset < bytes.len(),
+            "INVALID_REQUEST",
+            "Invalid image offset",
+        )?;
+        ensure(
+            paths::equal(&root, &paths::root(&self.store, project_id)?),
+            "SYNC_CONFLICT",
+            "Project grant changed during image preview",
+        )?;
+        let end = (offset + 64 * 1024).min(bytes.len());
+        Ok(
+            json!({"projectId":project_id,"path":file_path,"sha256":hash,"mime":mime,"totalBytes":bytes.len(),"offset":offset,"data":STANDARD.encode(&bytes[offset..end]),"nextOffset":if end < bytes.len(){Some(end)}else{None}}),
+        )
     }
     pub fn project_files(&self, project_id: &str, directory: &str) -> Result<Value> {
         let root = paths::root(&self.store, project_id)?;
@@ -196,4 +233,38 @@ fn markdown_file_link(label: &str, path: &str) -> String {
         .replace(']', "\\]");
     let path = path.replace('\\', "\\\\").replace(')', "\\)");
     format!("[{label}]({path})")
+}
+
+fn preview_image_mime(path: &str, bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if bytes.starts_with(b"\xff\xd8\xff") {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        return Some("image/webp");
+    }
+    if bytes.starts_with(b"BM") {
+        return Some("image/bmp");
+    }
+    if bytes.starts_with(b"\0\0\x01\0") {
+        return Some("image/x-icon");
+    }
+    if bytes.get(4..8) == Some(b"ftyp") && matches!(bytes.get(8..12), Some(b"avif" | b"avis")) {
+        return Some("image/avif");
+    }
+    if Path::new(path)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+    {
+        let text = std::str::from_utf8(bytes).ok()?;
+        if !text.contains('\0') && text.contains("<svg") {
+            return Some("image/svg+xml");
+        }
+    }
+    None
 }
