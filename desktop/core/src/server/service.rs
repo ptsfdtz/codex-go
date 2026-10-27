@@ -392,10 +392,10 @@ impl Core {
                     else { codex::initialize(&rpc).await?; }
                     *self.runtime_protocol.write().unwrap() = rpc.protocol();
                     *self.runtime_version.write().unwrap() = rpc.runtime_version();
-                    // Preserve the actual Windows boundary proof across every
+                    // Preserve the actual native boundary proof across every
                     // reconnect. Never relabel a probe of one installed binary
                     // as verification of a different attached server version.
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     if self.verified.load(Ordering::SeqCst) {
                         if let Some(probed) = self.store.meta("sandboxProbeVersion")? {
                             ensure(
@@ -860,12 +860,12 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
     let executable = runtime.to_string_lossy().replace('\\', "/");
     let profile=format!("permissions={{agentdeck={{extends=\":workspace\",filesystem={{\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\",{}=\"read\"}},network={{enabled=false}}}}}}",json!(executable));
     let mut command = tokio::process::Command::new(exe);
+    #[cfg(windows)]
+    command.args(["-c", "windows.sandbox=\"mxc\""]);
     command
         .args([
             "-c",
-            "windows.sandbox=\"mxc\"",
-            "-c",
-            &profile,
+            profile.as_str(),
             "sandbox",
             "--include-managed-config",
             "--permission-profile",

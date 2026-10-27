@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use agentdeck_service::codex;
+#[cfg(target_os = "macos")]
+use agentdeck_service::service::boundary;
 use agentdeck_service::{
     ensure, security,
     service::{sandbox_probe, Core},
@@ -246,11 +248,11 @@ async fn run() -> Result<()> {
 
 async fn run_runtime(core: &Arc<Core>) -> Result<()> {
     let target = agentdeck_service::runtime::RuntimeTarget::from_environment()?;
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     ensure(target.attached(), "CONFIG_ERROR", "Linux requires a configured authenticated runtime; use agentdeck configure --runtime-ws URL --runtime-token-file PATH --protocol VERSION")?;
-    // Windows must probe the selected native executable even when attaching.
-    // A PATH lookup for `codex` can select an older npm shim and certify a
-    // different binary from the one that actually executes shared threads.
+    // Windows and macOS must probe the selected native executable even when
+    // attaching. A PATH lookup for `codex` can select an older npm shim and
+    // certify a different binary from the one that actually executes threads.
     let requested = if target.attached() && !cfg!(windows) {
         Ok(PathBuf::from("codex"))
     } else {
@@ -266,20 +268,24 @@ async fn run_runtime(core: &Arc<Core>) -> Result<()> {
     ensure(!target.attached() || requested.as_ref().is_ok_and(|p| agentdeck_service::paths::equal(&exe, p)), "SHARED_RUNTIME_RESTART_REQUIRED", "已准备官方兼容运行时；现有共享运行时仍使用有缺陷的 Codex，请在任务空闲后重启其所有者，不能在任务中途替换")?;
     #[cfg(not(windows))]
     let exe = requested?;
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    codex::verify_for(&exe, target.protocol())?;
+    #[cfg(target_os = "macos")]
+    let report = boundary(&exe).await?;
+    #[cfg(not(any(windows, target_os = "macos")))]
     let report = json!({"passed":std::env::var("AGENTDECK_LINUX_SANDBOX_VERIFIED").as_deref()==Ok("1"),"platform":"linux","mode":"attached-runtime","verification":"explicit-operator-declaration"});
     let verified = report["passed"] == true;
     std::fs::write(
         agentdeck_service::host::data_dir()?.join("sandbox-verification.json"),
         report.to_string(),
     )?;
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     ensure(
         verified,
         "SANDBOX_UNVERIFIED",
-        "Native Windows isolation probe failed; inspect sandbox-verification.json",
+        "Native isolation probe failed; inspect sandbox-verification.json",
     )?;
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     core.store
         .set_meta("sandboxProbeVersion", &codex::executable_version(&exe)?)?;
     core.verified.store(verified, Ordering::SeqCst);

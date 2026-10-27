@@ -179,7 +179,31 @@ pub fn opened_path(file: &File) -> Result<PathBuf> {
         )?;
         Ok(path)
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::ffi::OsStringExt;
+        let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+        let result = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) };
+        ensure(
+            result != -1,
+            "WORKSPACE_FORBIDDEN",
+            "Cannot verify opened file path",
+        )?;
+        let length = buffer
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or_else(|| crate::Error::new("WORKSPACE_FORBIDDEN", "Invalid opened file path"))?;
+        let path = PathBuf::from(std::ffi::OsString::from_vec(buffer[..length].to_vec()));
+        valid(&path)?;
+        ensure(
+            identity(file)? == identity(&File::open(&path)?)?,
+            "WORKSPACE_FORBIDDEN",
+            "Opened file changed",
+        )?;
+        Ok(path)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         let _ = file;
         Err(crate::Error::new(
@@ -337,4 +361,23 @@ pub fn remove_local(store: &Store, id: &str) -> Result<()> {
     store.exec("UPDATE projects SET enabled=0 WHERE projectId=?", [id])?;
     store.append("projects.updated", json!({}), None, None)?;
     Ok(())
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_opened_path_tests {
+    use super::*;
+
+    #[test]
+    fn opened_path_verifies_macos_file_handles() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = canonical(directory.path()).unwrap();
+        let path = root.join("file.txt");
+        std::fs::write(&path, b"content").unwrap();
+        let file = File::open(&path).unwrap();
+        let opened = opened_path(&file).unwrap();
+        assert!(within(&root, &opened));
+        assert!(equal(&path, &opened));
+        std::fs::remove_file(&path).unwrap();
+        assert!(opened_path(&file).is_err());
+    }
 }
