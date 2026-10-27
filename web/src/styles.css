@@ -917,11 +917,16 @@ small,
   font-size: 12px;
 }
 .follow-latest {
-  display: block;
+  position: sticky;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
   margin: 0 auto 14px;
-  border-radius: 22px;
-  font-size: 11px;
-  padding: 5px 12px;
+  border-radius: 50%;
+  padding: 0;
   color: var(--muted);
   background: var(--bg);
 }

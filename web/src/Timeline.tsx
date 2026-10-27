@@ -1,4 +1,5 @@
 import { Component, createRef, type ReactNode } from 'react';
+import { ArrowDown } from 'lucide-react';
 import { motionDuration, MotionPresence } from './motion';
 
 type Position = { bottom: boolean; key?: string; top: number; scrollTop: number };
@@ -67,7 +68,7 @@ export class Timeline extends Component<
       (item) => item.getBoundingClientRect().bottom > top,
     );
     return {
-      bottom: this.following && node.scrollHeight - node.clientHeight - node.scrollTop < 48,
+      bottom: this.following,
       key: anchor?.dataset.historyKey,
       top: anchor?.getBoundingClientRect().top || 0,
       scrollTop: node.scrollTop,
@@ -132,7 +133,9 @@ export class Timeline extends Component<
           const node = this.element.current;
           if (node && node.scrollTop !== this.position?.scrollTop) {
             if (this.userIntent) {
-              const bottom = node.scrollHeight - node.clientHeight - node.scrollTop < 48;
+              const movingDown = node.scrollTop > (this.position?.scrollTop ?? node.scrollTop);
+              const bottom =
+                movingDown && node.scrollHeight - node.clientHeight - node.scrollTop < 48;
               this.following = bottom;
               if (this.state.away === bottom || (bottom && this.state.unread))
                 this.setState({ away: !bottom, unread: bottom ? false : this.state.unread });
@@ -168,6 +171,7 @@ export class Timeline extends Component<
             this.userIntent = true;
             this.olderRequested = false;
             this.pause();
+            this.setState({ away: true });
             this.older();
           }
         }}
@@ -181,13 +185,16 @@ export class Timeline extends Component<
           this.userIntent = true;
           this.touchY = event.touches[0]?.clientY;
           this.olderRequested = false;
-          this.pause();
         }}
         onTouchMove={(event) => {
           if ((event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]'))
             return;
           const y = event.touches[0]?.clientY;
-          if (y !== undefined && this.touchY !== undefined && y > this.touchY) this.older();
+          if (y !== undefined && this.touchY !== undefined && y > this.touchY) {
+            this.pause();
+            this.setState({ away: true });
+            this.older();
+          }
           this.touchY = y;
         }}
       >
@@ -196,6 +203,8 @@ export class Timeline extends Component<
           {this.state.away && (
             <button
               className="ghost follow-latest"
+              aria-label={this.state.unread ? '有新进展，查看最新' : '回到最新'}
+              title={this.state.unread ? '有新进展，查看最新' : '回到最新'}
               onClick={() => {
                 this.following = true;
                 this.userIntent = false;
@@ -205,7 +214,7 @@ export class Timeline extends Component<
                 this.position = this.readPosition();
               }}
             >
-              {this.state.unread ? '有新进展，查看最新' : '回到最新'}
+              <ArrowDown size={18} aria-hidden="true" />
             </button>
           )}
         </MotionPresence>
