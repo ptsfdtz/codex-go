@@ -76,7 +76,7 @@ fn save(job: &Job) -> Result<()> {
 }
 fn current_version() -> Result<String> {
     Ok(std::fs::read_to_string(
-        std::env::current_exe()?
+        dunce::canonicalize(std::env::current_exe()?)?
             .parent()
             .unwrap()
             .join("release.txt"),
@@ -542,10 +542,11 @@ fn running_target(state: &Value, version: &str) -> Result<bool> {
         PathBuf::from(String::from_utf16_lossy(&buffer[..size as usize]))
     };
     #[cfg(not(any(windows, target_os = "linux")))]
-    let image = {
+    {
         let _ = pid;
-        return Ok(false);
-    };
+        Ok(false)
+    }
+    #[cfg(any(windows, target_os = "linux"))]
     Ok(crate::paths::equal(
         &image,
         &installation()?.join(version).join(if cfg!(windows) {
