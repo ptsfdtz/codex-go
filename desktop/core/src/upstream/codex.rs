@@ -129,7 +129,38 @@ pub fn filtered_path(path: &str) -> String {
         .join(";")
 }
 pub fn args() -> Vec<String> {
-    ["app-server","--listen","stdio://","-c","windows.sandbox=\"mxc\"","-c","approval_policy=\"on-request\"","-c","approvals_reviewer=\"user\"","-c","default_permissions=\"agentdeck\"","-c","permissions={agentdeck={extends=\":workspace\",filesystem={\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\"},network={enabled=false}}}","-c","web_search=\"disabled\"","-c","mcp_servers={}","-c","hooks={}","-c","shell_environment_policy.inherit=\"core\""].iter().map(|s|s.to_string()).collect()
+    let mut args: Vec<String> = ["app-server", "--listen", "stdio://"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    #[cfg(windows)]
+    args.extend(["-c", "windows.sandbox=\"mxc\""].map(str::to_string));
+    // macOS keeps a legacy sandbox_mode even when a permissions profile is
+    // active. Override a broader user setting before the managed server starts.
+    #[cfg(target_os = "macos")]
+    args.extend(["-c", "sandbox_mode=\"workspace-write\""].map(str::to_string));
+    args.extend(
+        [
+            "-c",
+            "approval_policy=\"on-request\"",
+            "-c",
+            "approvals_reviewer=\"user\"",
+            "-c",
+            "default_permissions=\"agentdeck\"",
+            "-c",
+            "permissions={agentdeck={extends=\":workspace\",filesystem={\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\"},network={enabled=false}}}",
+            "-c",
+            "web_search=\"disabled\"",
+            "-c",
+            "mcp_servers={}",
+            "-c",
+            "hooks={}",
+            "-c",
+            "shell_environment_policy.inherit=\"core\"",
+        ]
+        .map(str::to_string),
+    );
+    args
 }
 pub async fn initialize(rpc: &Arc<Rpc>) -> Result<()> {
     initialize_checked(rpc).await
@@ -164,9 +195,14 @@ pub fn check_policy(v: &Value) -> Result<()> {
     let c = &v["config"];
     let profile = &c["permissions"]["agentdeck"];
     let fs = &profile["filesystem"];
+    let sandbox_mode = if cfg!(target_os = "macos") {
+        c["sandbox_mode"] == "workspace-write"
+    } else {
+        c["sandbox_mode"].is_null()
+    };
     ensure(
         c["default_permissions"] == "agentdeck"
-            && c["sandbox_mode"].is_null()
+            && sandbox_mode
             && profile["extends"] == ":workspace",
         "UNSAFE_UPSTREAM_CONFIG",
         "Workspace permission profile overridden",

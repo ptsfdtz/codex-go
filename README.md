@@ -31,7 +31,7 @@
 
 真实验收覆盖隔离原版桌面的手动发送、新建及一次性审批，交互 CLI/Web 同 UUID 历史读回；日常 Host 的实际模型回复、沙箱读取、CLI 续聊及重启保持原生进程通过。日常原生目录与 Edge/实际 Sidebar 的项目、归档/历史/恢复及自建验收对话删除核对通过；自建发送验收对话已归档，未修改用户会话。
 
-待验收：日常桌面最终共享切换、桌面专有应用工具、手机真机/PWA 键盘及安全区、实际注销再登录自启、Linux 真实模型隔离、ARM64 实机、长期休眠切网、大历史压力与生产账户删除事务。编译、下载和健康检查不能代替这些验收。
+待验收：日常桌面最终共享切换、桌面专有应用工具、手机真机/PWA 键盘及安全区、实际注销再登录自启、Linux 真实模型隔离、macOS 真实模型任务及官方安装/发布、ARM64 实机、长期休眠切网、大历史压力与生产账户删除事务。编译、下载和健康检查不能代替这些验收。
 
 上轮云端发布先备份数据库与私有配置，数据库备份为 `/var/backups/agentdeck/agentdeck-20261027T060028Z.dump`；发布回退信息与下载指针/脚本备份在 `/var/backups/agentdeck/release-20261027-1/`，旧 Web/云端目录保留。当前目录为 `/opt/agentdeck/releases/release-20261027-1`，回退按 `previous-current.txt` 恢复链接、重启云端并单独恢复下载指针；不回滚数据库。
 
@@ -59,7 +59,7 @@ agentdeck start
 agentdeck autostart enable
 ```
 
-Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。macOS 暂不支持；三个平台包均已发布；ARM64 尚未做实机运行验收。
+Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。官方安装器和发布包仍只覆盖 Windows/Linux；macOS 可源码构建本地 Host，已通过启动、launchd 登录自启、seatbelt 边界检查、Codex 初始化和项目发现，实际模型任务及官方安装/发布尚未验收。三个平台包均已发布；ARM64 尚未做实机运行验收。
 
 密码在终端隐藏输入，不支持明文 `--password` 参数。临时密码会在登录过程中引导修改并重新登录。登录、项目管理等命令会按需启动本机管理服务；Codex 缺失或配置错误时仍能登录、查看状态和诊断。
 
@@ -77,7 +77,7 @@ agentdeck restart
 
 `agentdeck start` 在后台启动监督进程和 Rust 服务，关闭终端后继续运行；重复启动复用现有实例。服务异常退出时退避重启，连续失败达到限制后停止并留下诊断。网络暂时不可用时服务继续运行并重连。恢复未知发送结果时先核对，不自动重发。
 
-Windows 自启使用当前用户的 `HKCU/Software/Microsoft/Windows/CurrentVersion/Run`，启动无窗口 Host；沿用旧版 `AgentDeck` 启动项名称，启用时替换其程序路径。Linux 使用 systemd 用户服务。二者默认都是用户登录后启动，不以管理员或 SYSTEM 运行；Linux 未登录开机运行需要管理员另行配置用户 lingering，不由安装器自动开启。
+Windows 自启使用当前用户的 `HKCU/Software/Microsoft/Windows/CurrentVersion/Run`，启动无窗口 Host；沿用旧版 `AgentDeck` 启动项名称，启用时替换其程序路径。Linux 使用 systemd 用户服务，macOS 使用 `~/Library/LaunchAgents/top.ptsfdtz.agentdeck.plist`。三者默认都是用户登录后启动，不以管理员、SYSTEM 或 root 运行；Linux 未登录开机运行需要管理员另行配置用户 lingering，macOS 未登录开机运行需要另配 LaunchDaemon，均不由安装器自动开启。
 
 状态目录：Windows `%LOCALAPPDATA%/AgentDeck`；Linux `${XDG_STATE_HOME:-~/.local/state}/agentdeck`；可显式设置 `AGENTDECK_DATA_DIR`。CLI 与服务使用同一规则，并解析已有数据库的真实路径以兼容 Windows MSIX 重定向。目录锁阻止同一份状态被多个服务占用。
 
@@ -156,7 +156,7 @@ Web 构建自动生成 `version.json`，与资源一同部署并保持该清单�
 | `packages/`                                      | 共用连接协议、锁定 Codex 生成 schema            |
 | `scripts/host/`                                  | 安装、开发启动、打包与下载发布                  |
 
-开发 Host 需要 Rust MSVC ≥1.88、Visual Studio C++ 和 Windows SDK，或 Linux Rust/原生编译工具；Web/发布脚本需要 Node 22.22.3、pnpm 12.3.4。不再检查 WebView2。
+开发 Host 需要 Rust MSVC ≥1.88、Visual Studio C++ 和 Windows SDK，或 Linux/macOS Rust 与原生编译工具；Web/发布脚本需要 Node 22.22.3、pnpm 12.3.4。不再检查 WebView2。
 
 ```powershell
 pnpm install --frozen-lockfile
