@@ -23,7 +23,7 @@
 
 `0.4.0` 首轮候选（`8e7552a`）三平台及云端构建、候选下载暂存通过，尚未正式发布。Windows 真实网页更新完成下载、任务阻塞/取消、空闲切换及同身份重连，但真实工具执行发现共享运行时未过滤应用附带的 PowerShell 路径；已补齐与 managed 启动一致的 PATH 处理，该候选不予晋升，修复后须重新构建和验收。Linux x64、原生 ARM64 隔离环境的项目内读写/外部拒绝及真实模型基线通过，不能代替新候选实测。临时 ARM64 测试机由 `Native ARM64 release test machine` workflow 提供，通过专用密钥及 VPS 回环端口访问；它不自动生成通过记录，运行结束后须清理临时凭据和测试账户。
 
-更新与发布自动化（未发布）：网页原生更新、持久状态/空闲切换、本地候选通道、候选构建与正式晋升门槛已实现。Windows Host 严格 Clippy、4 项更新定向测试，Web 类型/ESLint/生产构建、workflow actionlint、shell 语法及 schema 核验通过；发布门槛 10 项定向测试在 Windows 与隔离 Linux 临时目录通过，未改线上服务。尚未执行 Linux Host 本次编译、真实更新切换、浏览器交互、三平台真实端到端验收和 Actions/VPS 全流程；部署凭据与环境保护仍须配置。本轮检查不能代替正式发布前的强制实测。
+更新与发布自动化（未发布）：网页原生更新、持久状态/空闲切换、本地候选通道、候选构建与正式晋升门槛已实现。Windows Host 严格 Clippy、4 项更新定向测试，Web 类型/ESLint/生产构建、workflow actionlint、shell 语法及 schema 核验通过；发布门槛 10 项定向测试在 Windows 与隔离 Linux 临时目录通过，未改线上服务。尚未执行 Linux Host 本次编译、真实更新切换、浏览器交互、各平台真实端到端验收和 Actions/VPS 全流程；部署凭据与环境保护仍须配置。本轮检查不能代替正式发布前的强制实测。
 
 Linux `10.249.254.57` 的 Host/认证运行时已切至 root，保留账户、电脑与 Web 设备身份，使用 `/root/.codex` 和 `/root/.local/state/agentdeck`；旧账号服务停用，root 服务启用常驻。原生接口登记现有 `/root/workspace` 及既有对话；主程序和同版本 `codex-code-mode-host`、`codex-linux-sandbox` 配套放在 `/usr/bin`，修正 `/usr/local/bin` 入口。Host 普通轮次改用已有协议的命名 `agentdeck` 权限，逐轮重设 cwd/工作区根，修复 legacy `workspaceWrite` 覆盖丢失系统读取范围、导致 bwrap 无法启动工具的问题；完整访问后再切回也恢复隔离。
 
@@ -39,11 +39,13 @@ Web 提问与审批移到输入框上方独立区域，待回答问题不再嵌�
 
 本次类型/ESLint、格式、生产构建、依赖审计、Host/云端严格 Clippy、图片读取/分块/完整性/取消定向检查与 schema 核验通过。锁文件缺少 lucide-react 解析记录的问题已修复，并在全新目录完成冻结安装、检查和构建。历史测试/夹具及依赖按此前要求删除，不再沿用旧测试数量作为当前证据。
 
+macOS 本地 Host 启动、launchd 登录自启、seatbelt 与指令边界检查、Codex 初始化和项目发现通过；macOS arm64 源码包构建及 `install.sh` 本地 HTTPS 安装、`shasum` SHA-256 校验通过。CI 已加入 macOS arm64 构建和发布清单；macOS Intel 暂不发布，macOS 包未签名/公证，线上安装、升级及真实模型任务仍待验收。
+
 上轮 Web/云端线上验收：三个平台 CI、GitHub 发布、云端构建与 Pages 发布全部通过；正式 Web 12 个文件、管理端三个静态文件及 Pages 13 个文件与对应产物哈希一致。存活/数据库就绪均为 200，未认证管理请求和无来源删除请求分别为 401/403；云端运行二进制哈希与 CI 一致。稳定指针、三个平台清单/包内版本、所有公开下载文件完整 SHA-256 核对通过；Linux x64 在独立目录完成线上安装与 CLI 运行，未启动模型任务或重启日常 Host/桌面。
 
 真实验收覆盖隔离原版桌面的手动发送、新建及一次性审批，交互 CLI/Web 同 UUID 历史读回；日常 Host 的实际模型回复、沙箱读取、CLI 续聊及重启保持原生进程通过。日常原生目录与 Edge/实际 Sidebar 的项目、归档/历史/恢复及自建验收对话删除核对通过；自建发送验收对话已归档，未修改用户会话。
 
-待验收：日常桌面最终共享切换、桌面专有应用工具、手机真机/PWA 键盘及安全区、实际注销再登录自启、Linux 真实模型隔离、macOS 真实模型任务及官方安装/发布、ARM64 实机、长期休眠切网、大历史压力与生产账户删除事务。编译、下载和健康检查不能代替这些验收。
+待验收：日常桌面最终共享切换、桌面专有应用工具、手机真机/PWA 键盘及安全区、实际注销再登录自启、Linux 真实模型隔离、macOS 真实模型任务及线上安装/升级、ARM64 实机、长期休眠切网、大历史压力与生产账户删除事务。编译、下载和健康检查不能代替这些验收。
 
 上轮云端发布先备份数据库与私有配置，数据库备份为 `/var/backups/agentdeck/agentdeck-20261027T060028Z.dump`；发布回退信息与下载指针/脚本备份在 `/var/backups/agentdeck/release-20261027-1/`，旧 Web/云端目录保留。当前目录为 `/opt/agentdeck/releases/release-20261027-1`，回退按 `previous-current.txt` 恢复链接、重启云端并单独恢复下载指针；不回滚数据库。
 
@@ -71,7 +73,17 @@ agentdeck start
 agentdeck autostart enable
 ```
 
-Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。官方安装器和发布包仍只覆盖 Windows/Linux；macOS 可源码构建本地 Host，已通过启动、launchd 登录自启、seatbelt 边界检查、Codex 初始化和项目发现，实际模型任务及官方安装/发布尚未验收。三个平台包均已发布；ARM64 尚未做实机运行验收。
+```sh
+# macOS arm64（Apple Silicon）：需要包含 macOS 产物的发布
+curl -fsSL https://agent.ptsfdtz.top/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+agentdeck login --username NAME
+agentdeck projects add /绝对路径/项目
+agentdeck start
+agentdeck autostart enable
+```
+
+Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，macOS 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。安装器和发布包覆盖 Windows x64、Linux x64/ARM64 和 macOS arm64；macOS 使用已安装的兼容 Codex CLI，用户登录后通过 launchd 自启，包未签名/公证，线上安装、升级和实际模型任务尚未验收。macOS Intel 暂不发布。Windows/Linux 三个平台包已发布；ARM64 尚未做实机运行验收。
 
 密码在终端隐藏输入，不支持明文 `--password` 参数。临时密码会在登录过程中引导修改并重新登录。登录、项目管理等命令会按需启动本机管理服务；Codex 缺失或配置错误时仍能登录、查看状态和诊断。
 
@@ -93,7 +105,7 @@ Windows 自启使用当前用户的 `HKCU/Software/Microsoft/Windows/CurrentVers
 
 状态目录：Windows `%LOCALAPPDATA%/AgentDeck`；Linux `${XDG_STATE_HOME:-~/.local/state}/agentdeck`；可显式设置 `AGENTDECK_DATA_DIR`。CLI 与服务使用同一规则，并解析已有数据库的真实路径以兼容 Windows MSIX 重定向。目录锁阻止同一份状态被多个服务占用。
 
-保留电脑身份和证书、登录刷新凭据、项目授权、设备撤销、会话索引、审批和恢复信息；`host.json` 保存运行时地址、令牌文件路径等配置，不保存账户密码。Windows 凭据继续使用 CurrentUser DPAPI；Linux 使用私有目录和文件权限，不能把它视作 DPAPI 加密。`host.log` / `host.log.1` 只记录有界脱敏诊断，不落盘完整状态或聊天事件。
+保留电脑身份和证书、登录刷新凭据、项目授权、设备撤销、会话索引、审批和恢复信息；`host.json` 保存运行时地址、令牌文件路径等配置，不保存账户密码。Windows 凭据继续使用 CurrentUser DPAPI；Linux/macOS 使用私有目录和文件权限，不能把它视作 DPAPI 加密。`host.log` / `host.log.1` 只记录有界脱敏诊断，不落盘完整状态或聊天事件。
 
 | 操作                | 命令                                                                  |
 | ------------------- | --------------------------------------------------------------------- |
@@ -153,23 +165,23 @@ agentdeck status
 
 ### 正式发布流程与强制验收
 
-**每次正式发布前，必须在 Windows 和 Linux 上使用本次候选产物完成真实端到端测试，全部通过后才能发布。** 适用于 Host、Web/PWA、云端的正式更新及热修复；仅修改其中一个组件也须验证两端完整链路。构建、Clippy、接口健康、下载校验、CLI 启动、模拟数据及历史版本测试均不能代替本次验收。任一端失败、未测或环境不可用时，只能保留候选版，不得发布正式版、更新生产 Web/云端或推进稳定下载指针。
+**每次正式发布前，必须在 Windows、Linux 和 macOS 上使用本次候选产物完成真实端到端测试，全部通过后才能发布。** 适用于 Host、Web/PWA、云端的正式更新及热修复；仅修改其中一个组件也须验证各平台完整链路。构建、Clippy、接口健康、下载校验、CLI 启动、模拟数据及历史版本测试均不能代替本次验收。任一平台失败、未测或环境不可用时，只能保留候选版，不得发布正式版、更新生产 Web/云端或推进稳定下载指针。
 
-1. **准备候选版**：固定源码提交、版本及更新说明，完成必要静态检查和构建；绑定 Windows/Linux 包、Web、云端的版本与 SHA-256，未变组件记录其实际版本。候选产物独立存放，不更新生产入口或稳定指针。
-2. **两端真实验收**：分别在真实 Windows、Linux 环境安装候选 Host，通过候选 Web/PWA、真实云端连接及真实 Codex/模型完成下表。发布包覆盖的架构分别记录结果，Linux x64 通过不等于 ARM64 通过；缺少某架构实测时不得将其列为本次已验收正式更新。
+1. **准备候选版**：固定源码提交、版本及更新说明，完成必要静态检查和构建；绑定 Windows/Linux/macOS 包、Web、云端的版本与 SHA-256，未变组件记录其实际版本。候选产物独立存放，不更新生产入口或稳定指针。
+2. **各平台真实验收**：分别在真实 Windows、Linux、macOS 环境安装候选 Host，通过候选 Web/PWA、真实云端连接及真实 Codex/模型完成下表。发布包覆盖的架构分别记录结果，Linux x64 通过不等于 ARM64 通过，macOS arm64 也须单独实测；缺少某架构实测时不得将其列为本次已验收正式更新。
 3. **记录结论**：在本 README 的“实际验证与下一步”简短记录候选版本/提交、产物哈希、系统与架构、Codex 版本、实际测试结果及未验证项，不记录凭据。既有“已发布”与历史验证描述不构成本次发布准入。
 4. **发布已验收产物**：取得当次发布授权后，备份并部署同一批产物，不重新构建替换；产物变化必须重新验收。核对线上版本、文件校验和健康状态后再开放稳定更新；失败停止后续步骤，按组件恢复旧程序、静态资源或下载指针，数据库迁移单独判断，不自动回滚数据库。
 
-| 两端必测链路     | 通过标准                                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
-| 安装与升级       | 实际安装候选包，并从当前稳定版升级；身份、账户、项目授权和历史保留，实际运行版本正确                 |
-| Web/PWA 远程连接 | 通过实际云端转发连接对应 Host，确认所选电脑与身份一致、Codex 就绪；候选环境不替换日常生产服务        |
-| 会话与真实任务   | 读取已有会话历史，新建会话并发送真实模型任务，接收流式结果及完成状态，重开后通过原生接口读回同一会话 |
-| 项目与权限       | 实际读取项目指令、在授权项目读写文件，验证一次性审批和拒绝、沙箱外未授权读写被阻止，不关闭沙箱兜底   |
-| 重启与恢复       | 空闲重启后自动重连、身份与历史保持；实际断线重连后核对任务结果，不丢审批、不重复发送未知结果任务     |
-| 本次改动         | 在两端真实链路中验证变更功能及相关旧客户端兼容；涉及更新时验证下载安装、空闲切换、就绪判定与失败恢复 |
+| 各平台必测链路   | 通过标准                                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| 安装与升级       | 实际安装候选包，并从当前稳定版升级；身份、账户、项目授权和历史保留，实际运行版本正确                   |
+| Web/PWA 远程连接 | 通过实际云端转发连接对应 Host，确认所选电脑与身份一致、Codex 就绪；候选环境不替换日常生产服务          |
+| 会话与真实任务   | 读取已有会话历史，新建会话并发送真实模型任务，接收流式结果及完成状态，重开后通过原生接口读回同一会话   |
+| 项目与权限       | 实际读取项目指令、在授权项目读写文件，验证一次性审批和拒绝、沙箱外未授权读写被阻止，不关闭沙箱兜底     |
+| 重启与恢复       | 空闲重启后自动重连、身份与历史保持；实际断线重连后核对任务结果，不丢审批、不重复发送未知结果任务       |
+| 本次改动         | 在各平台真实链路中验证变更功能及相关旧客户端兼容；涉及更新时验证下载安装、空闲切换、就绪判定与失败恢复 |
 
-发布自动化（已实现，未在线运行）：推送代码只运行检查，不再自动发布或部署 Pages。在 GitHub Actions 的 **Prepare candidate** 选择 `release` 分支，填写公开版本号 `X.Y.Z` 和更新说明；构建三个平台 Host、正式 Web、Pages 与云端，生成绑定提交及全部文件 SHA-256 的 `candidate.json`，保存为 `candidate-X.Y.Z` 预发布。随后只上传不可变候选下载文件，不切换生产 Web、云端或稳定指针，供实测机验证真正的下载安装。正式流程 **Promote tested release** 仅下载这批产物，强制验证 Windows x64、Linux x64/ARM64 的实测记录，备份并部署 VPS、核对健康和公开文件、部署 Pages，最后开放稳定更新并生成 `vX.Y.Z` 正式 Release。构建、证据验证、VPS、Pages 任一步失败都不进入后续步骤；VPS/Pages 跨服务并非原子事务，部署部分成功时需核对 Actions 及备份后重试，不能宣称全部发布完成。下载发布脚本本身也强制验收门槛，缺少证据不得手动推进稳定指针；正式晋升拒绝用较低版本覆盖现有稳定版。
+发布自动化（已实现，未在线运行）：推送代码只运行检查，不再自动发布或部署 Pages。在 GitHub Actions 的 **Prepare candidate** 选择 `release` 分支，填写公开版本号 `X.Y.Z` 和更新说明；构建 Windows/Linux/macOS Host、正式 Web、Pages 与云端，生成绑定提交及全部文件 SHA-256 的 `candidate.json`，保存为 `candidate-X.Y.Z` 预发布。随后只上传不可变候选下载文件，不切换生产 Web、云端或稳定指针，供实测机验证真正的下载安装。正式流程 **Promote tested release** 仅下载这批产物，强制验证 Windows x64、Linux x64/ARM64、macOS arm64 的实测记录，备份并部署 VPS、核对健康和公开文件、部署 Pages，最后开放稳定更新并生成 `vX.Y.Z` 正式 Release。构建、证据验证、VPS、Pages 任一步失败都不进入后续步骤；VPS/Pages 跨服务并非原子事务，部署部分成功时需核对 Actions 及备份后重试，不能宣称全部发布完成。下载发布脚本本身也强制验收门槛，缺少证据不得手动推进稳定指针；正式晋升拒绝用较低版本覆盖现有稳定版。
 
 候选版下载并解包后，用 Python ≥3.11 生成实测记录模板；模板所有检查默认为未通过，不生成模拟通过记录：
 
@@ -182,12 +194,12 @@ python scripts/release/gate.py template artifacts/candidate --evidence artifacts
 
 原生更新测试在隔离实测机本地执行 `agentdeck update-channel candidate X.Y.Z`，网页刷新更新检查后即可下载安装已暂存的候选版本；测试完用 `agentdeck update-channel stable` 恢复稳定通道。选择保存在该机状态目录，网页不能切换通道或下载源，已开始的更新始终固定到已确认版本。首次引入原生更新能力时，可使用两个实际构建的候选版本验证升级前后链路，同时核对稳定版安装升级；不得改写 `release.txt` 假装升级，也不得提前切换生产稳定指针。
 
-分别在对应 Windows/Linux 实测机安装候选包并从当前稳定版升级，使用候选 Web、真实云端、Codex 和模型完成上表；填写该平台 JSON 中的 `tester`、真实 `sessionId`、每项 `passed` 与 `observed`，在 `logs` 中列出已脱敏证据文件相对路径（值先留空）。在该机用候选版 CLI 执行 `record`，自动读取真实 Host 状态，核对实际系统/架构、运行版本、云端/Codex 就绪及沙箱验证，记录电脑身份、Codex 版本、时间并计算证据哈希；它不代替真实模型、审批、重连及变更功能测试，也不自动把检查改为通过。
+分别在对应 Windows/Linux/macOS 实测机安装候选包并从当前稳定版升级，使用候选 Web、真实云端、Codex 和模型完成上表；填写该平台 JSON 中的 `tester`、真实 `sessionId`、每项 `passed` 与 `observed`，在 `logs` 中列出已脱敏证据文件相对路径（值先留空）。在该机用候选版 CLI 执行 `record`，自动读取真实 Host 状态，核对实际系统/架构、运行版本、云端/Codex 就绪及沙箱验证，记录电脑身份、Codex 版本、时间并计算证据哈希；它不代替真实模型、审批、重连及变更功能测试，也不自动把检查改为通过。
 
 ```sh
-# 每台实测机只录入自身平台；另两台分别用 linux-x64、linux-arm64
+# 每台实测机只录入自身平台；其余平台分别用 linux-x64、linux-arm64、macos-arm64
 python scripts/release/gate.py record artifacts/candidate --evidence artifacts/evidence --platform windows-x64 --agentdeck "C:/Users/NAME/AppData/Local/Programs/AgentDeck/versions/X.Y.Z/agentdeck.exe"
-# 汇总三个平台 JSON 和各自的脱敏证据文件后执行
+# 汇总各平台 JSON 和各自的脱敏证据文件后执行
 python scripts/release/gate.py verify artifacts/candidate --evidence artifacts/evidence
 tar -czf e2e-evidence.tar.gz -C artifacts/evidence .
 gh release upload candidate-X.Y.Z e2e-evidence.tar.gz
@@ -207,9 +219,10 @@ releases/stable.txt
 releases/版本号/agentdeck-windows-x64.zip[.sha256]
 releases/版本号/agentdeck-linux-x64.tar.gz[.sha256]
 releases/版本号/agentdeck-linux-arm64.tar.gz[.sha256]
+releases/版本号/agentdeck-macos-arm64.tar.gz[.sha256]
 ```
 
-使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64 和 ARM64；单独运行打包命令仅生成 Host 包，不满足正式发布准入。完整候选版须包含 Web、云端、安装脚本、版本清单及实测证据；正式流程输出的 `agentdeck-downloads.tar.gz` 包含这些文件，供已通过门槛的部署使用。ARM64 基于 Ubuntu 24.04，x64 CI 基于 Ubuntu 22.04。旧独立 Linux workflow 和桌面安装器发布路径已移除。
+使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64/ARM64 和 macOS arm64；单独运行打包命令仅生成 Host 包，不满足正式发布准入。完整候选版须包含 Web、云端、安装脚本、版本清单及实测证据；正式流程输出的 `agentdeck-downloads.tar.gz` 包含这些文件，供已通过门槛的部署使用。Linux ARM64 基于 Ubuntu 24.04，x64 基于 Ubuntu 22.04，macOS arm64 使用 GitHub macOS 15 runner；macOS 包未签名/公证。旧独立 Linux workflow 和桌面安装器发布路径已移除。
 
 Web 构建自动生成 `version.json`，与资源一同部署并保持该清单不缓存。
 
