@@ -70,3 +70,33 @@ jobs:
           name: release-linux-${{ matrix.arch }}
           path: artifacts/host-downloads/
           if-no-files-found: error
+  host-macos:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/core
+      - run: sh -n scripts/host/install.sh scripts/host/start.sh
+      - run: cargo fmt --manifest-path desktop/core/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path desktop/core/Cargo.toml
+      - run: node scripts/host/package.mjs
+        env:
+          AGENTDECK_RELEASE_VERSION: host-${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: artifacts/host-downloads/
+          if-no-files-found: error

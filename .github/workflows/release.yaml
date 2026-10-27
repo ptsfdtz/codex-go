@@ -65,6 +65,8 @@ jobs:
           test -s "releases/$version/agentdeck-windows-x64.zip"
           test -s "releases/$version/agentdeck-linux-x64.tar.gz"
           test -s "releases/$version/agentdeck-linux-arm64.tar.gz"
+          test -s "releases/$version/agentdeck-macos-arm64.tar.gz"
+          test -s "releases/$version/agentdeck-macos-x64.tar.gz"
           tar -czf agentdeck-downloads.tar.gz install.sh install.ps1 install-codex.ps1 releases
           cp releases/"$version"/*.zip releases/"$version"/*.tar.gz .
           sha256sum *.zip *.tar.gz > SHA256SUMS.txt
@@ -73,6 +75,7 @@ jobs:
 
           - Windows x64：Host ZIP 与 start.ps1，终端登录和后台运行，不需要 WebView2。
           - Linux x64 / ARM64：Host tar.gz；执行任务仍需配置经过验证的本机 Codex 运行时。ARM64 构建基于 Ubuntu 24.04。
+          - macOS arm64 / x64：Host tar.gz 与 install.sh；使用已安装的兼容 Codex CLI，用户登录后通过 launchd 自启。包未签名/公证，首次本机执行仍待验收。
           - agentdeck-downloads.tar.gz：Host 安装脚本、版本包和校验值，可部署到 HTTPS 下载目录；支持 agentdeck update --check / agentdeck update。
           - SHA256SUMS.txt：下载文件的 SHA-256 校验值。
 
@@ -80,5 +83,6 @@ jobs:
           EOF
           gh release create "$tag" --target "$SOURCE_SHA" "${flags[@]}" \
             --title "AgentDeck $tag" --notes-file ../release-notes.md \
-            agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-downloads.tar.gz \
+            agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz \
+            agentdeck-macos-arm64.tar.gz agentdeck-macos-x64.tar.gz agentdeck-downloads.tar.gz \
             SHA256SUMS.txt

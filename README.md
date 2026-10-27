@@ -27,11 +27,13 @@
 
 本次类型/ESLint、格式、生产构建、依赖审计、Host/云端严格 Clippy、图片读取/分块/完整性/取消定向检查与 schema 核验通过。锁文件缺少 lucide-react 解析记录的问题已修复，并在全新目录完成冻结安装、检查和构建。历史测试/夹具及依赖按此前要求删除，不再沿用旧测试数量作为当前证据。
 
+macOS 本地 Host 启动、launchd 登录自启、seatbelt 与指令边界检查、Codex 初始化和项目发现通过；macOS arm64 源码包构建及 `install.sh` 本地 HTTPS 安装、`shasum` SHA-256 校验通过。CI 已加入 macOS arm64/x64 构建和发布清单；macOS 包未签名/公证，线上安装、升级及真实模型任务仍待验收。
+
 上轮 Web/云端线上验收：三个平台 CI、GitHub 发布、云端构建与 Pages 发布全部通过；正式 Web 12 个文件、管理端三个静态文件及 Pages 13 个文件与对应产物哈希一致。存活/数据库就绪均为 200，未认证管理请求和无来源删除请求分别为 401/403；云端运行二进制哈希与 CI 一致。稳定指针、三个平台清单/包内版本、所有公开下载文件完整 SHA-256 核对通过；Linux x64 在独立目录完成线上安装与 CLI 运行，未启动模型任务或重启日常 Host/桌面。
 
 真实验收覆盖隔离原版桌面的手动发送、新建及一次性审批，交互 CLI/Web 同 UUID 历史读回；日常 Host 的实际模型回复、沙箱读取、CLI 续聊及重启保持原生进程通过。日常原生目录与 Edge/实际 Sidebar 的项目、归档/历史/恢复及自建验收对话删除核对通过；自建发送验收对话已归档，未修改用户会话。
 
-待验收：日常桌面最终共享切换、桌面专有应用工具、手机真机/PWA 键盘及安全区、实际注销再登录自启、Linux 真实模型隔离、macOS 真实模型任务及官方安装/发布、ARM64 实机、长期休眠切网、大历史压力与生产账户删除事务。编译、下载和健康检查不能代替这些验收。
+待验收：日常桌面最终共享切换、桌面专有应用工具、手机真机/PWA 键盘及安全区、实际注销再登录自启、Linux 真实模型隔离、macOS 真实模型任务及线上安装/升级、ARM64 实机、长期休眠切网、大历史压力与生产账户删除事务。编译、下载和健康检查不能代替这些验收。
 
 上轮云端发布先备份数据库与私有配置，数据库备份为 `/var/backups/agentdeck/agentdeck-20261027T060028Z.dump`；发布回退信息与下载指针/脚本备份在 `/var/backups/agentdeck/release-20261027-1/`，旧 Web/云端目录保留。当前目录为 `/opt/agentdeck/releases/release-20261027-1`，回退按 `previous-current.txt` 恢复链接、重启云端并单独恢复下载指针；不回滚数据库。
 
@@ -59,7 +61,17 @@ agentdeck start
 agentdeck autostart enable
 ```
 
-Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。官方安装器和发布包仍只覆盖 Windows/Linux；macOS 可源码构建本地 Host，已通过启动、launchd 登录自启、seatbelt 边界检查、Codex 初始化和项目发现，实际模型任务及官方安装/发布尚未验收。三个平台包均已发布；ARM64 尚未做实机运行验收。
+```sh
+# macOS arm64 / x64：需要包含 macOS 产物的发布
+curl -fsSL https://agent.ptsfdtz.top/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+agentdeck login --username NAME
+agentdeck projects add /绝对路径/项目
+agentdeck start
+agentdeck autostart enable
+```
+
+Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，macOS 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。安装器和发布包覆盖 Windows/Linux/macOS；macOS 使用已安装的兼容 Codex CLI，用户登录后通过 launchd 自启，包未签名/公证，线上安装、升级和实际模型任务尚未验收。Windows/Linux 三个平台包已发布；ARM64 尚未做实机运行验收。
 
 密码在终端隐藏输入，不支持明文 `--password` 参数。临时密码会在登录过程中引导修改并重新登录。登录、项目管理等命令会按需启动本机管理服务；Codex 缺失或配置错误时仍能登录、查看状态和诊断。
 
@@ -81,7 +93,7 @@ Windows 自启使用当前用户的 `HKCU/Software/Microsoft/Windows/CurrentVers
 
 状态目录：Windows `%LOCALAPPDATA%/AgentDeck`；Linux `${XDG_STATE_HOME:-~/.local/state}/agentdeck`；可显式设置 `AGENTDECK_DATA_DIR`。CLI 与服务使用同一规则，并解析已有数据库的真实路径以兼容 Windows MSIX 重定向。目录锁阻止同一份状态被多个服务占用。
 
-保留电脑身份和证书、登录刷新凭据、项目授权、设备撤销、会话索引、审批和恢复信息；`host.json` 保存运行时地址、令牌文件路径等配置，不保存账户密码。Windows 凭据继续使用 CurrentUser DPAPI；Linux 使用私有目录和文件权限，不能把它视作 DPAPI 加密。`host.log` / `host.log.1` 只记录有界脱敏诊断，不落盘完整状态或聊天事件。
+保留电脑身份和证书、登录刷新凭据、项目授权、设备撤销、会话索引、审批和恢复信息；`host.json` 保存运行时地址、令牌文件路径等配置，不保存账户密码。Windows 凭据继续使用 CurrentUser DPAPI；Linux/macOS 使用私有目录和文件权限，不能把它视作 DPAPI 加密。`host.log` / `host.log.1` 只记录有界脱敏诊断，不落盘完整状态或聊天事件。
 
 | 操作                | 命令                                                                  |
 | ------------------- | --------------------------------------------------------------------- |
@@ -133,9 +145,11 @@ releases/stable.txt
 releases/版本号/agentdeck-windows-x64.zip[.sha256]
 releases/版本号/agentdeck-linux-x64.tar.gz[.sha256]
 releases/版本号/agentdeck-linux-arm64.tar.gz[.sha256]
+releases/版本号/agentdeck-macos-arm64.tar.gz[.sha256]
+releases/版本号/agentdeck-macos-x64.tar.gz[.sha256]
 ```
 
-使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64 和 ARM64，合并后的 `agentdeck-downloads.tar.gz` 可直接上传 VPS；ARM64 基于 Ubuntu 24.04，x64 CI 基于 Ubuntu 22.04。旧独立 Linux workflow 和桌面安装器发布路径已移除。
+使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64/ARM64 和 macOS arm64/x64，合并后的 `agentdeck-downloads.tar.gz` 可直接上传 VPS；ARM64 基于 Ubuntu 24.04，Linux x64 基于 Ubuntu 22.04，macOS 使用 GitHub macOS 15 arm64/Intel runner。旧独立 Linux workflow 和桌面安装器发布路径已移除；macOS 包由 CI 构建但未签名/公证。
 
 Web 构建自动生成 `version.json`，与资源一同部署并保持该清单不缓存。
 
