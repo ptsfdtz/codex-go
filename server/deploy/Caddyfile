@@ -1,0 +1,7 @@
+{$AGENTDECK_DOMAIN} {
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy cloud:8080 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-AgentDeck-Proxy-Token {$AGENTDECK_PROXY_TOKEN}
+    }
+}

@@ -6,22 +6,33 @@ edition = "2021"
 rust-version = "1.88"
 description = "Native AgentDeck Windows Bridge; no Node runtime"
 
+[[bin]]
+name = "agentdeck"
+path = "src/bin/agentdeck.rs"
+
 [build-dependencies]
 sha2 = "0.10"
 serde_json = "1"
 
 [dependencies]
+agentdeck-connection-protocol = { path = "../../packages/connection-protocol" }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 axum = { version = "0.8", features = ["ws"] }
 axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+hyper = { version = "1", features = ["server", "client", "http1"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-pemfile = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rpassword = "7"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "=0.9.12"
+semver = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 jsonschema = { version = "0.33", default-features = false }
 sha2 = "0.10"
@@ -34,17 +45,16 @@ subtle = "2"
 rcgen = "0.14"
 x509-parser = "0.18"
 if-addrs = "0.14"
+mdns-sd = "0.15"
 qrcode = { version = "0.14", default-features = false, features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 dunce = "1"
 fs2 = "0.4"
+notify = "8.2"
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_JobObjects", "Win32_System_Threading"] }
-
-[dev-dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Registry"] }
 
 [profile.release]
 lto = "thin"

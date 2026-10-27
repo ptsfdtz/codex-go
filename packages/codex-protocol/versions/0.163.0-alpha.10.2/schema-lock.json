@@ -180,16 +180,6 @@
       "sha256": "5073b245f741fa8ce62ec52e4dd1809b7831f9c4284c279a78abc9b171f8e3f2"
     },
     {
-      "name": "codex_app_server_protocol.schemas",
-      "source": "versions/0.163.0-alpha.10.2/schema/codex_app_server_protocol.schemas.json",
-      "sha256": "408e09849d5d4931992a4227a7f3eb80b15d24901f84aca0562e816634651a82"
-    },
-    {
-      "name": "codex_app_server_protocol.v2.schemas",
-      "source": "versions/0.163.0-alpha.10.2/schema/codex_app_server_protocol.v2.schemas.json",
-      "sha256": "d204b96d8560d56600127423b89df9db471b3e22338e8809bb91d5a952998978"
-    },
-    {
       "name": "v1/InitializeParams",
       "source": "schema/v1/InitializeParams.json",
       "sha256": "b55124e7c0f36a1789396daa5578217a92be67f053903696236686e59f6f212e"

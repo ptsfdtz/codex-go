@@ -1,4 +1,10 @@
-use crate::{ensure, now, pairing::Pairing, protocol, service::Core, Error, Result};
+use crate::{
+    ensure, now,
+    pairing::{Pairing, RemoteIdentity},
+    protocol,
+    service::Core,
+    Error, Result,
+};
 use axum::{
     body::{to_bytes, Body},
     extract::{
@@ -8,7 +14,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -18,6 +24,62 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+#[derive(Clone)]
+struct RelayContext {
+    identity: RemoteIdentity,
+    finished: Arc<tokio::sync::Notify>,
+    upgraded: Arc<std::sync::atomic::AtomicBool>,
+}
+pub(crate) fn remote_router(
+    core: Arc<Core>,
+    identity: RemoteIdentity,
+    finished: Arc<tokio::sync::Notify>,
+    upgraded: Arc<std::sync::atomic::AtomicBool>,
+) -> Router {
+    Router::new()
+        .route("/api/v1/pair/request", post(remote_pair_request))
+        .route("/api/v1/pair/claim", post(remote_pair_claim))
+        .route("/api/v1/ws", get(upgrade))
+        .fallback(|| async { denied() })
+        .layer(Extension(RelayContext {
+            identity,
+            finished,
+            upgraded,
+        }))
+        .with_state(core)
+}
+async fn remote_pair_request(
+    State(core): State<Arc<Core>>,
+    Extension(remote): Extension<RelayContext>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    pair(
+        core,
+        "127.0.0.1:0".parse().unwrap(),
+        headers,
+        body,
+        false,
+        Some(remote.identity),
+    )
+    .await
+}
+async fn remote_pair_claim(
+    State(core): State<Arc<Core>>,
+    Extension(remote): Extension<RelayContext>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    pair(
+        core,
+        "127.0.0.1:0".parse().unwrap(),
+        headers,
+        body,
+        true,
+        Some(remote.identity),
+    )
+    .await
+}
 #[derive(Clone)]
 struct LimitedAcceptor(Arc<tokio::sync::Semaphore>);
 struct LimitedStream {
@@ -121,7 +183,7 @@ async fn pair_request(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    pair(core, peer, headers, body, false).await
+    pair(core, peer, headers, body, false, None).await
 }
 async fn pair_claim(
     State(core): State<Arc<Core>>,
@@ -129,7 +191,7 @@ async fn pair_claim(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    pair(core, peer, headers, body, true).await
+    pair(core, peer, headers, body, true, None).await
 }
 async fn pair(
     core: Arc<Core>,
@@ -137,6 +199,7 @@ async fn pair(
     headers: HeaderMap,
     body: Body,
     claim: bool,
+    remote: Option<RemoteIdentity>,
 ) -> Response {
     if headers.contains_key("origin") {
         return denied();
@@ -144,7 +207,13 @@ async fn pair(
     let result: Result<Value> = async {
         ensure(
             core.rates.lock().unwrap().take(
-                format!("pair:{}:{claim}", peer.ip()),
+                format!(
+                    "pair:{}:{claim}",
+                    remote
+                        .as_ref()
+                        .map(|r| r.device_id.clone())
+                        .unwrap_or_else(|| peer.ip().to_string())
+                ),
                 if claim { 30. } else { 10. },
                 if claim { 2. } else { 0.1 },
             ),
@@ -158,9 +227,10 @@ async fn pair(
         let value: Value = serde_json::from_slice(&bytes)
             .map_err(|_| Error::new("INVALID_REQUEST", "Invalid pairing JSON"))?;
         if claim {
-            core.pairing.claim(&core.store, &value)
+            core.pairing
+                .claim_scoped(&core.store, &value, remote.as_ref())
         } else {
-            let (response, confirmation) = core.pairing.request(&value)?;
+            let (response, confirmation) = core.pairing.request_scoped(&value, remote.as_ref())?;
             core.emit("pair.confirm", confirmation);
             Ok(response)
         }
@@ -189,6 +259,7 @@ async fn pair(
 }
 async fn upgrade(
     State(core): State<Arc<Core>>,
+    remote: Option<Extension<RelayContext>>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
@@ -201,9 +272,21 @@ async fn upgrade(
         .and_then(|s| s.strip_prefix("Bearer "))
         .unwrap_or("")
         .to_owned();
-    let device = Pairing::authenticate(&core.store, &credential)
-        .ok()
-        .flatten();
+    let remote = remote.map(|Extension(value)| value);
+    let device = Pairing::authenticate_scoped(
+        &core.store,
+        &credential,
+        remote.as_ref().map(|r| &r.identity),
+    )
+    .ok()
+    .flatten();
+    let device = match device {
+        Some(device) => Some(device),
+        None => core
+            .account_device(&credential, remote.as_ref().map(|r| &r.identity))
+            .await
+            .ok(),
+    };
     let Some(device) = device else {
         return denied();
     };
@@ -218,13 +301,22 @@ async fn upgrade(
     {
         return denied();
     }
+    if let Some(remote) = &remote {
+        remote
+            .upgraded
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
     ws.max_message_size(1024 * 1024)
         .max_frame_size(1024 * 1024)
         .write_buffer_size(0)
         .max_write_buffer_size(2 * 1024 * 1024)
         .on_upgrade(move |socket| async move {
             let _slot = slot;
-            connection(core, socket, device, credential).await
+            let identity = remote.as_ref().map(|r| r.identity.clone());
+            connection(core, socket, device, credential, identity).await;
+            if let Some(remote) = remote {
+                remote.finished.notify_one();
+            }
         })
         .into_response()
 }
@@ -285,7 +377,101 @@ impl Core {
         }
         *self.address.write().unwrap() = address.into();
         *network = Some((handle, task));
+        self.start_lan_gateway(ip).await;
+        self.discovery.lock().unwrap().take();
+        if address != "127.0.0.1" {
+            if let Ok(advertisement) = crate::server::discovery::Advertisement::start(
+                &self.store.meta("hostId")?.unwrap_or_default(),
+                &self.tls.fingerprint,
+                address,
+                self.port,
+            ) {
+                *self.discovery.lock().unwrap() = Some(advertisement);
+            }
+        }
         Ok(())
+    }
+    pub async fn refresh_network(self: &Arc<Self>) -> Result<()> {
+        let enabled = self.store.meta("lanEnabled")?.as_deref() == Some("true")
+            || self
+                .store
+                .meta("listenAddress")?
+                .is_some_and(|value| value != "127.0.0.1");
+        if !enabled {
+            return Ok(());
+        }
+        let current = self.address.read().unwrap().clone();
+        let addresses = crate::security::addresses();
+        if addresses.contains(&current) {
+            return Ok(());
+        }
+        let next = addresses.first().map(String::as_str).unwrap_or("127.0.0.1");
+        if next != current {
+            self.listen(next).await?;
+            self.store.set_meta("listenAddress", next)?;
+            self.store.set_meta("lanEnabled", "true")?;
+        }
+        Ok(())
+    }
+}
+impl Core {
+    /// Fixed destination byte transport for browsers. Authentication and TLS
+    /// remain inside this socket; this endpoint never accepts an RPC or target.
+    async fn start_lan_gateway(self: &Arc<Self>, ip: IpAddr) {
+        let mut previous = self.lan_gateway.lock().unwrap().take();
+        if let Some((_, task)) = previous.take() {
+            task.abort();
+        }
+        if ip.is_loopback() {
+            return;
+        }
+        let Some(port) = self.port.checked_add(1) else {
+            return;
+        };
+        let address = SocketAddr::new(ip, port);
+        let Ok(listener) = std::net::TcpListener::bind(address) else {
+            return;
+        };
+        if listener.set_nonblocking(true).is_err() {
+            return;
+        }
+        let target = SocketAddr::new(ip, self.port);
+        let core = self.clone();
+        let app=Router::new().route("/api/v1/lan",get(move |headers:HeaderMap,ws:WebSocketUpgrade|{
+            let core=core.clone();
+            async move {
+                if !core.cloud.status().signed_in || headers.get("origin").and_then(|h|h.to_str().ok()).is_none_or(|origin|!origin.starts_with("https://") && !origin.starts_with("http://127.0.0.1:")){return denied();}
+                let Ok(slot)=core.ws_slots.clone().try_acquire_owned()else{return denied()};
+                ws.protocols(["agentdeck-lan-v1"]).max_frame_size(65536).max_message_size(65536).on_upgrade(move |mut socket|async move{
+                    use tokio::io::{AsyncReadExt,AsyncWriteExt};
+                    let _slot=slot;
+                    let Ok(Ok(stream))=tokio::time::timeout(Duration::from_secs(3),tokio::net::TcpStream::connect(target)).await else{return};
+                    let (mut read,mut write)=stream.into_split();
+                    let mut bytes=vec![0;32768];
+                    loop {
+                        let active=async {tokio::select!{
+                            result=read.read(&mut bytes)=>match result{Ok(0)|Err(_)=>false,Ok(n)=>socket.send(Message::Binary(bytes[..n].to_vec().into())).await.is_ok()},
+                            incoming=socket.recv()=>match incoming{Some(Ok(Message::Binary(data)))=>write.write_all(&data).await.is_ok(),Some(Ok(Message::Ping(data)))=>socket.send(Message::Pong(data)).await.is_ok(),Some(Ok(Message::Pong(_)))=>true,_=>false}
+                        }};
+                        if !matches!(tokio::time::timeout(Duration::from_secs(60),active).await,Ok(true)){break;}
+                    }
+                }).into_response()
+            }
+        }));
+        let Ok(server) = axum_server::from_tcp(listener) else {
+            return;
+        };
+        let mut server =
+            server.acceptor(LimitedAcceptor(Arc::new(tokio::sync::Semaphore::new(64))));
+        server
+            .http_builder()
+            .http1()
+            .timer(hyper_util::rt::TokioTimer::new())
+            .header_read_timeout(Duration::from_secs(10));
+        let task = tokio::spawn(async move {
+            let _ = server.serve(app.into_make_service()).await;
+        });
+        *self.lan_gateway.lock().unwrap() = Some((address, task));
     }
 }
 async fn send(socket: &mut futures_util::stream::SplitSink<WebSocket, Message>, v: Value) -> bool {
@@ -313,7 +499,13 @@ async fn send(socket: &mut futures_util::stream::SplitSink<WebSocket, Message>, 
     .await
     .is_ok_and(|r| r.is_ok())
 }
-async fn connection(core: Arc<Core>, socket: WebSocket, device: String, credential: String) {
+async fn connection(
+    core: Arc<Core>,
+    socket: WebSocket,
+    device: String,
+    credential: String,
+    remote: Option<RemoteIdentity>,
+) {
     *core
         .connected
         .lock()
@@ -342,9 +534,24 @@ async fn connection(core: Arc<Core>, socket: WebSocket, device: String, credenti
     loop {
         tokio::select! {
             incoming=reader.next()=>{match incoming{Some(Ok(Message::Text(text)))=>{
-                if Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device){break;}
+                if !authorized(&core,&credential,remote.as_ref(),&device).await {break;}
                 last_received = Instant::now();
-                let request=serde_json::from_str::<Value>(&text).map_err(|_|Error::new("INVALID_REQUEST","Invalid JSON")).and_then(protocol::parse);let request=match request{Ok(v)=>v,Err(e)=>{if !send(&mut writer,e.packet(None)).await{break;}continue;}};
+                // Keep a valid correlation id even when payload validation fails.
+                // Otherwise the Web client cannot settle its pending request and
+                // turns a definite rejection into a timeout/unknown outcome.
+                let value = serde_json::from_str::<Value>(&text)
+                    .map_err(|_| Error::new("INVALID_REQUEST", "Invalid JSON"));
+                let request_id = value.as_ref().ok()
+                    .and_then(|value| value.get("id").and_then(Value::as_str))
+                    .filter(|id| !id.is_empty() && id.chars().count() <= 160)
+                    .map(str::to_owned);
+                let request = match value.and_then(protocol::parse) {
+                    Ok(request) => request,
+                    Err(error) => {
+                        if !send(&mut writer, error.packet(request_id.as_deref())).await { break; }
+                        continue;
+                    }
+                };
             if !hello&&request.action!="system.hello"{if !send(&mut writer,Error::new("VERSION_REQUIRED","Send system.hello first").packet(Some(&request.id))).await{break;}continue;}
             if request.action=="system.hello"{hello=true;}
                 if !core.rates.lock().unwrap().take(format!("rpc:{device}"),60.,20.){if !send(&mut writer,Error::new("RATE_LIMITED","Request rate limit").packet(Some(&request.id))).await{break;}continue;}
@@ -352,8 +559,12 @@ async fn connection(core: Arc<Core>, socket: WebSocket, device: String, credenti
                 let owner=core.clone();let tx=responses.clone();let device=device.clone();tokio::spawn(async move{let _permit=permit;let _global=global;let packet=handle_request(&owner,&request,&device).await;let _=tx.try_send(packet);});
             },Some(Ok(Message::Pong(_)))=>last_received=Instant::now(),Some(Ok(Message::Ping(bytes)))=>{last_received=Instant::now();if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Pong(bytes))).await,Ok(Ok(()))){break;}},Some(Ok(Message::Binary(_)))|Some(Ok(Message::Close(_)))|Some(Err(_))|None=>break}},
             result=result_rx.recv()=>{if let Some(v)=result{if !send(&mut writer,v).await{break;}}},
-            event=events.recv()=>{match event{Ok(v) if hello=>{if Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device)||!send(&mut writer,v).await{break;}},Ok(_)=>{},Err(_)=>break}},
-            _=heartbeat.tick()=>{if peer_timed_out(last_received, Instant::now())||core.stopping.load(std::sync::atomic::Ordering::SeqCst)||Pairing::authenticate(&core.store,&credential).ok().flatten().as_ref()!=Some(&device){break;}if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Ping(vec![].into()))).await,Ok(Ok(()))){break;}}
+            _=core.authorization_changed.notified()=>{
+                if !authorized(&core,&credential,remote.as_ref(),&device).await {break;}
+            },
+            event=events.recv()=>{match event{Ok(v) if hello=>{if !authorized(&core,&credential,remote.as_ref(),&device).await||!send(&mut writer,v).await{break;}},Ok(_)=>{},Err(_)=>break}},
+            _=heartbeat.tick()=>{if peer_timed_out(last_received, Instant::now())||core.stopping.load(std::sync::atomic::Ordering::SeqCst)||!authorized(&core,&credential,remote.as_ref(),&device).await{break;}
+                if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Ping(vec![].into()))).await,Ok(Ok(()))){break;}}
         }
     }
     let _ = tokio::time::timeout(Duration::from_secs(1), writer.close()).await;
@@ -367,28 +578,39 @@ async fn connection(core: Arc<Core>, socket: WebSocket, device: String, credenti
         }
         connected.is_empty()
     };
-    if last {
+    // A shared native runtime may still have CLI/desktop reviewers connected.
+    // Losing the Web transport must not decide their pending native requests.
+    if last
+        && !core
+            .attached_runtime
+            .load(std::sync::atomic::Ordering::SeqCst)
+    {
         let _ = core.invalidate_approvals(true);
     }
     core.publish();
+}
+async fn authorized(
+    core: &Core,
+    credential: &str,
+    remote: Option<&RemoteIdentity>,
+    device: &str,
+) -> bool {
+    if Pairing::authenticate_scoped(&core.store, credential, remote)
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some(device)
+    {
+        return true;
+    }
+    core.account_device(credential, remote)
+        .await
+        .is_ok_and(|value| value == device)
 }
 fn peer_timed_out(last_received: Instant, now: Instant) -> bool {
     now.saturating_duration_since(last_received) >= Duration::from_secs(60)
 }
 
-#[cfg(test)]
-mod heartbeat_tests {
-    use super::*;
-    #[test]
-    fn late_heartbeat_is_tolerated_but_silent_peer_expires() {
-        let start = Instant::now();
-        assert!(!peer_timed_out(start, start + Duration::from_secs(30)));
-        assert!(!peer_timed_out(start, start + Duration::from_secs(59)));
-        assert!(peer_timed_out(start, start + Duration::from_secs(60)));
-        let resumed = start + Duration::from_secs(45);
-        assert!(!peer_timed_out(resumed, start + Duration::from_secs(75)));
-    }
-}
 pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) -> Value {
     let mutate = matches!(
         r.action.as_str(),

@@ -4,7 +4,7 @@ desktop/src-tauri/target/
 desktop/src-tauri/resources/
 desktop/src-tauri/gen/
 pnpm-lock.yaml
-android/gradle/wrapper/
 artifacts/
 verification/
-android/app/schemas/
+server/target/
+packages/connection-protocol/target/

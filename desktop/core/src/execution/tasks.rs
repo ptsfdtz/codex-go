@@ -32,7 +32,11 @@ impl Core {
         let rpc = self.upstream()?;
         let root = paths::root(&self.store, project)?;
         codex::settings(&rpc, &root).await?;
-        let response=rpc.request("thread/start",json!({"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"}})).await?;
+        let mut params = json!({"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","config":{"default_permissions":"agentdeck"}});
+        if project == paths::CHAT_PROJECT {
+            params["developerInstructions"] = json!("This is a general conversation, not a coding task. Answer the user's questions directly. There is no user project attached. Do not inspect projects, run commands, edit files, or create tasks unless the user switches to a project conversation.");
+        }
+        let response = rpc.request("thread/start", params).await?;
         rpc.validate("v2/ThreadStartResponse", &response)?;
         codex::checked_thread(&response, &root, self.verified.load(Ordering::SeqCst))?;
         // Publish the initial title to the authoritative thread, not only our index.
@@ -63,6 +67,8 @@ impl Core {
             .lock()
             .unwrap()
             .insert(s(&response["thread"], "id").into());
+        self.store
+            .set_meta(&format!("freshThread:{id}"), s(&response["thread"], "id"))?;
         let session = self.store.session(&id)?;
         self.store
             .append("session.updated", session.clone(), Some(&id), None)?;
@@ -265,6 +271,16 @@ impl Core {
             goal_resume_revision,
         } = options;
         let session = self.store.session(session_id)?;
+        if s(&session, "projectId") == paths::CHAT_PROJECT {
+            ensure(
+                permission_mode == "workspace"
+                    && mode == "default"
+                    && goal_resume_revision.is_none()
+                    && skills.is_none_or(|v| v.as_array().is_some_and(|a| a.is_empty())),
+                "INVALID_REQUEST",
+                "General chat does not support project skills, task modes or full access",
+            )?;
+        }
         ensure(
             session["archived"] != 1,
             "CONFLICT",
@@ -327,11 +343,12 @@ impl Core {
                 .meta(&format!("permissionMode:{session_id}"))?
                 .as_deref()
                 == Some("full");
-            codex::checked_thread_with_full(
+            codex::checked_thread_for_turn(
                 &response,
                 &root,
                 self.verified.load(Ordering::SeqCst),
                 previously_full,
+                self.attached_runtime.load(Ordering::SeqCst),
             )?;
             self.loaded
                 .lock()
@@ -367,6 +384,7 @@ impl Core {
         let (mut input, file_names) = if let Some(input) = native_input {
             self.authorize_native_resources(
                 s(&session, "projectId"),
+                session_id,
                 &root,
                 &json!({"input":input}),
             )
@@ -384,7 +402,7 @@ impl Core {
                 .collect::<Vec<_>>();
             (input.to_vec(), names)
         } else {
-            crate::composer::prepare_input(&root, text, attachments)?
+            crate::composer::prepare_stored_input(&self.store, session_id, text, attachments)?
         };
         input.extend(skill_input);
         ensure(
@@ -510,6 +528,7 @@ impl Core {
             "INSERT INTO turns VALUES(?,?,NULL,?,?,NULL,NULL)",
             rusqlite::params![turn, session_id, "queued", now()],
         )?;
+        self.store.set_meta(&format!("freshThread:{session_id}"), "")?;
         self.store.status(session_id, Some(&turn), "queued", None)?;
         self.store.append(
             "turn.queued",
@@ -570,6 +589,14 @@ impl Core {
             "CONFLICT",
             "Turn is not active in this session",
         )?;
+        self.latest_upstream_turn(session_id).await?;
+        let current = self.store.turn(turn_id)?;
+        ensure(
+            terminal(s(&current, "status"))
+                || ["running", "waitingApproval", "unknown"].contains(&s(&current, "status")),
+            "CONFLICT",
+            "Turn is not active in this session",
+        )?;
         if self
             .store
             .meta(&format!("goalMode:{session_id}"))?
@@ -589,6 +616,10 @@ impl Core {
             rpc.validate("v2/ThreadGoalSetResponse", &response)?;
             self.store
                 .set_meta(&format!("goalMode:{session_id}"), "paused")?;
+        }
+        let current = self.store.turn(turn_id)?;
+        if terminal(s(&current, "status")) {
+            return Ok(json!({"requested":false,"status":current["status"]}));
         }
         self.store.append(
             "turn.interruptRequested",
@@ -617,6 +648,7 @@ impl Core {
                 Err(e)
                     if e.code == "UPSTREAM_ERROR" && e.message == "no active turn to interrupt" =>
                 {
+                    self.latest_upstream_turn(session_id).await?;
                     tokio::time::sleep(Duration::from_millis(100)).await
                 }
                 Err(e) => return Err(e),
@@ -1029,7 +1061,7 @@ impl Core {
                 skipped += 1;
                 continue;
             }
-            if paths::add_local(&self.store, root).is_ok() {
+            if paths::add_discovered(&self.store, root).is_ok() {
                 synced += 1;
             } else {
                 skipped += 1;

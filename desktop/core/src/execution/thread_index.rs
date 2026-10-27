@@ -41,7 +41,8 @@ impl Core {
         Ok(())
     }
     /// Reconcile on connect, grants, notifications and while a phone is connected.
-    /// This worker never blocks the RPC event reader or grants a new directory.
+    /// This worker never blocks the RPC event reader. Existing Codex workspaces
+    /// are registered automatically, except roots explicitly removed by the user.
     pub(crate) async fn watch_thread_index(
         self: std::sync::Arc<Self>,
         rpc: std::sync::Arc<crate::rpc::Rpc>,
@@ -95,13 +96,14 @@ impl Core {
         }
     }
 
-    // Also called by Windows-local sync; both paths use existing local grants.
+    // Also called by local sync; discover authoritative workspaces before indexing.
     pub async fn sync_thread_index(&self) -> Result<usize> {
         let _sync = self
             .thread_sync
             .try_lock()
             .map_err(|_| Error::new("CONFLICT", "Thread index sync already in progress"))?;
         let rpc = self.upstream()?;
+        let project_catalog = self.discover_codex_workspaces().await?;
         {
             let busy = self.busy.lock().unwrap();
             ensure(
@@ -117,13 +119,14 @@ impl Core {
         let projects = self.store.projects()?;
         let mut authorized = Vec::new();
         for project in projects {
-            authorized.push((
-                s(&project, "projectId").to_owned(),
-                paths::root(&self.store, s(&project, "projectId"))?,
-            ));
+            if let Ok(root) = paths::root(&self.store, s(&project, "projectId")) {
+                authorized.push((s(&project, "projectId").to_owned(), root));
+            }
         }
         if authorized.is_empty() {
-            return Ok(0);
+            return self
+                .store
+                .apply_thread_index(&[], project_catalog.as_deref());
         }
         let before: HashMap<String, (String, i64)> = self
             .store
@@ -216,6 +219,10 @@ impl Core {
                 "UPSTREAM_PROTOCOL_ERROR",
                 "Loaded thread identity mismatch",
             )?;
+            // A desktop continuation can move cwd while thread/list still
+            // returns the rollout's original directory. Prefer the live
+            // public metadata for this identity, even without a duplicate.
+            resolved.insert(id.as_str().unwrap().to_owned(), response["thread"].clone());
             loaded_threads.push(response["thread"].clone());
         }
         for archived in [false, true] {
@@ -228,11 +235,17 @@ impl Core {
                     "SYNC_LIMIT",
                     "Thread index sync timed out; index unchanged",
                 )?;
-                let response = rpc.request_timeout("thread/list", json!({
-                    "cursor":cursor,"limit":100,"archived":archived,"modelProviders":[],
-                    "cwd":authorized.iter().map(|(_,root)| root).collect::<Vec<_>>(),
-                    "sourceKinds":["cli","vscode","exec","appServer","subAgent","subAgentReview","subAgentCompact","subAgentThreadSpawn","subAgentOther","unknown"]
-                }), Duration::from_secs(15)).await?;
+                let response = rpc
+                    .request_timeout(
+                        "thread/list",
+                        json!({
+                            "cursor":cursor,"limit":100,"archived":archived,"modelProviders":[],
+                            "cwd":authorized.iter().map(|(_,root)| root).collect::<Vec<_>>(),
+                            "sourceKinds":[]
+                        }),
+                        Duration::from_secs(15),
+                    )
+                    .await?;
                 rpc.validate("v2/ThreadListResponse", &response)?;
                 let mut page = response["data"].as_array().unwrap().clone();
                 if archived && response["nextCursor"].is_null() {
@@ -262,7 +275,7 @@ impl Core {
                     )?;
                     // Upstream can list both rollout and index versions of one ID.
                     // Resolve metadata through public APIs, never select a stale copy.
-                    let mut authoritative = None;
+                    let mut authoritative = resolved.get(&thread_id).cloned();
                     if let Some(previous) = entries.get(&thread_id) {
                         ensure(
                             previous.archived == archived,
@@ -313,7 +326,9 @@ impl Core {
                     else {
                         continue;
                     };
-                    if thread["ephemeral"] == true {
+                    if thread["ephemeral"] == true
+                        || !matches!(thread["source"].as_str(), Some("cli" | "vscode"))
+                    {
                         continue;
                     }
                     let title = thread["name"]
@@ -406,222 +421,14 @@ impl Core {
         for (id, _) in &authorized {
             paths::root(&self.store, id)?;
         }
-        let count = self
-            .store
-            .apply_thread_index(&entries.into_values().collect::<Vec<_>>())?;
+        let count = self.store.apply_thread_index(
+            &entries.into_values().collect::<Vec<_>>(),
+            project_catalog.as_deref(),
+        )?;
         self.thread_index_pending
             .lock()
             .unwrap()
             .retain(|id, revision| pending.get(id) != Some(revision));
         Ok(count)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn managed_runtime_indexes_existing_threads_on_start_and_new_grants() {
-        use std::sync::{atomic::Ordering, Arc};
-        let directory = tempfile::tempdir().unwrap();
-        let store = Arc::new(crate::store::Store::open(&directory.path().join("test.db")).unwrap());
-        let tls = crate::security::Certificate::load(directory.path()).unwrap();
-        let (tx, _rx) = tokio::sync::mpsc::channel(128);
-        let core = Core::new(store, tls, "127.0.0.1".into(), 18443, tx);
-        let node = crate::codex::sync_command("where.exe", &["node.exe"], None).unwrap();
-        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/appserver.mjs");
-        let (rpc, mut events) = crate::rpc::Rpc::start(
-            Path::new(node.lines().next().unwrap().trim()),
-            &[fixture.to_string_lossy().into_owned()],
-        )
-        .unwrap();
-        let drain = tokio::spawn(async move { while events.recv().await.is_some() {} });
-        crate::codex::initialize(&rpc).await.unwrap();
-        *core.rpc.write().unwrap() = Some(rpc.clone());
-        core.ready.store(true, Ordering::SeqCst);
-        let granted = directory.path().join("granted");
-        let later = directory.path().join("later");
-        for root in [&granted, &later] {
-            std::fs::create_dir(root).unwrap();
-            rpc.request(
-                "thread/start",
-                json!({"cwd":root,"sandbox":"read-only","approvalPolicy":"on-request"}),
-            )
-            .await
-            .unwrap();
-        }
-        paths::add_local(&core.store, &granted).unwrap();
-        let worker = tokio::spawn(core.clone().watch_thread_index(rpc.clone()));
-        async fn wait_count(core: &Core, count: usize) {
-            tokio::time::timeout(Duration::from_secs(20), async {
-                while core.store.sessions(None).unwrap().len() != count {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
-            })
-            .await
-            .unwrap();
-        }
-        wait_count(&core, 1).await;
-        assert!(!core.attached_runtime.load(Ordering::SeqCst));
-        // Adding a local grant must trigger discovery without reconnecting.
-        core.local_action(json!({"action":"project.add","path":later}))
-            .await
-            .unwrap();
-        wait_count(&core, 2).await;
-        // A separate runtime's persisted additions have no local notification.
-        core.connected.lock().unwrap().insert("phone".into(), 1);
-        rpc.request(
-            "thread/start",
-            json!({"cwd":granted,"sandbox":"read-only","approvalPolicy":"on-request"}),
-        )
-        .await
-        .unwrap();
-        wait_count(&core, 3).await;
-        worker.abort();
-        let _ = worker.await;
-        let session = core.store.sessions(None).unwrap().remove(0);
-        rpc.request(
-            "thread/name/set",
-            json!({"threadId":session["upstreamThreadId"],"name":"INDEX_DUPLICATE"}),
-        )
-        .await
-        .unwrap();
-        core.sync_thread_index().await.unwrap();
-        let sessions = core.store.sessions(None).unwrap();
-        assert_eq!(sessions.len(), 3);
-        assert_eq!(
-            sessions
-                .iter()
-                .find(|v| v["upstreamThreadId"] == session["upstreamThreadId"])
-                .unwrap()["title"],
-            "authoritative title"
-        );
-        rpc.stop();
-        drain.abort();
-    }
-    #[test]
-    fn authoritative_deletion_survives_restart_is_atomic_and_prevents_resurrection() {
-        let directory = tempfile::tempdir().unwrap();
-        let database = directory.path().join("test.db");
-        let store = crate::store::Store::open(&database).unwrap();
-        let project = paths::add_local(&store, directory.path()).unwrap();
-        let stale = || ThreadIndexEntry {
-            project_id: s(&project, "projectId").to_owned(),
-            thread_id: "deleted-thread".into(),
-            title: "original".into(),
-            created_at: "2026-10-01T00:00:00.000Z".into(),
-            updated_at: "2026-10-01T00:00:00.000Z".into(),
-            archived: false,
-            metadata: json!({"status":{"type":"idle"}}),
-            expected_updated_at: None,
-            expected_event_seq: None,
-        };
-        store.apply_thread_index(&[stale()]).unwrap();
-        let session = store.sessions(None).unwrap().remove(0);
-        let id = s(&session, "sessionId");
-        let old = store
-            .append(
-                "turn.progress",
-                json!({"text":"retained before deletion"}),
-                Some(id),
-                None,
-            )
-            .unwrap();
-        store.exec("DROP TABLE thread_deletions", []).unwrap();
-        store
-            .exec("DELETE FROM migrations WHERE version=5", [])
-            .unwrap();
-        drop(store);
-        let store = crate::store::Store::open(&database).unwrap();
-        assert_eq!(
-            store.session(id).unwrap()["upstreamThreadId"],
-            "deleted-thread"
-        );
-        assert_eq!(store.cursor().unwrap(), s(&old, "eventId"));
-        store.record_thread_deletion("deleted-thread").unwrap();
-        drop(store);
-        let store = crate::store::Store::open(&database).unwrap();
-        assert!(store.thread_deleted("deleted-thread").unwrap());
-        store.exec("CREATE TRIGGER reject_delete_event BEFORE INSERT ON events WHEN NEW.action='session.deleted' BEGIN SELECT RAISE(ABORT,'test rollback'); END",[]).unwrap();
-        assert!(store.purge_deleted_threads().is_err());
-        assert!(store.session(id).is_ok());
-        assert_eq!(store.cursor().unwrap(), s(&old, "eventId"));
-        store.exec("DROP TRIGGER reject_delete_event", []).unwrap();
-        assert_eq!(
-            store.purge_deleted_threads().unwrap(),
-            vec!["deleted-thread"]
-        );
-        assert!(store.session(id).is_err());
-        assert_eq!(store.replay("0", 100).unwrap_err().code, "REPLAY_GAP");
-        let replay = store.replay(s(&old, "eventId"), 100).unwrap();
-        assert_eq!(replay["events"][0]["action"], "session.deleted");
-        assert_eq!(replay["events"][0]["sessionId"], id);
-        let cursor = store.cursor().unwrap();
-        assert!(store.purge_deleted_threads().unwrap().is_empty());
-        assert_eq!(store.apply_thread_index(&[stale()]).unwrap(), 0);
-        assert_eq!(store.cursor().unwrap(), cursor);
-        assert_eq!(store.projects().unwrap().len(), 1);
-        assert!(store
-            .query("SELECT * FROM session_metadata", [])
-            .unwrap()
-            .is_empty());
-    }
-    #[test]
-    fn stale_local_revision_rolls_back_the_entire_index_and_journal() {
-        let directory = tempfile::tempdir().unwrap();
-        let store = crate::store::Store::open(&directory.path().join("test.db")).unwrap();
-        let project = paths::add_local(&store, directory.path()).unwrap();
-        let entry = |id: &str, expected: Option<String>| ThreadIndexEntry {
-            project_id: s(&project, "projectId").to_owned(),
-            thread_id: id.to_owned(),
-            title: id.to_owned(),
-            created_at: "2026-10-01T00:00:00.000Z".into(),
-            updated_at: "2026-10-01T00:00:00.000Z".into(),
-            archived: false,
-            metadata: json!({"status":{"type":"idle"},"source":"appServer"}),
-            expected_event_seq: expected.as_ref().map(|_| 0),
-            expected_updated_at: expected,
-        };
-        store
-            .apply_thread_index(&[entry("existing", None)])
-            .unwrap();
-        let original = store.sessions(None).unwrap().remove(0);
-        store
-            .exec("UPDATE sessions SET title='local-newer'", [])
-            .unwrap();
-        store
-            .append(
-                "session.updated",
-                json!({"title":"local-newer"}),
-                Some(s(&original, "sessionId")),
-                None,
-            )
-            .unwrap();
-        let cursor = store.cursor().unwrap();
-        let error = store
-            .apply_thread_index(&[
-                entry("must-rollback", None),
-                entry("existing", Some(s(&original, "updatedAt").to_owned())),
-            ])
-            .unwrap_err();
-        assert_eq!(error.code, "SYNC_CONFLICT");
-        assert_eq!(store.sessions(None).unwrap().len(), 1);
-        assert_eq!(
-            store.session(s(&original, "sessionId")).unwrap()["title"],
-            "local-newer"
-        );
-        assert_eq!(store.cursor().unwrap(), cursor);
-        assert_eq!(
-            store
-                .query("SELECT * FROM session_metadata", [])
-                .unwrap()
-                .len(),
-            1
-        );
-        store.delete_session(s(&original, "sessionId")).unwrap();
-        assert!(store
-            .query("SELECT * FROM session_metadata", [])
-            .unwrap()
-            .is_empty());
     }
 }

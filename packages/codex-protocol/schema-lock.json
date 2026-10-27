@@ -143,14 +143,6 @@
       "sha256": "5073b245f741fa8ce62ec52e4dd1809b7831f9c4284c279a78abc9b171f8e3f2"
     },
     {
-      "path": "schema/codex_app_server_protocol.schemas.json",
-      "sha256": "8683f6fd9fbb994fa2bfb704ab5b02c9890238fa507a4c0ff33ff45884cd0a2e"
-    },
-    {
-      "path": "schema/codex_app_server_protocol.v2.schemas.json",
-      "sha256": "81a88c04ae4984b16d73080f4109d0477682bc76c8adbe483e371175ce54c054"
-    },
-    {
       "path": "schema/v1/InitializeParams.json",
       "sha256": "b55124e7c0f36a1789396daa5578217a92be67f053903696236686e59f6f212e"
     },

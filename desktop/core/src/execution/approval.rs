@@ -126,7 +126,14 @@ impl Core {
             let route = self.route(s(p, "threadId"), Some(s(p, "turnId")), true)?;
             let (session, turn) =
                 route.ok_or_else(|| Error::new("APPROVAL_STALE", "Unknown thread"))?;
-            let turn = turn.ok_or_else(|| Error::new("APPROVAL_STALE", "Unknown turn"))?;
+            paths::root(&self.store, s(&session, "projectId"))?;
+            let turn = match turn {
+                Some(turn) if turn["status"] == "unknown" => {
+                    self.observe_approval_turn(rpc, &session, p)?
+                }
+                Some(turn) => turn,
+                None => self.observe_approval_turn(rpc, &session, p)?,
+            };
             ensure(
                 ["queued", "running", "waitingApproval"].contains(&s(&turn, "status")),
                 "APPROVAL_STALE",
@@ -174,6 +181,52 @@ impl Core {
             self.store.append("bridge.error",json!({"code":"UPSTREAM_UNSUPPORTED_REQUEST","message":"Approval rejected: unsupported, stale or invalid request"}),None,None)?;
         }
         result
+    }
+    /// A subscribed native client may start a real turn outside this Host.
+    /// Project its authenticated approval into the local journal so Web can
+    /// review it, without changing the native execution configuration.
+    fn observe_approval_turn(&self, rpc: &Rpc, session: &Value, context: &Value) -> Result<Value> {
+        let session_id = s(session, "sessionId");
+        let thread_id = s(session, "upstreamThreadId");
+        let native_turn = s(context, "turnId");
+        ensure(
+            self.attached_runtime.load(Ordering::SeqCst)
+                && self.upstream()?.generation == rpc.generation
+                && !self.store.thread_deleted(thread_id)?
+                && (self.loaded.lock().unwrap().contains(thread_id)
+                    || self.observed.lock().unwrap().get(session_id) == Some(&rpc.generation))
+                && !native_turn.is_empty()
+                && native_turn.chars().count() <= 160,
+            "APPROVAL_STALE",
+            "Approval has no current authorized native subscription",
+        )?;
+        let local_turn = uid("turn");
+        let inserted = self.store.exec(
+            "INSERT INTO turns SELECT ?,?,?,?,?,NULL,NULL WHERE NOT EXISTS (SELECT 1 FROM turns WHERE sessionId=? AND upstreamTurnId=?)",
+            rusqlite::params![local_turn, session_id, native_turn, "running", now(), session_id, native_turn],
+        )?;
+        let turn = self.store.one(
+            "SELECT * FROM turns WHERE sessionId=? AND upstreamTurnId=?",
+            [session_id, native_turn],
+        )?;
+        // An authenticated replay after reconnect proves this exact native
+        // request is still pending. Restore only its matching unknown turn;
+        // terminal turns remain protected by receive_approval's status check.
+        if turn["status"] == "unknown" {
+            self.store.exec(
+                "UPDATE turns SET status='running' WHERE turnId=? AND status='unknown'",
+                [s(&turn, "turnId")],
+            )?;
+        }
+        if inserted == 1 {
+            self.store.append(
+                "turn.started",
+                json!({"turn":turn,"source":"upstream"}),
+                Some(session_id),
+                Some(s(&turn, "turnId")),
+            )?;
+        }
+        self.store.turn(s(&turn, "turnId"))
     }
     pub fn decide(
         &self,
@@ -231,11 +284,11 @@ impl Core {
             }
             if row["method"] == "item/permissions/requestApproval" {
                 let fs = &context["permissions"]["fileSystem"];
-                let mut paths: Vec<&str> = vec![];
+                let mut paths: Vec<(&str, bool)> = vec![];
                 for key in ["read", "write"] {
                     if let Some(a) = fs[key].as_array() {
                         for p in a {
-                            paths.push(p.as_str().unwrap_or(""));
+                            paths.push((p.as_str().unwrap_or(""), key == "read"));
                         }
                     }
                 }
@@ -246,11 +299,17 @@ impl Core {
                             "WORKSPACE_FORBIDDEN",
                             "Special permission roots forbidden",
                         )?;
-                        paths.push(s(&e["path"], "path"));
+                        paths.push((s(&e["path"], "path"), e["access"] == "read"));
                     }
                 }
-                for p in paths {
+                for (p, read_only) in paths {
                     paths::valid(Path::new(p))?;
+                    if self
+                        .store
+                        .attachment_permission(session_id, Path::new(p), read_only)?
+                    {
+                        continue;
+                    }
                     ensure(
                         paths::within(&root, Path::new(p)),
                         "WORKSPACE_FORBIDDEN",

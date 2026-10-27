@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agentdeck
+      POSTGRES_DB: agentdeck
+      POSTGRES_PASSWORD: ${AGENTDECK_DB_PASSWORD:?set AGENTDECK_DB_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U agentdeck -d agentdeck']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [database]
+  cloud:
+    build:
+      context: ../..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      AGENTDECK_DATABASE_URL: postgres://agentdeck:${AGENTDECK_DB_PASSWORD:?set AGENTDECK_DB_PASSWORD}@postgres:5432/agentdeck
+      AGENTDECK_PUBLIC_ORIGIN: https://${AGENTDECK_DOMAIN:?set AGENTDECK_DOMAIN}
+      AGENTDECK_WEB_ORIGINS: ${AGENTDECK_WEB_ORIGINS:?set AGENTDECK_WEB_ORIGINS}
+      AGENTDECK_LISTEN: 0.0.0.0:8080
+      AGENTDECK_PROXY_TOKEN: ${AGENTDECK_PROXY_TOKEN:?set AGENTDECK_PROXY_TOKEN}
+      AGENTDECK_MAX_TUNNELS: ${AGENTDECK_MAX_TUNNELS:-1024}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [database, edge]
+    stop_grace_period: 20s
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      AGENTDECK_DOMAIN: ${AGENTDECK_DOMAIN:?set AGENTDECK_DOMAIN}
+      AGENTDECK_PROXY_TOKEN: ${AGENTDECK_PROXY_TOKEN:?set AGENTDECK_PROXY_TOKEN}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [cloud]
+    networks: [edge]
+volumes:
+  postgres:
+  caddy-data:
+  caddy-config:
+networks:
+  database:
+    internal: true
+  edge:

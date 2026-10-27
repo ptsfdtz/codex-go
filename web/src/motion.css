@@ -1,0 +1,471 @@
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-press: 120ms;
+  --motion-fast: 160ms;
+  --motion-panel: 200ms;
+  --motion-drawer: 280ms;
+}
+
+/* The wrapper keeps exiting surfaces mounted without changing their layout. */
+.motion-presence {
+  display: contents;
+}
+.motion-presence[data-motion='closed'] {
+  pointer-events: none;
+}
+.motion-presence[data-motion='closed'] > :not(.menu-scrim):not(dialog) {
+  opacity: 0;
+}
+.follow-latest {
+  position: sticky;
+  bottom: 12px;
+  z-index: 2;
+  width: fit-content;
+}
+button,
+input,
+select,
+textarea,
+.session-row,
+.composer,
+.resource-chip,
+.dot {
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease,
+    transform var(--motion-press) var(--ease-out);
+}
+button:active:not(:disabled):not(.menu-scrim):not(.sidebar-scrim) {
+  transform: scale(0.97);
+}
+.send-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+button:disabled {
+  transform: none;
+}
+.rail-heading > svg:last-child,
+.workspace-title > svg,
+.tool-record > summary > svg:last-child {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.message-actions,
+.session-row > .icon-button {
+  transition: opacity var(--motion-fast) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .send-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  .composer:focus-within {
+    border-color: var(--muted);
+  }
+}
+
+/* One shared WAAPI timeline drives the drawer, scrim and desktop FLIP. */
+.sidebar {
+  display: flex;
+  position: absolute;
+  z-index: 30;
+  top: var(--app-safe-top);
+  left: env(safe-area-inset-left);
+  height: calc(100% - var(--app-safe-top) - var(--app-safe-bottom));
+  visibility: hidden;
+  transform: translateX(-100%);
+}
+.with-sidebar .sidebar {
+  visibility: visible;
+  transform: translateX(0);
+}
+.with-sidebar .conversation {
+  margin-left: var(--sidebar-width);
+}
+.sidebar-scrim {
+  opacity: 0;
+}
+.motion-collapse {
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    height var(--motion-panel) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+}
+.motion-collapse > div {
+  display: flow-root;
+}
+.motion-collapse[data-open='true'] {
+  opacity: 1;
+}
+
+.popover {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+.top-menu {
+  transform-origin: top right;
+}
+.composer-menu {
+  transform-origin: bottom left;
+}
+.motion-presence[data-motion='closed'] > .popover {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.97);
+}
+.motion-presence[data-motion='closed'] > .composer-menu {
+  transform: translateY(4px) scale(0.97);
+}
+.modal {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: center;
+  transition:
+    opacity var(--motion-panel) var(--ease-out),
+    transform var(--motion-panel) var(--ease-out);
+}
+.modal::backdrop {
+  background: rgb(0 0 0 / 44%);
+  backdrop-filter: none;
+  transition: background-color var(--motion-panel) ease;
+}
+.modal[data-motion='closed'] {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+}
+.modal[data-motion='closed']::backdrop {
+  background: transparent;
+}
+.settings-body,
+.card.login,
+.empty,
+.saved-image img,
+.connection-error,
+.history-error,
+.connection-recovery,
+.task-progress,
+.approval,
+.follow-latest,
+.resource-chip,
+.goal-composer,
+.context-usage {
+  opacity: 1;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+.motion-presence[data-motion='closed']
+  > :is(.connection-error, .history-error, .connection-recovery, .task-progress, .follow-latest) {
+  opacity: 0;
+}
+.task-progress .dot,
+.connection[data-connection-state='connecting'] .dot,
+.connection[data-connection-state='retrying'] .dot,
+.connection[data-connection-state='syncing'] .dot {
+  animation: breathe 1.5s ease-in-out infinite;
+}
+/* Native details keep native keyboard semantics; supported browsers animate both directions. */
+@supports (interpolate-size: allow-keywords) {
+  details {
+    interpolate-size: allow-keywords;
+  }
+  details::details-content {
+    height: 0;
+    opacity: 0;
+    overflow: clip;
+    transition:
+      height var(--motion-panel) var(--ease-out),
+      opacity var(--motion-fast) var(--ease-out),
+      content-visibility var(--motion-panel) allow-discrete;
+  }
+  details[open]::details-content {
+    height: auto;
+    opacity: 1;
+  }
+}
+
+@starting-style {
+  .popover {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  .composer-menu {
+    transform: translateY(4px) scale(0.97);
+  }
+  .modal {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  .modal::backdrop {
+    background: transparent;
+  }
+  .card.login {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  .settings-body,
+  .empty,
+  .saved-image img,
+  .connection-error,
+  .history-error,
+  .connection-recovery,
+  .task-progress,
+  .approval,
+  .follow-latest,
+  .resource-chip,
+  .goal-composer,
+  .context-usage {
+    opacity: 0;
+  }
+}
+@media (max-width: 760px) {
+  .with-sidebar .conversation {
+    margin-left: 0;
+  }
+  .sidebar {
+    z-index: 32;
+  }
+  .sidebar-scrim,
+  .sidebar-scrim.visible {
+    display: block;
+    position: fixed;
+    inset: 0 0 0 min(300px, 85vw);
+    z-index: 31;
+    border: 0;
+    border-radius: 0;
+    background: #0007;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .sidebar-scrim.visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  *::backdrop {
+    animation: none !important;
+    transition-property: opacity, color, background-color, border-color !important;
+    transition-duration: 100ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .popover,
+  .modal,
+  .sidebar,
+  .card.login,
+  button:active:not(:disabled):not(.menu-scrim):not(.sidebar-scrim),
+  .motion-presence[data-motion='closed'] > .popover,
+  .modal[data-motion='closed'] {
+    transform: none;
+  }
+  @starting-style {
+    .popover,
+    .composer-menu,
+    .modal,
+    .with-sidebar .sidebar,
+    .card.login {
+      transform: none;
+    }
+  }
+}
+/* Progressive enhancement for the browser's native select surface. */
+@supports (appearance: base-select) {
+  select::picker(select) {
+    opacity: 0;
+    transform: scale(0.97);
+    transform-origin: top center;
+    transition:
+      opacity var(--motion-fast) var(--ease-out),
+      transform var(--motion-fast) var(--ease-out),
+      display var(--motion-fast) allow-discrete,
+      overlay var(--motion-fast) allow-discrete;
+  }
+  select:open::picker(select) {
+    opacity: 1;
+    transform: scale(1);
+  }
+  @starting-style {
+    select:open::picker(select) {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    select::picker(select),
+    select:open::picker(select) {
+      transform: none;
+      transition: opacity 100ms ease;
+    }
+    @starting-style {
+      select:open::picker(select) {
+        transform: none;
+      }
+    }
+  }
+}
+.model-picker-popup,
+.permission-popup,
+.device-delete-confirmation {
+  opacity: 0;
+  transform: translateY(4px) scale(0.97);
+  transform-origin: bottom left;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out),
+    display var(--motion-fast) allow-discrete,
+    overlay var(--motion-fast) allow-discrete;
+}
+.model-picker-popup:popover-open,
+.permission-popup:popover-open,
+.device-delete-confirmation:popover-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+@starting-style {
+  .model-picker-popup:popover-open,
+  .permission-popup:popover-open,
+  .device-delete-confirmation:popover-open {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+.model-picker-view {
+  opacity: 1;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+@starting-style {
+  .model-picker-view {
+    opacity: 0;
+  }
+}
+.effort-fill {
+  transition: width var(--motion-fast) var(--ease-out);
+}
+.effort-thumb {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.effort-slider:active .effort-fill,
+.effort-slider:active .effort-thumb {
+  transition: none;
+}
+
+/* Shared state changes: content fades, while layout changes stay local to
+   accordions and keyed lists. Streaming text keeps its reading position. */
+.panel-content,
+.confirmation,
+.approval-review,
+.action-feedback,
+.message-editor,
+.question-fields,
+.question-options,
+.queue-entry,
+.project-setting,
+.host-device-card,
+.computer-entry,
+.session-row,
+.file-list > button,
+.search-result,
+.draft-entry,
+.host-update-notice,
+.mode-chip,
+.turn,
+.icon-button > svg {
+  opacity: 1;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+.permission-popup,
+.device-delete-confirmation {
+  transform-origin: bottom right;
+}
+.motion-presence[data-motion='closed']
+  > :is(.confirmation, .approval-review, .action-feedback, .mode-chip) {
+  opacity: 0;
+}
+.composer > textarea {
+  transition:
+    min-height var(--motion-panel) var(--ease-out),
+    max-height var(--motion-panel) var(--ease-out);
+}
+.model-picker-model-toggle svg {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.icon-button[aria-pressed='true'] {
+  background: var(--hover);
+}
+.pending-icon {
+  animation: pending-spin 800ms linear infinite;
+}
+@keyframes pending-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@starting-style {
+  .panel-content,
+  .confirmation,
+  .approval-review,
+  .action-feedback,
+  .message-editor,
+  .question-fields,
+  .queue-entry,
+  .project-setting,
+  .host-device-card,
+  .computer-entry,
+  .session-row,
+  .file-list > button,
+  .search-result,
+  .draft-entry,
+  .host-update-notice,
+  .mode-chip,
+  .turn,
+  .icon-button > svg {
+    opacity: 0;
+  }
+}
+:root:not([data-motion-input='keyboard']) .model-picker-trigger:focus,
+:root:not([data-motion-input='keyboard']) .model-picker-popup button:focus {
+  outline: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .model-picker-option:hover:not(:disabled) {
+    background: var(--hover);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-picker-popup,
+  .model-picker-popup:popover-open,
+  .permission-popup,
+  .permission-popup:popover-open,
+  .device-delete-confirmation,
+  .device-delete-confirmation:popover-open {
+    transform: none;
+  }
+  @starting-style {
+    .model-picker-popup:popover-open,
+    .permission-popup:popover-open,
+    .device-delete-confirmation:popover-open {
+      transform: none;
+    }
+  }
+  .effort-fill,
+  .effort-thumb {
+    transition: none;
+  }
+}

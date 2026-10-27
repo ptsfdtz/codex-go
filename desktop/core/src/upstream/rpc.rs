@@ -5,7 +5,7 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
@@ -69,6 +69,20 @@ pub fn validate_for(version: ProtocolVersion, name: &str, value: &Value) -> Resu
     )
 }
 const LIMIT: usize = 8 * 1024 * 1024;
+
+// Classify the native filesystem-helper regression without publishing its raw
+// launch environment or suggesting a broader permission profile as a workaround.
+fn upstream_error(message: &str) -> Error {
+    if message.contains("fs sandbox helper failed")
+        && message.contains("missing the required variable(s): SYSTEMROOT")
+    {
+        return Error::new(
+            "UPSTREAM_SANDBOX_HELPER_INCOMPATIBLE",
+            "当前 Codex 的 Windows 文件沙箱辅助进程遗漏 SYSTEMROOT，无法安全加载项目指令；需要包含上游 SystemRoot 修复的运行时。切换终端或在 Host 外层补变量无法解决。",
+        );
+    }
+    Error::new("UPSTREAM_ERROR", message)
+}
 pub async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
     reader: &mut R,
 ) -> Result<Option<Value>> {
@@ -114,7 +128,8 @@ pub(crate) fn checked_packet(v: &Value) -> Result<()> {
     Ok(())
 }
 pub struct Rpc {
-    protocol: ProtocolVersion,
+    protocol: RwLock<ProtocolVersion>,
+    runtime_version: RwLock<Option<String>>,
     output: mpsc::Sender<Value>,
     pending: Mutex<HashMap<String, oneshot::Sender<Result<Value>>>>,
     next: AtomicU64,
@@ -122,6 +137,7 @@ pub struct Rpc {
     stop: tokio::sync::Notify,
     pub generation: String,
     project_revision: AtomicU64,
+    pub(crate) codex_home: Mutex<Option<std::path::PathBuf>>,
 }
 impl Rpc {
     pub fn project_revision(&self) -> u64 {
@@ -168,7 +184,8 @@ impl Rpc {
         let (output, mut writes) = mpsc::channel::<Value>(2);
         let (events, event_rx) = mpsc::channel(128);
         let rpc = Arc::new(Self {
-            protocol: ProtocolVersion::Managed,
+            protocol: RwLock::new(ProtocolVersion::Managed),
+            runtime_version: RwLock::new(None),
             output,
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
@@ -176,6 +193,7 @@ impl Rpc {
             stop: tokio::sync::Notify::new(),
             generation: crate::uid("generation"),
             project_revision: AtomicU64::new(0),
+            codex_home: Mutex::new(None),
         });
         let read_rpc = rpc.clone();
         let read_events = events.clone();
@@ -192,7 +210,7 @@ impl Rpc {
                 } else if let Some(id) = v.get("id") {
                     if let Some(tx) = read_rpc.pending.lock().unwrap().remove(&id.to_string()) {
                         let result = if let Some(error) = v.get("error") {
-                            Err(Error::new("UPSTREAM_ERROR", crate::s(error, "message")))
+                            Err(upstream_error(crate::s(error, "message")))
                         } else {
                             Ok(v["result"].clone())
                         };
@@ -236,8 +254,28 @@ impl Rpc {
         Ok((rpc, event_rx))
     }
     pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
-        self.request_timeout(method, params, Duration::from_secs(30))
-            .await
+        for attempt in 0..5 {
+            let result = self
+                .request_timeout(method, params.clone(), Duration::from_secs(30))
+                .await;
+            // A just-created native thread may be visible before its first
+            // rollout metadata is flushed. Only retry this precise read race;
+            // mutations and unknown outcomes must never be replayed.
+            if attempt < 4
+                && method == "thread/read"
+                && result.as_ref().is_err_and(|error| {
+                    error.code == "UPSTREAM_ERROR"
+                        && error.message.starts_with("failed to read thread:")
+                        && error.message.contains("rollout at ")
+                        && error.message.ends_with(" is empty")
+                })
+            {
+                tokio::time::sleep(Duration::from_millis(50 << attempt)).await;
+                continue;
+            }
+            return result;
+        }
+        unreachable!()
     }
     pub async fn request_timeout(
         &self,
@@ -251,9 +289,9 @@ impl Rpc {
         } else {
             json!({"id":id,"method":method,"params":params})
         };
-        if self.protocol == ProtocolVersion::DesktopBaseline && method == "project/list" {
+        if self.protocol() == ProtocolVersion::DesktopBaseline && method == "project/list" {
             self.validate("experimental/ProjectListParams", &packet["params"])?;
-        } else if self.protocol == ProtocolVersion::DesktopBaseline
+        } else if self.protocol() == ProtocolVersion::DesktopBaseline
             && [
                 "thread/queue/add",
                 "thread/queue/list",
@@ -319,10 +357,19 @@ impl Rpc {
             .map_err(|_| Error::new("RATE_LIMITED", "Upstream write buffer full"))
     }
     pub fn protocol(&self) -> ProtocolVersion {
-        self.protocol
+        *self.protocol.read().unwrap()
+    }
+    pub fn runtime_version(&self) -> Option<String> {
+        self.runtime_version.read().unwrap().clone()
+    }
+    pub(crate) fn set_runtime_version(&self, version: &str) -> Result<()> {
+        let profile = crate::codex::protocol_for_version(version)?;
+        *self.protocol.write().unwrap() = profile;
+        *self.runtime_version.write().unwrap() = Some(version.to_owned());
+        Ok(())
     }
     pub fn validate(&self, name: &str, value: &Value) -> Result<()> {
-        validate_for(self.protocol, name, value)
+        validate_for(self.protocol(), name, value)
     }
     pub fn reject(&self, id: Value) -> Result<()> {
         self.send(json!({"id":id,"error":{"code":-32601,"message":"Request unsupported or no longer authorized"}}))

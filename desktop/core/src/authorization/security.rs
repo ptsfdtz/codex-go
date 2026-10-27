@@ -76,11 +76,11 @@ pub fn dpapi(value: &[u8], protect: bool) -> Result<Vec<u8>> {
     }
     #[cfg(not(windows))]
     {
-        let _ = (value, protect);
-        Err(Error::new(
-            "UNSUPPORTED_PLATFORM",
-            "Production secrets require Windows DPAPI",
-        ))
+        // Linux hosts use a private 0600 state directory. The file-level
+        // protection is intentionally kept separate from Windows DPAPI so the
+        // same service state format can be used by the CLI daemon.
+        let _ = protect;
+        Ok(value.to_vec())
     }
 }
 pub fn addresses() -> Vec<String> {
@@ -186,6 +186,16 @@ pub fn restrict_directory(path: &Path) -> Result<()> {
             )
         })?;
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).map_err(|_| {
+            Error::new(
+                "DATA_DIRECTORY_ERROR",
+                "Cannot restrict Linux state directory",
+            )
+        })?;
+    }
     Ok(())
 }
 pub struct Certificate {
@@ -216,11 +226,16 @@ impl Certificate {
                 .map_err(|_| Error::new("TLS_ERROR", "Cannot generate TLS certificate"))?;
             let v = json!({"cert":cert.pem(),"key":key.serialize_pem()});
             use std::io::Write;
-            std::fs::OpenOptions::new()
+            let mut file = std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
-                .open(path)?
-                .write_all(&dpapi(v.to_string().as_bytes(), true)?)?;
+                .open(&path)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            }
+            file.write_all(&dpapi(v.to_string().as_bytes(), true)?)?;
             v
         };
         let cert = stored["cert"]

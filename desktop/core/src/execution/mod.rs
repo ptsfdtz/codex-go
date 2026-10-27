@@ -4,6 +4,7 @@ pub(crate) mod history;
 pub(crate) mod observation;
 pub(crate) mod queue;
 pub mod sessions;
+pub(crate) mod source_changes;
 pub(crate) mod steering;
 pub mod tasks;
 pub(crate) mod thread_index;

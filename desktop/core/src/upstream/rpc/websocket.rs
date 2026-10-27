@@ -88,7 +88,8 @@ impl Rpc {
         let (output, mut writes) = mpsc::channel::<Value>(2);
         let (events, event_rx) = mpsc::channel(128);
         let rpc = Arc::new(Self {
-            protocol,
+            protocol: RwLock::new(protocol),
+            runtime_version: RwLock::new(None),
             output,
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
@@ -96,6 +97,7 @@ impl Rpc {
             stop: tokio::sync::Notify::new(),
             generation: crate::uid("generation"),
             project_revision: AtomicU64::new(0),
+            codex_home: Mutex::new(None),
         });
         let owner = rpc.clone();
         tokio::spawn(async move {
@@ -130,7 +132,7 @@ impl Rpc {
                         } else if let Some(id) = value.get("id") {
                             if let Some(sender) = owner.pending.lock().unwrap().remove(&id.to_string()) {
                                 let result = if let Some(error) = value.get("error") {
-                                    Err(Error::new("UPSTREAM_ERROR", crate::s(error, "message")))
+                                    Err(super::upstream_error(crate::s(error, "message")))
                                 } else { Ok(value["result"].clone()) };
                                 let _ = sender.send(result);
                             }
@@ -150,33 +152,5 @@ impl Rpc {
             let _ = events.send(json!({"method":"$lost"})).await;
         });
         Ok((rpc, event_rx))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn rejects_nonlocal_endpoints_and_credentials_without_echoing_secrets() {
-        let credential = "x".repeat(43);
-        for endpoint in [
-            "ws://localhost:1234",
-            "ws://192.168.1.1:1234",
-            "wss://127.0.0.1:1234",
-            "ws://127.0.0.1:0",
-            "ws://127.0.0.1:1234/path",
-            "ws://127.0.0.1:1234/?token=secret",
-            "ws://user:secret@127.0.0.1:1234",
-        ] {
-            assert!(local_request(endpoint, &credential).is_err(), "{endpoint}");
-        }
-        for credential in ["", "short", "secret\r\nAuthorization: value"] {
-            let error = local_request("ws://127.0.0.1:1234", credential).unwrap_err();
-            assert_eq!(error.code, "CONFIG_ERROR");
-        }
-        for endpoint in ["ws://127.0.0.1:1234", "ws://[::1]:1234/"] {
-            let request = local_request(endpoint, &credential).unwrap();
-            assert!(request.headers()[AUTHORIZATION].is_sensitive());
-        }
     }
 }

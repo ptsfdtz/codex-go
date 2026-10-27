@@ -1,0 +1,45 @@
+name: Cloud service
+on:
+  push:
+    branches: [release]
+    paths: ['server/**', 'packages/connection-protocol/**', '.github/workflows/cloud.yml']
+  pull_request:
+    paths: ['server/**', 'packages/connection-protocol/**', '.github/workflows/cloud.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  binary:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - run: cargo build --release --locked --manifest-path server/Cargo.toml --bin agentdeck-cloud
+      - run: sha256sum server/target/release/agentdeck-cloud > server/target/release/agentdeck-cloud.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentdeck-cloud-linux-x64
+          path: |
+            server/target/release/agentdeck-cloud
+            server/target/release/agentdeck-cloud.sha256
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - run: cargo fmt --manifest-path server/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path server/Cargo.toml --all-targets -- -D warnings
+      - run: docker build -f server/Dockerfile -t agentdeck-cloud:check .

@@ -13,6 +13,74 @@ use tokio_tungstenite::tungstenite::{protocol::WebSocketConfig, Message};
 use tokio_util::codec::{FramedRead, LinesCodec};
 const LIMIT: usize = 8 * 1024 * 1024;
 const WAIT: Duration = Duration::from_secs(15);
+
+// Optional one-shot launcher acknowledgements. No history, credentials or RPC
+// results are written to disk, and observing never changes protocol packets.
+struct LaunchWatch {
+    directory: PathBuf,
+    thread: String,
+    pending: std::collections::HashMap<String, String>,
+}
+impl LaunchWatch {
+    fn from_env() -> Option<Self> {
+        let directory = PathBuf::from(std::env::var_os("AGENTDECK_DESKTOP_LAUNCH_STATUS")?);
+        let thread = std::env::var("AGENTDECK_DESKTOP_LAUNCH_THREAD").ok()?;
+        if !directory.is_absolute()
+            || !directory.is_dir()
+            || uuid::Uuid::parse_str(&thread).is_err()
+        {
+            return None;
+        }
+        Some(Self {
+            directory,
+            thread,
+            pending: std::collections::HashMap::new(),
+        })
+    }
+
+    fn sent(&mut self, packet: &Value) {
+        let method = packet["method"].as_str().unwrap_or_default();
+        if packet.get("id").is_some()
+            && self.pending.len() < 256
+            && (method == "thread/list"
+                || (method == "thread/resume"
+                    && packet["params"]["threadId"].as_str() == Some(&self.thread)))
+        {
+            self.pending
+                .insert(packet["id"].to_string(), method.to_owned());
+        }
+    }
+
+    fn received(&mut self, packet: &Value) {
+        if packet.get("method").is_some() {
+            return;
+        }
+        let Some(method) = self.pending.remove(&packet["id"].to_string()) else {
+            return;
+        };
+        if packet.get("error").is_some() || packet.get("result").is_none() {
+            return;
+        }
+        let result = &packet["result"];
+        // An older target need not appear on the first index page. Readiness
+        // means local indexing is active; only resume acknowledges the target.
+        let marker = if method == "thread/list" && result["data"].is_array() {
+            Some("indexed")
+        } else if method == "thread/resume" && result["thread"]["id"].as_str() == Some(&self.thread)
+        {
+            Some("resumed")
+        } else {
+            None
+        };
+        if let Some(marker) = marker {
+            // create_new avoids following a preexisting file or symlink.
+            let _ = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(self.directory.join(marker));
+        }
+    }
+}
 fn failure(code: &str) -> Error {
     Error::new(
         code,
@@ -75,6 +143,65 @@ impl Manifest {
 pub struct Startup {
     overrides: Vec<(Vec<String>, Value)>,
     analytics_default: bool,
+}
+
+/// The desktop performs this one-shot native policy read before opening its
+/// JSON-RPC transport. Keep native output/errors intact; it is not a fabricated
+/// initialize response and must never start another conversation runtime.
+pub fn is_startup_policy_command(args: &[String]) -> Result<bool> {
+    if !args.iter().any(|arg| arg == "--print-startup-config") {
+        return Ok(false);
+    }
+    let mut transport_args = Vec::new();
+    let mut print = false;
+    let mut client = false;
+    let mut sign_out = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "-c" | "--config" | "--enable" | "--disable" | "--listen" => {
+                transport_args.push(args[index].clone());
+                index += 1;
+                transport_args.push(
+                    args.get(index)
+                        .ok_or_else(|| failure("PROXY_ARGUMENT_UNSUPPORTED"))?
+                        .clone(),
+                );
+            }
+            "--print-startup-config" if !print => print = true,
+            "--startup-sign-out" if !sign_out => sign_out = true,
+            "--startup-client-info" if !client => {
+                client = true;
+                index += 1;
+                let info: Value = serde_json::from_str(
+                    args.get(index)
+                        .ok_or_else(|| failure("PROXY_ARGUMENT_UNSUPPORTED"))?,
+                )
+                .map_err(|_| failure("PROXY_ARGUMENT_UNSUPPORTED"))?;
+                ensure(
+                    info.is_object()
+                        && info["name"].as_str().is_some_and(|v| !v.is_empty())
+                        && info["version"].is_string(),
+                    "PROXY_ARGUMENT_UNSUPPORTED",
+                    "Invalid startup client identity",
+                )?;
+            }
+            "--print-startup-config" | "--startup-sign-out" | "--startup-client-info" => {
+                return Err(failure("PROXY_ARGUMENT_UNSUPPORTED"));
+            }
+            _ => transport_args.push(args[index].clone()),
+        }
+        index += 1;
+    }
+    // Apply the same finite allowlist, limits and config parsing as transport
+    // startup. A startup policy invocation cannot delegate arbitrary CLI work.
+    ensure(
+        args.len() <= 128 && args.iter().map(String::len).sum::<usize>() <= 32768,
+        "PROXY_ARGUMENT_UNSUPPORTED",
+        "Startup policy arguments exceed limit",
+    )?;
+    Startup::parse(&transport_args)?;
+    Ok(print)
 }
 impl Startup {
     pub fn parse(args: &[String]) -> Result<Self> {
@@ -359,7 +486,7 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         .await
         .map_err(|_| failure("PROXY_IO_TIMEOUT"))?
         .map_err(|_| failure("PROXY_IO_ERROR"))?;
-    let protocol = target.protocol();
+    let mut protocol = target.protocol();
     let gate = async {
         let mut buffered = Vec::new();
         let mut total = 0;
@@ -392,10 +519,16 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                         .split_once('/')
                         .is_some_and(|(originator, version)| {
                             !originator.is_empty()
-                                && version.starts_with(&format!("{} (", protocol.version()))
+                                && super::codex_version::identity_version(version).is_ok()
                         }),
                     "PROXY_VERSION_UNVERIFIED",
-                    "Shared runtime version differs from selected protocol",
+                    "Shared runtime is below the minimum supported Codex version",
+                )?;
+                let (_, version) = crate::s(&value["result"], "userAgent")
+                    .split_once('/')
+                    .unwrap();
+                protocol = crate::codex::protocol_for_version(
+                    &super::codex_version::identity_version(version)?,
                 )?;
                 initialized = true;
                 socket.send(Message::Text(json!({"id":check_id,"method":"config/read","params":{"includeLayers":false}}).to_string().into())).await.map_err(|_|failure("PROXY_IO_ERROR"))?;
@@ -420,22 +553,56 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     for value in buffered {
         emit(&mut output, &value).await?;
     }
+    let mut launch_watch = LaunchWatch::from_env();
     loop {
         tokio::select! {
             // LinesCodec preserves partial bytes when a native event cancels next().
             line=lines.next()=>{
                 let Some(line)=line else {return Ok(())};let line=line.map_err(|_|failure("PROXY_PROTOCOL_ERROR"))?;
                 let value=packet(&line)?;
+                if let Some(watch) = &mut launch_watch { watch.sent(&value); }
                 tokio::time::timeout(WAIT,socket.send(Message::Text(value.to_string().into()))).await.map_err(|_|failure("PROXY_IO_TIMEOUT"))?.map_err(|_|failure("PROXY_IO_ERROR"))?;
             }
             message=socket.next()=>{
                 let message=message.ok_or_else(||failure("PROXY_IO_ERROR"))?.map_err(|_|failure("PROXY_IO_ERROR"))?;
                 match message {
-                    Message::Text(text)=>emit(&mut output,&packet(&text)?).await?,
+                    Message::Text(text)=>{
+                        let value = packet(&text)?;
+                        if let Some(watch) = &mut launch_watch { watch.received(&value); }
+                        emit(&mut output,&value).await?;
+                    },
                     Message::Ping(_)=>{tokio::time::timeout(WAIT,socket.flush()).await.map_err(|_|failure("PROXY_IO_TIMEOUT"))?.map_err(|_|failure("PROXY_IO_ERROR"))?;},
                     Message::Pong(_)=>{},Message::Close(_)=>return Ok(()),_=>return Err(failure("PROXY_PROTOCOL_ERROR")),
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod launch_watch_tests {
+    use super::*;
+
+    #[test]
+    fn launch_requires_a_successful_target_resume_not_an_index_entry() {
+        let directory = tempfile::tempdir().unwrap();
+        let thread = uuid::Uuid::new_v4().to_string();
+        let mut watch = LaunchWatch {
+            directory: directory.path().to_owned(),
+            thread: thread.clone(),
+            pending: Default::default(),
+        };
+        watch.sent(&json!({"id":1,"method":"thread/list","params":{}}));
+        watch.received(&json!({"id":1,"result":{"data":[]}}));
+        assert!(directory.path().join("indexed").is_file());
+        assert!(!directory.path().join("resumed").exists());
+        watch.sent(&json!({"id":2,"method":"thread/resume","params":{"threadId":thread}}));
+        watch.received(&json!({"id":3,"result":{"thread":{"id":thread}}}));
+        assert!(!directory.path().join("resumed").exists());
+        watch.received(&json!({"id":2,"error":{"code":-1},"result":{"thread":{"id":thread}}}));
+        assert!(!directory.path().join("resumed").exists());
+        watch.sent(&json!({"id":4,"method":"thread/resume","params":{"threadId":thread}}));
+        watch.received(&json!({"id":4,"result":{"thread":{"id":thread}}}));
+        assert!(directory.path().join("resumed").is_file());
     }
 }

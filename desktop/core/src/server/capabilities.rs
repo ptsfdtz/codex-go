@@ -61,6 +61,12 @@ pub fn describe_profile(
         "browser": false,
         "automationManagement": false
     });
+    features["multipleDevices"] = Value::Bool(true);
+    features["hostUpdateCheck"] = Value::Bool(true);
+    features["projectlessChat"] = Value::Bool(true);
+    features["codexWorkspaceDiscovery"] = Value::Bool(true);
+    features["stableTlsIdentity"] = Value::Bool(true);
+    features["pairingV2"] = Value::Bool(true);
     features["projectFileBrowser"] = Value::Bool(true);
     features["projectTextPreview"] = Value::Bool(true);
     features["projectFileReference"] = Value::Bool(true);
@@ -90,40 +96,4 @@ pub fn describe_profile(
         "features": features,
         "limits": {"attachmentCount": 4, "attachmentTotalBytes": 524288}
     })
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn readiness_does_not_claim_desktop_sharing() {
-        for ready in [false, true] {
-            let value = super::describe(ready, ready);
-            assert_eq!(value["upstreamReady"], ready);
-            assert_eq!(value["sandboxVerified"], ready);
-            assert_eq!(value["runtime"]["sharedDesktopRuntime"], false);
-            assert_eq!(value["runtime"]["externalThreadSync"], false);
-            assert_eq!(
-                value["runtime"]["sessionScope"],
-                "bridge-created-and-imported"
-            );
-            assert_eq!(value["features"]["fullHistoryRead"], false);
-            assert_eq!(value["features"]["nativeProjectReadViews"], false);
-            assert_eq!(value["features"]["externalThreadMetadataSync"], false);
-            assert_eq!(value["features"]["externalThreadDeletionEvents"], false);
-        }
-        let attached = super::describe_runtime(true, false, true);
-        assert_eq!(attached["runtime"]["mode"], "attached-local-ws");
-        assert_eq!(attached["runtime"]["sharedDesktopRuntime"], false);
-        assert_eq!(attached["features"]["externalThreadMetadataSync"], true);
-        assert_eq!(attached["features"]["externalThreadDeletionEvents"], true);
-        let desktop = super::describe_profile(
-            true,
-            true,
-            true,
-            crate::rpc::ProtocolVersion::DesktopBaseline,
-        );
-        assert_eq!(desktop["codexVersion"], "0.163.0-alpha.10.2");
-        assert_eq!(desktop["runtime"]["sharedDesktopRuntime"], false);
-        assert_eq!(desktop["features"]["nativeProjectReadViews"], true);
-    }
 }

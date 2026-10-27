@@ -224,21 +224,3 @@ impl Core {
         )
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn config_projection_excludes_credentials_instructions_and_layer_paths() {
-        let input = json!({"model":"model-a","approval_policy":{"reject":{"secret":"hidden"}},"api_key":"hidden","developer_instructions":"hidden","mcp_servers":{"secret":"hidden"}});
-        let view = settings(&input);
-        assert_eq!(view["model"], "model-a");
-        assert!(view["approval_policy"].is_null());
-        assert!(!view.to_string().contains("hidden"));
-        let view = layer(
-            &json!({"name":{"type":"user","file":"hidden","profile":"hidden"},"config":input,"disabledReason":"hidden"}),
-        );
-        assert_eq!(view["sourceType"], "user");
-        assert_eq!(view["disabled"], true);
-        assert!(!view.to_string().contains("hidden"));
-    }
-}

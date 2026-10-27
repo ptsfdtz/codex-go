@@ -8,23 +8,17 @@
     "node": ">=22.22.0 <23"
   },
   "scripts": {
-    "android:dev": "node scripts/android/dev-android.mjs",
-    "desktop:dev": "pnpm desktop:prepare && node scripts/desktop/dev-desktop.mjs",
-    "desktop:prepare": "node scripts/desktop/prepare-native-desktop.mjs",
-    "desktop:build": "pnpm desktop:prepare && pnpm --filter @agentdeck/desktop desktop:build",
-    "desktop:test": "pnpm --filter @agentdeck/desktop test && cargo test --locked --manifest-path desktop/core/Cargo.toml && cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml",
-    "native:check": "node scripts/checks/verify-native-runtime.mjs",
-    "build": "pnpm --filter @agentdeck/desktop build",
+    "web:dev": "pnpm --filter @agentdeck/web dev",
+    "build": "pnpm host:build",
     "check": "pnpm -r check && eslint .",
-    "test": "pnpm desktop:test",
-    "test:integration": "cargo test --locked --manifest-path desktop/core/Cargo.toml --test native",
-    "smoke:codex": "cargo test --locked --manifest-path desktop/core/Cargo.toml --test real real_codex -- --ignored --nocapture",
-    "start": "node scripts/desktop/launch-desktop.mjs",
-    "dev": "pnpm desktop:dev",
+    "start": "node scripts/host/dev.mjs --start",
+    "dev": "pnpm host:dev",
     "schema:verify": "node scripts/protocol/schema.mjs",
-    "package:windows": "node scripts/desktop/package-desktop.mjs",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "host:build": "cargo build --release --locked --manifest-path desktop/core/Cargo.toml --bins",
+    "host:dev": "node scripts/host/dev.mjs",
+    "host:package": "node scripts/host/package.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",

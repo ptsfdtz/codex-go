@@ -20,13 +20,18 @@ use std::{
 };
 use tokio::sync::{mpsc, Notify, Semaphore};
 pub struct Core {
+    pub(crate) lan_gateway: Mutex<Option<(std::net::SocketAddr, tokio::task::JoinHandle<()>)>>,
+    pub cloud: crate::cloud::Cloud,
+    pub(crate) discovery: Mutex<Option<crate::server::discovery::Advertisement>>,
     pub store: Arc<Store>,
     pub pairing: Pairing,
     pub tls: Certificate,
     pub rpc: RwLock<Option<Arc<Rpc>>>,
     pub ready: AtomicBool,
+    pub runtime_error: RwLock<Option<Value>>,
     pub attached_runtime: AtomicBool,
     runtime_protocol: RwLock<crate::rpc::ProtocolVersion>,
+    runtime_version: RwLock<Option<String>>,
     pub verified: AtomicBool,
     pub loaded: Mutex<HashSet<String>>,
     pub(crate) observed: Mutex<HashMap<String, String>>,
@@ -37,6 +42,7 @@ pub struct Core {
     pub(crate) thread_index_pending: Mutex<HashMap<String, String>>,
     pub task_limit: Semaphore,
     pub connected: Mutex<HashMap<String, usize>>,
+    pub authorization_changed: Notify,
     pub address: RwLock<String>,
     pub port: u16,
     pub stop: Notify,
@@ -65,13 +71,18 @@ impl Core {
         local: mpsc::Sender<Value>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            lan_gateway: Mutex::new(None),
+            cloud: crate::cloud::Cloud::default(),
+            discovery: Mutex::new(None),
             store,
             pairing: Pairing::default(),
             tls,
             rpc: RwLock::new(None),
             ready: AtomicBool::new(false),
+            runtime_error: RwLock::new(None),
             attached_runtime: AtomicBool::new(false),
             runtime_protocol: RwLock::new(crate::rpc::ProtocolVersion::Managed),
+            runtime_version: RwLock::new(None),
             verified: AtomicBool::new(false),
             loaded: Mutex::new(HashSet::new()),
             observed: Mutex::new(HashMap::new()),
@@ -82,6 +93,7 @@ impl Core {
             thread_index_pending: Mutex::new(HashMap::new()),
             task_limit: Semaphore::new(2),
             connected: Mutex::new(HashMap::new()),
+            authorization_changed: Notify::new(),
             address: RwLock::new(address),
             port,
             stop: Notify::new(),
@@ -89,7 +101,7 @@ impl Core {
             local,
             network: tokio::sync::Mutex::new(None),
             rpc_slots: Arc::new(Semaphore::new(32)),
-            ws_slots: Arc::new(Semaphore::new(8)),
+            ws_slots: Arc::new(Semaphore::new(64)),
             device_slots: Mutex::new(HashMap::new()),
             rates: Mutex::new(crate::transport::Buckets::default()),
             project_views: Mutex::new(Vec::new()),
@@ -107,6 +119,9 @@ impl Core {
         }
     }
     pub fn request_stop(&self) {
+        if let Some((_, task)) = self.lan_gateway.lock().unwrap().take() {
+            task.abort();
+        }
         self.stopping.store(true, Ordering::SeqCst);
         self.stop.notify_one();
     }
@@ -115,7 +130,12 @@ impl Core {
     }
     pub fn snapshot(&self) -> Result<Value> {
         let mut snapshot = self.store.snapshot(self.ready.load(Ordering::SeqCst))?;
-        snapshot["host"]["codexVersion"] = json!(self.runtime_protocol.read().unwrap().version());
+        snapshot["host"]["codexVersion"] = json!(self
+            .runtime_version
+            .read()
+            .unwrap()
+            .as_deref()
+            .unwrap_or(""));
         Ok(snapshot)
     }
     pub fn state(&self) -> Result<Value> {
@@ -137,9 +157,19 @@ impl Core {
                 .map(|v| v["title"].clone())
                 .unwrap_or(Value::Null);
         }
-        Ok(
-            json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.projects()?,"devices":devices,"approvals":approvals,"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() }),
-        )
+        let mut state = json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.visible_projects()?,"devices":devices,"approvals":approvals,"pairings":self.pairing.pending_all(),"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() });
+        state["cloud"] = json!(self.cloud.status());
+        state["runtimeError"] = json!(*self.runtime_error.read().unwrap());
+        state["hostId"] = json!(self.store.meta("hostId")?);
+        state["activeTurns"] = json!(self.store.turns(None)?.len());
+        state["servicePid"] = json!(std::process::id());
+        state["codexVersion"] = json!(self
+            .runtime_version
+            .read()
+            .unwrap()
+            .as_deref()
+            .unwrap_or(""));
+        Ok(state)
     }
     pub fn publish(&self) {
         match self.state() {
@@ -148,21 +178,10 @@ impl Core {
         }
     }
     pub async fn create_pair(self: &Arc<Self>, address: &str) -> Result<()> {
-        ensure(
-            address == "127.0.0.1" || security::addresses().contains(&address.to_owned()),
-            "CONFIG_ERROR",
-            "Choose a private address assigned to this PC",
-        )?;
-        ensure(
-            self.tls.supports(address),
-            "CERTIFICATE_ADDRESS_MISMATCH",
-            "Address changed; renew certificate locally and pair again",
-        )?;
-        self.listen(address).await?;
-        self.store.set_meta("listenAddress", address)?;
-        let mut qr = self
-            .pairing
-            .create(&self.store, &self.endpoint(), &self.tls.fingerprint)?;
+        self.create_pair_versioned(address, 1).await
+    }
+    pub async fn create_pair_versioned(self: &Arc<Self>, address: &str, version: u8) -> Result<()> {
+        let mut qr = self.create_invitation(address, version).await?;
         let code = qrcode::QrCode::new(qr.to_string().as_bytes())
             .map_err(|_| Error::new("PAIRING_ERROR", "Cannot render QR"))?;
         let image = code
@@ -178,13 +197,58 @@ impl Core {
         self.emit("pair.qr", qr);
         Ok(())
     }
+    /// Return the same invitation as the desktop QR without logging its secret.
+    pub async fn create_invitation(self: &Arc<Self>, address: &str, version: u8) -> Result<Value> {
+        ensure(
+            matches!(version, 1..=3),
+            "INVALID_REQUEST",
+            "Unsupported pairing version",
+        )?;
+        ensure(
+            address == "127.0.0.1" || security::addresses().contains(&address.to_owned()),
+            "CONFIG_ERROR",
+            "Choose a private address assigned to this PC",
+        )?;
+        ensure(
+            self.tls
+                .supports(if version >= 2 { "127.0.0.1" } else { address }),
+            "CERTIFICATE_ADDRESS_MISMATCH",
+            "Address changed; renew certificate locally and pair again",
+        )?;
+        self.listen(address).await?;
+        if address != "127.0.0.1" {
+            self.store.set_meta("lanEnabled", "true")?;
+        }
+        self.store.set_meta("listenAddress", address)?;
+        let qr = if version == 3 {
+            let (issuer, account) = self.cloud.pairing_account()?;
+            self.pairing.create_remote(
+                &self.store,
+                &self.endpoint(),
+                &self.tls.fingerprint,
+                &issuer,
+                &account,
+            )?
+        } else {
+            self.pairing.create_versioned(
+                &self.store,
+                &self.endpoint(),
+                &self.tls.fingerprint,
+                version,
+            )?
+        };
+        Ok(qr)
+    }
     pub async fn local_action(self: &Arc<Self>, v: Value) -> Result<bool> {
         let action = s(&v, "action");
         let allowed: &[&str] = match action {
             "workspaces.sync" | "stop" => &[],
             "project.add" => &["path"],
             "project.remove" => &["projectId"],
-            "pair.create" => &["address"],
+            "pair.create" | "pair.createStable" | "pair.createRemote" => &["address"],
+            "cloud.login" => &["origin", "username", "password"],
+            "cloud.password" => &["oldPassword", "newPassword"],
+            "cloud.logout" => &["unbind"],
             "pair.confirm" => &["requestId", "approve"],
             "device.revoke" => &["deviceId"],
             "approval.decide" => &["sessionId", "turnId", "approvalId", "decision"],
@@ -197,23 +261,40 @@ impl Core {
             protocol::text(&v, "localRequestId", 1, 100)?;
         }
         for k in allowed {
-            if *k != "approve" {
-                protocol::text(&v, k, 1, if *k == "path" { 32768 } else { 160 })?;
+            if !matches!(*k, "approve" | "unbind") {
+                protocol::text(
+                    &v,
+                    k,
+                    1,
+                    match *k {
+                        "path" => 32768,
+                        "password" | "oldPassword" | "newPassword" => 1024,
+                        "origin" => 2048,
+                        _ => 160,
+                    },
+                )?;
             }
         }
         match action {
+            "cloud.login" => {
+                self.cloud_login(s(&v, "origin"), s(&v, "username"), s(&v, "password"))
+                    .await?
+            }
+            "cloud.password" => {
+                self.cloud_password(s(&v, "oldPassword"), s(&v, "newPassword"))
+                    .await?
+            }
+            "cloud.logout" => {
+                ensure(
+                    v["unbind"].is_boolean(),
+                    "INVALID_REQUEST",
+                    "Boolean unbind required",
+                )?;
+                self.cloud_logout(v["unbind"] == true).await?;
+            }
             "workspaces.sync" => {
                 let result = self.sync_workspaces().await?;
                 self.emit("workspaces.synced", result);
-                let saved = self.address.read().unwrap().clone();
-                let selected = if saved != "127.0.0.1" {
-                    Some(saved)
-                } else {
-                    security::addresses().first().cloned()
-                };
-                if let Some(address) = selected {
-                    self.create_pair(&address).await?;
-                }
             }
             "project.add" => {
                 paths::add_local(&self.store, Path::new(s(&v, "path")))?;
@@ -221,6 +302,8 @@ impl Core {
             }
             "project.remove" => paths::remove_local(&self.store, s(&v, "projectId"))?,
             "pair.create" => self.create_pair(s(&v, "address")).await?,
+            "pair.createStable" => self.create_pair_versioned(s(&v, "address"), 2).await?,
+            "pair.createRemote" => self.create_pair_versioned(s(&v, "address"), 3).await?,
             "pair.confirm" => {
                 ensure(
                     v["approve"].is_boolean(),
@@ -229,11 +312,9 @@ impl Core {
                 )?;
                 self.pairing
                     .confirm(&self.store, s(&v, "requestId"), v["approve"] == true)?;
-                self.invalidate_approvals(true)?;
             }
             "device.revoke" => {
-                Pairing::revoke(&self.store, s(&v, "deviceId"))?;
-                self.invalidate_approvals(true)?;
+                self.revoke_device(s(&v, "deviceId"))?;
             }
             "approval.decide" => {
                 self.decide(
@@ -273,6 +354,7 @@ impl Core {
         let mut discovered = false;
         while !self.stopping.load(Ordering::SeqCst) {
             let result: Result<()> = async {
+                *self.runtime_version.write().unwrap() = None;
                 let (rpc, mut events) = match &target {
                     crate::runtime::RuntimeTarget::Managed => Rpc::start(&exe, &args)?,
                     crate::runtime::RuntimeTarget::Attached { endpoint, .. } => {
@@ -308,6 +390,27 @@ impl Core {
                 let initialized: Result<()> = async {
                     if target.attached() { codex::initialize_attached(&rpc).await?; }
                     else { codex::initialize(&rpc).await?; }
+                    *self.runtime_protocol.write().unwrap() = rpc.protocol();
+                    *self.runtime_version.write().unwrap() = rpc.runtime_version();
+                    // Preserve the actual Windows boundary proof across every
+                    // reconnect. Never relabel a probe of one installed binary
+                    // as verification of a different attached server version.
+                    #[cfg(windows)]
+                    if self.verified.load(Ordering::SeqCst) {
+                        if let Some(probed) = self.store.meta("sandboxProbeVersion")? {
+                            ensure(
+                                !probed.is_empty() && rpc.runtime_version().as_deref() == Some(probed.as_str()),
+                                "UPSTREAM_VERSION_MISMATCH",
+                                "共享运行时版本与已通过沙箱验证的本机 Codex 不同；请为 Host 选择同一份原生程序。",
+                            )?;
+                        }
+                    }
+                    let verified_version = if self.verified.load(Ordering::SeqCst) {
+                        rpc.runtime_version().unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    self.store.set_meta("sandboxVerifiedVersion", &verified_version)?;
                     if !discovered && !target.attached() {
                         let config = rpc
                             .request("config/read", json!({"includeLayers":false}))
@@ -344,19 +447,23 @@ impl Core {
                             ));
                         }
                     }
-                    let readiness = rpc.request("windowsSandbox/readiness", Value::Null).await?;
-                    rpc.validate("v2/WindowsSandboxReadinessResponse", &readiness)?;
-                    ensure(
-                        readiness["status"] == "ready",
-                        "SANDBOX_UNAVAILABLE",
-                        "Windows sandbox is not ready",
-                    )?;
+                    #[cfg(windows)]
+                    {
+                        let readiness = rpc.request("windowsSandbox/readiness", Value::Null).await?;
+                        rpc.validate("v2/WindowsSandboxReadinessResponse", &readiness)?;
+                        ensure(
+                            readiness["status"] == "ready",
+                            "SANDBOX_UNAVAILABLE",
+                            "Windows sandbox is not ready",
+                        )?;
+                    }
                     let config = rpc
                         .request("config/read", json!({"includeLayers":false}))
                         .await?;
                     rpc.validate("v2/ConfigReadResponse", &config)?;
                     codex::check_policy(&config)?;
                     self.ready.store(true, Ordering::SeqCst);
+                    *self.runtime_error.write().unwrap() = None;
                     self.reconcile(&rpc).await?;
                     self.store
                         .append("host.status", json!({"status":"connected"}), None, None)?;
@@ -370,12 +477,18 @@ impl Core {
                     return Err(e);
                 }
                 failures = 0;
+                let source_task = {
+                    let owner = self.clone();
+                    let source_rpc = rpc.clone();
+                    tokio::spawn(async move { owner.watch_source_changes(source_rpc).await })
+                };
                 let index_task = {
                     let owner = self.clone();
                     let index_rpc = rpc.clone();
                     tokio::spawn(async move { owner.watch_thread_index(index_rpc).await })
                 };
                 let _ = event_task.await;
+                source_task.abort(); let _ = source_task.await;
                 index_task.abort(); let _ = index_task.await;
                 Ok(())
             }
@@ -385,6 +498,8 @@ impl Core {
             }
             if let Err(e) = result {
                 if e.code != "CONFIG_RESTART" {
+                    *self.runtime_error.write().unwrap() =
+                        Some(json!({"code":e.code,"message":e.message}));
                     self.emit(
                         "error",
                         json!({"message":format!("Codex 尚未就绪（{}），正在重试",e.code)}),
@@ -401,15 +516,37 @@ impl Core {
     pub async fn dispatch(&self, r: &protocol::Request, device: &str) -> Result<Value> {
         let p = &r.payload;
         match r.action.as_str() {
+            "requests.status" => self.store.request_status(device, s(p, "requestId")),
             "system.hello" => Ok(
                 json!({"v":1,"hostId":self.store.meta("hostId")?,"serverVersion":"0.3.0","heartbeatSeconds":15}),
             ),
-            "system.capabilities" => Ok(crate::capabilities::describe_profile(
-                self.ready.load(Ordering::SeqCst),
-                self.verified.load(Ordering::SeqCst),
-                self.attached_runtime.load(Ordering::SeqCst),
-                *self.runtime_protocol.read().unwrap(),
-            )),
+            "system.capabilities" => {
+                let mut value = crate::capabilities::describe_profile(
+                    self.ready.load(Ordering::SeqCst),
+                    self.verified.load(Ordering::SeqCst),
+                    self.attached_runtime.load(Ordering::SeqCst),
+                    *self.runtime_protocol.read().unwrap(),
+                );
+                value["codexVersion"] = json!(self
+                    .runtime_version
+                    .read()
+                    .unwrap()
+                    .as_deref()
+                    .unwrap_or(""));
+                value["minimumCodexVersion"] = json!(codex::MIN_SUPPORTED_VERSION);
+                value["runtime"]["schemaBaseline"] =
+                    json!(self.runtime_protocol.read().unwrap().version());
+                Ok(value)
+            }
+            "system.updateCheck" => {
+                let status = crate::host::updates::status().await.map_err(|_| {
+                    Error::new(
+                        "UPDATE_CHECK_FAILED",
+                        "Cannot check the official Host release; retry later",
+                    )
+                })?;
+                Ok(status)
+            }
             "system.diagnostics" => {
                 let mut counts = json!({});
                 for table in ["projects", "sessions", "turns", "events", "devices"] {
@@ -425,7 +562,7 @@ impl Core {
                 )?["n"]
                     .clone();
                 Ok(
-                    json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":self.runtime_protocol.read().unwrap().version(),"nodeVersion":"Rust native (no Node runtime)","platform":"win32","upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
+                    json!({"at":now(),"bridgeVersion":"0.3.0","protocolVersion":1,"codexVersion":self.runtime_version.read().unwrap().as_deref().unwrap_or(""),"minimumCodexVersion":codex::MIN_SUPPORTED_VERSION,"nodeVersion":"Rust native (no Node runtime)","platform":std::env::consts::OS,"upstreamReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"cursor":self.store.cursor()?,"retention":self.store.retention(),"counts":counts}),
                 )
             }
             "settings.execution" => self.execution_config(p["projectId"].as_str()).await,
@@ -479,15 +616,29 @@ impl Core {
                 )
                 .await
             }
-            "projects.list" => Ok(json!({"projects":self.store.projects()?})),
+            "projects.list" => Ok(json!({"projects":self.store.visible_projects()?})),
             "projects.add" => {
-                self.emit("project.addRequest", json!({}));
-                Ok(json!({"status":"awaitingLocalConfirmation"}))
+                let indexed = self.sync_thread_index().await?;
+                self.publish();
+                Ok(
+                    json!({"status":"synced","indexed":indexed,"projects":self.store.visible_projects()?}),
+                )
             }
             "projects.remove" => {
-                self.store.project(s(p, "projectId"))?;
-                self.emit("project.removeRequest", json!({"projectId":p["projectId"]}));
-                Ok(json!({"status":"awaitingLocalConfirmation"}))
+                let _sync = self.thread_sync.try_lock().map_err(|_| {
+                    Error::new("CONFLICT", "Workspace sync in progress; retry removal")
+                })?;
+                {
+                    let busy = self.busy.lock().unwrap();
+                    ensure(
+                        busy.is_empty(),
+                        "CONFLICT",
+                        "Conversation operation in progress; retry removal",
+                    )?;
+                    paths::remove_local(&self.store, s(p, "projectId"))?;
+                }
+                self.publish();
+                Ok(json!({"status":"removed"}))
             }
             "queue.list" | "queue.add" | "queue.update" | "queue.delete" | "queue.reorder"
             | "queue.start" => {
@@ -495,7 +646,7 @@ impl Core {
                     .await
             }
             "sessions.list" => {
-                Ok(json!({"sessions":self.store.sessions(p["projectId"].as_str())?}))
+                Ok(json!({"sessions":self.store.visible_sessions(p["projectId"].as_str())?}))
             }
             "sessions.observe" => self.observe_session(s(p, "sessionId")).await,
             "sessions.history" => {
@@ -531,7 +682,11 @@ impl Core {
                 .await
             }
             "sessions.create" => {
-                Ok(json!({"session":self.create_session(s(p,"projectId"),s(p,"title")).await?}))
+                let project = s(p, "projectId");
+                if project == paths::CHAT_PROJECT {
+                    paths::chat_workspace(&self.store)?;
+                }
+                Ok(json!({"session":self.create_session(project,s(p,"title")).await?}))
             }
             "sessions.detail" => Ok(
                 json!({"session":self.store.session(s(p,"sessionId"))?,"turns":self.store.turns(Some(s(p,"sessionId")))?,"events":self.store.history(s(p,"sessionId"),p["before"].as_str(),p["limit"].as_u64().unwrap_or(100) as usize)?}),
@@ -580,16 +735,37 @@ impl Core {
                 p["limit"].as_u64().unwrap_or(100) as usize,
             ),
             "devices.revokeSelf" => {
-                Pairing::revoke(&self.store, device)?;
-                self.invalidate_approvals(true)?;
+                self.revoke_device(device)?;
                 Ok(json!({"revoked":true}))
             }
             _ => Err(Error::new("INVALID_REQUEST", "Unsupported action")),
         }
     }
+    pub fn revoke_device(&self, device: &str) -> Result<()> {
+        Pairing::revoke(&self.store, device)?;
+        self.authorization_changed.notify_waiters();
+        let authorized = self
+            .store
+            .query("SELECT deviceId FROM devices WHERE revokedAt IS NULL", [])?;
+        let any_connected = {
+            let connected = self.connected.lock().unwrap();
+            authorized
+                .iter()
+                .any(|row| connected.get(s(row, "deviceId")).copied().unwrap_or(0) > 0)
+        };
+        if !any_connected {
+            self.invalidate_approvals(true)?;
+        }
+        self.publish();
+        Ok(())
+    }
     pub async fn shutdown(&self) {
+        self.cloud.stop();
+        self.discovery.lock().unwrap().take();
         self.request_stop();
-        let _ = self.invalidate_approvals(true);
+        // Detaching this Host must not reject requests owned by the shared
+        // runtime. Expire only our local callbacks; other clients can decide.
+        let _ = self.invalidate_approvals(!self.attached_runtime.load(Ordering::SeqCst));
         if let Some(rpc) = self.rpc.read().unwrap().clone() {
             rpc.stop();
         }
@@ -650,6 +826,9 @@ pub async fn boundary(exe: &Path) -> Result<Value> {
     boundary_runtime(exe, &std::env::current_exe()?).await
 }
 pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
+    // Tests and diagnostics also call this directly, outside main's host gate.
+    // A low-integrity parent cannot launch MXC even from a normal terminal.
+    security::verify_host_integrity()?;
     // Keep the probe next to the app data instead of the system temp folder:
     // restricted Windows sessions can make %TEMP% read-only for the service.
     let base_root = std::env::var_os("AGENTDECK_DATA_DIR")
@@ -749,7 +928,7 @@ fn boundary_launch_error(stderr: &[u8]) -> Error {
     if message.contains("native mxc is unavailable on this executor") {
         Error::new(
             "SANDBOX_EXECUTOR_UNAVAILABLE",
-            "当前启动环境不支持 Windows MXC 隔离，请从普通 Windows Terminal 启动 AgentDeck",
+            "原生 Codex 无法在当前执行器启动 Windows MXC；请检查进程完整性、Windows MXC 支持及组织策略，切换终端不保证解决",
         )
     } else {
         Error::new(
@@ -759,21 +938,6 @@ fn boundary_launch_error(stderr: &[u8]) -> Error {
     }
 }
 
-#[cfg(test)]
-mod boundary_diagnostic_tests {
-    #[test]
-    fn classifies_executor_failure_without_exposing_diagnostics() {
-        let error = super::boundary_launch_error(
-            b"private-path secret=hidden native MXC is unavailable on this executor",
-        );
-        assert_eq!(error.code, "SANDBOX_EXECUTOR_UNAVAILABLE");
-        assert!(!error.message.contains("hidden"));
-        assert_eq!(
-            super::boundary_launch_error(b"unknown failure").code,
-            "SANDBOX_UNVERIFIED"
-        );
-    }
-}
 pub fn sandbox_probe(inside: &Path, outside: &Path) -> bool {
     let read = std::fs::read_to_string(inside.join("sentinel.txt")).is_ok_and(|v| v == "INSIDE");
     let write = std::fs::write(inside.join("written.txt"), "OK").is_ok();

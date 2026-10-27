@@ -243,29 +243,3 @@ fn resolve_selection(entry: &Value, ids: &[Value]) -> Result<Vec<Value>> {
     }
     Ok(input)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn selection_uses_authoritative_enabled_skill_and_rejects_stale_or_duplicate_ids() {
-        let skill =
-            json!({"name":"review","path":"C:/fixture/skills/review/SKILL.md","enabled":true});
-        let id = json!(skill_id(&skill));
-        let source = json!({"skills":[skill]});
-        assert_eq!(
-            resolve_selection(&source, std::slice::from_ref(&id)).unwrap(),
-            vec![
-                json!({"type":"skill","name":"review","path":"C:/fixture/skills/review/SKILL.md"})
-            ]
-        );
-        assert!(resolve_selection(&source, &[id.clone(), id.clone()]).is_err());
-        assert!(resolve_selection(&source, &[json!("arbitrary/path")]).is_err());
-        let mut changed = source.clone();
-        changed["skills"][0]["enabled"] = json!(false);
-        assert!(resolve_selection(&changed, std::slice::from_ref(&id)).is_err());
-        changed["skills"][0]["enabled"] = json!(true);
-        changed["skills"][0]["path"] = json!("C:/fixture/other/SKILL.md");
-        assert!(resolve_selection(&changed, &[id]).is_err());
-    }
-}

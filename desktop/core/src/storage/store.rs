@@ -5,6 +5,8 @@ use std::{path::Path, sync::Mutex};
 use tokio::sync::broadcast;
 
 pub struct Store {
+    pub(crate) state_directory: std::path::PathBuf,
+    pub(super) attachment_lock: Mutex<()>,
     db: Mutex<Connection>,
     pub events: broadcast::Sender<Value>,
 }
@@ -17,6 +19,11 @@ impl Store {
         db.execute_batch(include_str!("schema.sql"))?;
         let (events, _) = broadcast::channel(512);
         let store = Self {
+            attachment_lock: Mutex::new(()),
+            state_directory: crate::paths::canonical(path)?
+                .parent()
+                .ok_or_else(|| Error::new("CONFIG_ERROR", "Missing state directory"))?
+                .to_path_buf(),
             db: Mutex::new(db),
             events,
         };
@@ -81,6 +88,54 @@ impl Store {
             r["enabled"] = json!(true);
         }
         Ok(rows)
+    }
+    /// Presentation follows the native catalog; filesystem grants remain intact.
+    pub fn visible_projects(&self) -> Result<Vec<Value>> {
+        Ok(self.catalog_view(self.projects()?, Vec::new())?.0)
+    }
+    pub fn visible_sessions(&self, project: Option<&str>) -> Result<Vec<Value>> {
+        Ok(self.catalog_view(Vec::new(), self.sessions(project)?)?.1)
+    }
+    fn catalog_view(
+        &self,
+        projects: Vec<Value>,
+        mut sessions: Vec<Value>,
+    ) -> Result<(Vec<Value>, Vec<Value>)> {
+        let Some(text) = self.meta("codexCatalog")? else {
+            return Ok((projects, sessions));
+        };
+        let catalog: Value = serde_json::from_str(&text)
+            .map_err(|_| Error::new("DATABASE_ERROR", "Invalid Codex catalog"))?;
+        let hidden: std::collections::HashSet<&str> = catalog["hiddenThreads"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        sessions.retain(|session| !hidden.contains(s(session, "upstreamThreadId")));
+        let Some(order) = catalog["projects"].as_array() else {
+            return Ok((projects, sessions));
+        };
+        let mut visible = Vec::new();
+        for entry in order {
+            if let Some(project) = projects
+                .iter()
+                .find(|project| project["projectId"] == entry["projectId"])
+            {
+                let mut project = project.clone();
+                if entry["name"].as_str().is_some_and(|name| !name.is_empty()) {
+                    project["name"] = entry["name"].clone();
+                }
+                visible.push(project);
+            }
+        }
+        // This internal execution scope is not a sidebar project.
+        visible.extend(
+            projects
+                .into_iter()
+                .filter(|project| s(project, "projectId") == crate::paths::CHAT_PROJECT),
+        );
+        Ok((visible, sessions))
     }
     /// Reuse a concurrent upstream-index import of this exact new thread.
     pub(crate) fn index_fork(
@@ -240,14 +295,13 @@ impl Store {
     pub(crate) fn apply_thread_index(
         &self,
         entries: &[crate::thread_index::ThreadIndexEntry],
+        project_catalog: Option<&[Value]>,
     ) -> Result<usize> {
-        if entries.is_empty() {
-            return Ok(0);
-        }
         let (event, indexed) = {
             let mut db = self.db.lock().unwrap();
             let tx = db.transaction()?;
             let mut indexed = 0;
+            let mut content_sessions = Vec::new();
             for entry in entries {
                 let deleted: bool = tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM thread_deletions WHERE threadId=?)",
@@ -276,9 +330,27 @@ impl Store {
                 let external_status = s(&entry.metadata["status"], "type");
                 let unknown = !["idle", "notLoaded"].contains(&external_status);
                 let id = if let Some(existing) = rows.first() {
+                    let current_seq = existing["eventSeq"].as_i64();
+                    let mut revision_matches = entry.expected_event_seq == current_seq;
+                    if !revision_matches {
+                        if let (Some(before), Some(current)) =
+                            (entry.expected_event_seq, current_seq)
+                        {
+                            // Streaming item output does not change index metadata.
+                            // Require the complete intervening journal so retention
+                            // gaps or any control/metadata event still reject it.
+                            let (count, changes): (i64, i64) = tx.query_row(
+                                "SELECT COUNT(*),COALESCE(SUM(CASE WHEN action IN ('session.tokenUsage','session.contentChanged') OR (action='turn.progress' AND (json_extract(payloadJson,'$.method') LIKE 'item/%' OR json_extract(payloadJson,'$.method')='turn/plan/updated')) THEN 0 ELSE 1 END),0) FROM events WHERE sessionId=? AND seq>? AND seq<=?",
+                                params![s(existing, "sessionId"), before, current],
+                                |row| Ok((row.get(0)?, row.get(1)?)),
+                            )?;
+                            revision_matches =
+                                current > before && count == current - before && changes == 0;
+                        }
+                    }
                     ensure(
                         existing["projectId"] == entry.project_id
-                            && entry.expected_event_seq == existing["eventSeq"].as_i64()
+                            && revision_matches
                             && entry.expected_updated_at.as_deref()
                                 == existing["updatedAt"].as_str(),
                         "SYNC_CONFLICT",
@@ -286,6 +358,9 @@ impl Store {
                     )?;
                     let id = s(existing, "sessionId").to_owned();
                     let active = Self::query_db(&tx, "SELECT turnId FROM turns WHERE sessionId=? AND status IN ('queued','running','waitingApproval','unknown') LIMIT 1", [&id])?;
+                    if active.is_empty() && entry.updated_at.as_str() > s(existing, "updatedAt") {
+                        content_sessions.push(id.clone());
+                    }
                     let status = if !active.is_empty() {
                         s(existing, "status")
                     } else if unknown {
@@ -321,12 +396,23 @@ impl Store {
                 tx.execute("INSERT INTO session_options(sessionId,archived,model,effort) VALUES(?1,?2,COALESCE(?3,''),?4) ON CONFLICT(sessionId) DO UPDATE SET archived=excluded.archived,model=CASE WHEN ?3 IS NOT NULL THEN excluded.model ELSE session_options.model END,effort=CASE WHEN ?5 THEN excluded.effort ELSE session_options.effort END", params![id,entry.archived,entry.metadata["model"].as_str(),entry.metadata["reasoningEffort"].as_str().unwrap_or(""),entry.metadata.get("reasoningEffort").is_some()])?;
                 tx.execute("INSERT INTO session_metadata VALUES(?,?,?) ON CONFLICT(sessionId) DO UPDATE SET upstreamJson=excluded.upstreamJson,syncedAt=excluded.syncedAt", params![id,entry.metadata.to_string(),now()])?;
             }
-            if indexed == 0 {
-                return Ok(0);
-            }
+            // Commit membership only after every source page and revision check
+            // succeeded. Missing threads are hidden, never erased or archived.
+            let present: std::collections::HashSet<&str> = entries
+                .iter()
+                .map(|entry| entry.thread_id.as_str())
+                .collect();
+            let known = Self::query_db(&tx, "SELECT upstreamThreadId FROM sessions s WHERE NOT EXISTS(SELECT 1 FROM turns t WHERE t.sessionId=s.sessionId AND t.status IN ('queued','running','waitingApproval','unknown'))", [])?;
+            let hidden: Vec<_> = known
+                .iter()
+                .map(|row| s(row, "upstreamThreadId"))
+                .filter(|id| !present.contains(id))
+                .collect();
+            let catalog = json!({"projects":project_catalog,"hiddenThreads":hidden});
+            tx.execute("INSERT INTO meta(key,value) VALUES('codexCatalog',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [catalog.to_string()])?;
             let seq:i64 = tx.query_row("INSERT INTO event_sequences(sessionKey,seq) VALUES('',1) ON CONFLICT(sessionKey) DO UPDATE SET seq=seq+1 RETURNING seq", [], |r| r.get(0))?;
             let ts = now();
-            let payload = json!({"indexed":indexed});
+            let payload = json!({"indexed":indexed,"contentSessionIds":content_sessions});
             tx.execute("INSERT INTO events(sessionId,turnId,seq,action,payloadJson,ts) VALUES(NULL,NULL,?,'sessions.synced',?,?)",params![seq,payload.to_string(),ts])?;
             let event_id = tx.last_insert_rowid().to_string();
             tx.commit()?;
@@ -608,7 +694,8 @@ impl Store {
         tx.execute("UPDATE requests SET responseJson=NULL,status='unknown' WHERE createdAt<? AND responseJson IS NOT NULL",[&cutoff])?;
         tx.execute("DELETE FROM requests WHERE deviceId IN (SELECT deviceId FROM devices WHERE revokedAt IS NOT NULL AND revokedAt<?)",[cutoff])?;
         tx.commit()?;
-        Ok(())
+        drop(db);
+        self.retain_attachments()
     }
     pub fn reserve(
         &self,
@@ -660,6 +747,42 @@ impl Store {
         tx.commit()?;
         Ok(None)
     }
+    pub fn request_status(&self, device: &str, request_id: &str) -> Result<Value> {
+        let rows = self.query(
+            "SELECT status,responseJson,createdAt FROM requests WHERE deviceId=? AND requestId=?",
+            [device, request_id],
+        )?;
+        let Some(row) = rows.into_iter().next() else {
+            return Ok(json!({"requestId":request_id,"status":"notFound","response":null}));
+        };
+        let response = row["responseJson"]
+            .as_str()
+            .and_then(|v| serde_json::from_str::<Value>(v).ok());
+        Ok(
+            json!({"requestId":request_id,"status":row["status"],"createdAt":row["createdAt"],"response":response}),
+        )
+    }
+    /// Add one independently revocable device without changing existing grants.
+    pub fn add_device(&self, id: &str, name: &str, hash: &str) -> Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM devices WHERE revokedAt IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        ensure(
+            count < 64,
+            "DEVICE_LIMIT",
+            "Revoke an unused device before pairing another",
+        )?;
+        tx.execute(
+            "INSERT INTO devices(deviceId,displayName,credentialHash,createdAt,revokedAt) VALUES(?,?,?,?,NULL)",
+            params![id, name, hash, now()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
     pub fn replace_device(&self, id: &str, name: &str, hash: &str) -> Result<()> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction()?;
@@ -699,9 +822,84 @@ impl Store {
             .map(|r| self.public_approval(r))
             .collect::<Result<_>>()?;
         tx.commit()?;
+        drop(db);
+        let (projects, sessions) = self.catalog_view(projects, sessions)?;
         Ok(
             json!({"cursor":cursor[0]["id"].as_i64().unwrap_or(0).to_string(),"host":{"hostId":host[0]["value"],"status":if ready{"connected"}else{"disconnected"},"codexVersion":crate::codex::VERSION},"projects":projects,"sessions":sessions,"turns":turns,"approvals":approvals}),
         )
     }
 }
 use rusqlite::OptionalExtension;
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+    use crate::thread_index::ThreadIndexEntry;
+
+    #[test]
+    fn native_catalog_hides_stale_rows_preserves_archives_and_commits_empty_views() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(&directory.path().join("catalog.db")).unwrap();
+        for id in ["current", "old"] {
+            store
+                .exec(
+                    "INSERT INTO projects VALUES(?,?,?,?,1,?)",
+                    params![
+                        id,
+                        id,
+                        directory.path().join(id).to_string_lossy(),
+                        id,
+                        now()
+                    ],
+                )
+                .unwrap();
+        }
+        for (id, project) in [("archived", "current"), ("removed", "old")] {
+            store
+                .exec(
+                    "INSERT INTO sessions VALUES(?,?,?,?,?,?,?)",
+                    params![id, project, id, id, "idle", now(), now()],
+                )
+                .unwrap();
+        }
+        let archived = store.session("archived").unwrap();
+        let entry = ThreadIndexEntry {
+            project_id: "current".into(),
+            thread_id: "archived".into(),
+            title: "Archived in Codex".into(),
+            created_at: s(&archived, "createdAt").into(),
+            updated_at: s(&archived, "updatedAt").into(),
+            archived: true,
+            metadata: json!({"status":{"type":"idle"}}),
+            expected_updated_at: Some(s(&archived, "updatedAt").into()),
+            expected_event_seq: Some(0),
+        };
+        store
+            .apply_thread_index(
+                &[entry],
+                Some(&[json!({"projectId":"current","name":"Native name"})]),
+            )
+            .unwrap();
+        assert_eq!(store.visible_projects().unwrap().len(), 1);
+        assert_eq!(store.visible_projects().unwrap()[0]["name"], "Native name");
+        let sessions = store.visible_sessions(None).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0]["archived"], 1);
+        assert_eq!(
+            store.sessions(None).unwrap().len(),
+            2,
+            "Presentation must not erase history"
+        );
+        assert!(
+            store.project("old").is_ok(),
+            "Presentation must not revoke grants"
+        );
+        let snapshot = store.snapshot(true).unwrap();
+        assert_eq!(snapshot["projects"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["sessions"].as_array().unwrap().len(), 1);
+        store.apply_thread_index(&[], Some(&[])).unwrap();
+        assert!(store.visible_projects().unwrap().is_empty());
+        assert!(store.visible_sessions(None).unwrap().is_empty());
+        assert_eq!(store.sessions(None).unwrap().len(), 2);
+    }
+}

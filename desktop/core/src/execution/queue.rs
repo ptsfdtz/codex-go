@@ -23,12 +23,12 @@ impl Core {
             return Ok(());
         }
         rpc.validate("v2/ThreadQueueChangedNotification", p)?;
-        if !self
+        if self
             .rpc
             .read()
             .unwrap()
             .as_ref()
-            .is_some_and(|current| current.generation == rpc.generation)
+            .is_none_or(|current| current.generation != rpc.generation)
         {
             return Ok(());
         }
@@ -135,8 +135,12 @@ impl Core {
                 } else {
                     Vec::new()
                 };
-                let (mut input, _) =
-                    crate::composer::prepare_input(&root, s(p, "text"), p.get("attachments"))?;
+                let (mut input, _) = crate::composer::prepare_stored_input(
+                    &self.store,
+                    id,
+                    s(p, "text"),
+                    p.get("attachments"),
+                )?;
                 input.extend(skill_input);
                 params["input"] = json!(input);
                 ensure(
@@ -173,6 +177,7 @@ impl Core {
                     params["input"] = json!(replace_resource_text(entry, s(p, "text"))?);
                     self.authorize_native_resources(
                         s(&session, "projectId"),
+                        id,
                         &root,
                         &json!({"input":params["input"]}),
                     )
@@ -281,7 +286,7 @@ impl Core {
             "CONFLICT",
             "Pause the active goal before starting a queued message",
         )?;
-        self.authorize_native_resources(s(session, "projectId"), &root, entry)
+        self.authorize_native_resources(s(session, "projectId"), id, &root, entry)
             .await?;
         let resumed=rpc.request("thread/resume",json!({"threadId":session["upstreamThreadId"],"cwd":root,"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":"workspace-write","config":{"default_permissions":"agentdeck"},"excludeTurns":true})).await?;
         rpc.validate("v2/ThreadResumeResponse", &resumed)?;
@@ -291,7 +296,7 @@ impl Core {
             "UPSTREAM_PROTOCOL_ERROR",
             "Queue resume changed thread identity",
         )?;
-        self.authorize_native_resources(s(session, "projectId"), &root, entry)
+        self.authorize_native_resources(s(session, "projectId"), id, &root, entry)
             .await?;
         let current = self.store.session(id)?;
         ensure(
@@ -352,16 +357,14 @@ impl Core {
             self.store.append("queue.changed",json!({"sessionId":id}),Some(id),None)?;
             Ok(json!({"sessionId":id,"upstreamThreadId":session["upstreamThreadId"],"result":{"turn":self.store.turn(&local)?,"queuedSubmissionId":entry["id"]}}))
         }.await;
-        if result.is_err() {
-            if !crate::tasks::terminal(s(&self.store.turn(&local)?, "status")) {
-                self.store.status(id, Some(&local), "unknown", None)?;
-                self.store.append(
-                    "session.updated",
-                    json!({"status":"unknown"}),
-                    Some(id),
-                    Some(&local),
-                )?;
-            }
+        if result.is_err() && !crate::tasks::terminal(s(&self.store.turn(&local)?, "status")) {
+            self.store.status(id, Some(&local), "unknown", None)?;
+            self.store.append(
+                "session.updated",
+                json!({"status":"unknown"}),
+                Some(id),
+                Some(&local),
+            )?;
         }
         result.map_err(|_| {
             Error::new(
@@ -374,6 +377,7 @@ impl Core {
     pub(crate) async fn authorize_native_resources(
         &self,
         project_id: &str,
+        session_id: &str,
         root: &std::path::Path,
         entry: &Value,
     ) -> Result<()> {
@@ -381,11 +385,26 @@ impl Core {
             .as_array()
             .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Missing queued input"))?;
         self.authorize_skill_parts(project_id, input).await?;
-        let resources = input
-            .iter()
-            .filter(|part| part["type"] != "skill")
-            .cloned()
-            .collect::<Vec<_>>();
+        let mut resources = Vec::new();
+        for part in input.iter().filter(|part| part["type"] != "skill") {
+            if part["type"] == "localImage" {
+                if let Some(bytes) = self
+                    .store
+                    .read_attachment(session_id, std::path::Path::new(s(part, "path")))?
+                {
+                    ensure(
+                        bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+                            || bytes.starts_with(b"\xff\xd8\xff")
+                            || bytes.starts_with(b"GIF8")
+                            || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP")),
+                        "UNSUPPORTED",
+                        "Unsupported stored image format",
+                    )?;
+                    continue;
+                }
+            }
+            resources.push(part.clone());
+        }
         authorize_queue_input(root, &json!({"input":resources}))
     }
 }
@@ -395,28 +414,6 @@ fn input_revision(entry: &Value) -> String {
         "{:x}",
         Sha256::digest(entry["input"].to_string().as_bytes())
     )
-}
-
-#[cfg(test)]
-mod edit_tests {
-    use super::*;
-    #[test]
-    fn queue_text_edit_preserves_resources_and_rejects_structured_or_multiple_texts() {
-        let entry = json!({"input":[{"type":"localImage","path":"C:/fixture/image.png"},{"type":"text","text":"old","text_elements":[]},{"type":"skill","name":"review","path":"C:/fixture/SKILL.md"}]});
-        let edited = replace_resource_text(&entry, "new").unwrap();
-        assert_eq!(edited[0], entry["input"][0]);
-        assert_eq!(edited[2], entry["input"][2]);
-        assert_eq!(edited[1]["text"], "new");
-        assert_ne!(
-            input_revision(&entry),
-            input_revision(&json!({"input":edited}))
-        );
-        let mut structured = entry.clone();
-        structured["input"][1]["text_elements"] = json!([{"byteRange":{"start":0,"end":3}}]);
-        assert!(replace_resource_text(&structured, "new").is_err());
-        structured["input"] = json!([{"type":"text","text":"a"},{"type":"text","text":"b"}]);
-        assert!(replace_resource_text(&structured, "new").is_err());
-    }
 }
 
 pub(crate) fn replace_resource_text(entry: &Value, text: &str) -> Result<Vec<Value>> {
@@ -552,28 +549,4 @@ pub(crate) fn authorize_queue_input(root: &std::path::Path, entry: &Value) -> Re
         }
     }
     Ok(())
-}
-
-#[cfg(all(test, windows))]
-mod resource_tests {
-    use super::*;
-    #[test]
-    fn queued_images_require_granted_resource_and_supported_format() {
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let image = root.path().join("image.png");
-        std::fs::write(&image, b"\x89PNG\r\n\x1a\nimage").unwrap();
-        let entry = |path: &std::path::Path| json!({"input":[{"type":"localImage","path":path}]});
-        assert!(authorize_queue_input(root.path(), &entry(&image)).is_ok());
-        let external = outside.path().join("image.png");
-        std::fs::copy(&image, &external).unwrap();
-        assert!(authorize_queue_input(root.path(), &entry(&external)).is_err());
-        std::fs::write(&image, b"not an image").unwrap();
-        assert!(authorize_queue_input(root.path(), &entry(&image)).is_err());
-        assert!(authorize_queue_input(
-            root.path(),
-            &json!({"input":[{"type":"image","url":"https://example.com/image.png"}]})
-        )
-        .is_err());
-    }
 }

@@ -152,7 +152,16 @@ impl Core {
             "WORKSPACE_FORBIDDEN",
             "Thread identity or workspace changed",
         )?;
-        let turns = rpc.request("thread/turns/list",json!({"threadId":session["upstreamThreadId"],"limit":1,"sortDirection":"desc","itemsView":"notLoaded"})).await?;
+        let turns = match rpc.request("thread/turns/list",json!({"threadId":session["upstreamThreadId"],"limit":1,"sortDirection":"desc","itemsView":"notLoaded"})).await {
+            Ok(turns) => turns,
+            Err(error) if super::history::missing_history_source(&error, s(&session, "upstreamThreadId")) => {
+                if let Some(thread) = self.read_fresh_empty_thread(&rpc, session_id, s(&session, "upstreamThreadId"), &root).await? {
+                    return Ok(json!({"contractVersion":1,"sessionId":session_id,"upstreamThreadId":session["upstreamThreadId"],"threadStatus":thread["status"]["type"],"turn":null}));
+                }
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
         rpc.validate("v2/ThreadTurnsListResponse", &turns)?;
         let data = turns["data"].as_array().unwrap();
         ensure(
@@ -185,6 +194,33 @@ impl Core {
             "UPSTREAM_UNAVAILABLE",
             "Runtime changed during turn read",
         )?;
+        // Notifications can be lost across a disconnect. Reconcile only the
+        // exact native identity returned by the authority, never an error message
+        // or an interrupt acknowledgement. Keep unbound/older unknown sends blocked.
+        if let Some(turn) = data
+            .first()
+            .filter(|turn| crate::tasks::terminal(s(turn, "status")))
+        {
+            let local = self.store.query(
+                "SELECT turnId FROM turns WHERE sessionId=? AND upstreamTurnId=? AND status IN ('running','waitingApproval','unknown')",
+                [session_id, s(turn, "id")],
+            )?;
+            if !local.is_empty() {
+                self.notification(&rpc, &json!({"method":"turn/completed","params":{"threadId":session["upstreamThreadId"],"turn":turn}}))?;
+            }
+        }
+        if ["idle", "notLoaded"].contains(&s(&thread["thread"]["status"], "type"))
+            && data
+                .first()
+                .is_none_or(|turn| crate::tasks::terminal(s(turn, "status")))
+        {
+            // Imported threads may have no local turn. Do not clear a queued,
+            // unbound or concurrently updated operation while repairing its cache.
+            self.store.exec(
+                "UPDATE sessions SET status='idle' WHERE sessionId=? AND upstreamThreadId=? AND updatedAt=? AND status IN ('unknown','running','waitingApproval') AND NOT EXISTS (SELECT 1 FROM turns WHERE sessionId=? AND status IN ('queued','running','waitingApproval','unknown'))",
+                rusqlite::params![session_id, session["upstreamThreadId"].as_str(), session["updatedAt"].as_str(), session_id],
+            )?;
+        }
         let latest = data
             .first()
             .map(|turn| json!({"upstreamTurnId":turn["id"],"status":turn["status"]}));

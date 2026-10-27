@@ -8,11 +8,12 @@ pub(crate) use projects::native_project_views;
 pub use projects::{git, paths};
 mod server;
 mod settings;
-pub use server::{capabilities, pairing, protocol, service, transport};
+pub use server::{capabilities, cloud, management, pairing, protocol, service, transport};
 mod storage;
 pub use storage::store;
 mod authorization;
 pub use authorization::security;
+pub mod host;
 use serde_json::{json, Value};
 use std::fmt;
 

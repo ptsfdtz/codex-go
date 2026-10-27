@@ -21,7 +21,12 @@ async fn run() -> Result<()> {
     let protocol = target.protocol();
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let version = args == ["--version"] || args == ["-V"];
-    let startup = if version {
+    // The desktop's node_repl uses CODEX_CLI_PATH for its native sandbox
+    // kernel too. Delegate that helper verbatim; it creates no app-server or
+    // conversation, and the native sandbox remains responsible for policy.
+    let sandbox = args.first().is_some_and(|arg| arg == "sandbox");
+    let policy = agentdeck_service::desktop_stdio::is_startup_policy_command(&args)?;
+    let startup = if version || policy || sandbox {
         None
     } else {
         Some(Startup::parse(&args)?)
@@ -33,7 +38,50 @@ async fn run() -> Result<()> {
         )
     })?;
     if version {
-        println!("codex-cli {}", protocol.version());
+        println!(
+            "codex-cli {}",
+            agentdeck_service::codex::executable_version(&manifest.native_executable)?
+        );
+        return Ok(());
+    }
+    if sandbox {
+        let mut command = tokio::process::Command::new(&manifest.native_executable);
+        command
+            .args(&args)
+            .env_remove("CODEX_CLI_PATH")
+            .env_remove("AGENTDECK_DESKTOP_LAUNCH_STATUS")
+            .env_remove("AGENTDECK_DESKTOP_LAUNCH_THREAD")
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .kill_on_drop(true);
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+        let status = command.status().await?;
+        if !status.success() {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        return Ok(());
+    }
+    if policy {
+        let mut command = tokio::process::Command::new(&manifest.native_executable);
+        command
+            .args(&args)
+            .env_remove("CODEX_CLI_PATH")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .kill_on_drop(true);
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+        let status = tokio::time::timeout(std::time::Duration::from_secs(30), command.status())
+            .await
+            .map_err(|_| {
+                agentdeck_service::Error::new("PROXY_IO_TIMEOUT", "Native startup policy timed out")
+            })??;
+        if !status.success() {
+            std::process::exit(status.code().unwrap_or(1));
+        }
         return Ok(());
     }
     relay(

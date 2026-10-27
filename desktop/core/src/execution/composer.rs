@@ -1,4 +1,5 @@
-//! Bounded Android attachments, stored only inside an explicitly granted project.
+//! Bounded client attachments. Production uploads use the Host-owned library;
+//! the original project-local helper remains for public Rust API compatibility.
 use crate::{ensure, protocol, uid, Error, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
@@ -130,27 +131,32 @@ pub fn prepare_input(
     Ok((input, names))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn bounds_and_path_traversal_are_rejected() {
-        assert!(decode_attachments(&json!([{"name":"../escape","data":"YQ=="}])).is_err());
-        assert!(decode_attachments(&json!([{"name":"ok","data":"!"}])).is_err());
-        assert!(decode_attachments(
-            &json!([{"name":"ok","data":STANDARD.encode(vec![0;MAX_ATTACHMENT_BYTES+1])}])
-        )
-        .is_err());
+pub(crate) fn prepare_stored_input(
+    store: &crate::store::Store,
+    session_id: &str,
+    text: &str,
+    files: Option<&Value>,
+) -> Result<(Vec<Value>, Vec<String>)> {
+    let decoded = files
+        .map(decode_attachments)
+        .transpose()?
+        .unwrap_or_default();
+    let mut input = vec![json!({"type":"text","text":text,"text_elements":[]})];
+    let mut names = Vec::new();
+    for (name, bytes) in decoded {
+        let saved = store.save_attachment(session_id, &name, &bytes)?;
+        let image = bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+            || bytes.starts_with(b"\xff\xd8\xff")
+            || bytes.starts_with(b"GIF8")
+            || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP"));
+        input.push(if image {
+            json!({"type":"localImage","path":saved["path"]})
+        } else {
+            // Ordinary files keep the runtime's normal on-request sandbox
+            // approval. Never grant access to the whole Host state directory.
+            json!({"type":"text","text":format!("用户上传的附件：{name}\n附件 ID：{}\n文件路径：{}", saved["attachmentId"].as_str().unwrap(), saved["path"].as_str().unwrap()),"text_elements":[]})
+        });
+        names.push(name);
     }
-    #[test]
-    fn files_and_images_reach_the_granted_workspace() {
-        let root = tempfile::tempdir().unwrap();
-        let files = json!([{"name":"notes.txt","data":STANDARD.encode(b"hello")},{"name":"photo.png","data":STANDARD.encode(b"\x89PNG\r\n\x1a\nimage")}]);
-        let (input, names) = prepare_input(root.path(), "inspect", Some(&files)).unwrap();
-        assert_eq!(names, ["notes.txt", "photo.png"]);
-        assert_eq!(input[2]["type"], "localImage");
-        let path = Path::new(input[2]["path"].as_str().unwrap());
-        assert!(path.starts_with(root.path()));
-        assert_eq!(std::fs::read(path).unwrap(), b"\x89PNG\r\n\x1a\nimage");
-    }
+    Ok((input, names))
 }

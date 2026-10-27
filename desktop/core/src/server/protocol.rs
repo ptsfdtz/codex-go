@@ -1,4 +1,4 @@
-//! Android protocol v1. This is intentionally separate from Codex JSON-RPC.
+//! Client connection protocol v1. This is intentionally separate from Codex JSON-RPC.
 use crate::{ensure, Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -73,6 +73,7 @@ pub fn parse(v: Value) -> Result<Request> {
     let (required, optional): (&[&str], &[&str]) = match r.action.as_str() {
         "system.hello" => (&["client", "version"], &[]),
         "system.capabilities"
+        | "system.updateCheck"
         | "system.diagnostics"
         | "snapshot.get"
         | "models.list"
@@ -80,6 +81,7 @@ pub fn parse(v: Value) -> Result<Request> {
         | "projects.add"
         | "settings.get"
         | "devices.revokeSelf" => (&[], &[]),
+        "requests.status" => (&["requestId"], &[]),
         "sessions.refreshIndex" => (&["contractVersion"], &[]),
         "projects.nativePage" => (&["contractVersion"], &["cursor", "limit"]),
         "settings.update" => (&["days", "maxMiB"], &[]),
@@ -222,6 +224,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "lastTurnId",
         "beforeTurnId",
         "expectedLastTurnId",
+        "requestId",
     ] {
         if p.get(key).is_some() {
             text(p, key, 1, 160)?;
