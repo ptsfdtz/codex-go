@@ -29,13 +29,12 @@ import { Composer } from './features/Composer';
 import { ApprovalCard, AsyncQuestions } from './features/Questions';
 import { ComposerStatus } from './features/ComposerStatus';
 import { TurnChanges } from './features/TurnChanges';
+import { ProjectOverview } from './features/project-overview/ProjectOverview';
 import { projectRelativePath } from './features/turn-changes';
 import { turnOptions, resources } from './features/composer-input';
 import {
   SessionPanel,
   GoalPanel,
-  FilesPanel,
-  GitPanel,
   SkillsPanel,
   QueuePanel,
   ProjectsPanel,
@@ -85,6 +84,7 @@ import { InstallApp } from './features/InstallApp';
 import { AppUpdates } from './features/AppUpdates';
 import { SettingsLayout } from './features/SettingsLayout';
 import { HostUpdates } from './features/HostUpdates';
+import { FileWorkspace } from './features/files/FileWorkspace';
 import { usePreference } from './features/preferences';
 import {
   readComposerPreferences,
@@ -243,10 +243,27 @@ export function App() {
   const [observedUsage, setObservedUsage] =
     useState<Parameters<typeof ComposerStatus>[0]['observedUsage']>();
   const [filePath, setFilePath] = useState<string>();
+  const [fileWorkspaceOpen, setFileWorkspaceOpen] = useState(false);
+  const [fileWorkspaceSeen, setFileWorkspaceSeen] = useState(false);
+  const [fileWorkspaceWide, setFileWorkspaceWide] = useState(false);
+  const [fileWorkspaceView, setFileWorkspaceView] = useState<'files' | 'changes'>('files');
+  const [fileTargetProject, setFileTargetProject] = useState('');
+  const [fileOpenToken, setFileOpenToken] = useState(0);
+  const [filePaneWidth, setFilePaneWidth] = usePreference(
+    'agentdeck.web.filePaneWidth',
+    '60',
+    (value): value is string =>
+      typeof value === 'string' && Number(value) >= 35 && Number(value) <= 75,
+  );
   const reconnect = useRef<ReconnectLoop>(undefined);
   const connectRef = useRef<(h: Host) => void>(undefined);
   const hostRef = useRef(host);
   hostRef.current = host;
+  useEffect(() => {
+    setFileTargetProject('');
+    setFilePath(undefined);
+    setFileWorkspaceView('files');
+  }, [scope, host?.hostId, selectedProject]);
   function hostName(item: Host) {
     const label =
       item.hostId === host?.hostId
@@ -1409,8 +1426,19 @@ export function App() {
       setError('该文件不在当前授权项目中，无法预览');
       return;
     }
-    setFilePath(relative);
-    setPanel('files');
+    showFiles(relative);
+  }
+  function showFiles(path?: string, view: 'files' | 'changes' = 'files') {
+    setFileTargetProject(selectedProject);
+    setFilePath(path);
+    setFileWorkspaceView(view);
+    setFileOpenToken((value) => value + 1);
+    setFileWorkspaceSeen(true);
+    setFileWorkspaceOpen(true);
+    setPanel('');
+    setMenu(false);
+    setWorkspaceMenu(false);
+    if (matchMedia('(max-width:1300px)').matches) setSidebarOpen(false);
   }
   function openAgent(id: string) {
     const item = snapshot.sessions?.find((s) => s.upstreamThreadId === id);
@@ -1422,7 +1450,10 @@ export function App() {
       setError('普通聊天不使用项目文件、技能或任务目标。请先切换到项目。');
       return;
     }
-    setFilePath(undefined);
+    if (name === 'files' || name === 'git') {
+      showFiles(undefined, name === 'git' ? 'changes' : 'files');
+      return;
+    }
     setMenu(false);
     setWorkspaceMenu(false);
     if (name === 'manage') setManageSession(current);
@@ -1592,10 +1623,14 @@ export function App() {
   if (signedIn === null) return <main className="center">加载中…</main>;
   if (!signedIn) return <Login onLogin={() => location.reload()} />;
   if (mustChangePassword) return <AccountPassword />;
+  const filesVisible = fileWorkspaceOpen && connected && !!selectedProject && !chat;
   return (
-    <div className={`shell ${sidebarOpen ? 'with-sidebar' : ''}`}>
+    <div
+      className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${filesVisible ? 'has-file-workspace' : ''}`}
+    >
       <Sidebar
         sessions={snapshot.sessions || []}
+        connected={connected}
         projects={projects}
         chatAvailable={connected && supports('projectlessChat')}
         onChat={() => {
@@ -1631,540 +1666,647 @@ export function App() {
         filter={filter}
         setFilter={setFilter}
       />
-      <section className="conversation" ref={conversationElement}>
-        <header className="topbar">
-          <IconButton
-            icon={Menu}
-            label="打开会话列表"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className={sidebarOpen ? 'rail-toggle' : ''}
-          />
-          <div className="workspace-anchor">
-            <button
-              className="workspace-title"
-              aria-label="切换项目"
-              aria-expanded={workspaceMenu}
-              onClick={() => setWorkspaceMenu(!workspaceMenu)}
+      <section
+        className={`conversation-layout ${filesVisible ? 'with-file-workspace' : ''} ${fileWorkspaceWide ? 'file-workspace-wide' : ''}`}
+        ref={conversationElement}
+        style={{ '--file-pane-width': `${filePaneWidth}%` } as React.CSSProperties}
+      >
+        <section className="conversation">
+          <header className="topbar">
+            <IconButton
+              icon={Menu}
+              label="打开会话列表"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className={sidebarOpen ? 'rail-toggle' : ''}
+            />
+            <div className="workspace-anchor">
+              <button
+                className="workspace-title"
+                aria-label="切换项目"
+                aria-expanded={workspaceMenu}
+                onClick={() => setWorkspaceMenu(!workspaceMenu)}
+              >
+                <span>
+                  {current
+                    ? current.title || '未命名会话'
+                    : chat
+                      ? '普通聊天'
+                      : projects.find((p) => p.projectId === selectedProject)?.name || '选择项目'}
+                </span>
+                <ChevronDown size={16} />
+              </button>
+              <MotionPresence>
+                {workspaceMenu && (
+                  <>
+                    <button
+                      className="menu-scrim"
+                      aria-label="关闭项目菜单"
+                      onClick={() => setWorkspaceMenu(false)}
+                    />
+                    <div className="popover workspace-menu">
+                      {projects.map((p) => (
+                        <button
+                          key={p.projectId}
+                          aria-current={p.projectId === selectedProject ? 'true' : undefined}
+                          onClick={() => {
+                            setSelectedProject(p.projectId);
+                            selectSession(undefined);
+                            setWorkspaceMenu(false);
+                          }}
+                        >
+                          <FolderOpen size={17} />
+                          <span>{p.name}</span>
+                          {p.projectId === selectedProject && <Check size={16} />}
+                        </button>
+                      ))}
+                      {connected && (
+                        <button onClick={() => openPanel('projects')}>
+                          <FolderOpen size={17} />
+                          管理项目
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </MotionPresence>
+            </div>
+            <span
+              className={`connection ${connected ? 'online-text' : ''}`}
+              data-connection-state={connectionState}
             >
-              <span>
-                {current
-                  ? current.title || '未命名会话'
-                  : chat
-                    ? '普通聊天'
-                    : projects.find((p) => p.projectId === selectedProject)?.name || '选择项目'}
-              </span>
-              <ChevronDown size={16} />
-            </button>
-            <MotionPresence>
-              {workspaceMenu && (
-                <>
-                  <button
-                    className="menu-scrim"
-                    aria-label="关闭项目菜单"
-                    onClick={() => setWorkspaceMenu(false)}
+              <span
+                className={`dot ${connected || connectionState === 'syncing' ? 'online' : ''}`}
+              />
+              {connectionLabels[connectionState]}
+            </span>
+            {connected &&
+              !chat &&
+              projects
+                .filter((project) => project.projectId === selectedProject)
+                .map((project) => (
+                  <ProjectOverview
+                    key={JSON.stringify([host?.hostId, project.projectId])}
+                    request={request}
+                    project={project}
+                    computer={host ? hostName(host) : ''}
+                    gitRead={supports('gitRead')}
+                    fileBrowser={supports('projectFileBrowser')}
+                    activeTurn={activeTurn}
+                    onFiles={() => showFiles()}
+                    onChanges={() => showFiles(undefined, 'changes')}
+                    onFile={openFile}
                   />
-                  <div className="popover workspace-menu">
-                    {projects.map((p) => (
-                      <button
-                        key={p.projectId}
-                        aria-current={p.projectId === selectedProject ? 'true' : undefined}
-                        onClick={() => {
-                          setSelectedProject(p.projectId);
-                          selectSession(undefined);
-                          setWorkspaceMenu(false);
-                        }}
-                      >
-                        <FolderOpen size={17} />
-                        <span>{p.name}</span>
-                        {p.projectId === selectedProject && <Check size={16} />}
+                ))}
+            <IconButton icon={MessageSquarePlus} label="新建会话" onClick={newChat} />
+            <IconButton icon={Computer} label="切换电脑" onClick={() => openPanel('computers')} />
+            <div className="menu-anchor">
+              <IconButton icon={MoreHorizontal} label="更多操作" onClick={() => setMenu(!menu)} />
+              <MotionPresence>
+                {menu && (
+                  <>
+                    <button
+                      className="menu-scrim"
+                      aria-label="关闭更多菜单"
+                      onClick={() => setMenu(false)}
+                    />
+                    <div className="popover top-menu" role="menu">
+                      <button role="menuitem" onClick={() => openPanel('drafts')}>
+                        <FileText size={18} />
+                        未发送草稿
                       </button>
-                    ))}
-                    {connected && (
-                      <button onClick={() => openPanel('projects')}>
-                        <FolderOpen size={17} />
-                        管理项目
+                      {connected && (
+                        <>
+                          {supports('gitRead') && selectedProject && !chat && (
+                            <button role="menuitem" onClick={() => openPanel('git')}>
+                              <FileDiff size={18} />
+                              审查工作区改动
+                            </button>
+                          )}
+                          {supports('projectFileBrowser') && selectedProject && !chat && (
+                            <button role="menuitem" onClick={() => openPanel('files')}>
+                              <FolderOpen size={18} />
+                              浏览项目文件
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {current && (
+                        <>
+                          <hr />
+                          <button role="menuitem" onClick={() => openPanel('find')}>
+                            <Search size={18} />
+                            在会话中查找
+                          </button>
+                          <button role="menuitem" onClick={() => openPanel('history')}>
+                            <History size={18} />
+                            会话历史
+                          </button>
+                          {supports('nativeQueue') && (
+                            <button role="menuitem" onClick={() => openPanel('queue')}>
+                              <Clock size={18} />
+                              待发送消息
+                            </button>
+                          )}
+                          {!chat && supports('sessionGoalView') && (
+                            <button role="menuitem" onClick={() => openPanel('goal')}>
+                              <Target size={18} />
+                              会话目标
+                            </button>
+                          )}
+                          {supports('sessionManagement') && (
+                            <button role="menuitem" onClick={() => openPanel('manage')}>
+                              <MoreHorizontal size={18} />
+                              管理当前会话
+                            </button>
+                          )}
+                        </>
+                      )}
+                      <hr />
+                      <button role="menuitem" onClick={() => openPanel('settings')}>
+                        <Settings size={18} />
+                        设置
                       </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </MotionPresence>
-          </div>
-          <span
-            className={`connection ${connected ? 'online-text' : ''}`}
-            data-connection-state={connectionState}
-          >
-            <span className={`dot ${connected || connectionState === 'syncing' ? 'online' : ''}`} />
-            {connectionLabels[connectionState]}
-          </span>
-          <IconButton icon={MessageSquarePlus} label="新建会话" onClick={newChat} />
-          <IconButton icon={Computer} label="切换电脑" onClick={() => openPanel('computers')} />
-          <div className="menu-anchor">
-            <IconButton icon={MoreHorizontal} label="更多操作" onClick={() => setMenu(!menu)} />
-            <MotionPresence>
-              {menu && (
-                <>
-                  <button
-                    className="menu-scrim"
-                    aria-label="关闭更多菜单"
-                    onClick={() => setMenu(false)}
-                  />
-                  <div className="popover top-menu" role="menu">
-                    <button role="menuitem" onClick={() => openPanel('drafts')}>
-                      <FileText size={18} />
-                      未发送草稿
-                    </button>
-                    {connected && (
-                      <>
-                        {supports('gitRead') && selectedProject && !chat && (
-                          <button role="menuitem" onClick={() => openPanel('git')}>
-                            <FileDiff size={18} />
-                            审查工作区改动
-                          </button>
-                        )}
-                        {supports('projectFileBrowser') && selectedProject && !chat && (
-                          <button role="menuitem" onClick={() => openPanel('files')}>
-                            <FolderOpen size={18} />
-                            浏览项目文件
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {current && (
-                      <>
-                        <hr />
-                        <button role="menuitem" onClick={() => openPanel('find')}>
-                          <Search size={18} />
-                          在会话中查找
-                        </button>
-                        <button role="menuitem" onClick={() => openPanel('history')}>
-                          <History size={18} />
-                          会话历史
-                        </button>
-                        {supports('nativeQueue') && (
-                          <button role="menuitem" onClick={() => openPanel('queue')}>
-                            <Clock size={18} />
-                            待发送消息
-                          </button>
-                        )}
-                        {!chat && supports('sessionGoalView') && (
-                          <button role="menuitem" onClick={() => openPanel('goal')}>
-                            <Target size={18} />
-                            会话目标
-                          </button>
-                        )}
-                        {supports('sessionManagement') && (
-                          <button role="menuitem" onClick={() => openPanel('manage')}>
-                            <MoreHorizontal size={18} />
-                            管理当前会话
-                          </button>
-                        )}
-                      </>
-                    )}
-                    <hr />
-                    <button role="menuitem" onClick={() => openPanel('settings')}>
-                      <Settings size={18} />
-                      设置
-                    </button>
-                  </div>
-                </>
-              )}
-            </MotionPresence>
-          </div>
-        </header>
-        {host && connected && (
-          <HostUpdates
-            key={host.hostId}
-            request={request}
-            supported={supports('hostUpdateCheck')}
-            disabled={busy || receiptBlocked}
-            name={hostName(host)}
-            managed={supports('hostUpdateManage')}
-          />
-        )}
-        <MotionPresence>
-          {connectionFailure && connectionState === 'blocked' && (
-            <div className="connection-error" role="alert">
-              {connectionFailure}
+                    </div>
+                  </>
+                )}
+              </MotionPresence>
             </div>
+          </header>
+          {host && connected && (
+            <HostUpdates
+              key={host.hostId}
+              request={request}
+              supported={supports('hostUpdateCheck')}
+              disabled={busy || receiptBlocked}
+              name={hostName(host)}
+              managed={supports('hostUpdateManage')}
+            />
           )}
-        </MotionPresence>
-        <MotionPresence>
-          {['connecting', 'retrying', 'syncing'].includes(connectionState) && host && (
-            <div className="connection-recovery" role="status">
-              {connectionState === 'syncing'
-                ? '连接已恢复，正在同步最新进度…'
-                : connectionFailure || '正在重新连接电脑；现有消息和草稿已保留。'}
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {upstreamRetry && (
-            <div className="connection-recovery" role="status">
-              Codex 正在重试 · {upstreamRetry}
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {error && (
-            <div className="connection-error" role="status">
-              <span>{error}</span>
-              <IconButton icon={X} label="关闭提示" onClick={() => setError('')} />
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {receiptBlocked && (
-            <div className="history-error" role="alert">
-              上次操作结果尚未确定。核对前不能继续变更。
-              <button
-                disabled={!connected}
-                onClick={async () => {
-                  try {
-                    await bridge.current?.reconcile();
-                    setReceiptBlocked(bridge.current?.awaitingReceipt || false);
-                    await refresh();
-                  } catch (e) {
-                    setError(String(e));
-                  }
-                }}
-              >
-                核对操作结果
-              </button>
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {historyFailure && (
-            <div className="history-error" role="alert">
-              {historyFailure}
-              <button onClick={() => void refresh()}>重试读取</button>
-            </div>
-          )}
-        </MotionPresence>
-        <TaskProgress
-          entries={renderedHistory}
-          active={!!activeTurn}
-          turnId={
-            snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId || activeTurn
-          }
-          stale={!connected}
-        />
-        <Timeline
-          ref={timeline}
-          identity={JSON.stringify([host?.hostId, session])}
-          revision={viewRevision}
-          animateNewItems={historyReady}
-          hasOlder={!!historyCursor && connected && historyReady}
-          loadingOlder={historyLoading}
-          onOlder={() => void loadOlderHistory()}
-        >
-          <div className="timeline-content">
-            {historyCursor && (
-              <button
-                className="text-button history-more"
-                disabled={historyLoading}
-                onClick={() => void loadOlderHistory()}
-              >
-                {historyLoading ? '加载中…' : '加载更早记录'}
-              </button>
+          <MotionPresence>
+            {connectionFailure && connectionState === 'blocked' && (
+              <div className="connection-error" role="alert">
+                {connectionFailure}
+              </div>
             )}
-            {renderedHistory.map((entry, entryIndex) => {
-              const item = entry.item || {},
-                type = String(item.type || '');
-              if (type === 'reasoning' && !contentText(item)) return null;
-              const user = type === 'userMessage' || item.role === 'user',
-                assistant =
-                  ['agentMessage', 'assistantMessage'].includes(type) || item.role === 'assistant',
-                text = contentText(item),
-                actionText = assistant ? answers.get(entry) : text,
-                editing =
-                  messageAction?.kind === 'revise' &&
-                  historyKey(messageAction.entry) === historyKey(entry);
-              return (
-                <article
-                  className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
-                  key={historyKey(entry)}
-                  data-history-key={historyKey(entry)}
+          </MotionPresence>
+          <MotionPresence>
+            {['connecting', 'retrying', 'syncing'].includes(connectionState) && host && (
+              <div className="connection-recovery" role="status">
+                {connectionState === 'syncing'
+                  ? '连接已恢复，正在同步最新进度…'
+                  : connectionFailure || '正在重新连接电脑；现有消息和草稿已保留。'}
+              </div>
+            )}
+          </MotionPresence>
+          <MotionPresence>
+            {upstreamRetry && (
+              <div className="connection-recovery" role="status">
+                Codex 正在重试 · {upstreamRetry}
+              </div>
+            )}
+          </MotionPresence>
+          <MotionPresence>
+            {error && (
+              <div className="connection-error" role="status">
+                <span>{error}</span>
+                <IconButton icon={X} label="关闭提示" onClick={() => setError('')} />
+              </div>
+            )}
+          </MotionPresence>
+          <MotionPresence>
+            {receiptBlocked && (
+              <div className="history-error" role="alert">
+                上次操作结果尚未确定。核对前不能继续变更。
+                <button
+                  disabled={!connected}
+                  onClick={async () => {
+                    try {
+                      await bridge.current?.reconcile();
+                      setReceiptBlocked(bridge.current?.awaitingReceipt || false);
+                      await refresh();
+                    } catch (e) {
+                      setError(String(e));
+                    }
+                  }}
                 >
-                  <div className={`message-content${editing ? ' editing-message' : ''}`}>
-                    {editing ? (
-                      <MessageEditor
-                        text={editText}
-                        busy={busy}
-                        disabled={
-                          !connected ||
-                          busy ||
-                          receiptBlocked ||
-                          !!activeTurn ||
-                          !historyReady ||
-                          current?.archived === 1 ||
-                          !canManage(current)
-                        }
-                        error={editError}
-                        onChange={setEditText}
-                        onCancel={cancelMessageEdit}
-                        onSend={() => void runMessageAction()}
-                      />
-                    ) : (
-                      <RichContent
-                        entry={entry}
-                        connection={bridge.current}
-                        sessionId={session || ''}
-                        onFile={supports('projectTextPreview') ? openFile : undefined}
-                        onAgent={openAgent}
-                        onImplementPlan={
-                          type === 'plan' &&
-                          !Array.isArray(item.plan) &&
-                          text.trim() &&
-                          !activeTurn &&
-                          historyReady &&
-                          !historyFailure &&
-                          !chat &&
-                          !['failed', 'interrupted', 'declined', 'inProgress'].includes(
-                            String(item.status),
-                          ) &&
-                          !renderedHistory
-                            .slice(entryIndex + 1)
-                            .some((next) =>
-                              ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
-                                String(next.item?.type),
-                              ),
-                            )
-                            ? () => void send(undefined, text)
-                            : undefined
-                        }
-                        onRevisePlan={() => {
-                          updateDraft({ mode: 'plan' });
-                          document
-                            .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
-                            ?.focus();
-                        }}
-                        planDisabled={
-                          !connected || busy || receiptBlocked || current?.archived === 1
-                        }
-                      />
-                    )}
-                  </div>
-                  {(user || assistant) && actionText && !editing && (
-                    <div className="message-actions">
-                      <IconButton
-                        icon={Copy}
-                        label="复制消息"
-                        onClick={() =>
-                          void navigator.clipboard
-                            .writeText(actionText)
-                            .catch((e) => setError(String(e)))
-                        }
-                      />
-                      <IconButton
-                        icon={Quote}
-                        label="引用消息"
-                        onClick={() =>
-                          updateDraft({
-                            text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
-                              .split('\n')
-                              .map((line) => '> ' + line)
-                              .join('\n')}\n\n`,
-                          })
-                        }
-                      />
-                      <IconButton
-                        icon={Search}
-                        label="阅读完整消息"
-                        onClick={() => {
-                          setMessageAction({
-                            entry: assistant
-                              ? { ...entry, item: { ...item, text: actionText } }
-                              : entry,
-                            kind: 'read',
-                          });
-                        }}
-                      />
-                      {user && supports('sessionHistoryRevert') && (
-                        <IconButton
-                          icon={Pencil}
-                          label="编辑并重新发送"
-                          disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                          onClick={() => {
-                            editMessage(entry);
+                  核对操作结果
+                </button>
+              </div>
+            )}
+          </MotionPresence>
+          <MotionPresence>
+            {historyFailure && (
+              <div className="history-error" role="alert">
+                {historyFailure}
+                <button onClick={() => void refresh()}>重试读取</button>
+              </div>
+            )}
+          </MotionPresence>
+          <TaskProgress
+            entries={renderedHistory}
+            active={!!activeTurn}
+            turnId={
+              snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
+              activeTurn
+            }
+            stale={!connected}
+          />
+          <Timeline
+            ref={timeline}
+            identity={JSON.stringify([host?.hostId, session])}
+            revision={viewRevision}
+            animateNewItems={historyReady}
+            hasOlder={!!historyCursor && connected && historyReady}
+            loadingOlder={historyLoading}
+            onOlder={() => void loadOlderHistory()}
+          >
+            <div className="timeline-content">
+              {historyCursor && (
+                <button
+                  className="text-button history-more"
+                  disabled={historyLoading}
+                  onClick={() => void loadOlderHistory()}
+                >
+                  {historyLoading ? '加载中…' : '加载更早记录'}
+                </button>
+              )}
+              {renderedHistory.map((entry, entryIndex) => {
+                const item = entry.item || {},
+                  type = String(item.type || '');
+                if (type === 'reasoning' && !contentText(item)) return null;
+                const user = type === 'userMessage' || item.role === 'user',
+                  assistant =
+                    ['agentMessage', 'assistantMessage'].includes(type) ||
+                    item.role === 'assistant',
+                  text = contentText(item),
+                  actionText = assistant ? answers.get(entry) : text,
+                  editing =
+                    messageAction?.kind === 'revise' &&
+                    historyKey(messageAction.entry) === historyKey(entry);
+                return (
+                  <article
+                    className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
+                    key={historyKey(entry)}
+                    data-history-key={historyKey(entry)}
+                  >
+                    <div className={`message-content${editing ? ' editing-message' : ''}`}>
+                      {editing ? (
+                        <MessageEditor
+                          text={editText}
+                          busy={busy}
+                          disabled={
+                            !connected ||
+                            busy ||
+                            receiptBlocked ||
+                            !!activeTurn ||
+                            !historyReady ||
+                            current?.archived === 1 ||
+                            !canManage(current)
+                          }
+                          error={editError}
+                          onChange={setEditText}
+                          onCancel={cancelMessageEdit}
+                          onSend={() => void runMessageAction()}
+                        />
+                      ) : (
+                        <RichContent
+                          entry={entry}
+                          connection={bridge.current}
+                          sessionId={session || ''}
+                          onFile={supports('projectTextPreview') ? openFile : undefined}
+                          onAgent={openAgent}
+                          onImplementPlan={
+                            type === 'plan' &&
+                            !Array.isArray(item.plan) &&
+                            text.trim() &&
+                            !activeTurn &&
+                            historyReady &&
+                            !historyFailure &&
+                            !chat &&
+                            !['failed', 'interrupted', 'declined', 'inProgress'].includes(
+                              String(item.status),
+                            ) &&
+                            !renderedHistory
+                              .slice(entryIndex + 1)
+                              .some((next) =>
+                                [
+                                  'userMessage',
+                                  'agentMessage',
+                                  'assistantMessage',
+                                  'plan',
+                                ].includes(String(next.item?.type)),
+                              )
+                              ? () => void send(undefined, text)
+                              : undefined
+                          }
+                          onRevisePlan={() => {
+                            updateDraft({ mode: 'plan' });
+                            document
+                              .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
+                              ?.focus();
                           }}
-                        />
-                      )}
-                      {assistant && supports('sessionHistoryRevert') && (
-                        <IconButton
-                          icon={RotateCcw}
-                          label="重试此回答"
-                          disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                          onClick={() => {
-                            const before = renderedHistory
-                              .slice(0, renderedHistory.indexOf(entry) + 1)
-                              .reverse()
-                              .find(
-                                (e) =>
-                                  e.turnId === entry.turnId &&
-                                  (e.item?.type === 'userMessage' || e.item?.role === 'user'),
-                              );
-                            if (!before) {
-                              setError('此轮用户消息尚未加载，请先加载更早记录');
-                              return;
-                            }
-                            editMessage(before);
-                          }}
-                        />
-                      )}
-                      {supports('sessionForkAtTurn') && (
-                        <IconButton
-                          icon={GitFork}
-                          label="从此处分叉"
-                          disabled={busy || receiptBlocked || !!activeTurn}
-                          onClick={() => setMessageAction({ entry, kind: 'fork' })}
-                        />
-                      )}
-                      {supports('sessionHistoryRevert') && user && (
-                        <IconButton
-                          icon={History}
-                          label="回退到此消息之前"
-                          disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                          onClick={() => setMessageAction({ entry, kind: 'revert' })}
+                          planDisabled={
+                            !connected || busy || receiptBlocked || current?.archived === 1
+                          }
                         />
                       )}
                     </div>
-                  )}
-                  {!activeTurn && renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
-                    <TurnChanges
-                      entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
-                      projectRoot={
-                        snapshot.projects?.find((p) => p.projectId === current?.projectId)
-                          ?.canonicalPath
-                      }
-                    />
-                  )}
-                </article>
-              );
-            })}
-            {!renderedHistory.length && !historyFailure && (
-              <div className="empty">
-                {session && !historyReady ? (
-                  <p>正在读取会话历史…</p>
-                ) : (
-                  <>
-                    <div
-                      className="empty-symbol"
-                      aria-hidden="true"
-                      style={{
-                        maskImage: `url("${agentDeckMark}")`,
-                        WebkitMaskImage: `url("${agentDeckMark}")`,
-                      }}
-                    />
-                    <h1>{chat ? '聊点什么？' : 'What can we build?'}</h1>
-                    <p>
-                      {connected
-                        ? chat
-                          ? '无需选择项目，直接开始对话。'
-                          : '选择项目，开始一段 Codex 对话。'
-                        : '连接你的电脑，随时继续工作。'}
-                    </p>
-                    {!connected && (
-                      <button onClick={() => openPanel('computers')}>
-                        <Computer size={17} />
-                        连接电脑
-                      </button>
+                    {(user || assistant) && actionText && !editing && (
+                      <div className="message-actions">
+                        <IconButton
+                          icon={Copy}
+                          label="复制消息"
+                          onClick={() =>
+                            void navigator.clipboard
+                              .writeText(actionText)
+                              .catch((e) => setError(String(e)))
+                          }
+                        />
+                        <IconButton
+                          icon={Quote}
+                          label="引用消息"
+                          onClick={() =>
+                            updateDraft({
+                              text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
+                                .split('\n')
+                                .map((line) => '> ' + line)
+                                .join('\n')}\n\n`,
+                            })
+                          }
+                        />
+                        <IconButton
+                          icon={Search}
+                          label="阅读完整消息"
+                          onClick={() => {
+                            setMessageAction({
+                              entry: assistant
+                                ? { ...entry, item: { ...item, text: actionText } }
+                                : entry,
+                              kind: 'read',
+                            });
+                          }}
+                        />
+                        {user && supports('sessionHistoryRevert') && (
+                          <IconButton
+                            icon={Pencil}
+                            label="编辑并重新发送"
+                            disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                            onClick={() => {
+                              editMessage(entry);
+                            }}
+                          />
+                        )}
+                        {assistant && supports('sessionHistoryRevert') && (
+                          <IconButton
+                            icon={RotateCcw}
+                            label="重试此回答"
+                            disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                            onClick={() => {
+                              const before = renderedHistory
+                                .slice(0, renderedHistory.indexOf(entry) + 1)
+                                .reverse()
+                                .find(
+                                  (e) =>
+                                    e.turnId === entry.turnId &&
+                                    (e.item?.type === 'userMessage' || e.item?.role === 'user'),
+                                );
+                              if (!before) {
+                                setError('此轮用户消息尚未加载，请先加载更早记录');
+                                return;
+                              }
+                              editMessage(before);
+                            }}
+                          />
+                        )}
+                        {supports('sessionForkAtTurn') && (
+                          <IconButton
+                            icon={GitFork}
+                            label="从此处分叉"
+                            disabled={busy || receiptBlocked || !!activeTurn}
+                            onClick={() => setMessageAction({ entry, kind: 'fork' })}
+                          />
+                        )}
+                        {supports('sessionHistoryRevert') && user && (
+                          <IconButton
+                            icon={History}
+                            label="回退到此消息之前"
+                            disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                            onClick={() => setMessageAction({ entry, kind: 'revert' })}
+                          />
+                        )}
+                      </div>
                     )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </Timeline>
-        <Composer
-          key={draftKey}
-          draft={draft}
-          prompts={
-            <>
-              {(snapshot.approvals || [])
-                .filter((a) => a.sessionId === session)
-                .map((a) => (
-                  <ApprovalCard
-                    key={a.approvalId}
-                    approval={a}
-                    disabled={!connected || receiptBlocked}
-                    uncertain={() => bridge.current?.awaitingReceipt === true}
-                    onRefresh={() => void refresh()}
-                    onDecide={decide}
-                  />
-                ))}
-              {session &&
-                renderedHistory
-                  .filter(
-                    (entry) =>
-                      ['agentMessage', 'assistantMessage'].includes(String(entry.item?.type)) &&
-                      Array.isArray(entry.item?.questions) &&
-                      entry.item.questions.length > 0,
-                  )
-                  .map((entry) => (
-                    <AsyncQuestions
-                      key={`${host?.hostId}.${session}.${historyKey(entry)}`}
-                      entry={entry}
-                      history={renderedHistory}
-                      request={request}
-                      receiptKey={`agentdeck.web.question.${scope}.${host?.hostId}.${session}.${entry.item?.id}`}
-                      disabled={
-                        !connected ||
-                        receiptBlocked ||
-                        !historyReady ||
-                        current?.archived === 1 ||
-                        !supports('activeTurnSteering')
-                      }
-                      options={{
-                        sessionId: session,
-                        permissionMode: permission,
-                        mode: draft.mode,
-                        ...(draft.model ? { model: draft.model } : {}),
-                        ...(draft.effort ? { effort: draft.effort } : {}),
-                      }}
-                      onRefresh={() => void refresh()}
+                    {!activeTurn && renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
+                      <TurnChanges
+                        entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
+                        projectRoot={
+                          snapshot.projects?.find((p) => p.projectId === current?.projectId)
+                            ?.canonicalPath
+                        }
+                      />
+                    )}
+                  </article>
+                );
+              })}
+              {!renderedHistory.length && !historyFailure && (
+                <div className="empty">
+                  {session && !historyReady ? (
+                    <p>正在读取会话历史…</p>
+                  ) : (
+                    <>
+                      <div
+                        className="empty-symbol"
+                        aria-hidden="true"
+                        style={{
+                          maskImage: `url("${agentDeckMark}")`,
+                          WebkitMaskImage: `url("${agentDeckMark}")`,
+                        }}
+                      />
+                      <h1>{chat ? '聊点什么？' : 'What can we build?'}</h1>
+                      <p>
+                        {connected
+                          ? chat
+                            ? '无需选择项目，直接开始对话。'
+                            : '选择项目，开始一段 Codex 对话。'
+                          : '连接你的电脑，随时继续工作。'}
+                      </p>
+                      {!connected && (
+                        <button onClick={() => openPanel('computers')}>
+                          <Computer size={17} />
+                          连接电脑
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </Timeline>
+          <Composer
+            key={draftKey}
+            draft={draft}
+            prompts={
+              <>
+                {(snapshot.approvals || [])
+                  .filter((a) => a.sessionId === session)
+                  .map((a) => (
+                    <ApprovalCard
+                      key={a.approvalId}
+                      approval={a}
+                      disabled={!connected || receiptBlocked}
                       uncertain={() => bridge.current?.awaitingReceipt === true}
+                      onRefresh={() => void refresh()}
+                      onDecide={decide}
                     />
                   ))}
-            </>
-          }
-          status={
-            session && host ? (
-              <ComposerStatus
-                key={session}
-                request={request}
-                sessionId={session}
-                goalSupported={!chat && supports('sessionGoalView')}
-                usageSupported={supports('sessionTokenUsage')}
-                revision={statusRevision}
-                observedUsage={observedUsage}
-                onGoal={() => openPanel('goal')}
-                enabled={connected}
-              />
-            ) : undefined
-          }
-          onChange={updateDraft}
-          models={models}
-          supports={composerSupports}
-          chat={chat}
-          disabled={
-            !connected ||
-            !selectedProject ||
-            receiptBlocked ||
-            !!(session && !historyReady) ||
-            current?.archived === 1
-          }
-          busy={busy}
-          active={!!activeTurn}
-          permission={permission}
-          onPermission={(permission) => updatePreferences({ permission })}
-          onSend={(kind) => void send(kind)}
-          onStop={() => void interrupt()}
-          onPanel={openPanel}
-          onNew={newChat}
-          onError={setError}
-        />
+                {session &&
+                  renderedHistory
+                    .filter(
+                      (entry) =>
+                        ['agentMessage', 'assistantMessage'].includes(String(entry.item?.type)) &&
+                        Array.isArray(entry.item?.questions) &&
+                        entry.item.questions.length > 0,
+                    )
+                    .map((entry) => (
+                      <AsyncQuestions
+                        key={`${host?.hostId}.${session}.${historyKey(entry)}`}
+                        entry={entry}
+                        history={renderedHistory}
+                        request={request}
+                        receiptKey={`agentdeck.web.question.${scope}.${host?.hostId}.${session}.${entry.item?.id}`}
+                        disabled={
+                          !connected ||
+                          receiptBlocked ||
+                          !historyReady ||
+                          current?.archived === 1 ||
+                          !supports('activeTurnSteering')
+                        }
+                        options={{
+                          sessionId: session,
+                          permissionMode: permission,
+                          mode: draft.mode,
+                          ...(draft.model ? { model: draft.model } : {}),
+                          ...(draft.effort ? { effort: draft.effort } : {}),
+                        }}
+                        onRefresh={() => void refresh()}
+                        uncertain={() => bridge.current?.awaitingReceipt === true}
+                      />
+                    ))}
+              </>
+            }
+            status={
+              session && host ? (
+                <ComposerStatus
+                  key={session}
+                  request={request}
+                  sessionId={session}
+                  goalSupported={!chat && supports('sessionGoalView')}
+                  usageSupported={supports('sessionTokenUsage')}
+                  revision={statusRevision}
+                  observedUsage={observedUsage}
+                  onGoal={() => openPanel('goal')}
+                  enabled={connected}
+                />
+              ) : undefined
+            }
+            onChange={updateDraft}
+            models={models}
+            supports={composerSupports}
+            attachmentTotalBytes={capabilities.limits?.attachmentTotalBytes}
+            chat={chat}
+            disabled={
+              !connected ||
+              !selectedProject ||
+              receiptBlocked ||
+              !!(session && !historyReady) ||
+              current?.archived === 1
+            }
+            busy={busy}
+            active={!!activeTurn}
+            permission={permission}
+            onPermission={(permission) => updatePreferences({ permission })}
+            onSend={(kind) => void send(kind)}
+            onStop={() => void interrupt()}
+            onPanel={openPanel}
+            onNew={newChat}
+            onError={setError}
+          />
+        </section>
+        {filesVisible && (
+          <div
+            className="file-pane-resizer"
+            role="separator"
+            aria-label="调整对话与文件预览宽度"
+            aria-orientation="vertical"
+            aria-valuemin={35}
+            aria-valuemax={75}
+            aria-valuenow={Number(filePaneWidth)}
+            tabIndex={0}
+            onDoubleClick={() => {
+              setFileWorkspaceWide(false);
+              setFilePaneWidth('60');
+            }}
+            onKeyDown={(event) => {
+              if (['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                event.preventDefault();
+                setFileWorkspaceWide(false);
+                setFilePaneWidth(
+                  String(
+                    Math.max(
+                      35,
+                      Math.min(75, Number(filePaneWidth) + (event.key === 'ArrowLeft' ? 2 : -2)),
+                    ),
+                  ),
+                );
+              }
+            }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              setFileWorkspaceWide(false);
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+              const box = conversationElement.current?.getBoundingClientRect();
+              if (box)
+                setFilePaneWidth(
+                  String(
+                    Math.max(35, Math.min(75, ((box.right - event.clientX) / box.width) * 100)),
+                  ),
+                );
+            }}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+          />
+        )}
+        {fileWorkspaceSeen && connected && selectedProject && !chat && (
+          <FileWorkspace
+            key={JSON.stringify([connectionEpoch.current, host?.hostId, selectedProject])}
+            request={request}
+            projectId={selectedProject}
+            projectName={
+              projects.find((project) => project.projectId === selectedProject)?.name || '项目'
+            }
+            storageKey={`agentdeck.web.files.${JSON.stringify([scope, host?.hostId, selectedProject])}`}
+            visible={filesVisible}
+            initialPath={fileTargetProject === selectedProject ? filePath : undefined}
+            initialView={fileTargetProject === selectedProject ? fileWorkspaceView : 'files'}
+            openToken={fileOpenToken}
+            imagePreview={supports('projectImagePreview')}
+            gitRead={supports('gitRead')}
+            gitBranchCompare={supports('gitBranchCompare')}
+            referenceAllowed={supports('projectFileReference')}
+            expanded={fileWorkspaceWide}
+            onExpand={() => setFileWorkspaceWide((value) => !value)}
+            onClose={() => setFileWorkspaceOpen(false)}
+            onReference={(text) => {
+              updateDraft({ text: `${draft.text}${draft.text ? '\n' : ''}${text}\n` });
+              if (matchMedia('(max-width:760px)').matches) setFileWorkspaceOpen(false);
+            }}
+          />
+        )}
       </section>
       <MotionPresence>
         {messageAction && messageAction.kind !== 'revise' && (
@@ -2506,21 +2648,6 @@ export function App() {
                   supports={supports}
                   onChanged={() => void refresh()}
                 />
-              )}
-              {panel === 'files' && selectedProject && connected && (
-                <FilesPanel
-                  imagePreview={supports('projectImagePreview')}
-                  request={request}
-                  projectId={selectedProject}
-                  initialPath={filePath}
-                  onReference={(text) => {
-                    updateDraft({ text: `${draft.text}${draft.text ? '\n' : ''}${text}\n` });
-                    setPanel('');
-                  }}
-                />
-              )}
-              {panel === 'git' && selectedProject && connected && (
-                <GitPanel request={request} projectId={selectedProject} />
               )}
               {panel === 'skills' && selectedProject && connected && (
                 <SkillsPanel

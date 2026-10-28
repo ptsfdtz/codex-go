@@ -1,0 +1,122 @@
+.project-overview-anchor {
+  position: relative;
+  flex-shrink: 0;
+}
+.popover.project-overview {
+  right: 0;
+  top: 44px;
+  width: min(310px, calc(100vw - 24px));
+  min-width: 0;
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--soft);
+}
+.project-overview-heading {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 6px 8px;
+}
+.project-overview-heading > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+.project-overview-heading .icon-button {
+  width: 28px;
+  height: 28px;
+}
+.project-overview-heading .icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+.project-overview > button {
+  padding: 9px 8px;
+}
+.project-overview-changes strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--green);
+}
+.project-overview-changes strong small {
+  font-weight: 400;
+  color: var(--muted);
+}
+.project-overview-state:empty {
+  display: none;
+}
+.project-overview-state {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 8px 8px;
+  overflow-wrap: anywhere;
+}
+.project-overview-state > button {
+  justify-self: start;
+  font-size: 12px;
+}
+.project-overview-caption {
+  margin: 12px 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.project-overview > .project-overview-file {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 7px 8px;
+}
+.project-overview-file > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.project-overview-file > svg {
+  flex-shrink: 0;
+}
+.project-overview-file > small {
+  font-size: 10px;
+}
+.project-overview > .project-overview-all {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 7px 8px;
+}
+.project-overview-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.project-overview-footer > button,
+.project-overview-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  font-size: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+.project-overview-footer span:not(.dot) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .popover.project-overview {
+    position: fixed;
+    top: calc(56px + var(--app-safe-top));
+    right: 12px;
+    max-height: calc(100dvh - 100px - var(--app-safe-top));
+  }
+}

@@ -12,6 +12,7 @@
     "build": "pnpm host:build",
     "check": "pnpm -r check && eslint .",
     "test:composer-preferences": "node --test scripts/web/test-composer-preferences.mjs",
+    "test:file-workspace": "node --test scripts/web/test-file-workspace.mjs",
     "start": "node scripts/host/dev.mjs --start",
     "dev": "pnpm host:dev",
     "schema:verify": "node scripts/protocol/schema.mjs",

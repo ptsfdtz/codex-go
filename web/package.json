@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@reclaimprotocol/tls": "0.1.5",
+    "highlight.js": "11.11.1",
     "jsqr": "1.4.0",
     "lucide-react": "0.468.0",
     "react": "19.2.0",

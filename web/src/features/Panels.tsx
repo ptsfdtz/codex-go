@@ -1,15 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import {
-  ArrowLeft,
+  Folder,
   ArrowUp,
   ArrowDown,
-  FileText,
-  Folder,
   Play,
   Trash2,
   Copy,
   RefreshCw,
-  Plus,
   Pin,
   Archive,
   GitFork,
@@ -24,8 +21,6 @@ import { MotionList, MotionPresence } from '../motion';
 import type { Capabilities, Model, Project, Request, Session, Skill } from '../workspace';
 import { canManage, output, statusLabel } from '../workspace';
 import { contentText } from '../RichContent';
-import { DiffText } from './DiffText';
-import { isProjectImage, readProjectImage } from './project-image';
 
 function useRead<T>(
   request: Request,
@@ -513,243 +508,6 @@ export function GoalPanel({
       )}
       {action.feedback}
     </div>
-  );
-}
-
-type FileEntry = { name: string; path: string; kind: string; size?: number };
-export function FilesPanel({
-  request,
-  projectId,
-  onReference,
-  initialPath,
-  imagePreview = false,
-}: {
-  request: Request;
-  projectId: string;
-  onReference: (text: string) => void;
-  initialPath?: string;
-  imagePreview?: boolean;
-}) {
-  const [directory, setDirectory] = useState(''),
-    [selected, setSelected] = useState<FileEntry | undefined>(() =>
-      initialPath
-        ? { name: initialPath.split('/').pop() || initialPath, path: initialPath, kind: 'file' }
-        : undefined,
-    ),
-    [text, setText] = useState(''),
-    [imageUrl, setImageUrl] = useState(''),
-    [fileRevision, setFileRevision] = useState(0),
-    [fileError, setFileError] = useState(''),
-    [fileLoading, setFileLoading] = useState(false);
-  const { value, error, loading, reload } = useRead<{ entries: FileEntry[]; truncated?: boolean }>(
-    request,
-    'files.list',
-    { projectId, ...(directory ? { directory } : {}) },
-  );
-  const action = useAction();
-  const image = !!selected && isProjectImage(selected.path);
-  useEffect(() => {
-    let active = true;
-    let objectUrl = '';
-    setText('');
-    setImageUrl('');
-    setFileError('');
-    if (!selected) {
-      setFileLoading(false);
-      return;
-    }
-    if (image && !imagePreview) {
-      setFileLoading(false);
-      setFileError('当前电脑尚不支持图片预览，请升级 Host。');
-      return;
-    }
-    setFileLoading(true);
-    const read = image
-      ? readProjectImage(request, projectId, selected.path, () => active)
-      : request<{ text: string }>('files.readText', { projectId, path: selected.path });
-    void read
-      .then((v) => {
-        if (!active) return;
-        if (v instanceof Blob) {
-          objectUrl = URL.createObjectURL(v);
-          setImageUrl(objectUrl);
-        } else setText(v.text);
-      })
-      .catch((e) => {
-        if (active) setFileError(String(e));
-      })
-      .finally(() => {
-        if (active) setFileLoading(false);
-      });
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [selected, projectId, request, image, imagePreview, fileRevision]);
-  return (
-    <div className="panel-stack">
-      <div className="breadcrumb">
-        <IconButton
-          icon={ArrowLeft}
-          label="上一级"
-          disabled={!directory && !selected}
-          onClick={() => {
-            if (selected) setSelected(undefined);
-            else
-              setDirectory(
-                directory.replace(/[\\/][^\\/]+$/, '') === directory
-                  ? ''
-                  : directory.replace(/[\\/][^\\/]+$/, ''),
-              );
-          }}
-        />
-        <span>{selected?.path || directory || '项目根目录'}</span>
-        <IconButton
-          icon={RefreshCw}
-          label="刷新文件"
-          onClick={() => {
-            reload();
-            setFileRevision((n) => n + 1);
-          }}
-        />
-      </div>
-      {selected ? (
-        <>
-          <p className="muted">
-            {image ? '当前授权图片 · 最多 8 MiB' : '当前授权文件 · UTF-8 · 最多 256 KiB'}
-          </p>
-          {fileLoading && <p>读取中…</p>}
-          {fileError && <p className="error">{fileError}</p>}
-          {image ? (
-            imageUrl &&
-            !fileError && (
-              <div className="project-image-preview">
-                <img
-                  src={imageUrl}
-                  alt={selected.name}
-                  onError={() => setFileError('无法渲染此图片，请检查文件格式或刷新重试。')}
-                />
-              </div>
-            )
-          ) : (
-            <pre className="file-preview">{text}</pre>
-          )}
-          <button
-            disabled={action.busy || fileLoading || !!fileError}
-            onClick={() =>
-              void action.run(async () => {
-                const v = await request<{ referenceText: string }>('files.reference', {
-                  projectId,
-                  path: selected.path,
-                });
-                onReference(v.referenceText);
-              })
-            }
-          >
-            <Plus size={16} />
-            引用到消息
-          </button>
-          {action.feedback}
-        </>
-      ) : (
-        <>
-          <LoadState {...{ error, loading, reload }} />
-          <div className="file-list">
-            {value?.entries.map((f) => (
-              <button
-                key={f.path}
-                onClick={() => {
-                  if (f.kind === 'directory') setDirectory(f.path);
-                  else setSelected(f);
-                }}
-              >
-                {f.kind === 'directory' ? <Folder size={18} /> : <FileText size={18} />}
-                <span>{f.name}</span>
-                <small>{f.kind === 'directory' ? '' : `${f.size || 0} B`}</small>
-              </button>
-            ))}
-          </div>
-          {value && !value.entries.length && <p className="muted">此目录为空。</p>}
-          {value?.truncated && <p className="muted">目录条目已达到读取上限。</p>}
-        </>
-      )}
-    </div>
-  );
-}
-
-type GitFile = {
-  fileId: string;
-  path: string;
-  oldPath?: string;
-  index?: string;
-  worktree?: string;
-  untracked?: boolean;
-};
-export function GitPanel({ request, projectId }: { request: Request; projectId: string }) {
-  const { value, error, loading, reload } = useRead<{
-    available: boolean;
-    files: GitFile[];
-    attribution?: unknown;
-    truncated?: boolean;
-  }>(request, 'git.status', { projectId });
-  const [selected, setSelected] = useState<GitFile>();
-  return (
-    <div className="panel-stack">
-      <p className="muted">当前工作区差异 · 只读</p>
-      <LoadState {...{ error, loading, reload }} />
-      <div className="file-list">
-        {value?.files?.map((f) => (
-          <button
-            key={f.fileId}
-            className={selected?.fileId === f.fileId ? 'selected' : ''}
-            onClick={() => setSelected(f)}
-          >
-            <FileText size={17} />
-            <span>{f.path}</span>
-            <small>{f.untracked ? 'U' : `${f.index || ''} ${f.worktree || ''}`}</small>
-          </button>
-        ))}
-      </div>
-      {value &&
-        (!value.available ? (
-          <p>此项目没有可用的 Git 工作区。</p>
-        ) : (
-          !value.files.length && <p>工作区没有改动。</p>
-        ))}
-      {value?.truncated && <p className="muted">文件列表达到读取上限。</p>}
-      {selected && (
-        <CurrentDiff
-          key={selected.fileId}
-          request={request}
-          projectId={projectId}
-          file={selected}
-        />
-      )}
-    </div>
-  );
-}
-function CurrentDiff({
-  request,
-  projectId,
-  file,
-}: {
-  request: Request;
-  projectId: string;
-  file: GitFile;
-}) {
-  const { value, error, loading, reload } = useRead<{
-    text: string;
-    binary: boolean;
-    truncated: boolean;
-  }>(request, 'git.diff', { projectId, fileId: file.fileId });
-  return (
-    <>
-      <h3>{file.path}</h3>
-      <LoadState {...{ error, loading, reload }} />
-      {value &&
-        (value.binary ? <p>二进制文件无法显示文本差异。</p> : <DiffText text={value.text} />)}
-      {value?.truncated && <p className="muted">差异过长，已截断。</p>}
-    </>
   );
 }
 
