@@ -74,9 +74,9 @@ export AGENTDECK_PORT=49531
 
 Host 并发上限调整（本地通过，未部署）：普通发送、手动队列启动、编辑重发、启动信号量及能力声明统一使用 `server/service.rs` 的 `MAX_CONCURRENT_TASKS = 5`；队列启动在已有 5 个任务时拒绝新增。Rust 格式与全目标严格 Clippy 通过，未运行真实五任务并发；需更新 Host 后生效。原生队列自动续跑及外部 CLI/桌面任务仍未统一纳入本地并发计数。
 
-AgentChat（待部署候选）：左上角切换 Codex / AgentChat，不需要连接电脑。对话历史、搜索/删除、接口地址/模型/思考强度配置保存在当前账户的浏览器 IndexedDB，草稿和选择保存在当前浏览器；不上传历史、不多端同步。浏览器直接请求供应商 `/models` 与 `/chat/completions`，没有云端代理、生成任务或历史轮询。服务器仅保存 AES-256-GCM 加密密钥及账户归属，凭登录与 CSRF 按需解密返回，禁止缓存；浏览器仅在请求内存中使用密钥，不持久保存。供应商必须支持浏览器 CORS。输入框复用 AgentDeck Composer，设置默认显示地址、密钥和模型，高级设置收纳名称/思考强度。每页最多同时生成 2 条，单条输入 12,000 字节、输出 512 KiB、生成 5 分钟；停止关闭直连请求，关闭页面/切换模式中断生成，已有部分回复保存在本地。未知发送结果不自动重发，再次发送需明确确认。首版为纯文字，不支持附件、工具、联网搜索或原生 Claude/Gemini 协议。
+AgentChat（Web/云端已部署）：左上角切换 Codex / AgentChat，不需要连接电脑。对话历史、搜索/删除、接口地址/模型/思考强度配置保存在当前账户的浏览器 IndexedDB，草稿和选择保存在当前浏览器；不上传历史、不多端同步。浏览器直接请求供应商 `/models` 与 `/chat/completions`，没有云端代理、生成任务或历史轮询。服务器仅保存 AES-256-GCM 加密密钥及账户归属，凭登录与 CSRF 按需解密返回，禁止缓存；浏览器仅在请求内存中使用密钥，不持久保存。供应商必须支持浏览器 CORS。输入框复用 AgentDeck Composer，设置默认显示地址、密钥和模型，高级设置收纳名称/思考强度。每页最多同时生成 2 条，单条输入 12,000 字节、输出 512 KiB、生成 5 分钟；停止关闭直连请求，关闭页面/切换模式中断生成，已有部分回复保存在本地。未知发送结果不自动重发，再次发送需明确确认。首版为纯文字，不支持附件、工具、联网搜索或原生 Claude/Gemini 协议。
 
-参考 MIT 项目 [NextChat](https://github.com/ChatGPTNextWeb/NextChat) 的流式增量处理及会话配置方式，来源与许可证保留在 `third_party/nextchat/`，UI 沿用本项目组件。Web 类型/ESLint/生产构建、服务端严格 Clippy、加密密钥单元测试与隔离 PostgreSQL 密钥库集成测试通过；真实本地 HTTPS 模拟供应商与 Chromium 验证浏览器直连、模型获取、已保存密钥刷新、会话本地恢复/账户隔离、上下文直传供应商、停止/断流/刷新不重发、未知结果确认、流式解析及 320/390px 截图。截图位于 `artifacts/api-chat/`。未调用真实供应商模型，真实跨域配置、手机软键盘及生产部署待验收。
+参考 MIT 项目 [NextChat](https://github.com/ChatGPTNextWeb/NextChat) 的流式增量处理及会话配置方式，来源与许可证保留在 `third_party/nextchat/`，UI 沿用本项目组件。Web 类型/ESLint/生产构建、服务端严格 Clippy、加密密钥单元测试与隔离 PostgreSQL 密钥库集成测试通过；真实本地 HTTPS 模拟供应商与 Chromium 验证浏览器直连、模型获取、已保存密钥刷新、会话本地恢复/账户隔离、上下文直传供应商、停止/断流/刷新不重发、未知结果确认、流式解析及 320/390px 截图。截图位于 `artifacts/api-chat/`。未调用真实供应商模型，真实供应商跨域配置及手机软键盘待验收。
 
 排队续跑状态图标修复（Web 本地通过，未部署）：侧栏同时读取本地轮次与原生会话运行状态，原生队列自动继续时显示旋转图标；开始事件触发列表同步，活动筛选同步识别原生任务。`node --test scripts/web/test-session-working.mjs` 的 3 项回归、类型/ESLint/格式/生产构建及受控 Chromium 开始/结束/待排队/断线暂停检查通过，桌面与 390px 截图位于 `artifacts/queue/sidebar-native-running-*.png`；真实 Host 自动消费队列与手机真机未验收，仅需更新 Web。
 
@@ -339,7 +339,7 @@ Web 构建自动生成 `version.json`，与资源一同部署并保持该清单�
 
 生产云端程序仍由 `/opt/agentdeck/current/agentdeck-cloud` 提供，服务配置 `/etc/agentdeck/cloud.env`。运维：`ssh yecaoyun 'systemctl status agentdeck-cloud --no-pager'`；日志 `journalctl -u agentdeck-cloud -n 50 --no-pager`。`agentdeck-backup.timer` 每日 UTC 03:20 起随机延迟最多十分钟执行；可手动启动 `agentdeck-backup.service`。备份位于 `/var/backups/agentdeck/`，需要另做异机备份；云端备份不包含各 Host 的 Codex、项目和本机证书。Docker/Caddy 备用部署见 `server/deploy/`，当前生产未使用该路径。
 
-本次 AgentChat Web/云端部署由用户明确授权并豁免未完成的跨平台真实验收；不更新 Host 或稳定下载指针。候选排除同时进行的设置页、模式菜单与通用样式修改，保留修改前的页面布局。
+2026-10-28 AgentChat Web/云端已部署：源提交 `e574a8c6a204`，Web 版本 `1e5e971e60b75bb22bc30cd0e6380b0d6d6eb46745c0d9052d1a8ac8af1c0b45`。公网 13 文件 SHA-256、健康检查、真实 HTTPS 密钥库临时账户的保存/密文/读取/删除及清理、公开登录页渲染通过，未调用真实模型。发布目录 `/opt/agentdeck/releases/agentchat-e574a8c6a204`，回退入口 `/var/backups/agentdeck/agentchat-e574a8c6a204-20261028T154011Z/rollback.sh`；已运行数据库备份，新增加密主密钥保存在受保护的服务端环境文件中。用户明确授权本次 Web/云端上线并豁免未完成的跨平台真实验收；未更新 Host 或稳定下载指针，排除同时进行的设置页、模式菜单与通用样式修改。
 
 ## 开发与验证
 
