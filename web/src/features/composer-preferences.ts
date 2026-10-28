@@ -1,3 +1,5 @@
+import type { Model } from '../workspace';
+
 export type ComposerPreferences = { model: string; effort: string; permission: string };
 export type ComposerModelPreferences = Pick<ComposerPreferences, 'model' | 'effort'>;
 const defaults = (): ComposerPreferences => ({ model: '', effort: '', permission: 'workspace' });
@@ -49,4 +51,18 @@ export function saveComposerModelPreferences(scope: string, value: ComposerModel
   } catch {
     // The current page still keeps the selection when storage is unavailable.
   }
+}
+
+/** An explicit effort must always travel with the model it was selected for. */
+export function resolveComposerModelPreferences(
+  value: ComposerModelPreferences,
+  models: Model[],
+): ComposerModelPreferences {
+  const selected = value.model
+    ? models.find((model) => model.model === value.model || model.id === value.model)
+    : models.find((model) => model.isDefault);
+  const model = selected?.model || selected?.id || value.model;
+  if (!value.effort) return { model: value.model ? model : '', effort: '' };
+  if (!model) throw new Error('无法确定思维强度对应的模型，请先选择具体模型。');
+  return { model, effort: value.effort };
 }

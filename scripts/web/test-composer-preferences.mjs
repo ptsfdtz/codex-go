@@ -13,6 +13,7 @@ const { outputText } = ts.transpileModule(source, {
 const {
   readComposerPreferences,
   saveComposerPreferences,
+  resolveComposerModelPreferences: resolve,
   readComposerModelPreferences: readModel,
   saveComposerModelPreferences: saveModel,
 } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
@@ -100,4 +101,37 @@ test('invalid and inaccessible storage fall back to the current conversation met
   };
   assert.deepEqual(readModel(key('a'), fallback), fallback);
   assert.doesNotThrow(() => saveModel(key('a'), fallback));
+});
+
+const models = [
+  { id: 'catalog-default', model: 'model-default', isDefault: true },
+  { id: 'catalog-b', model: 'model-b' },
+];
+test('effort on the displayed default model includes its concrete wire model', () => {
+  assert.deepEqual(resolve({ model: '', effort: 'high' }, models), {
+    model: 'model-default',
+    effort: 'high',
+  });
+});
+test('explicit model and effort remain paired and use the wire model identifier', () => {
+  assert.deepEqual(resolve({ model: 'catalog-b', effort: 'low' }, models), {
+    model: 'model-b',
+    effort: 'low',
+  });
+  assert.deepEqual(resolve({ model: 'model-b', effort: 'high' }, models), {
+    model: 'model-b',
+    effort: 'high',
+  });
+});
+test('default without effort remains implicit and missing default does not send orphan effort', () => {
+  assert.deepEqual(resolve({ model: '', effort: '' }, models), { model: '', effort: '' });
+  assert.throws(() => resolve({ model: '', effort: 'high' }, []), /先选择具体模型/);
+});
+test('previously saved effort-only choices resolve without changing other conversations', () => {
+  saveModel(key('new:project'), { model: '', effort: 'high' });
+  saveModel(key('b'), { model: 'model-b', effort: 'low' });
+  const value = resolve(readModel(key('new:project')), models);
+  saveModel(key('created'), value);
+  assert.deepEqual(readModel(key('created')), { model: 'model-default', effort: 'high' });
+  assert.deepEqual(readModel(key('b')), { model: 'model-b', effort: 'low' });
 });

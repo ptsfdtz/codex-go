@@ -398,11 +398,6 @@ button:disabled {
   > :is(.confirmation, .approval-review, .action-feedback, .mode-chip) {
   opacity: 0;
 }
-.composer > textarea {
-  transition:
-    min-height var(--motion-panel) var(--ease-out),
-    max-height var(--motion-panel) var(--ease-out);
-}
 .model-picker-model-toggle svg {
   transition: transform var(--motion-fast) var(--ease-out);
 }

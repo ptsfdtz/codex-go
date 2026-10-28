@@ -4,7 +4,7 @@ import './styles.css';
 import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
 import { api, installationId, accountEvent } from './cloud';
 import { Bridge } from './transport/bridge';
-import { AccountDevices, DeleteDevice } from './features/AccountDevices';
+import { DeleteDevice } from './features/AccountDevices';
 import { AccountPassword } from './AccountPassword';
 import type { HostGrant } from './host-book';
 import { contentText, RichContent } from './RichContent';
@@ -87,6 +87,7 @@ import { HostUpdates } from './features/HostUpdates';
 import { FileWorkspace } from './features/files/FileWorkspace';
 import { usePreference } from './features/preferences';
 import {
+  resolveComposerModelPreferences,
   readComposerPreferences,
   saveComposerPreferences,
   type ComposerPreferences,
@@ -197,6 +198,7 @@ export function App() {
   const [historyReady, setHistoryReady] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const sending = useRef(false);
+  const [sendFailure, setSendFailure] = useState<{ key: string; message: string }>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [activeTurn, setActiveTurn] = useState<string>();
@@ -357,7 +359,7 @@ export function App() {
     setActiveTurn(undefined);
     managedActiveTurn.current = undefined;
     setError('');
-    setPanel('');
+    setPanel((current) => (current === 'settings' ? current : ''));
     setMessageAction(undefined);
     setManageSession(undefined);
     setObservedUsage(undefined);
@@ -872,7 +874,6 @@ export function App() {
     setConnectionFailure('');
     setUpstreamRetry('');
     if (!sameHost) {
-      setPanel('');
       setCapabilities({});
       setModels([]);
       setHostLabel(localStorage.getItem('agentdeck.web.label.' + scope + '.' + next.hostId) || '');
@@ -1230,7 +1231,7 @@ export function App() {
 
   async function send(kind?: 'queue' | 'steer', planText?: string) {
     const connection = bridge.current;
-    const source =
+    let source =
       planText === undefined
         ? draft
         : {
@@ -1257,9 +1258,11 @@ export function App() {
     let targetKey = sourceKey;
     let createdSession: string | undefined;
     sending.current = true;
+    setSendFailure(undefined);
     setBusy(true);
     setError('');
     try {
+      source = { ...source, ...resolveComposerModelPreferences(source, models) };
       let id = session;
       if (!id) {
         const created = await connection.request<{ session?: Session }>('sessions.create', {
@@ -1335,7 +1338,10 @@ export function App() {
       });
       await refresh(!session && sessionRef.current === id);
     } catch (error) {
-      if (epoch === connectionEpoch.current) setError(String(error));
+      if (epoch === connectionEpoch.current) {
+        setError(String(error));
+        setSendFailure({ key: targetKey, message: String(error) });
+      }
     } finally {
       if (startingSession.current === createdSession) startingSession.current = undefined;
       sending.current = false;
@@ -1457,6 +1463,11 @@ export function App() {
     setMenu(false);
     setWorkspaceMenu(false);
     if (name === 'manage') setManageSession(current);
+    if (name === 'computers') {
+      setSettingsTab('computers');
+      setPanel('settings');
+      return;
+    }
     setPanel(name);
   }
   async function syncIndex() {
@@ -1519,8 +1530,11 @@ export function App() {
             text: editText.trim(),
             permissionMode: permission,
             mode: draft.mode,
-            ...(draft.model ? { model: draft.model } : {}),
-            ...(draft.effort ? { effort: draft.effort } : {}),
+            ...Object.fromEntries(
+              Object.entries(resolveComposerModelPreferences(draft, models)).filter(
+                ([, value]) => value,
+              ),
+            ),
           });
         if (epoch === connectionEpoch.current && sessionRef.current === id) {
           historyVersion.current++;
@@ -1577,7 +1591,6 @@ export function App() {
       ].includes(value),
   );
   const titles: Record<string, string> = {
-    computers: '电脑',
     settings: '设置',
     manage: '管理会话',
     goal: '会话目标',
@@ -2233,6 +2246,13 @@ export function App() {
               !!(session && !historyReady) ||
               current?.archived === 1
             }
+            feedback={
+              receiptBlocked
+                ? '发送结果尚未确认，请先核对任务状态，避免重复发送。'
+                : sendFailure?.key === draftKey
+                  ? sendFailure.message
+                  : undefined
+            }
             busy={busy}
             active={!!activeTurn}
             permission={permission}
@@ -2241,7 +2261,6 @@ export function App() {
             onStop={() => void interrupt()}
             onPanel={openPanel}
             onNew={newChat}
-            onError={setError}
           />
         </section>
         {filesVisible && (
@@ -2391,107 +2410,6 @@ export function App() {
               ])}
               className="panel-content"
             >
-              {panel === 'computers' && (
-                <div className="panel-stack">
-                  <p className="muted">
-                    在线表示电脑已连到云端；浏览器仍需完成授权、安全连接与会话同步。
-                  </p>
-                  {directoryFailure && (
-                    <p className="error" role="status">
-                      {directoryFailure}
-                    </p>
-                  )}
-                  {host && <p role="status">浏览器连接：{connectionLabels[connectionState]}</p>}
-                  {connectionFailure && (
-                    <p className="error" role="status">
-                      {connectionFailure}
-                    </p>
-                  )}
-                  <MotionList className="computer-list">
-                    {hosts.map((item) => (
-                      <div className="computer-entry" data-motion-item key={item.hostId}>
-                        <button
-                          className="host"
-                          aria-current={item.hostId === host?.hostId ? 'true' : undefined}
-                          onClick={() => {
-                            setPanel('');
-                            void connect(item);
-                          }}
-                        >
-                          <span className={`dot ${item.online ? 'online' : ''}`} />
-                          <span className="computer-name">
-                            <span>{hostName(item)}</span>
-                            {hostName(item) !== item.displayName && (
-                              <small className="computer-original-name">{item.displayName}</small>
-                            )}
-                          </span>
-                          <small>
-                            {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
-                          </small>
-                        </button>
-                        <div className="computer-actions">
-                          {item.cloudDeviceId && (
-                            <DeleteDevice
-                              onDeleted={() =>
-                                setHosts((current) =>
-                                  current.filter((entry) => entry.hostId !== item.hostId),
-                                )
-                              }
-                              device={{
-                                deviceId: item.cloudDeviceId,
-                                displayName: hostName(item),
-                                kind: 'desktop',
-                              }}
-                            />
-                          )}
-                          {item.hostId === host?.hostId && (
-                            <IconButton
-                              icon={RefreshCw}
-                              label="重新连接"
-                              disabled={busy}
-                              onClick={() => void connect(item)}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </MotionList>
-                  {!hosts.length && <p>尚未绑定电脑。请先在电脑端登录同一账户。</p>}
-                  {host && (
-                    <details className="technical-details">
-                      <summary>连接详情</summary>
-                      <DataFields
-                        value={{
-                          hostId: host.hostId,
-                          fingerprint: hostFingerprint,
-                          lastSynced,
-                          codexVersion: capabilities.codexVersion,
-                          status: connectionLabels[connectionState],
-                        }}
-                      />
-                    </details>
-                  )}
-                  {host && (
-                    <>
-                      <label className="host-label">
-                        本机显示名称
-                        <input
-                          value={hostLabel}
-                          maxLength={80}
-                          placeholder={host.displayName}
-                          onChange={(e) => {
-                            setHostLabel(e.target.value);
-                            localStorage.setItem(
-                              `agentdeck.web.label.${scope}.${host.hostId}`,
-                              e.target.value,
-                            );
-                          }}
-                        />
-                      </label>
-                    </>
-                  )}
-                </div>
-              )}
               {panel === 'settings' && (
                 <SettingsLayout active={settingsTab} onChange={setSettingsTab}>
                   {settingsTab === 'general' && (
@@ -2567,7 +2485,6 @@ export function App() {
                           退出账户
                         </button>
                       </section>
-                      <AccountDevices />
                     </div>
                   )}
                   {settingsTab === 'configuration' &&
@@ -2644,10 +2561,105 @@ export function App() {
                     </div>
                   )}
                   {settingsTab === 'computers' && (
-                    <div className="settings-section panel-stack">
-                      <h3>电脑连接</h3>
-                      <p className="muted">管理已登录的电脑，查看在线状态并选择要使用的电脑。</p>
-                      <button onClick={() => openPanel('computers')}>管理电脑</button>
+                    <div className="panel-stack">
+                      <p className="muted">
+                        在线表示电脑已连到云端；浏览器仍需完成授权、安全连接与会话同步。
+                      </p>
+                      {directoryFailure && (
+                        <p className="error" role="status">
+                          {directoryFailure}
+                        </p>
+                      )}
+                      {host && <p role="status">浏览器连接：{connectionLabels[connectionState]}</p>}
+                      {connectionFailure && (
+                        <p className="error" role="status">
+                          {connectionFailure}
+                        </p>
+                      )}
+                      <MotionList className="computer-list">
+                        {hosts.map((item) => (
+                          <div className="computer-entry" data-motion-item key={item.hostId}>
+                            <button
+                              className="host"
+                              aria-current={item.hostId === host?.hostId ? 'true' : undefined}
+                              onClick={() => {
+                                void connect(item);
+                              }}
+                            >
+                              <span className={`dot ${item.online ? 'online' : ''}`} />
+                              <span className="computer-name">
+                                <span>{hostName(item)}</span>
+                                {hostName(item) !== item.displayName && (
+                                  <small className="computer-original-name">
+                                    {item.displayName}
+                                  </small>
+                                )}
+                              </span>
+                              <small>
+                                {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
+                              </small>
+                            </button>
+                            <div className="computer-actions">
+                              {item.cloudDeviceId && (
+                                <DeleteDevice
+                                  onDeleted={() =>
+                                    setHosts((current) =>
+                                      current.filter((entry) => entry.hostId !== item.hostId),
+                                    )
+                                  }
+                                  device={{
+                                    deviceId: item.cloudDeviceId,
+                                    displayName: hostName(item),
+                                    kind: 'desktop',
+                                  }}
+                                />
+                              )}
+                              {item.hostId === host?.hostId && (
+                                <IconButton
+                                  icon={RefreshCw}
+                                  label="重新连接"
+                                  disabled={busy}
+                                  onClick={() => void connect(item)}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </MotionList>
+                      {!hosts.length && <p>尚未绑定电脑。请先在电脑端登录同一账户。</p>}
+                      {host && (
+                        <details className="technical-details">
+                          <summary>连接详情</summary>
+                          <DataFields
+                            value={{
+                              hostId: host.hostId,
+                              fingerprint: hostFingerprint,
+                              lastSynced,
+                              codexVersion: capabilities.codexVersion,
+                              status: connectionLabels[connectionState],
+                            }}
+                          />
+                        </details>
+                      )}
+                      {host && (
+                        <>
+                          <label className="host-label">
+                            本机显示名称
+                            <input
+                              value={hostLabel}
+                              maxLength={80}
+                              placeholder={host.displayName}
+                              onChange={(e) => {
+                                setHostLabel(e.target.value);
+                                localStorage.setItem(
+                                  `agentdeck.web.label.${scope}.${host.hostId}`,
+                                  e.target.value,
+                                );
+                              }}
+                            />
+                          </label>
+                        </>
+                      )}
                     </div>
                   )}
                 </SettingsLayout>

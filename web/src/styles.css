@@ -673,45 +673,81 @@ small,
 .user-turn > .editing-message {
   width: 100%;
   max-width: 100%;
-  padding: 14px 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+}
+.editing-message:focus-within {
+  border-color: var(--muted);
 }
 .message-editor textarea {
   display: block;
   width: 100%;
-  min-height: 64px;
-  max-height: min(420px, 40dvh);
-  padding: 0;
+  min-height: 40px;
+  max-height: none;
+  padding: 0 2px;
   border: 0;
   border-radius: 0;
   background: transparent;
   resize: none;
-  line-height: 1.75;
+  font-size: 15px;
+  line-height: 1.6;
+  scrollbar-width: thin;
 }
 .message-editor textarea:focus-visible {
   outline: none;
 }
-.editing-message:focus-within {
-  outline: 2px solid var(--border);
-  outline-offset: 3px;
-}
-.message-edit-hint {
-  margin: 12px 0;
-  color: var(--muted);
-  font-size: 12px;
+.message-edit-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 20px;
+  margin-top: 16px;
 }
 .message-edit-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  margin-left: auto;
 }
 .message-edit-actions button {
   min-height: 36px;
   border-radius: 20px;
+  padding: 7px 13px;
+  font-size: 12px;
+}
+.message-edit-actions button:first-child {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.message-edit-actions button:first-child:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
 }
 .message-edit-actions .message-edit-send {
   color: var(--button-text);
   background: var(--button);
   border-color: var(--button);
+  gap: 5px;
+}
+.message-edit-error {
+  margin: 10px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .user-turn > .editing-message {
+    padding: 14px;
+    border-radius: 20px;
+  }
+  .message-editor textarea {
+    font-size: 16px;
+  }
+  .message-edit-footer {
+    gap: 12px;
+    margin-top: 12px;
+  }
 }
 .timeline:has(.message-editor) .follow-latest {
   display: none;
@@ -1113,10 +1149,6 @@ small,
 }
 .composer.is-expanded {
   border-color: var(--border);
-}
-.composer.is-expanded > textarea {
-  min-height: min(320px, 50dvh);
-  max-height: min(420px, 60dvh);
 }
 
 .composer:focus-within {
@@ -2932,7 +2964,7 @@ small,
 .question-secondary {
   margin-right: auto;
 }
-.question-fields > label {
+.question-response > label {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2991,6 +3023,258 @@ small,
   overflow: auto;
   font: inherit;
 }
+
+/* Compact composer: resource row, growing editor, and a stable action rail. */
+.composer {
+  position: relative;
+  padding: 12px 12px 10px;
+  border-radius: 26px;
+}
+.composer > textarea {
+  field-sizing: fixed;
+  min-height: 36px;
+  max-height: none;
+  padding: 2px 6px 8px;
+  line-height: 1.6;
+  scrollbar-width: thin;
+}
+.composer-toolbar {
+  min-height: 36px;
+  gap: 4px;
+}
+.composer-toolbar > .composer-add,
+.composer-actions > .composer-stop {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.composer-toolbar > .composer-add:hover,
+.composer-actions > .composer-stop:hover {
+  background: var(--hover);
+}
+.composer-toolbar .composer-model {
+  flex: 1;
+  min-width: 0;
+}
+.composer-toolbar .permission-picker {
+  flex-shrink: 0;
+}
+.composer-toolbar .permission {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+}
+.composer-toolbar .permission > span {
+  display: none;
+}
+.composer-toolbar .permission[data-permission='full'] {
+  color: #b98a55;
+  background: transparent;
+  box-shadow: none;
+}
+.composer-toolbar .send-button {
+  width: 34px;
+  height: 34px;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+.composer-resources {
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 10px;
+  max-height: min(220px, 25dvh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.composer-resources .mode-chip {
+  padding: 7px 9px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.composer-resources .mode-chip > span {
+  display: inline;
+}
+.composer-attachment {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 224px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.composer-attachment > svg {
+  flex-shrink: 0;
+  margin: 0 5px;
+  color: var(--muted);
+}
+.attachment-thumbnail {
+  padding: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.attachment-thumbnail img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.attachment-caption {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.attachment-caption strong {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-caption small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.composer-attachment > .icon-button {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.composer-attachment > .icon-button svg {
+  width: 13px;
+  height: 13px;
+}
+.composer-feedback {
+  margin: 7px 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.composer-feedback[role='alert'] {
+  color: var(--danger);
+}
+.composer.is-dragging {
+  border-color: var(--text);
+}
+.composer-drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  border-radius: inherit;
+  background: var(--soft);
+  pointer-events: none;
+  font-size: 14px;
+}
+.composer-image-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 70dvh;
+  object-fit: contain;
+  margin: auto;
+}
+.composer-menu[popover] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 248px;
+  max-width: calc(100vw - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 600px) {
+  .composer {
+    padding: 10px 8px 8px;
+    border-radius: 24px;
+  }
+  .composer-toolbar {
+    gap: 1px;
+  }
+  .composer-toolbar .model-picker-trigger {
+    padding: 7px 4px;
+  }
+  .composer-attachment {
+    width: 100%;
+  }
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.composer-actions .permission {
+  width: 30px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  background: transparent;
+}
+.composer-actions .permission:hover:not(:disabled) {
+  background: var(--hover);
+}
+.composer-actions > .composer-stop {
+  width: 32px;
+  height: 32px;
+  color: var(--button-text);
+  background: var(--button);
+}
+.composer-actions > .composer-stop:hover:not(:disabled) {
+  background: var(--button);
+  opacity: 0.85;
+}
+.composer-actions > .composer-stop:disabled {
+  opacity: 0.4;
+}
+.composer-stop svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+  stroke-width: 0;
+}
+.composer-toolbar .composer-queue {
+  width: auto;
+  height: 32px;
+  min-width: 62px;
+  margin-left: 0;
+  padding: 0 9px;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text);
+  background: transparent;
+}
+.composer-toolbar .composer-queue svg {
+  width: 14px;
+  height: 14px;
+}
+.composer-toolbar .composer-queue:hover:not(:disabled) {
+  background: var(--hover);
+  opacity: 1;
+}
+.composer-toolbar .composer-queue:disabled {
+  background: transparent;
+  color: var(--muted);
+  opacity: 0.45;
+  border-color: transparent;
+}
 .message-image {
   display: block;
   margin: 12px 0;
@@ -3029,4 +3313,36 @@ small,
   max-height: 75dvh;
   margin: auto;
   object-fit: contain;
+}
+
+.question-response {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+.question-response > label {
+  min-width: 0;
+}
+.question-response .question-answer {
+  min-width: 0;
+  width: 100%;
+  height: 40px;
+}
+.question-response .question-actions {
+  flex-wrap: nowrap;
+  gap: 2px;
+  margin: 0;
+  min-height: 40px;
+}
+.question-response .question-actions > .icon-button {
+  width: 34px;
+  height: 36px;
+  min-height: 36px;
+}
+.question-options:empty {
+  display: none;
+}
+.composer-prompts .question-fields {
+  margin-bottom: 0;
 }

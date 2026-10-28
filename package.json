@@ -21,6 +21,7 @@
     "host:build": "cargo build --release --locked --manifest-path desktop/core/Cargo.toml --bins",
     "host:dev": "node scripts/host/dev.mjs",
     "host:package": "node scripts/host/package.mjs",
+    "test:composer-browser": "node scripts/web/test-composer-browser.mjs",
     "test:message-images-browser": "node scripts/web/test-message-images-browser.mjs"
   },
   "devDependencies": {

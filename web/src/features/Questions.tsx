@@ -124,53 +124,57 @@ function QuestionFields({
             </button>
           ))}
       </div>
-      <label>
-        {q.secret ? '敏感回答' : q.options.length ? '其他回答' : '你的回答'}
-        <input
-          className="question-answer"
-          type={q.secret ? 'password' : 'text'}
-          autoComplete="off"
-          value={answers[q.id] || ''}
-          maxLength={16000}
-          disabled={disabled}
-          onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              advance();
-            }
-          }}
-        />
-      </label>
-      {q.secret && <small>敏感回答仅保留在内存中。</small>}
-      <div className="question-actions">
-        {secondary && <div className="question-secondary">{secondary}</div>}
-        {questions.length > 1 && (
-          <IconButton
-            icon={ChevronLeft}
-            label="上一个问题"
-            disabled={disabled || currentIndex === 0}
-            onClick={() => navigate(currentIndex - 1)}
+      <div className="question-response">
+        <label>
+          {q.secret ? '敏感回答' : q.options.length ? '其他回答' : '你的回答'}
+          <input
+            className="question-answer"
+            type={q.secret ? 'password' : 'text'}
+            autoComplete="off"
+            value={answers[q.id] || ''}
+            maxLength={16000}
+            disabled={disabled}
+            onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                advance();
+              }
+            }}
           />
-        )}
-        {last ? (
-          <IconButton
-            icon={Send}
-            label="提交回答"
-            disabled={
-              disabled || !canSubmit || questions.some((question) => !answers[question.id]?.trim())
-            }
-            onClick={onSubmit}
-          />
-        ) : (
-          <IconButton
-            icon={ChevronRight}
-            label="下一个问题"
-            disabled={disabled || !answers[q.id]?.trim()}
-            onClick={advance}
-          />
-        )}
+        </label>
+        <div className="question-actions">
+          {secondary && <div className="question-secondary">{secondary}</div>}
+          {questions.length > 1 && (
+            <IconButton
+              icon={ChevronLeft}
+              label="上一个问题"
+              disabled={disabled || currentIndex === 0}
+              onClick={() => navigate(currentIndex - 1)}
+            />
+          )}
+          {last ? (
+            <IconButton
+              icon={Send}
+              label="提交回答"
+              disabled={
+                disabled ||
+                !canSubmit ||
+                questions.some((question) => !answers[question.id]?.trim())
+              }
+              onClick={onSubmit}
+            />
+          ) : (
+            <IconButton
+              icon={ChevronRight}
+              label="下一个问题"
+              disabled={disabled || !answers[q.id]?.trim()}
+              onClick={advance}
+            />
+          )}
+        </div>
       </div>
+      {q.secret && <small>敏感回答仅保留在内存中。</small>}
     </div>
   );
 }

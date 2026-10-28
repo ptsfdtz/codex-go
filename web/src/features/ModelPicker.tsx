@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { Check, ChevronDown, RotateCcw } from 'lucide-react';
 import type { Draft, Model } from '../workspace';
+import { resolveComposerModelPreferences } from './composer-preferences';
 import { Collapse, usePopoverMotion } from '../motion';
 
 const effortLabel = (value: string) =>
@@ -35,7 +36,7 @@ export function ModelPicker({
   const popup = usePopoverMotion();
   const [modelExpanded, setModelExpanded] = useState(false);
   const model =
-    models.find((m) => (m.id || m.model) === draft.model) ||
+    models.find((m) => m.model === draft.model || m.id === draft.model) ||
     (!draft.model ? models.find((m) => m.isDefault) : undefined);
   const efforts =
     model?.supportedReasoningEfforts?.map((e) => (typeof e === 'string' ? e : e.reasoningEffort)) ||
@@ -100,7 +101,7 @@ export function ModelPicker({
                 {!draft.model && <Check size={18} />}
               </button>
               {models.map((m) => {
-                const value = m.id || m.model;
+                const value = m.model || m.id;
                 return value ? (
                   <button
                     key={value}
@@ -156,8 +157,15 @@ export function ModelPicker({
                 max={efforts.length - 1}
                 step={1}
                 value={index}
-                disabled={disabled}
-                onChange={(event) => onChange({ effort: efforts[Number(event.target.value)] })}
+                disabled={disabled || !(model?.model || model?.id || draft.model)}
+                onChange={(event) =>
+                  onChange(
+                    resolveComposerModelPreferences(
+                      { model: draft.model, effort: efforts[Number(event.target.value)]! },
+                      models,
+                    ),
+                  )
+                }
               />
             </div>
           ) : (
