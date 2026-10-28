@@ -556,6 +556,12 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
       window.editBusy = true;
       window.renderEditor();
     });
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll('.message-editor button')].find(
+          (button) => button.textContent === '取消',
+        )?.disabled,
+    );
     assert(await page.getByRole('button', { name: '取消', exact: true }).isDisabled());
     assert(await edited.evaluate((el) => el.readOnly));
     await edited.press('Control+Enter');

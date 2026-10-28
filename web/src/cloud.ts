@@ -87,7 +87,6 @@ export async function api<T = Record<string, unknown>>(
   path: string,
   init: RequestInit = {},
   retry = true,
-  raw = false,
 ): Promise<T> {
   const generation = accountGeneration();
   return exclusive('cloud-auth.' + cloudOrigin, async () => {
@@ -98,7 +97,7 @@ export async function api<T = Record<string, unknown>>(
     csrf = '';
     let result: T;
     try {
-      result = await request<T>(path, init, raw);
+      result = await request<T>(path, init);
     } catch (error) {
       if (
         error instanceof CloudError &&
@@ -107,7 +106,7 @@ export async function api<T = Record<string, unknown>>(
         path !== '/api/v1/web/login' &&
         (await refresh())
       )
-        result = await request<T>(path, init, raw);
+        result = await request<T>(path, init);
       else throw error;
     }
     if (
@@ -119,7 +118,7 @@ export async function api<T = Record<string, unknown>>(
   });
 }
 
-async function request<T>(path: string, init: RequestInit, raw = false): Promise<T> {
+async function request<T>(path: string, init: RequestInit): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body) headers.set('content-type', 'application/json');
   const write = !['GET', 'HEAD'].includes((init.method || 'GET').toUpperCase());
@@ -127,14 +126,11 @@ async function request<T>(path: string, init: RequestInit, raw = false): Promise
   const response = await fetch(`${cloudEndpoint}${path}`, {
     ...init,
     credentials: 'include',
-    signal: raw
-      ? init.signal
-      : init.signal
-        ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)])
-        : AbortSignal.timeout(15000),
+    signal: init.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)])
+      : AbortSignal.timeout(15000),
     headers,
   });
-  if (raw && response.ok) return response as T;
   const body = await response.json().catch(() => ({}));
   if (!response.ok)
     throw new CloudError(
@@ -161,9 +157,4 @@ export function randomToken(): string {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
-}
-
-// Auth/CSRF refresh completes before returning a streaming response; no auth lock is held while reading it.
-export function apiStream(path: string, signal: AbortSignal): Promise<Response> {
-  return api<Response>(path, { signal }, true, true);
 }

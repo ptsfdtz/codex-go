@@ -1,14 +1,16 @@
-import { useState } from 'react';
-import { Plus, Trash2, KeyRound, ChevronLeft } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Plus, Trash2, KeyRound, ChevronLeft, RefreshCw } from 'lucide-react';
 import { Modal, IconButton } from '../../ui';
-import { chatApi, type Provider } from './client';
+import { discoverModels, saveProvider, deleteProvider, type Provider } from './client';
 import { api } from '../../cloud';
 export function ApiSettings({
+  scope,
   providers,
   enabled,
   onClose,
   onChanged,
 }: {
+  scope: string;
   providers: Provider[];
   enabled: boolean;
   onClose: () => void;
@@ -21,6 +23,10 @@ export function ApiSettings({
     [base, setBase] = useState('https://api.openai.com/v1'),
     [key, setKey] = useState(''),
     [models, setModels] = useState('');
+  const [fetching, setFetching] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  const fetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [effortModel, setEffortModel] = useState('');
   const [modelEfforts, setModelEfforts] = useState<Record<string, string>>({});
   const modelNames = [
     ...new Set(
@@ -33,7 +39,39 @@ export function ApiSettings({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [removing, setRemoving] = useState('');
+  const fetchModels = useCallback(async () => {
+    if (!enabled || !creating || !base.trim() || (!key.trim() && !editing)) return;
+    clearTimeout(fetchTimer.current);
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setFetching(true);
+    setError('');
+    try {
+      const models = await discoverModels(base.trim(), key.trim(), editing, controller.signal);
+      if (!controller.signal.aborted) setModels(models.join('\n'));
+    } catch (error) {
+      if (!controller.signal.aborted) setError(String(error));
+    } finally {
+      if (!controller.signal.aborted) setFetching(false);
+    }
+  }, [enabled, creating, base, key, editing]);
+  useEffect(() => {
+    request.current?.abort();
+    setFetching(false);
+    setError('');
+    fetchTimer.current =
+      creating && key.trim() && base.trim() ? setTimeout(() => void fetchModels(), 700) : undefined;
+    return () => {
+      clearTimeout(fetchTimer.current);
+      request.current?.abort();
+    };
+  }, [creating, base, key, fetchModels]);
+  const selectedEffortModel = modelNames.includes(effortModel) ? effortModel : modelNames[0] || '';
   function edit(provider?: Provider) {
+    request.current?.abort();
+    setFetching(false);
+    setEffortModel('');
     setProviderId(provider?.id || crypto.randomUUID());
     setEditing(provider);
     setCreating(true);
@@ -52,7 +90,7 @@ export function ApiSettings({
     setError('');
   }
   async function save() {
-    if (busy) return;
+    if (busy || fetching) return;
     setBusy(true);
     setError('');
     try {
@@ -64,18 +102,24 @@ export function ApiSettings({
             .filter(Boolean),
         ),
       ];
-      await chatApi(`/providers/${editing?.id || providerId}`, 'PUT', {
-        name: name.trim(),
-        baseUrl: base.trim(),
-        ...(key ? { apiKey: key } : {}),
-        models: values,
-        modelEfforts: Object.fromEntries(
-          values.map((model) => [
-            model,
-            (modelEfforts[model] || '').split(/[,，\s]+/).filter(Boolean),
-          ]),
-        ),
-      });
+      await saveProvider(
+        scope,
+        {
+          id: editing?.id || providerId,
+          name: name.trim() || new URL(base.trim()).hostname,
+          baseUrl: base.trim(),
+          models: values,
+          hasKey: true,
+          modelEfforts: Object.fromEntries(
+            values.map((model) => [
+              model,
+              (modelEfforts[model] || '').split(/[,，\s]+/).filter(Boolean),
+            ]),
+          ),
+        },
+        key.trim(),
+        editing,
+      );
       setKey('');
       await onChanged();
       setCreating(false);
@@ -87,7 +131,7 @@ export function ApiSettings({
     }
   }
   return (
-    <Modal title="设置" wide onClose={onClose} className="api-settings">
+    <Modal title="设置" onClose={onClose} className="api-settings">
       {!enabled && (
         <p className="api-feedback" role="status">
           AgentChat 尚未启用，请联系管理员完成服务端配置。
@@ -116,17 +160,6 @@ export function ApiSettings({
             </button>
           )}
           <label>
-            名称
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="例如：我的 API"
-              maxLength={80}
-              required
-              disabled={busy}
-            />
-          </label>
-          <label>
             Base URL
             <input
               value={base}
@@ -151,51 +184,92 @@ export function ApiSettings({
               disabled={busy}
             />
           </label>
-          <label>
-            模型
+          <div className="api-model-field">
+            <div className="api-model-label">
+              <label htmlFor="provider-models">
+                模型{modelNames.length ? ` · ${modelNames.length}` : ''}
+              </label>
+              <button
+                type="button"
+                className="text-button"
+                disabled={busy || fetching || !enabled || (!key.trim() && !editing)}
+                onClick={() => void fetchModels()}
+              >
+                <RefreshCw size={13} className={fetching ? 'spinning' : ''} />
+                {fetching ? '获取中…' : '获取模型'}
+              </button>
+            </div>
             <textarea
+              id="provider-models"
+              aria-label="模型"
               value={models}
-              onChange={(event) => setModels(event.target.value)}
-              placeholder="每行一个模型名称，按接口提供的名称填写"
-              rows={3}
+              onChange={(event) => {
+                clearTimeout(fetchTimer.current);
+                request.current?.abort();
+                setFetching(false);
+                setModels(event.target.value);
+              }}
+              placeholder="自动获取，也可手动填写"
+              rows={2}
               required
               disabled={busy}
             />
-          </label>
-          {!!modelNames.length && (
-            <details className="api-effort-settings">
-              <summary>思考强度</summary>
-              <div className="api-effort-fields">
-                <p className="muted">填写接口支持的档位，按从低到高排列。留空使用接口默认值。</p>
-                {modelNames.map((model) => (
-                  <label key={model}>
-                    {model} 的思考强度
-                    <input
-                      value={modelEfforts[model] || ''}
-                      onChange={(event) =>
-                        setModelEfforts((values) => ({ ...values, [model]: event.target.value }))
-                      }
-                      placeholder="例如 low, medium, high"
+          </div>
+          <details className="api-effort-settings">
+            <summary>高级设置</summary>
+            <div className="api-effort-fields">
+              <label>
+                名称
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="例如：我的 API"
+                  maxLength={80}
+                  disabled={busy}
+                />
+              </label>
+              {!!modelNames.length && (
+                <>
+                  <label>
+                    思考强度
+                    <select
+                      aria-label="配置思考强度的模型"
+                      value={selectedEffortModel}
+                      onChange={(event) => setEffortModel(event.target.value)}
                       disabled={busy}
-                      autoCapitalize="none"
-                      spellCheck={false}
-                    />
+                    >
+                      {modelNames.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                ))}
-              </div>
-            </details>
-          )}
-          <p className="muted">密钥加密保存在账户中，不会在网页回显。聊天通过此接口产生用量。</p>
+                  <input
+                    aria-label={`${selectedEffortModel} 的思考强度`}
+                    value={modelEfforts[selectedEffortModel] || ''}
+                    onChange={(event) =>
+                      setModelEfforts((values) => ({
+                        ...values,
+                        [selectedEffortModel]: event.target.value,
+                      }))
+                    }
+                    placeholder="默认；或填写 low, medium, high"
+                    disabled={busy}
+                    autoCapitalize="none"
+                    spellCheck={false}
+                  />
+                </>
+              )}
+            </div>
+          </details>
           <div className="api-settings-save">
             <button type="button" disabled={busy} onClick={onClose}>
               取消
             </button>
-            <button
-              className="primary"
-              disabled={!enabled || busy || !name.trim() || !models.trim()}
-            >
+            <button className="primary" disabled={!enabled || busy || fetching || !models.trim()}>
               {' '}
-              {busy ? '保存中…' : '保存接口'}
+              {busy ? '保存中…' : '保存'}
             </button>
           </div>
         </form>
@@ -225,7 +299,7 @@ export function ApiSettings({
                     disabled={busy}
                     onClick={() => {
                       setBusy(true);
-                      void chatApi(`/providers/${provider.id}`, 'DELETE')
+                      void deleteProvider(scope, provider.id)
                         .then(onChanged)
                         .then(() => setRemoving(''))
                         .catch((error) => setError(String(error)))
@@ -245,17 +319,19 @@ export function ApiSettings({
           </button>
         </div>
       )}
-      <button
-        className="text-button api-logout"
-        disabled={busy}
-        onClick={() => {
-          void api('/api/v1/web/logout', { method: 'POST' }).catch((error) =>
-            setError(String(error)),
-          );
-        }}
-      >
-        退出登录
-      </button>
+      {!creating && (
+        <button
+          className="text-button api-logout"
+          disabled={busy}
+          onClick={() => {
+            void api('/api/v1/web/logout', { method: 'POST' }).catch((error) =>
+              setError(String(error)),
+            );
+          }}
+        >
+          退出登录
+        </button>
+      )}
       {error && (
         <p className="api-feedback" role="alert">
           {error}

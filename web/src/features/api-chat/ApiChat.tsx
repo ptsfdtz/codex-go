@@ -10,21 +10,23 @@ import {
 } from 'lucide-react';
 import { IconButton, Modal } from '../../ui';
 import { Markdown } from '../../RichContent';
-import { CloudError } from '../../cloud';
 import { ApiSettings } from './ApiSettings';
-import { chatApi, watchChat, type Provider, type ChatSummary, type ChatDetail } from './client';
+import {
+  keyStatus,
+  getKey,
+  providerFetch,
+  streamCompletion,
+  ProviderHttpError,
+  type Provider,
+  type ChatSummary,
+  type ChatDetail,
+  type ChatMessage,
+} from './client';
+import { LocalStore } from './local';
 import './api-chat.css';
 import { Composer } from '../Composer';
 import type { Draft, Model } from '../../workspace';
-
 type Choice = { providerId: string; model: string; effort?: string };
-type Submission = Choice & {
-  requestId: string;
-  text: string;
-  target: string;
-  original: string;
-  expectedLastMessageId: string | null;
-};
 function saved<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) || 'null') || fallback;
@@ -33,12 +35,7 @@ function saved<T>(key: string, fallback: T): T {
   }
 }
 function persist(key: string, value: unknown) {
-  try {
-    if (value === undefined) localStorage.removeItem(key);
-    else localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* In-memory state remains usable. */
-  }
+  localStorage.setItem(key, JSON.stringify(value));
 }
 export function ApiChat({ scope, modeControl }: { scope: string; modeControl: ReactNode }) {
   const [providers, setProviders] = useState<Provider[]>([]),
@@ -50,21 +47,22 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     [settings, setSettings] = useState(false),
     [search, setSearch] = useState('');
   const [choices, setChoices] = useState<Record<string, Choice>>(() =>
-      saved(`agentdeck.api.choices.${scope}`, {}),
-    ),
-    [drafts, setDrafts] = useState<Record<string, string>>(() =>
-      saved(`agentdeck.api.drafts.${scope}`, {}),
-    );
-  const [receipt, setReceipt] = useState<Submission | undefined>(() =>
-    saved(`agentdeck.api.pending.${scope}`, undefined),
+    saved(`agentdeck.api.choices.${scope}`, {}),
   );
-  const [busy, setBusy] = useState(false),
+  const [drafts, setDrafts] = useState<Record<string, string>>(() =>
+    saved(`agentdeck.api.drafts.${scope}`, {}),
+  );
+  const [confirmSend, setConfirmSend] = useState(false),
+    [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
-    [reload, setReload] = useState(0),
     [deleting, setDeleting] = useState('');
+  const store = useRef(new LocalStore(scope)).current;
+  const memory = useRef(new Map<string, ChatDetail>());
+  const jobs = useRef(new Map<string, { controller: AbortController; stopped: boolean }>());
+  const channel = useRef<BroadcastChannel | null>(null);
+  const pending = useRef<string | null>(null);
   const selectedRef = useRef(selected),
-    epoch = useRef(0),
     sending = useRef(false),
     mounted = useRef(true);
   selectedRef.current = selected;
@@ -73,7 +71,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
   const text = drafts[selected || 'new'] || '';
   const choice =
     choices[selected || 'new'] ||
-    (detail && detail.id === selected
+    (detail?.id === selected
       ? { providerId: detail.providerId, model: detail.model, effort: detail.effort || '' }
       : { providerId: providers[0]?.id || '', model: providers[0]?.models[0] || '' });
   const available = providers.some(
@@ -87,16 +85,18 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     })),
   );
   const pickerModel = JSON.stringify([choice.providerId, choice.model]);
+  if (choice.model && !available) models.push({ id: pickerModel, displayName: choice.model });
   const draft: Draft = {
     text,
-    model: pickerModel,
+    model: choice.model ? pickerModel : '',
     effort: choice.effort || '',
     mode: 'default',
     attachments: [],
     skills: [],
   };
   function changeDraft(change: Partial<Draft>) {
-    if (change.text !== undefined) updateText(change.text);
+    if (change.text !== undefined)
+      setDrafts((values) => ({ ...values, [selected || 'new']: change.text! }));
     if (change.model !== undefined || change.effort !== undefined) {
       const [providerId, model] = JSON.parse(change.model || pickerModel) as [string, string];
       setChoices((values) => ({
@@ -113,84 +113,169 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     detail?.id === selected
       ? detail.messages.find((message) => message.status === 'running')
       : undefined;
+  const publish = useCallback((chat: ChatDetail) => {
+    const value = structuredClone(chat);
+    memory.current.set(chat.id, value);
+    if (!mounted.current) return;
+    const summary: ChatSummary = {
+      id: value.id,
+      title: value.title,
+      providerId: value.providerId,
+      model: value.model,
+      effort: value.effort,
+      updatedAt: value.updatedAt,
+    };
+    setChats((values) =>
+      [summary, ...values.filter((value) => value.id !== chat.id)].sort((a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt),
+      ),
+    );
+    if (selectedRef.current === chat.id) setDetail(value);
+  }, []);
+  const saveChat = useCallback(
+    async (chat: ChatDetail) => {
+      const value = structuredClone(chat);
+      const summary: ChatSummary = {
+        id: value.id,
+        title: value.title,
+        providerId: value.providerId,
+        model: value.model,
+        effort: value.effort,
+        updatedAt: value.updatedAt,
+      };
+      publish(value);
+      await store.write([
+        { kind: 'chat', id: chat.id, value },
+        { kind: 'summary', id: chat.id, value: summary },
+      ]);
+      channel.current?.postMessage({ type: 'updated', id: chat.id });
+    },
+    [publish, store],
+  );
+  const readChat = useCallback(
+    async (id: string) => {
+      let chat = memory.current.get(id) || (await store.read<ChatDetail>('chat', id));
+      if (!chat) return undefined;
+      if (!jobs.current.has(id) && chat.messages.some((message) => message.status === 'running')) {
+        const recover = async () => {
+          chat = structuredClone(chat!);
+          chat.uncertain = true;
+          for (const message of chat.messages)
+            if (message.status === 'running') {
+              message.status = 'interrupted';
+              if (message.role === 'assistant')
+                message.error = '页面关闭或连接中断，已有内容已保留；请求结果未知，不会自动重发。';
+            }
+          await saveChat(chat);
+        };
+        if (navigator.locks)
+          await navigator.locks.request(
+            `agentchat:${scope}:${id}`,
+            { ifAvailable: true },
+            async (lock) => {
+              if (lock) await recover();
+            },
+          );
+        else await recover();
+      }
+      memory.current.set(id, chat);
+      return chat;
+    },
+    [saveChat, scope, store],
+  );
+  const refresh = useCallback(async () => {
+    const [providers, summaries] = await Promise.all([
+      store.list<Provider>('provider'),
+      store.list<ChatSummary>('summary'),
+    ]);
+    if (!mounted.current) return;
+    setProviders(providers);
+    setChats(summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  }, [store]);
   useEffect(() => {
     mounted.current = true;
-    return () => {
-      mounted.current = false;
-      epoch.current++;
-    };
-  }, []);
-  const refresh = useCallback(async () => {
-    const value = await chatApi<{ data: Provider[]; enabled: boolean }>('/providers');
-    if (!mounted.current) return;
-    setProviders(value.data);
-    setEnabled(value.enabled);
-    const list = await chatApi<{ data: ChatSummary[] }>('/conversations');
-    if (mounted.current) setChats(list.data);
-  }, []);
-  useEffect(() => {
-    void refresh()
+    const bus =
+      typeof BroadcastChannel === 'undefined'
+        ? null
+        : new BroadcastChannel(`agentdeck-agentchat:${scope}`);
+    channel.current = bus;
+    if (bus)
+      bus.onmessage = (event) => {
+        const { type, id } = event.data || {};
+        if (typeof id !== 'string') return;
+        if (type === 'stop') {
+          const job = jobs.current.get(id);
+          if (job) {
+            job.stopped = true;
+            job.controller.abort();
+          }
+          return;
+        }
+        if (type === 'updated' && !jobs.current.has(id)) {
+          memory.current.delete(id);
+          void refresh()
+            .then(async () => {
+              if (selectedRef.current === id) setDetail(await store.read<ChatDetail>('chat', id));
+            })
+            .catch((error) => setError(String(error)));
+        }
+      };
+    void Promise.all([
+      refresh(),
+      keyStatus().then((value) => {
+        if (mounted.current) setEnabled(value.enabled);
+      }),
+    ])
       .catch((error) => {
         if (mounted.current) setError(String(error));
       })
       .finally(() => {
         if (mounted.current) setLoading(false);
       });
-  }, [refresh]);
-  useEffect(() => {
-    const wake = () => {
-      if (document.visibilityState === 'visible') {
-        setReload((value) => value + 1);
-        void refresh().catch(() => {});
-      }
-    };
-    window.addEventListener('focus', wake);
-    window.addEventListener('online', wake);
     return () => {
-      window.removeEventListener('focus', wake);
-      window.removeEventListener('online', wake);
+      mounted.current = false;
+      for (const job of jobs.current.values()) job.controller.abort();
+      bus?.close();
+      channel.current = null;
     };
-  }, [refresh]);
+  }, [refresh, scope, store]);
   useEffect(() => {
-    const controller = new AbortController(),
-      generation = ++epoch.current;
+    let cancelled = false;
+    stick.current = true;
     setDetail(undefined);
     setError('');
-    stick.current = true;
-    if (!selected) {
-      setLoading(false);
-      return () => controller.abort();
-    }
-    setLoading(true);
-    void chatApi<ChatDetail>(`/conversations/${selected}`, 'GET', undefined, controller.signal)
-      .then(async (value) => {
-        if (epoch.current !== generation) return;
-        setDetail(value);
-        setLoading(false);
-        if (value.messages.some((message) => message.status === 'running')) {
-          await watchChat(selected, controller.signal, (value) => {
-            if (epoch.current === generation) {
-              setDetail(value);
-              if (!value.messages.some((message) => message.status === 'running'))
-                void refresh().catch(() => {});
-            }
-          });
-        }
+    if (!selected) return;
+    void readChat(selected)
+      .then((value) => {
+        if (!cancelled) setDetail(value);
       })
       .catch((error) => {
-        if (!controller.signal.aborted && epoch.current === generation) setError(String(error));
-      })
-      .finally(() => {
-        if (epoch.current === generation) setLoading(false);
+        if (!cancelled) setError(String(error));
       });
-    return () => controller.abort();
-  }, [selected, reload, refresh]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, readChat]);
+  useEffect(() => {
+    if (!selected || !active || jobs.current.has(selected)) return;
+    const timer = setInterval(() => {
+      memory.current.delete(selected);
+      void readChat(selected)
+        .then((value) => {
+          if (mounted.current && selectedRef.current === selected) setDetail(value);
+        })
+        .catch((error) => {
+          if (mounted.current) setError(String(error));
+        });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [selected, active, readChat]);
   useEffect(() => {
     const viewport = window.visualViewport;
-    const resize = () => {
-      const node = document.querySelector<HTMLElement>('.api-chat');
-      node?.style.setProperty('--app-height', `${viewport?.height || window.innerHeight}px`);
-    };
+    const resize = () =>
+      document
+        .querySelector<HTMLElement>('.api-chat')
+        ?.style.setProperty('--app-height', `${viewport?.height || window.innerHeight}px`);
     viewport?.addEventListener('resize', resize);
     resize();
     document.documentElement.dataset.theme =
@@ -204,105 +289,251 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     setSelected(id);
     if (matchMedia('(max-width:760px)').matches) setSidebar(false);
   }
-  function updateText(value: string) {
-    setDrafts((drafts) => ({ ...drafts, [selected || 'new']: value }));
-  }
   useEffect(() => {
-    persist(`agentdeck.api.drafts.${scope}`, drafts);
+    try {
+      persist(`agentdeck.api.drafts.${scope}`, drafts);
+    } catch {
+      setError('草稿无法保存到本地，请检查浏览器空间；请勿关闭页面');
+    }
   }, [scope, drafts]);
   useEffect(() => {
-    persist(`agentdeck.api.choices.${scope}`, choices);
-  }, [scope, choices]);
-  function remember(value?: Submission) {
-    persist(`agentdeck.api.pending.${scope}`, value);
-    setReceipt(value);
-  }
-  async function submit(value: Submission) {
-    if (sending.current) return;
-    sending.current = true;
-    setBusy(true);
-    setError('');
-    const accepted = () => {
-      remember();
-      setDrafts((drafts) =>
-        drafts[value.original || 'new'] === value.text
-          ? { ...drafts, [value.original || 'new']: '' }
-          : drafts,
-      );
-      if (selectedRef.current === value.original || selectedRef.current === value.target) {
-        setSelected(value.target);
-        setReload((version) => version + 1);
-      }
-    };
     try {
-      if (!value.original)
-        await chatApi('/conversations', 'POST', {
-          id: value.target,
-          providerId: value.providerId,
-          model: value.model,
-        });
-      await chatApi(`/conversations/${value.target}/messages`, 'POST', {
-        requestId: value.requestId,
-        text: value.text,
-        providerId: value.providerId,
-        model: value.model,
-        effort: value.effort || '',
-        expectedLastMessageId: value.expectedLastMessageId,
-      });
-      if (!mounted.current) return;
-      accepted();
-      void refresh().catch((error) => {
-        if (mounted.current) setError(String(error));
-      });
-    } catch (error) {
-      if (!mounted.current) return;
-      try {
-        const current = await chatApi<ChatDetail>(`/conversations/${value.target}`);
-        if (!mounted.current) return;
-        if (current.messages.some((message) => message.requestId === value.requestId)) {
-          accepted();
-          void refresh().catch(() => {});
-          return;
-        }
-      } catch {
-        /* Keep the same idempotency key until an acknowledgement is read. */
-      }
-      if (error instanceof CloudError && error.status >= 400 && error.status < 500) remember();
-      setError(String(error));
-    } finally {
-      sending.current = false;
-      if (mounted.current) setBusy(false);
+      persist(`agentdeck.api.choices.${scope}`, choices);
+    } catch {
+      setError('模型选择无法保存到本地，请检查浏览器空间');
     }
-  }
-  function send() {
-    if (sending.current || busy || loading || active || receipt || !available || !text.trim())
+  }, [scope, choices]);
+  async function execute(confirmed = false) {
+    if (
+      sending.current ||
+      busy ||
+      loading ||
+      active ||
+      !available ||
+      !text.trim() ||
+      (selected && !detail)
+    )
       return;
+    if (detail?.uncertain && !confirmed) {
+      setConfirmSend(true);
+      return;
+    }
     if (new TextEncoder().encode(text).length > 12000) {
       setError('单条消息最多 12,000 字节，请缩短后发送');
       return;
     }
-    const value: Submission = {
-      ...choice,
-      requestId: crypto.randomUUID(),
-      text,
-      target: selected || crypto.randomUUID(),
-      original: selected,
-      expectedLastMessageId: detail?.id === selected ? detail.messages.at(-1)?.id || null : null,
-    };
-    remember(value);
-    void submit(value);
-  }
-  async function stop() {
-    if (!active || busy) return;
-    setBusy(true);
-    try {
-      await chatApi(`/conversations/${selected}/stop`, 'POST', { messageId: active.id });
-      setReload((value) => value + 1);
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      if (mounted.current) setBusy(false);
+    if (jobs.current.size >= 2) {
+      setError('请先完成或停止正在生成的对话');
+      return;
     }
+    const original = selected,
+      id = selected || crypto.randomUUID(),
+      content = text,
+      selectedChoice = { ...choice };
+    const provider = providers.find((value) => value.id === choice.providerId)!;
+    const controller = new AbortController(),
+      job = { controller, stopped: false };
+    sending.current = true;
+    pending.current = id;
+    setBusy(true);
+    setError('');
+    setConfirmSend(false);
+    const run = async () => {
+      if (!mounted.current || controller.signal.aborted) return;
+      jobs.current.set(id, job);
+      let chat: ChatDetail | undefined,
+        accepted = false,
+        requestStarted = false;
+      let flushTimer: ReturnType<typeof setTimeout> | undefined;
+      let pendingWrite: Promise<void> = Promise.resolve();
+      let storageFailure: unknown;
+      const requestId = crypto.randomUUID(),
+        timer = setTimeout(() => controller.abort(), 300000);
+      try {
+        const previous = original ? await readChat(original) : undefined;
+        chat = {
+          id,
+          title: previous?.title || content.slice(0, 40),
+          providerId: selectedChoice.providerId,
+          model: selectedChoice.model,
+          effort: selectedChoice.effort || '',
+          updatedAt: new Date().toISOString(),
+          messages: [...(previous?.messages || [])],
+          uncertain: false,
+        };
+        const context = chat.messages
+          .filter(
+            (message) =>
+              (message.status === 'complete' ||
+                (message.role === 'assistant' && message.status === 'stopped')) &&
+              !!message.content,
+          )
+          .map(({ role, content }) => ({ role, content }));
+        if (new TextEncoder().encode(JSON.stringify(context)).length > 512 * 1024)
+          throw new Error('对话过长，请新建对话');
+        const user = {
+          id: crypto.randomUUID(),
+          requestId,
+          role: 'user' as const,
+          content,
+          status: 'running' as ChatDetail['messages'][number]['status'],
+        };
+        const assistant: ChatMessage = {
+          id: crypto.randomUUID(),
+          requestId,
+          role: 'assistant' as const,
+          content: '',
+          status: 'running' as ChatDetail['messages'][number]['status'],
+        };
+        chat.messages.push(user, assistant);
+        await saveChat(chat);
+        if (mounted.current && selectedRef.current === original) {
+          setDrafts((values) => ({ ...values, [id]: content }));
+          setChoices((values) => ({ ...values, [id]: selectedChoice }));
+          selectedRef.current = id;
+          setSelected(id);
+          setDetail(structuredClone(chat));
+        }
+        const latest = await store.read<Provider>('provider', provider.id);
+        if (
+          !latest ||
+          latest.baseUrl !== provider.baseUrl ||
+          !latest.models.includes(selectedChoice.model)
+        )
+          throw new Error('接口配置已变化，请刷新设置后重试');
+        if (
+          selectedChoice.effort &&
+          !latest.modelEfforts?.[selectedChoice.model]?.includes(selectedChoice.effort)
+        )
+          throw new Error('此模型不支持当前思考强度，请重新选择');
+        const key = await getKey(latest.keyId || latest.id, controller.signal);
+        controller.signal.throwIfAborted();
+        requestStarted = true;
+        const response = await providerFetch(provider.baseUrl, '/chat/completions', key, {
+          method: 'POST',
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: selectedChoice.model,
+            messages: [...context, { role: 'user', content }],
+            stream: true,
+            ...(selectedChoice.effort ? { reasoning_effort: selectedChoice.effort } : {}),
+          }),
+        });
+        accepted = true;
+        user.status = 'complete';
+        if (mounted.current) {
+          setDrafts((values) => {
+            const next = { ...values };
+            for (const key of [original || 'new', id]) if (next[key] === content) next[key] = '';
+            return next;
+          });
+          if (pending.current === id) {
+            pending.current = null;
+            setBusy(false);
+            sending.current = false;
+          }
+        }
+        let displayed = 0;
+        await streamCompletion(response, controller.signal, (value) => {
+          assistant.content = value;
+          const now = Date.now();
+          if (now - displayed > 50) {
+            publish(chat!);
+            displayed = now;
+          }
+          if (!flushTimer)
+            flushTimer = setTimeout(() => {
+              flushTimer = undefined;
+              const snapshot = structuredClone(chat!);
+              pendingWrite = pendingWrite
+                .then(() => saveChat(snapshot))
+                .catch((error) => {
+                  storageFailure = error;
+                  controller.abort();
+                });
+            }, 600);
+        });
+        clearTimeout(flushTimer);
+        await pendingWrite;
+        if (storageFailure) throw storageFailure;
+        assistant.status = job.stopped
+          ? 'stopped'
+          : controller.signal.aborted
+            ? 'interrupted'
+            : 'complete';
+        if (controller.signal.aborted && !job.stopped) {
+          chat.uncertain = true;
+          assistant.error = '生成已中断，已有内容已保留。';
+        }
+        await saveChat(chat);
+      } catch (cause) {
+        clearTimeout(flushTimer);
+        await pendingWrite;
+        if (chat?.messages.at(-1)?.requestId === requestId) {
+          const user = chat.messages.at(-2)!,
+            assistant = chat.messages.at(-1)!;
+          const uncertain = requestStarted && !(cause instanceof ProviderHttpError) && !job.stopped;
+          chat.uncertain = uncertain;
+          user.status = accepted ? 'complete' : uncertain ? 'interrupted' : 'failed';
+          assistant.status = job.stopped ? 'stopped' : uncertain ? 'interrupted' : 'failed';
+          assistant.error = job.stopped
+            ? undefined
+            : controller.signal.aborted
+              ? '生成已中断，已有内容已保留。'
+              : String(cause);
+          try {
+            await saveChat(chat);
+          } catch (storageError) {
+            publish(chat);
+            if (mounted.current) setError(String(storageError));
+          }
+        }
+        if (mounted.current && !job.stopped)
+          setError(controller.signal.aborted ? '生成已中断，已有内容已保留。' : String(cause));
+      } finally {
+        clearTimeout(timer);
+        clearTimeout(flushTimer);
+        jobs.current.delete(id);
+        if (mounted.current) {
+          if (pending.current === id) {
+            pending.current = null;
+            sending.current = false;
+            setBusy(false);
+          }
+        }
+      }
+    };
+    try {
+      if (navigator.locks)
+        await navigator.locks.request(
+          `agentchat:${scope}:${id}`,
+          { ifAvailable: true },
+          async (lock) => {
+            if (!lock) throw new Error('此对话正在其他标签页生成，请稍后再试');
+            await run();
+          },
+        );
+      else await run();
+    } catch (error) {
+      if (mounted.current) {
+        setError(String(error));
+        if (pending.current === id) {
+          pending.current = null;
+          sending.current = false;
+          setBusy(false);
+        }
+      }
+    }
+  }
+  function send() {
+    void execute();
+  }
+  function stop() {
+    const job = jobs.current.get(selected);
+    if (job) {
+      job.stopped = true;
+      job.controller.abort();
+    } else channel.current?.postMessage({ type: 'stop', id: selected });
   }
   return (
     <div className={`shell api-chat ${sidebar ? 'with-sidebar' : ''}`}>
@@ -348,7 +579,12 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                 <IconButton
                   icon={Trash2}
                   label={`删除对话 ${chat.title}`}
-                  disabled={busy}
+                  disabled={
+                    busy ||
+                    memory.current
+                      .get(chat.id)
+                      ?.messages.some((message) => message.status === 'running')
+                  }
                   onClick={() => setDeleting(chat.id)}
                 />
               </div>
@@ -446,33 +682,10 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                 <button
                   className="text-button"
                   onClick={() => {
-                    setReload((value) => value + 1);
                     void refresh().catch((error) => setError(String(error)));
                   }}
                 >
                   刷新会话
-                </button>
-              </div>
-            )}
-            {receipt && !busy && (
-              <div className="api-feedback" role="status">
-                这条消息尚未确认，草稿已保留。
-                <button
-                  className="text-button"
-                  disabled={busy}
-                  onClick={() => void submit(receipt)}
-                >
-                  重试同一请求
-                </button>
-                <button
-                  className="text-button"
-                  disabled={busy}
-                  onClick={() => {
-                    setSelected(receipt.target);
-                    setReload((value) => value + 1);
-                  }}
-                >
-                  查看目标对话
                 </button>
               </div>
             )}
@@ -488,9 +701,9 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             chat
             supports={() => false}
             disabled={false}
-            busy={busy}
+            busy={busy && !active}
             active={!!active}
-            sendBlocked={loading || !!receipt || !enabled || !available}
+            sendBlocked={loading || !enabled || !available || (!!selected && !detail)}
             permission="workspace"
             onPermission={() => {}}
             onChange={changeDraft}
@@ -503,23 +716,49 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       </section>
       {settings && (
         <ApiSettings
+          scope={scope}
           providers={providers}
           enabled={enabled}
           onClose={() => setSettings(false)}
           onChanged={refresh}
         />
       )}
+      {confirmSend && (
+        <Modal title="上次请求结果未知" onClose={() => setConfirmSend(false)}>
+          <p>直连请求无法查询发送回执。再次发送可能产生重复用量。</p>
+          <div className="button-row">
+            <button onClick={() => void execute(true)}>仍然发送</button>
+            <button onClick={() => setConfirmSend(false)}>保留草稿</button>
+          </div>
+        </Modal>
+      )}
       {deleting && (
         <Modal title="删除对话" onClose={() => setDeleting('')}>
-          <p>此对话的聊天记录将从账户中删除。</p>
+          <p>删除此浏览器中的对话记录？</p>
           <div className="button-row">
             <button
               disabled={busy}
               onClick={() => {
                 setBusy(true);
-                void chatApi(`/conversations/${deleting}`, 'DELETE')
+                void store
+                  .write([
+                    { kind: 'chat', id: deleting },
+                    { kind: 'summary', id: deleting },
+                  ])
                   .then(async () => {
+                    memory.current.delete(deleting);
+                    setDrafts((values) => {
+                      const next = { ...values };
+                      delete next[deleting];
+                      return next;
+                    });
+                    setChoices((values) => {
+                      const next = { ...values };
+                      delete next[deleting];
+                      return next;
+                    });
                     if (selected === deleting) select('');
+                    channel.current?.postMessage({ type: 'updated', id: deleting });
                     setDeleting('');
                     await refresh();
                   })

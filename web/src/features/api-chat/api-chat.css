@@ -348,3 +348,42 @@
   color: var(--muted);
   font-size: 13px;
 }
+
+.api-model-field {
+  display: grid;
+  gap: 7px;
+}
+.api-model-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.api-model-label .text-button {
+  font-size: 12px;
+  gap: 5px;
+  padding: 0;
+}
+.api-model-field textarea {
+  resize: vertical;
+  min-height: 68px;
+  max-height: 160px;
+}
+.api-effort-fields select {
+  width: 100%;
+  min-width: 0;
+}
+
+.api-model-label .spinning {
+  animation: api-model-spin 1s linear infinite;
+}
+@keyframes api-model-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .api-model-label .spinning {
+    animation: none;
+  }
+}
