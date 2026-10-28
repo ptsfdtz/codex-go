@@ -603,7 +603,13 @@ export function SkillsPanel({
   );
 }
 
-type QueueEntry = { id: string; input: unknown[]; inputRevision?: string; status?: string };
+type QueueEntry = {
+  id: string;
+  input: unknown[];
+  inputRevision?: string;
+  status?: string;
+  deliveryState?: string;
+};
 export function QueuePanel({
   request,
   sessionId,
@@ -655,6 +661,7 @@ export function QueuePanel({
                   label="编辑队列消息"
                   disabled={
                     action.busy ||
+                    !!entry.deliveryState ||
                     (!supports('nativeQueueResourceEdit') &&
                       entry.input.some(
                         (p) =>
@@ -666,7 +673,7 @@ export function QueuePanel({
                     setText(contentText(entry.input));
                   }}
                 />
-                {supports('nativeQueueStart') && (
+                {supports('nativeQueueStart') && !entry.deliveryState && (
                   <IconButton
                     icon={Play}
                     label="立即发送队列消息"
@@ -677,7 +684,9 @@ export function QueuePanel({
                 <IconButton
                   icon={ArrowUp}
                   label="上移消息"
-                  disabled={action.busy || index === 0}
+                  disabled={
+                    action.busy || value.data.some((item) => !!item.deliveryState) || index === 0
+                  }
                   onClick={() => {
                     const ids = value.data.map((e) => e.id);
                     [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
@@ -687,7 +696,11 @@ export function QueuePanel({
                 <IconButton
                   icon={ArrowDown}
                   label="下移消息"
-                  disabled={action.busy || index === value.data.length - 1}
+                  disabled={
+                    action.busy ||
+                    value.data.some((item) => !!item.deliveryState) ||
+                    index === value.data.length - 1
+                  }
                   onClick={() => {
                     const ids = value.data.map((e) => e.id);
                     [ids[index], ids[index + 1]] = [ids[index + 1]!, ids[index]!];

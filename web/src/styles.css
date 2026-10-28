@@ -3347,6 +3347,112 @@ small,
   margin-bottom: 0;
 }
 
+.queued-messages {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--rail);
+  font-size: 12px;
+}
+.queued-heading,
+.queued-heading > span,
+.queued-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.queued-heading {
+  justify-content: space-between;
+  color: var(--muted);
+}
+.queued-heading .icon-button {
+  width: 26px;
+  height: 26px;
+}
+.queued-heading svg {
+  width: 13px;
+  height: 13px;
+}
+.queued-heading small {
+  font-size: 11px;
+}
+.queued-list {
+  max-height: min(220px, 26dvh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.queued-message {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 0;
+}
+.queued-message + .queued-message {
+  border-top: 1px solid var(--border);
+}
+.queued-content {
+  flex: 1;
+  min-width: 0;
+}
+.queued-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.queued-text.is-expanded {
+  display: block;
+}
+.queued-resource {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.queued-reason {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.queued-actions {
+  flex-shrink: 0;
+  gap: 2px;
+}
+.queued-actions .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: var(--muted);
+}
+.queued-actions svg {
+  width: 15px;
+  height: 15px;
+}
+.queued-actions .icon-button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--hover);
+}
+.queued-error {
+  margin: 6px 0 2px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
 .file-reference-chip {
   max-width: 100%;
   min-width: 0;

@@ -626,6 +626,7 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
             | "queue.delete"
             | "queue.reorder"
             | "queue.start"
+            | "queue.steer"
             | "sessions.goal.resume"
             | "sessions.goal.clear"
             | "sessions.goal.edit"

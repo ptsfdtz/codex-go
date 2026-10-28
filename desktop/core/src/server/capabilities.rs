@@ -28,7 +28,6 @@ pub fn describe_profile(
         "accountSummary": true,
         "sessionManagement": true,
         "nativeQueue": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
-        "nativeQueueStart": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
         "nativeQueueAttachments": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
         "nativeQueueEvents": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
         "sessionHistoryRevert": true,
@@ -61,6 +60,10 @@ pub fn describe_profile(
         "browser": false,
         "automationManagement": false
     });
+    features["nativeQueueStart"] =
+        Value::Bool(protocol == crate::rpc::ProtocolVersion::DesktopBaseline);
+    features["nativeQueueSteer"] =
+        Value::Bool(protocol == crate::rpc::ProtocolVersion::DesktopBaseline);
     features["gitBranchCompare"] = Value::Bool(true);
     features["multipleDevices"] = Value::Bool(true);
     features["hostUpdateCheck"] = Value::Bool(true);

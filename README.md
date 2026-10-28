@@ -82,6 +82,8 @@ Host 并发上限调整（本地通过，未部署）：普通发送、手动队
 
 历史图片预览修复（Web 本地验收，未部署）：消息中展开的历史附件/工具图片改为复用回复图片的页内预览，支持关闭、Escape 与焦点恢复，切换会话或断开连接清理预览和资源，不再打开新标签页。类型检查、定向 ESLint、生产构建和受控 Chromium 桌面/390px 的历史附件、无新标签、关闭/切换与资源释放回归通过；真实 Host 尚未验收，截图位于 `artifacts/message-images/history-preview-*.png`。
 
+输入框上方队列（本地验收，未部署）：直接显示待发送提示词，可展开、删除和提前发出；任务运行中提前发出为补充当前任务，空闲时沿用原生队列启动。新增 Host `nativeQueueSteer` 能力与 `queue.steer`，在确认原生队列删除成功后才补充，失败或断线保留持久核对记录，不自动重发；旧 Host 与含资源消息会提示限制。Web 类型/ESLint/构建、Host 严格 Clippy、3 项队列单元测试及受控 Chromium 交互通过，桌面、390px 深色、320px 浅色截图位于 `artifacts/queue/`。真实 Host 的运行中补充、队列自动消费竞态与跨平台尚未验收；需升级 Host 才能使用运行中提前补充。浏览器回归：使用既有 Playwright 环境运行 `node scripts/web/test-queued-messages-browser.mjs`（复用 `PLAYWRIGHT_MODULE`、`COMPOSER_TEST_ORIGIN` 和 `COMPOSER_TEST_FONT`）。
+
 电脑名称云端保存（本地验收通过，未部署）：设置 → 电脑中的“电脑显示名称”使用“保存名称”写入云端，同一账户的浏览器/PWA 共享，目录每 15 秒刷新；设置后只显示自定义名，清空恢复原名。已有浏览器本地名称在首次连接新版云端时自动迁移，仅服务器从未配置名称时写入；服务器改名或明确清空优先，失败保留本地值重试，Host 重新登记不覆盖自定义名。云端增加兼容旧 Host 的可空名称及配置标记迁移、账户归属和 CSRF 校验。6 项名称/迁移测试、真实 PostgreSQL 持久化/并发/跨账户/撤销设备测试、HTTPS 云端与两个独立 Chromium 的保存/刷新/清空/失败重试、390px 布局通过；类型、ESLint、Web 构建和云端严格 Clippy 通过，报告与截图在 `artifacts/host-names/`。上线需同时更新 Web 和云端，Host 无需更新。
 
 问题回答布局（Web 已部署）：提交/前后切换按钮与回答输入框并排，移除单独底部按钮行和空选项占位；桌面/320px/390px 对齐、空回答保护、多问题切换与提交失败保留内容检查通过，截图位于 `artifacts/questions/`。2026-10-28 已上线 Web `c464f5d5d6b147d6a07e52d47f479e71d9233a6c23b7c42d64ad1d4288f6519c`，公网 13 文件哈希/健康检查通过；仅更新 Web，回退备份 `/var/backups/agentdeck/web-c464f5d5d6b1-20261028T053050Z/`。

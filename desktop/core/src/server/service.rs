@@ -691,7 +691,7 @@ impl Core {
                 Ok(json!({"status":"removed"}))
             }
             "queue.list" | "queue.add" | "queue.update" | "queue.delete" | "queue.reorder"
-            | "queue.start" => {
+            | "queue.start" | "queue.steer" => {
                 self.native_queue(&r.action, p, &crate::digest(format!("{device}:{}", r.id)))
                     .await
             }

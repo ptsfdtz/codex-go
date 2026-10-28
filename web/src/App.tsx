@@ -29,6 +29,7 @@ import { emptyDraft, canManage, chatProject } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { Composer } from './features/Composer';
 import { ApprovalCard, AsyncQuestions } from './features/Questions';
+import { QueuedMessages } from './features/queue/QueuedMessages';
 import { ComposerStatus } from './features/ComposerStatus';
 import { TurnChanges } from './features/TurnChanges';
 import { ProjectOverview } from './features/project-overview/ProjectOverview';
@@ -243,6 +244,7 @@ export function App() {
   const notificationRef = useRef(notification);
   notificationRef.current = notification;
   const [statusRevision, setStatusRevision] = useState(0);
+  const [queueRevision, setQueueRevision] = useState(0);
   const [observedUsage, setObservedUsage] =
     useState<Parameters<typeof ComposerStatus>[0]['observedUsage']>();
   const [filePath, setFilePath] = useState<string>();
@@ -966,6 +968,7 @@ export function App() {
             setUpstreamRetry('');
           }
         }
+        if (selected && packet.action === 'queue.changed') setQueueRevision((value) => value + 1);
         if (selected && packet.action === 'session.tokenUsage')
           setObservedUsage(
             payload.tokenUsage as Parameters<typeof ComposerStatus>[0]['observedUsage'],
@@ -1342,6 +1345,7 @@ export function App() {
             text: source.text.trim(),
             ...resources(source),
           });
+          if (epoch === connectionEpoch.current) setQueueRevision((value) => value + 1);
         }
       } else {
         const result = await connection.request<{ turn?: Turn }>('turn.start', {
@@ -2249,6 +2253,23 @@ export function App() {
                     ))}
               </>
             }
+            queued={
+              session && supports('nativeQueue') ? (
+                <QueuedMessages
+                  key={JSON.stringify([scope, host?.hostId, session])}
+                  request={request}
+                  sessionId={session}
+                  revision={queueRevision + statusRevision}
+                  enabled={connected}
+                  disabled={busy || receiptBlocked || !historyReady || current?.archived === 1}
+                  active={!!activeTurn}
+                  canStart={supports('nativeQueueStart')}
+                  canSteer={supports('nativeQueueSteer')}
+                  uncertain={() => bridge.current?.awaitingReceipt === true}
+                  onChanged={() => void refresh()}
+                />
+              ) : undefined
+            }
             status={
               session && host ? (
                 <ComposerStatus
@@ -2721,7 +2742,10 @@ export function App() {
                   request={request}
                   sessionId={session}
                   supports={supports}
-                  onChanged={() => void refresh()}
+                  onChanged={() => {
+                    setQueueRevision((value) => value + 1);
+                    void refresh();
+                  }}
                 />
               )}
               {panel === 'projects' && connected && (

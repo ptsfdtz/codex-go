@@ -141,6 +141,15 @@ pub fn parse(v: Value) -> Result<Request> {
             &["sessionId", "submissionId", "text"],
             &["expectedInputRevision"],
         ),
+        "queue.steer" => (
+            &[
+                "sessionId",
+                "submissionId",
+                "expectedTurnId",
+                "expectedInputRevision",
+            ],
+            &[],
+        ),
         "queue.start" => (&["sessionId", "submissionId"], &[]),
         "queue.delete" => (&["sessionId", "submissionId"], &[]),
         "queue.reorder" => (&["sessionId", "submissionIds"], &[]),
@@ -261,6 +270,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "itemId",
         "submissionId",
         "expectedTurnId",
+        "expectedInputRevision",
         "lastTurnId",
         "beforeTurnId",
         "expectedLastTurnId",

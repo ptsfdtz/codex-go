@@ -67,6 +67,7 @@ export class Bridge {
     'queue.add',
     'queue.update',
     'queue.start',
+    'queue.steer',
     'queue.delete',
     'queue.reorder',
     'skills.setEnabled',
