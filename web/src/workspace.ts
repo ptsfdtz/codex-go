@@ -81,7 +81,9 @@ export type Attachment = {
   mime: string;
   originalBytes?: number;
 };
+export type FileReference = { projectId: string; path: string; name: string };
 export type Draft = {
+  references?: FileReference[];
   text: string;
   attachments: Attachment[];
   skills: Skill[];

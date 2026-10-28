@@ -26,11 +26,13 @@ export function ModelPicker({
   models,
   disabled,
   onChange,
+  allowDefault = true,
 }: {
   draft: Draft;
   models: Model[];
   disabled: boolean;
   onChange: (change: Partial<Draft>) => void;
+  allowDefault?: boolean;
 }) {
   const id = useId();
   const popup = usePopoverMotion();
@@ -90,16 +92,18 @@ export function ModelPicker({
           </button>
           <Collapse open={modelExpanded}>
             <div role="group" aria-label="模型">
-              <button
-                className={`model-picker-option ${!draft.model ? 'selected' : ''}`}
-                disabled={disabled}
-                onClick={() => choose('')}
-              >
-                <span>
-                  默认模型<small>跟随电脑默认设置</small>
-                </span>
-                {!draft.model && <Check size={18} />}
-              </button>
+              {allowDefault && (
+                <button
+                  className={`model-picker-option ${!draft.model ? 'selected' : ''}`}
+                  disabled={disabled}
+                  onClick={() => choose('')}
+                >
+                  <span>
+                    默认模型<small>跟随电脑默认设置</small>
+                  </span>
+                  {!draft.model && <Check size={18} />}
+                </button>
+              )}
               {models.map((m) => {
                 const value = m.model || m.id;
                 return value ? (
