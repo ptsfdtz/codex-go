@@ -74,6 +74,9 @@ jobs:
           set -euo pipefail
           cp cloud-artifact/agentdeck-cloud candidate/agentdeck-cloud
           cp scripts/release/gate.py candidate/release-gate.py
+          mkdir -p candidate/codex-runtime-manifests
+          cp scripts/codex/compatible-*.json candidate/codex-runtime-manifests/
+          cp scripts/codex/verify-shared-runtime.py candidate/verify-shared-runtime.py
           python3 -c 'import os,pathlib; pathlib.Path("candidate-notes.txt").write_text(os.environ["RELEASE_NOTES"], encoding="utf-8")'
           python3 scripts/release/gate.py manifest candidate --version "$VERSION" --commit "$GITHUB_SHA" --notes-file candidate-notes.txt
           tar -czf candidate.tar.gz -C candidate .

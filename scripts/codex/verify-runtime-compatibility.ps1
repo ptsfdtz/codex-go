@@ -19,11 +19,9 @@ try {
     $result = $first | ConvertFrom-Json
     if ($result.version -ne $manifest.version -or -not $result.verification.passed -or -not $result.verification.instructionLoading) { throw 'Missing native compatibility proof.' }
     if ($result.executable -eq $AffectedCodex) { throw 'Affected runtime was incorrectly accepted.' }
-    $record = Join-Path $directory 'runtime-compatibility.json'
-    $recordHash = (Get-FileHash -LiteralPath $record).Hash
+    if (-not $result.officialPrecompiled) { throw 'Missing official precompiled origin proof.' }
     $second = & $Cli runtime-check --codex-exe $AffectedCodex | Out-String
-    if ($LASTEXITCODE -ne 0 -or ($second | ConvertFrom-Json).executable -ne $result.executable) { throw 'Compatible selection was not retained.' }
-    if ((Get-FileHash -LiteralPath $record).Hash -ne $recordHash) { throw 'Unchanged runtime selection was rewritten.' }
+    if ($LASTEXITCODE -ne 0 -or ($second | ConvertFrom-Json).executable -ne $result.executable) { throw 'Official selection was not retained.' }
     # Corrupt only an isolated downloaded resource, then restore it exactly.
     $packageDirectory = Split-Path (Split-Path $result.executable)
     $resource = $manifest.files | Where-Object { $_.path -notlike '*.exe' -and $_.path -notlike '*.dll' } | Select-Object -First 1
@@ -39,7 +37,7 @@ try {
     }
     if ($CompatibleCodex) {
         $good = & $Cli runtime-check --codex-exe $CompatibleCodex | Out-String
-        if ($LASTEXITCODE -ne 0 -or ($good | ConvertFrom-Json).executable -ne (Resolve-Path -LiteralPath $CompatibleCodex).Path) { throw 'An already compatible runtime was replaced.' }
+        if ($LASTEXITCODE -ne 0 -or ($good | ConvertFrom-Json).executable -ne (Resolve-Path -LiteralPath $CompatibleCodex).Path) { throw 'An official allowlisted runtime was replaced.' }
     }
     if ((Get-FileHash -LiteralPath $AffectedCodex -Algorithm SHA256).Hash -ne $originalHash) { throw 'Original Codex was modified.' }
     Write-Output 'PASS: real upstream regression recovery, instruction loading, filesystem boundaries, retained selection, corrupt-resource rejection and original executable preserved; no model request.'

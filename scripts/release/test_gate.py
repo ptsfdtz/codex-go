@@ -21,8 +21,10 @@ class ReleaseGateTests(unittest.TestCase):
         self.candidate.mkdir()
         self.evidence.mkdir()
         self.manifest = {"schemaVersion": 1, "version": "1.2.3", "commit": "a" * 40, "artifacts": {}}
-        for name in ("web.tar.gz", "pages.tar.gz", "agentdeck-cloud", "install.ps1", "install.sh", "install-codex.ps1", "release-gate.py"):
+        for name in ("web.tar.gz", "pages.tar.gz", "agentdeck-cloud", "install.ps1", "install.sh", "install-codex.ps1", "release-gate.py", "verify-shared-runtime.py"):
             self.artifact(name, b"unit-test artifact")
+        for name in gate.RUNTIME_MANIFESTS.values():
+            self.artifact("codex-runtime-manifests/" + name, (Path(__file__).resolve().parents[1] / "codex" / name).read_bytes())
         self.artifact("releases/stable.txt", b"1.2.3\n")
         self.artifact("releases/1.2.3/notes.txt", b"unit-test release notes")
         for target in gate.PLATFORMS:
@@ -42,6 +44,11 @@ class ReleaseGateTests(unittest.TestCase):
                       "osVersion": "unit-test", "codexVersion": "unit-test", "hostId": "unit-test", "sessionId": "unit-test",
                       "checks": {c: {"passed": True, "observed": "unit-test"} for c in gate.CHECKS},
                       "logs": {log: gate.digest(self.evidence / log)}}
+            runtime = json.loads((self.candidate / "codex-runtime-manifests" / gate.RUNTIME_MANIFESTS[target]).read_text())
+            binary = "bin/codex.exe" if target == "windows-x64" else "bin/codex"
+            report["codexVersion"] = runtime["version"]
+            report["officialRuntime"] = {"version": runtime["version"], "url": runtime["url"], "integrity": runtime["integrity"],
+                                         "executableSha256": next(f["sha256"] for f in runtime["files"] if f["path"] == binary)}
             self.write(self.evidence / f"{target}.json", report)
 
     def write(self, path, value):
@@ -58,6 +65,22 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_complete_matching_matrix_is_admitted(self):
         self.assertEqual(self.verify()["version"], "1.2.3")
+
+    def test_self_compiled_runtime_is_rejected(self):
+        path = self.evidence / "windows-x64.json"
+        report = json.loads(path.read_text())
+        report["codexVersion"] = "0.164.0-dev.agentdeck.6905ece"
+        self.write(path, report)
+        with self.assertRaisesRegex(ValueError, "official precompiled"):
+            self.verify()
+
+    def test_same_version_with_custom_binary_hash_is_rejected(self):
+        path = self.evidence / "linux-x64.json"
+        report = json.loads(path.read_text())
+        report["officialRuntime"]["executableSha256"] = "0" * 64
+        self.write(path, report)
+        with self.assertRaisesRegex(ValueError, "official precompiled"):
+            self.verify()
 
     def test_each_platform_is_required(self):
         for target in gate.PLATFORMS:

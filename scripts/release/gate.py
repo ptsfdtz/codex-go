@@ -38,6 +38,24 @@ def safe_file(root, name):
     return path
 
 
+RUNTIME_MANIFESTS = {
+    "windows-x64": "compatible-windows.json",
+    "linux-x64": "compatible-linux-x64.json",
+    "linux-arm64": "compatible-linux-arm64.json",
+    "macos-arm64": "compatible-darwin-arm64.json",
+}
+
+
+def verify_official_runtime(root, platform, origin, version):
+    manifest = load(safe_file(root, "codex-runtime-manifests/" + RUNTIME_MANIFESTS[platform]))
+    binary = "bin/codex.exe" if platform == "windows-x64" else "bin/codex"
+    entry = next(f for f in manifest["files"] if f["path"] == binary)
+    expected = {"version": manifest["version"], "url": manifest["url"],
+                "integrity": manifest["integrity"], "executableSha256": entry["sha256"]}
+    if origin != expected or version != manifest["version"]:
+        raise ValueError(f"{platform}: official precompiled Codex origin/hash mismatch")
+
+
 def validate_candidate(root):
     manifest = load(root / "candidate.json")
     if manifest.get("schemaVersion") != 1:
@@ -55,6 +73,8 @@ def validate_candidate(root):
     for target in PLATFORMS:
         archive = f"releases/{manifest['version']}/agentdeck-{target}." + ("zip" if target.startswith("windows") else "tar.gz")
         required.update((archive + ".sha256", f"releases/{manifest['version']}/{target}.json"))
+    required.update("codex-runtime-manifests/" + name for name in RUNTIME_MANIFESTS.values())
+    required.add("verify-shared-runtime.py")
     if not required.issubset(artifacts):
         raise ValueError("Candidate is missing required platform/component artifacts")
     for name, expected in artifacts.items():
@@ -94,6 +114,7 @@ def verify(root, evidence):
             raise ValueError(f"{platform}: test timestamp is in the future")
         if report.get("runningVersion") != manifest["version"]:
             raise ValueError(f"{platform}: tested Host was not running this candidate")
+        verify_official_runtime(root, platform, report.get("officialRuntime"), report["codexVersion"])
         for check in CHECKS:
             result = report.get("checks", {}).get(check, {})
             if result.get("passed") is not True or not isinstance(result.get("observed"), str) or not result["observed"].strip():
@@ -181,14 +202,15 @@ def main():
         state = json.loads(subprocess.check_output([args.agentdeck, "status", "--json"], timeout=30, encoding="utf-8"))
         if (state.get("runningVersion") != manifest["version"] or not state.get("codexReady")
                 or not state.get("cloud", {}).get("online") or state.get("runtimeError") is not None
-                or not state.get("sandboxVerified")):
+                or not state.get("sandboxVerified") or not state.get("sharedRuntime")):
             raise ValueError("Live candidate Host, cloud and verified Codex must be ready")
+        verify_official_runtime(root, args.platform, state.get("officialRuntime"), state.get("codexVersion"))
         if report.get("candidateSha256") != digest(root / "candidate.json"):
             raise ValueError("Report belongs to another candidate")
         # Explicitly completed observations remain the tester's responsibility.
         # Capture live identity and hash the already sanitized evidence files.
         report.update({"runningVersion": state["runningVersion"], "hostId": state["hostId"],
-                       "codexVersion": state["codexVersion"], "osVersion": system_platform.platform(),
+                       "codexVersion": state["codexVersion"], "officialRuntime": state["officialRuntime"], "osVersion": system_platform.platform(),
                        "testedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
         logs = report.get("logs", {})
         if not logs:

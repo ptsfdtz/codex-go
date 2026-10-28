@@ -33,13 +33,13 @@ actual=$(hash_file "$temporary/$package"); actual=${actual%% *}
 [ "$actual" = "$expected" ] || { echo 'Integrity check failed; installation was not changed.' >&2; exit 1; }
 mkdir "$temporary/package"
 tar -xzf "$temporary/$package" -C "$temporary/package"
-for name in agentdeck agentdeck-service start.sh; do [ -f "$temporary/package/$name" ] || { echo "Release is missing $name" >&2; exit 1; }; done
-chmod 755 "$temporary/package/agentdeck" "$temporary/package/agentdeck-service" "$temporary/package/start.sh"
+for name in agentdeck agentdeck-service agentdeck-codex-proxy start.sh; do [ -f "$temporary/package/$name" ] || { echo "Release is missing $name" >&2; exit 1; }; done
+chmod 755 "$temporary/package/agentdeck" "$temporary/package/agentdeck-service" "$temporary/package/agentdeck-codex-proxy" "$temporary/package/start.sh"
 "$temporary/package/agentdeck" --version
 mkdir -p "$install_dir/versions" "$bin_dir"
 release_dir="$install_dir/versions/$version"
 if [ -e "$release_dir" ]; then
-    for name in agentdeck agentdeck-service; do cmp "$release_dir/$name" "$temporary/package/$name" || { echo 'Existing release differs; it was preserved.' >&2; exit 1; }; done
+    for name in agentdeck agentdeck-service agentdeck-codex-proxy; do cmp "$release_dir/$name" "$temporary/package/$name" || { echo 'Existing release differs; it was preserved.' >&2; exit 1; }; done
 else
     mv "$temporary/package" "$release_dir"
 fi
@@ -57,5 +57,5 @@ fi
 printf '\nInstalled AgentDeck Host %s. Account and project data are preserved.\n' "$version"
 printf 'Ensure %s is in PATH, then run:\n' "$bin_dir"
 printf '  agentdeck login --username NAME\n  agentdeck projects add PATH\n  agentdeck start\n  agentdeck autostart enable\n'
-printf 'Task execution needs a compatible Codex CLI. Linux additionally requires an authenticated local runtime with verified isolation; see agentdeck help / doctor.\n'
+printf 'The first start automatically downloads a verified official Codex package and initializes private shared transport. Run agentdeck codex-login if Codex authentication is needed.\n'
 printf 'A running host keeps its current version until agentdeck restart.\n'

@@ -122,7 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tar -czf agentdeck-downloads.tar.gz -C candidate install.sh install.ps1 install-codex.ps1 release-gate.py candidate.json evidence releases web.tar.gz pages.tar.gz agentdeck-cloud
+          tar -czf agentdeck-downloads.tar.gz -C candidate install.sh install.ps1 install-codex.ps1 release-gate.py candidate.json codex-runtime-manifests verify-shared-runtime.py evidence releases web.tar.gz pages.tar.gz agentdeck-cloud
           cp "candidate/releases/$VERSION/"*.zip "candidate/releases/$VERSION/"*.tar.gz .
           sha256sum agentdeck-downloads.tar.gz agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz > SHA256SUMS.txt
           printf 'AgentDeck %s\n\nCommit: %s\nWindows x64 and Linux x64/ARM64 real E2E gate passed. Exact artifacts promoted from candidate-%s.\n' "$VERSION" "$SOURCE_SHA" "$VERSION" > release-notes.md
