@@ -86,7 +86,7 @@ pub fn describe_profile(
         "protocolVersion": 1,
         "capabilitiesVersion": 1,
         "codexVersion": protocol.version(),
-        "concurrency": 2,
+        "concurrency": crate::service::MAX_CONCURRENT_TASKS,
         "approvals": ["command", "fileChange", "permissions"],
         "sandboxVerified": sandbox_verified,
         "upstreamReady": upstream_ready,

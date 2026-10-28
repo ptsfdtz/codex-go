@@ -201,7 +201,7 @@ impl Core {
         let _permit = self
             .task_limit
             .try_acquire()
-            .map_err(|_| Error::new("RATE_LIMITED", "Two task starts are active"))?;
+            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
         {
             let mut busy = self.busy.lock().unwrap();
             let current = self.store.session(session_id)?;
@@ -227,9 +227,9 @@ impl Core {
                 .filter(|v| ["queued", "running", "waitingApproval"].contains(&s(v, "status")))
                 .count();
             ensure(
-                active + busy.len() < 2,
+                active + busy.len() < crate::service::MAX_CONCURRENT_TASKS,
                 "RATE_LIMITED",
-                "Two tasks are already active",
+                "Five tasks are already active",
             )?;
             busy.insert(session_id.into());
         }

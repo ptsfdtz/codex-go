@@ -19,6 +19,8 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{mpsc, Notify, Semaphore};
+pub(crate) const MAX_CONCURRENT_TASKS: usize = 5;
+
 pub struct Core {
     pub(crate) lan_gateway: Mutex<Option<(std::net::SocketAddr, tokio::task::JoinHandle<()>)>>,
     pub cloud: crate::cloud::Cloud,
@@ -93,7 +95,7 @@ impl Core {
             thread_sync: tokio::sync::Mutex::new(()),
             thread_index_changed: Notify::new(),
             thread_index_pending: Mutex::new(HashMap::new()),
-            task_limit: Semaphore::new(2),
+            task_limit: Semaphore::new(MAX_CONCURRENT_TASKS),
             connected: Mutex::new(HashMap::new()),
             authorization_changed: Notify::new(),
             address: RwLock::new(address),

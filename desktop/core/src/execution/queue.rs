@@ -240,7 +240,7 @@ impl Core {
         let _permit = self
             .task_limit
             .try_acquire()
-            .map_err(|_| Error::new("RATE_LIMITED", "Two task starts are active"))?;
+            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
         ensure(
             self.verified.load(Ordering::SeqCst),
             "SANDBOX_UNVERIFIED",
@@ -260,9 +260,9 @@ impl Core {
             .filter(|turn| ["queued", "running", "waitingApproval"].contains(&s(turn, "status")))
             .count();
         ensure(
-            active + self.busy.lock().unwrap().len() <= 2,
+            active + self.busy.lock().unwrap().len() < crate::service::MAX_CONCURRENT_TASKS,
             "RATE_LIMITED",
-            "Two tasks are already active",
+            "Five tasks are already active",
         )?;
         let latest = self.latest_upstream_turn(id).await?;
         ensure(
