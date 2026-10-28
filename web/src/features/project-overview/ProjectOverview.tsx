@@ -12,6 +12,8 @@ export function ProjectOverview({
   gitRead,
   fileBrowser,
   activeTurn,
+  filesOpen,
+  onOpen,
   onFiles,
   onChanges,
   onFile,
@@ -22,6 +24,8 @@ export function ProjectOverview({
   gitRead: boolean;
   fileBrowser: boolean;
   activeTurn?: string;
+  filesOpen: boolean;
+  onOpen: () => void;
   onFiles: () => void;
   onChanges: () => void;
   onFile: (path: string) => void;
@@ -31,6 +35,15 @@ export function ProjectOverview({
   const [result, setResult] = useState<{ value?: GitStatus; error?: string }>({});
   const anchor = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (filesOpen) setOpen(false);
+  }, [filesOpen]);
+  useEffect(() => {
+    const mobile = matchMedia('(max-width:760px)');
+    const changed = () => setOpen(false);
+    mobile.addEventListener('change', changed);
+    return () => mobile.removeEventListener('change', changed);
+  }, []);
   useEffect(() => {
     if (!open || !gitRead) return;
     let current = true;
@@ -49,7 +62,11 @@ export function ProjectOverview({
   useEffect(() => {
     if (!open) return;
     function outside(event: PointerEvent) {
-      if (!anchor.current?.contains(event.target as Node)) setOpen(false);
+      if (
+        matchMedia('(max-width:760px)').matches &&
+        !anchor.current?.contains(event.target as Node)
+      )
+        setOpen(false);
     }
     function escape(event: KeyboardEvent) {
       if (event.key === 'Escape') {
@@ -79,7 +96,10 @@ export function ProjectOverview({
         title="项目概览"
         aria-label="项目概览"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (!open) onOpen();
+          setOpen((value) => !value);
+        }}
       >
         <FileDiff size={19} strokeWidth={1.6} aria-hidden="true" />
       </button>

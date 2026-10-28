@@ -1,10 +1,12 @@
 .project-overview-anchor {
-  position: relative;
   flex-shrink: 0;
 }
+.topbar:has(.project-overview-anchor) {
+  position: relative;
+}
 .popover.project-overview {
-  right: 0;
-  top: 44px;
+  right: 16px;
+  top: 56px;
   width: min(310px, calc(100vw - 24px));
   min-width: 0;
   padding: 12px;

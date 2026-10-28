@@ -1822,6 +1822,8 @@ export function App() {
                 .filter((project) => project.projectId === selectedProject)
                 .map((project) => (
                   <ProjectOverview
+                    filesOpen={filesVisible}
+                    onOpen={() => setFileWorkspaceOpen(false)}
                     key={JSON.stringify([host?.hostId, project.projectId])}
                     request={request}
                     project={project}
