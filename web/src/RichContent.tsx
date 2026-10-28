@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import type { HistoryEntry } from './history';
 import type { Bridge } from './transport/bridge';
 import { readHistoryImage } from './media';
+import { ImagePreview } from './features/message-images/ImagePreview';
 import {
   Terminal,
   FileDiff,
@@ -83,10 +84,10 @@ function SavedImage({
   useEffect(() => {
     let active = true,
       objectUrl = '';
-    if (!connection || !requested) return;
-    setLoading(true);
+    setLoading(!!connection);
     setError('');
     setUrl('');
+    if (!connection || !requested) return;
     void readHistoryImage(
       connection,
       sessionId,
@@ -114,9 +115,7 @@ function SavedImage({
   return (
     <div className="saved-image">
       {url ? (
-        <a href={url} target="_blank" rel="noreferrer">
-          <img src={url} alt="会话历史图片" />
-        </a>
+        <ImagePreview key={url} src={url} alt="会话历史图片" />
       ) : error ? (
         <button
           className="ghost"

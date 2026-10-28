@@ -1,4 +1,4 @@
-/* global document, window, crypto, btoa */
+/* global document, window, crypto, btoa, getComputedStyle */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -174,9 +174,92 @@ try {
   });
   await page.getByText('连接支持图片预览的项目电脑后查看').waitFor();
   assert.equal(await page.evaluate(() => window.calls.length), before);
+  // Expanded historical attachments use the same viewer as Markdown images.
+  const tabs = browser.contexts()[0].pages().length;
+  await page.evaluate(async () => {
+    const React = (await import('/node_modules/.vite/deps/react.js')).default;
+    const { RichContent } = await import('/src/RichContent.tsx');
+    window.savedConnection = {
+      request: async (action, payload) => {
+        window.calls.push({ action, ...payload });
+        const data = window.bytes.slice(payload.offset, payload.offset + 128);
+        let binary = '';
+        for (const n of data) binary += String.fromCharCode(n);
+        const next = payload.offset + data.length;
+        return {
+          ...payload,
+          sha256: window.hash,
+          mime: 'image/png',
+          totalBytes: window.bytes.length,
+          data: btoa(binary),
+          nextOffset: next === window.bytes.length ? null : next,
+        };
+      },
+    };
+    window.renderSaved = (sessionId, type = 'userMessage') =>
+      window.root.render(
+        React.createElement(RichContent, {
+          key: sessionId,
+          connection: window.savedConnection,
+          sessionId,
+          entry: {
+            turnId: 'turn-history',
+            item: {
+              id: 'image-history',
+              type,
+              content: [
+                { type: 'text', text: 'Historical attachment' },
+                { type: 'localImage', path: '/original/image.png' },
+              ],
+            },
+          },
+        }),
+      );
+    window.renderSaved('saved-a');
+  });
+  const openSaved = page.getByRole('button', { name: '放大图片 会话历史图片', exact: true });
+  await page.locator('summary').filter({ hasText: '图片' }).click();
+  await openSaved.waitFor();
+  assert.equal(await page.locator('.saved-image a').count(), 0);
+  for (const [name, width, theme] of [
+    ['desktop', 1100, 'light'],
+    ['mobile', 390, 'dark'],
+  ]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await openSaved.click();
+    const dialog = page.getByRole('dialog', { name: '会话历史图片', exact: true });
+    await dialog.waitFor();
+    await page.waitForFunction(() => document.querySelector('dialog img')?.naturalWidth > 0);
+    assert.equal(browser.contexts()[0].pages().length, tabs);
+    const box = await dialog.boundingBox();
+    assert(box.x >= 0 && box.x + box.width <= width);
+    await page.waitForFunction(() => {
+      const dialog = document.querySelector('dialog');
+      return dialog?.dataset.motion === 'open' && getComputedStyle(dialog).opacity === '1';
+    });
+    await page.screenshot({ path: out + `history-preview-${name}.png` });
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert(await openSaved.evaluate((element) => document.activeElement === element));
+  }
+  await openSaved.click();
+  await page.getByRole('dialog', { name: '会话历史图片', exact: true }).waitFor();
+  await page.evaluate(() => window.renderSaved('saved-b'));
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  await page.waitForFunction(() => window.liveURLs.size === 0);
+  await page.locator('summary').filter({ hasText: '图片' }).click();
+  await openSaved.waitFor();
+  await openSaved.click();
+  await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  await page.evaluate(() => window.root.unmount());
+  await page.waitForFunction(() => window.liveURLs.size === 0);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: inline Markdown images, multichunk hash validation, zoom, no repeat reads on rerender, mobile bounds, path authorization, remote no-fetch, retry, corrupt hash, context cancellation and URL cleanup. Controlled RPC responses; no real Host.',
+    'PASS: inline Markdown images, multichunk hash validation, zoom, no repeat reads on rerender, mobile bounds, path authorization, remote no-fetch, retry, corrupt hash, context cancellation, historical attachment in-page preview (no new tab), Escape/focus restore, close button and URL cleanup. Controlled RPC responses; no real Host.',
   );
 } finally {
   await browser.close();

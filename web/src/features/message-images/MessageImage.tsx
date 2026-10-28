@@ -1,8 +1,6 @@
-import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import type { Request } from '../../workspace';
-import { Modal } from '../../ui';
-import { MotionPresence } from '../../motion';
+import { ImagePreview } from './ImagePreview';
 import { readProjectImage } from '../project-image';
 import { projectRelativePath } from '../turn-changes';
 
@@ -21,8 +19,7 @@ export function MessageImage({
   const [visible, setVisible] = useState(false),
     [attempt, setAttempt] = useState(0);
   const [url, setUrl] = useState(''),
-    [error, setError] = useState(''),
-    [expanded, setExpanded] = useState(false);
+    [error, setError] = useState('');
   const path = src && source ? projectRelativePath(src, source.root) : undefined;
   const remote = !!src && /^https?:\/\//i.test(src);
   const request = source?.request,
@@ -45,7 +42,6 @@ export function MessageImage({
   useEffect(() => {
     setUrl('');
     setError('');
-    setExpanded(false);
     if (!visible || !request || !projectId || !path || remote) return;
     let current = true,
       objectUrl = '';
@@ -67,20 +63,15 @@ export function MessageImage({
   return (
     <span ref={element} className="message-image">
       {url ? (
-        <button
-          className="message-image-open"
-          aria-label={`放大图片 ${label}`}
-          onClick={() => setExpanded(true)}
-        >
-          <img
-            src={url}
-            alt={label}
-            onError={() => {
-              setError('图片解码失败');
-              setUrl('');
-            }}
-          />
-        </button>
+        <ImagePreview
+          key={url}
+          src={url}
+          alt={label}
+          onError={() => {
+            setError('图片解码失败');
+            setUrl('');
+          }}
+        />
       ) : remote ? (
         <a href={src} target="_blank" rel="noreferrer noopener">
           打开图片：{label}
@@ -105,16 +96,6 @@ export function MessageImage({
             </span>
           )}
         </span>
-      )}
-      {createPortal(
-        <MotionPresence>
-          {expanded && url && (
-            <Modal title={label} wide onClose={() => setExpanded(false)}>
-              <img className="message-image-expanded" src={url} alt={label} />
-            </Modal>
-          )}
-        </MotionPresence>,
-        document.body,
       )}
     </span>
   );
