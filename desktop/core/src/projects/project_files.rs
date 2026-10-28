@@ -103,7 +103,34 @@ impl Core {
             "SYNC_CONFLICT",
             "Project changed while creating reference",
         )?;
-        Ok(json!({"projectId":project_id,"path":file_path,"referenceText":text}))
+        Ok(
+            json!({"projectId":project_id,"path":file_path,"referenceText":text,"name":label,"input":{"type":"text","text":path,"text_elements":[{"byteRange":{"start":0,"end":path.len()},"placeholder":format!("@{label}") }]}}),
+        )
+    }
+    pub(crate) fn resolve_file_references(
+        &self,
+        project_id: &str,
+        references: Option<&Value>,
+    ) -> Result<Vec<Value>> {
+        let Some(references) = references else {
+            return Ok(Vec::new());
+        };
+        let refs = crate::composer::decode_file_references(references)?;
+        let mut input = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (project, path) in refs {
+            ensure(
+                project_id != paths::CHAT_PROJECT && project == project_id,
+                "WORKSPACE_FORBIDDEN",
+                "File reference belongs to another project",
+            )?;
+            let reference = self.project_file_reference(project_id, path)?;
+            let part = reference["input"].clone();
+            if seen.insert(part["text"].to_string()) {
+                input.push(part);
+            }
+        }
+        Ok(input)
     }
     pub fn project_file_text(&self, project_id: &str, file_path: &str) -> Result<Value> {
         let root = paths::root(&self.store, project_id)?;
@@ -267,4 +294,106 @@ fn preview_image_mime(path: &str, bytes: &[u8]) -> Option<&'static str> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod reference_tests {
+    use super::*;
+    use crate::{composer, protocol, queue, security, store::Store};
+    use std::sync::Arc;
+
+    #[test]
+    fn file_references_preserve_native_markers_and_enforce_project_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project");
+        std::fs::create_dir(&project).unwrap();
+        let name = "中文 file[1].txt";
+        std::fs::write(project.join(name), "reference proof").unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("state.db")).unwrap());
+        let grant = paths::add_local(&store, &project).unwrap();
+        let id = crate::s(&grant, "projectId");
+        let (tx, _) = tokio::sync::mpsc::channel(1);
+        let core = Core::new(
+            store,
+            security::Certificate {
+                cert: String::new(),
+                key: String::new(),
+                fingerprint: String::new(),
+                ips: vec![],
+            },
+            "127.0.0.1".into(),
+            0,
+            tx,
+        );
+        let selected = json!([{"projectId":id,"path":name}, {"projectId":id,"path":name}]);
+        let input = core.resolve_file_references(id, Some(&selected)).unwrap();
+        assert_eq!(input.len(), 1);
+        let path = composer::file_reference_path(&input[0]).unwrap();
+        assert_eq!(
+            path,
+            paths::canonical(&project.join(name))
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
+        assert_eq!(input[0]["text_elements"][0]["byteRange"]["end"], path.len());
+        assert_ne!(path.len(), path.chars().count());
+        queue::authorize_queue_input(
+            &paths::canonical(&project).unwrap(),
+            &json!({"input":input}),
+        )
+        .unwrap();
+        let revised = queue::replace_resource_text(
+            &json!({"input":[{"type":"text","text":"old","text_elements":[]},input[0]]}),
+            "new",
+        )
+        .unwrap();
+        assert_eq!(revised[0]["text"], "new");
+        assert_eq!(revised[1], input[0]);
+        let schema: Value = serde_json::from_str(include_str!("../../../../packages/codex-protocol/versions/0.163.0-alpha.10.2/experimental/TurnStartParams.json")).unwrap();
+        jsonschema::validator_for(&schema)
+            .unwrap()
+            .validate(&json!({"threadId":"thread","input":revised}))
+            .unwrap();
+        for path in ["../outside", "/etc/passwd", ".", "missing.txt"] {
+            assert!(core
+                .resolve_file_references(id, Some(&json!([{"projectId":id,"path":path}])))
+                .is_err());
+        }
+        assert!(core
+            .resolve_file_references("another-project", Some(&selected))
+            .is_err());
+        assert!(core
+            .resolve_file_references(paths::CHAT_PROJECT, Some(&selected))
+            .is_err());
+        assert!(composer::decode_file_references(
+            &json!([{"projectId":id,"path":name,"input":{}}])
+        )
+        .is_err());
+        assert!(composer::decode_file_references(&json!(vec![
+            json!({"projectId":id,"path":name});
+            33
+        ]))
+        .is_err());
+        for action in ["turn.start", "queue.add"] {
+            assert!(protocol::parse(json!({"v":1,"type":"request","id":"test","action":action,"payload":{"sessionId":"session","text":"","references":[{"projectId":id,"path":name}]}})).is_ok());
+            assert!(protocol::parse(json!({"v":1,"type":"request","id":"test","action":action,"payload":{"sessionId":"session","text":""}})).is_err());
+        }
+        #[cfg(unix)]
+        {
+            let outside = dir.path().join("outside.txt");
+            std::fs::write(&outside, "outside").unwrap();
+            std::os::unix::fs::symlink(&outside, project.join("escape.txt")).unwrap();
+            assert!(core
+                .resolve_file_references(id, Some(&json!([{"projectId":id,"path":"escape.txt"}])))
+                .is_err());
+            std::fs::remove_file(project.join(name)).unwrap();
+            std::os::unix::fs::symlink(&outside, project.join(name)).unwrap();
+            assert!(queue::authorize_queue_input(
+                &paths::canonical(&project).unwrap(),
+                &json!({"input":input})
+            )
+            .is_err());
+        }
+    }
 }

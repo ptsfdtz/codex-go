@@ -23,7 +23,8 @@
     "host:package": "node scripts/host/package.mjs",
     "test:composer-browser": "node scripts/web/test-composer-browser.mjs",
     "test:message-images-browser": "node scripts/web/test-message-images-browser.mjs",
-    "test:host-names": "node --test scripts/web/test-host-names.mjs"
+    "test:host-names": "node --test scripts/web/test-host-names.mjs",
+    "test:file-references-browser": "node scripts/web/test-file-references-browser.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",

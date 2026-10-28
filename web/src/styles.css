@@ -3346,3 +3346,25 @@ small,
 .composer-prompts .question-fields {
   margin-bottom: 0;
 }
+
+.file-reference-chip {
+  max-width: 100%;
+  min-width: 0;
+}
+.file-reference-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-reference-chip > svg,
+.file-reference-chip > button {
+  flex-shrink: 0;
+}
+.file-references {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.file-references:empty {
+  display: none;
+}

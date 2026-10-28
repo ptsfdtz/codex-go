@@ -8,6 +8,7 @@ import { ImagePreview } from './features/message-images/ImagePreview';
 import {
   Terminal,
   FileDiff,
+  FileText,
   Globe,
   Wrench,
   Image,
@@ -153,6 +154,7 @@ export function contentText(value: unknown): string {
   if (Array.isArray(value)) return value.map(contentText).filter(Boolean).join('\n');
   if (!value || typeof value !== 'object') return '';
   const object = value as Record<string, unknown>;
+  if (fileReferencePart(object)) return '';
   for (const key of [
     'text',
     'content',
@@ -295,7 +297,58 @@ export function RichContent({
       ) : (
         <Markdown text={body} onFile={onFile} images={projectImages} />
       )}
+      {!tool && <FileReferences parts={parts} onFile={onFile} />}
       {!tool && imageContent && <ImageDisclosure>{imageContent}</ImageDisclosure>}
+    </div>
+  );
+}
+
+export function fileReferencePart(value: unknown): { name: string; path: string } | undefined {
+  if (!value || typeof value !== 'object') return;
+  const part = value as {
+    type?: string;
+    text?: string;
+    text_elements?: { byteRange?: { start?: number; end?: number }; placeholder?: string }[];
+  };
+  const text = part.text;
+  if (part.type !== 'text' || typeof text !== 'string' || !/^(?:\/|[A-Za-z]:[\\/])/.test(text))
+    return;
+  const elements = part.text_elements;
+  const name = elements?.[0]?.placeholder?.startsWith('@') ? elements[0].placeholder.slice(1) : '';
+  if (
+    name &&
+    Array.isArray(elements) &&
+    elements.length === 1 &&
+    elements[0]?.byteRange?.start === 0 &&
+    elements[0]?.byteRange?.end === new TextEncoder().encode(text).length
+  )
+    return { name, path: text };
+}
+export function FileReferences({
+  parts,
+  onFile,
+}: {
+  parts: unknown[];
+  onFile?: (path: string) => void;
+}) {
+  return (
+    <div className="file-references">
+      {parts.flatMap((value, index) => {
+        const reference = fileReferencePart(value);
+        if (!reference) return [];
+        return [
+          <button
+            className="resource-chip file-reference-chip"
+            key={index}
+            title={reference.path}
+            disabled={!onFile}
+            onClick={() => onFile?.(reference.path)}
+          >
+            <FileText size={14} />
+            <span>{reference.name}</span>
+          </button>,
+        ];
+      })}
     </div>
   );
 }

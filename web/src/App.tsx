@@ -1258,13 +1258,17 @@ export function App() {
             text: `请按照以下计划开始开发：\n\n${planText}`,
             mode: 'default',
             attachments: [],
+            references: [],
             skills: [],
           };
     if (
       !connection ||
       !connected ||
       sending.current ||
-      (!source.text.trim() && !source.attachments.length && !source.skills.length) ||
+      (!source.text.trim() &&
+        !source.attachments.length &&
+        !source.skills.length &&
+        !source.references?.length) ||
       (planText !== undefined && !!activeTurn) ||
       busy ||
       receiptBlocked ||
@@ -1281,6 +1285,12 @@ export function App() {
     setBusy(true);
     setError('');
     try {
+      if (
+        source.references?.length &&
+        (!supports('fileReferenceInputs') ||
+          source.references.some((ref) => ref.projectId !== selectedProject))
+      )
+        throw new Error('文件引用的项目已变化或 Host 需要升级，请重新引用');
       source = { ...source, ...resolveComposerModelPreferences(source, models) };
       let id = session;
       if (!id) {
@@ -1307,7 +1317,7 @@ export function App() {
       if (epoch !== connectionEpoch.current) return;
       if (activeTurn) {
         if (kind === 'steer') {
-          if (source.attachments.length || source.skills.length)
+          if (source.attachments.length || source.skills.length || source.references?.length)
             throw new Error('带资源的消息请加入待发送队列');
           const active = await connection.request<{ upstreamTurnId?: string }>('turn.active', {
             sessionId: id,
@@ -1323,7 +1333,8 @@ export function App() {
             throw new Error('当前电脑不支持待发送队列，请等待任务完成或选择立即补充');
           if (
             (source.attachments.length && !supports('nativeQueueAttachments')) ||
-            (source.skills.length && !supports('nativeQueueSkills'))
+            (source.skills.length && !supports('nativeQueueSkills')) ||
+            (source.references?.length && !supports('fileReferenceInputs'))
           )
             throw new Error('当前电脑不支持队列中的这些资源');
           await connection.request('queue.add', {
@@ -1351,7 +1362,7 @@ export function App() {
           if (next[key] === storedDraft || next[key] === source)
             next[key] =
               planText === undefined
-                ? { ...source, text: '', attachments: [], skills: [] }
+                ? { ...source, text: '', attachments: [], skills: [], references: [] }
                 : { ...draft, mode: 'default' };
         return next;
       });
@@ -2347,12 +2358,22 @@ export function App() {
             imagePreview={supports('projectImagePreview')}
             gitRead={supports('gitRead')}
             gitBranchCompare={supports('gitBranchCompare')}
-            referenceAllowed={supports('projectFileReference')}
+            referenceAllowed={supports('fileReferenceInputs')}
             expanded={fileWorkspaceWide}
             onExpand={() => setFileWorkspaceWide((value) => !value)}
             onClose={() => setFileWorkspaceOpen(false)}
-            onReference={(text) => {
-              updateDraft({ text: `${draft.text}${draft.text ? '\n' : ''}${text}\n` });
+            onReference={(reference) => {
+              const refs = draft.references || [];
+              if (reference.projectId !== selectedProject) return;
+              if (refs.length >= 32) {
+                setError('最多引用 32 个文件');
+                return;
+              }
+              if (!refs.some((ref) => ref.path === reference.path))
+                updateDraft({ references: [...refs, reference] });
+              requestAnimationFrame(() =>
+                document.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')?.focus(),
+              );
               if (matchMedia('(max-width:760px)').matches) setFileWorkspaceOpen(false);
             }}
           />
@@ -2734,7 +2755,7 @@ export function App() {
                       return (
                         account === scope &&
                         id === host?.hostId &&
-                        (d.text || d.attachments.length || d.skills.length)
+                        (d.text || d.attachments.length || d.skills.length || d.references?.length)
                       );
                     })
                     .map(([key, d]) => {
@@ -2756,7 +2777,7 @@ export function App() {
                           </strong>
                           <span>
                             {d.text.slice(0, 180) ||
-                              `${d.attachments.length} 个附件 · ${d.skills.length} 个技能`}
+                              `${d.attachments.length} 个附件 · ${d.skills.length} 个技能 · ${d.references?.length || 0} 个引用`}
                           </span>
                         </button>
                       );

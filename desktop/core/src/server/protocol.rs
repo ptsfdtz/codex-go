@@ -119,6 +119,7 @@ pub fn parse(v: Value) -> Result<Request> {
                 "mode",
                 "attachments",
                 "skills",
+                "references",
             ],
         ),
         "settings.execution" => (&[], &["projectId"]),
@@ -132,7 +133,10 @@ pub fn parse(v: Value) -> Result<Request> {
         "files.reference" => (&["projectId", "path"], &[]),
         "account.status" => (&[], &[]),
         "queue.list" => (&["sessionId"], &[]),
-        "queue.add" => (&["sessionId", "text"], &["attachments", "skills"]),
+        "queue.add" => (
+            &["sessionId", "text"],
+            &["attachments", "skills", "references"],
+        ),
         "queue.update" => (
             &["sessionId", "submissionId", "text"],
             &["expectedInputRevision"],
@@ -235,6 +239,9 @@ pub fn parse(v: Value) -> Result<Request> {
             "Invalid conversation mode",
         )?;
     }
+    if let Some(references) = p.get("references") {
+        crate::composer::decode_file_references(references)?;
+    }
     if let Some(files) = p.get("attachments") {
         crate::composer::decode_attachments(files)?;
     }
@@ -311,7 +318,12 @@ pub fn parse(v: Value) -> Result<Request> {
         if let Some(t) = p[key].as_str() {
             let t = t.trim().to_owned();
             p[key] = json!(t);
-            text(p, key, 1, max)?;
+            let resource_only = key == "text"
+                && ["turn.start", "queue.add"].contains(&r.action.as_str())
+                && p["references"]
+                    .as_array()
+                    .is_some_and(|refs| !refs.is_empty());
+            text(p, key, if resource_only { 0 } else { 1 }, max)?;
         } else if p.get(key).is_some() {
             return Err(Error::new("INVALID_REQUEST", "Text required"));
         }

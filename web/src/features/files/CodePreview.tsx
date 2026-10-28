@@ -16,7 +16,9 @@ export function CodePreview({
   untracked = false,
   position,
   onScroll,
+  findToken,
 }: {
+  findToken?: number;
   text: string;
   path: string;
   diff?: boolean;
@@ -83,6 +85,13 @@ export function CodePreview({
     return () => observer.disconnect();
     // A file view is keyed by its path and mode; restore its position only on mount.
   }, []);
+  const previousFindToken = useRef(findToken);
+  useEffect(() => {
+    if (findToken === previousFindToken.current) return;
+    previousFindToken.current = findToken;
+    setFind(true);
+    requestAnimationFrame(() => search.current?.focus());
+  }, [findToken]);
   function showFind() {
     setFind(true);
     requestAnimationFrame(() => search.current?.focus());
@@ -106,13 +115,12 @@ export function CodePreview({
         }
       }}
     >
-      <div className="file-code-toolbar">
-        <span>{diff ? diffLabel : `${raw.length.toLocaleString()} 行 · 只读`}</span>
-        <button className="text-button" onClick={showFind}>
-          <Search size={13} />
-          文件内查找
-        </button>
-      </div>
+      {findToken === undefined && (
+        <div className="file-code-toolbar">
+          <span>{diff ? diffLabel : `${raw.length.toLocaleString()} 行`}</span>
+          <IconButton icon={Search} label="文件内查找" onClick={showFind} />
+        </div>
+      )}
       {find && (
         <form
           className="file-find"

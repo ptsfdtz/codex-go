@@ -44,9 +44,9 @@
   align-items: center;
 }
 .file-workspace-header {
-  min-height: 55px;
+  min-height: 44px;
   justify-content: space-between;
-  padding: 6px 10px 6px 16px;
+  padding: 5px 8px;
   border-bottom: 1px solid var(--border);
   gap: 6px;
   background: var(--bg);
@@ -61,9 +61,33 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.file-workspace-header > div > span {
-  color: var(--muted);
+.file-workspace-title {
+  flex: 1;
+}
+.file-workspace-title > svg {
   flex-shrink: 0;
+}
+.file-workspace-header > .file-workspace-actions {
+  flex: 0 1 auto;
+  max-width: calc(100% - 86px);
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.file-workspace-actions::-webkit-scrollbar {
+  display: none;
+}
+.file-workspace-header > .file-tabs {
+  gap: 4px;
+  min-width: 76px;
+}
+.file-workspace-actions .icon-button {
+  border: 0;
+  background: transparent;
+}
+.file-workspace-actions .icon-button:hover,
+.file-workspace-actions .icon-button[aria-pressed='true'] {
+  background: var(--hover);
 }
 .file-workspace .icon-button {
   width: 30px;
@@ -78,22 +102,16 @@
 .file-workspace .file-mobile-back {
   display: none;
 }
-.file-tabs-bar {
-  display: flex;
-  align-items: center;
-  min-height: 43px;
-  gap: 4px;
-  padding: 5px 7px;
-  border-bottom: 1px solid var(--border);
-  background: var(--rail);
-}
 .file-tabs {
   display: flex;
   flex: 1;
   min-width: 0;
   gap: 4px;
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.file-tabs::-webkit-scrollbar {
+  display: none;
 }
 .file-tab {
   display: flex;
@@ -158,91 +176,6 @@
   min-height: 0;
   overflow: hidden;
 }
-.file-editor-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  padding: 8px 10px;
-  gap: 6px 10px;
-  min-height: 44px;
-  border-bottom: 1px solid var(--faint);
-}
-.file-path {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  max-width: 100%;
-}
-.file-path > span {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.file-path button,
-.file-path strong {
-  font-size: 11px;
-  white-space: nowrap;
-  padding: 3px;
-  border: 0;
-  background: transparent;
-  font-weight: 400;
-}
-.file-path button {
-  color: var(--muted);
-}
-.file-path strong {
-  font-weight: 600;
-}
-.file-path button:hover {
-  color: var(--text);
-  background: var(--hover);
-}
-.file-path svg {
-  color: var(--muted);
-  flex-shrink: 0;
-}
-.file-editor-actions {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-}
-.file-editor-actions > button {
-  min-height: 30px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 7px;
-  background: var(--soft);
-  flex-shrink: 0;
-  line-height: 1;
-}
-.file-editor-actions > button:not(.icon-button) {
-  border-color: var(--border);
-}
-.file-editor-actions > button:not(.icon-button):hover {
-  background: var(--hover);
-}
-.file-editor-actions > button.selected {
-  border-color: var(--muted);
-  background: var(--hover);
-}
-.file-editor-actions .icon-button {
-  padding: 0;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-}
-.file-editor-actions .icon-button:hover {
-  background: var(--hover);
-}
 .file-empty {
   display: flex;
   flex: 1;
@@ -274,18 +207,6 @@
   color: var(--muted);
   overflow-wrap: anywhere;
   border-bottom: 1px solid var(--border);
-}
-.file-statusbar {
-  margin-top: auto;
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 3px 12px;
-  border-top: 1px solid var(--border);
-  font-size: 10px;
-  color: var(--muted);
-  background: var(--rail);
-  padding: 4px 10px;
 }
 .file-workspace-image {
   display: flex;
@@ -774,9 +695,6 @@
   .file-workspace-header strong {
     max-width: 120px;
   }
-  .file-workspace-header > div > span {
-    display: none;
-  }
   .file-workspace-header .icon-button[aria-label='扩大文件预览'],
   .file-workspace-header .icon-button[aria-label='恢复并排预览'] {
     display: none;
@@ -792,9 +710,6 @@
     left: 42px;
     width: 36px;
     flex-basis: 36px;
-  }
-  .file-statusbar {
-    font-size: 9px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

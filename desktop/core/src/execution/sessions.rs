@@ -574,6 +574,7 @@ impl Core {
                     permission_mode: p["permissionMode"].as_str().unwrap_or("workspace"),
                     mode: p["mode"].as_str().unwrap_or("default"),
                     attachments: None,
+                    references: None,
                     native_input: Some(&input),
                     skills: None,
                     goal_resume_revision: None,

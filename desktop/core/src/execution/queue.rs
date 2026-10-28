@@ -142,6 +142,9 @@ impl Core {
                     p.get("attachments"),
                 )?;
                 input.extend(skill_input);
+                input.extend(
+                    self.resolve_file_references(s(&session, "projectId"), p.get("references"))?,
+                );
                 params["input"] = json!(input);
                 ensure(
                     serde_json::to_vec(&entries).unwrap().len()
@@ -421,7 +424,13 @@ pub(crate) fn replace_resource_text(entry: &Value, text: &str) -> Result<Vec<Val
         .as_array()
         .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Missing queued input"))?;
     ensure(
-        input.iter().filter(|part| part["type"] == "text").count() <= 1,
+        input
+            .iter()
+            .filter(|part| {
+                part["type"] == "text" && crate::composer::file_reference_path(part).is_none()
+            })
+            .count()
+            <= 1,
         "UNSUPPORTED",
         "Multiple text inputs cannot yet be edited without changing their order",
     )?;
@@ -429,6 +438,9 @@ pub(crate) fn replace_resource_text(entry: &Value, text: &str) -> Result<Vec<Val
     let mut replaced = false;
     for part in input {
         match s(part, "type") {
+            "text" if crate::composer::file_reference_path(part).is_some() => {
+                result.push(part.clone())
+            }
             "text" => {
                 ensure(
                     part.get("text_elements")
@@ -508,6 +520,22 @@ pub(crate) fn authorize_queue_input(root: &std::path::Path, entry: &Value) -> Re
     use std::io::Read;
     for part in entry["input"].as_array().unwrap() {
         match s(part, "type") {
+            "text" if crate::composer::file_reference_path(part).is_some() => {
+                let path = paths::canonical(std::path::Path::new(
+                    crate::composer::file_reference_path(part).unwrap(),
+                ))?;
+                ensure(
+                    paths::within(root, &path),
+                    "WORKSPACE_FORBIDDEN",
+                    "Referenced file is outside granted workspace",
+                )?;
+                let file = std::fs::File::open(&path)?;
+                ensure(
+                    file.metadata()?.is_file() && paths::within(root, &paths::opened_path(&file)?),
+                    "WORKSPACE_FORBIDDEN",
+                    "Referenced file handle is outside granted workspace",
+                )?;
+            }
             "text" => {}
             "localImage" => {
                 let path = paths::canonical(std::path::Path::new(s(part, "path")))?;

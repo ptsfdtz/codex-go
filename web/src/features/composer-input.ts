@@ -32,6 +32,9 @@ export async function readAttachments(
 }
 export function resources(draft: Draft) {
   return {
+    ...(draft.references?.length
+      ? { references: draft.references.map(({ projectId, path }) => ({ projectId, path })) }
+      : {}),
     ...(draft.attachments.length
       ? { attachments: draft.attachments.map(({ name, data }) => ({ name, data })) }
       : {}),

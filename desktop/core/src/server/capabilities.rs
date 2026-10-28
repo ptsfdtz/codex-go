@@ -72,6 +72,7 @@ pub fn describe_profile(
     features["projectFileBrowser"] = Value::Bool(true);
     features["projectImagePreview"] = Value::Bool(true);
     features["projectTextPreview"] = Value::Bool(true);
+    features["fileReferenceInputs"] = Value::Bool(true);
     features["projectFileReference"] = Value::Bool(true);
     features["skillConfiguration"] = Value::Bool(true);
     features["outputDefaultsWrite"] = Value::Bool(true);

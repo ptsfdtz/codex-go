@@ -11,6 +11,7 @@ pub(crate) struct ComposerOptions<'a> {
     pub(crate) permission_mode: &'a str,
     pub(crate) mode: &'a str,
     pub(crate) attachments: Option<&'a Value>,
+    pub(crate) references: Option<&'a Value>,
     pub(crate) native_input: Option<&'a [Value]>,
     pub(crate) skills: Option<&'a Value>,
     pub(crate) goal_resume_revision: Option<&'a str>,
@@ -142,6 +143,32 @@ impl Core {
         attachments: Option<&Value>,
         skills: Option<&Value>,
     ) -> Result<Value> {
+        self.start_turn_with_references(
+            session_id,
+            text,
+            model,
+            effort,
+            permission_mode,
+            mode,
+            attachments,
+            skills,
+            None,
+        )
+        .await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn start_turn_with_references(
+        &self,
+        session_id: &str,
+        text: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+        permission_mode: &str,
+        mode: &str,
+        attachments: Option<&Value>,
+        skills: Option<&Value>,
+        references: Option<&Value>,
+    ) -> Result<Value> {
         self.start_composer_reserving(
             session_id,
             text,
@@ -151,6 +178,7 @@ impl Core {
             mode,
             attachments,
             skills,
+            references,
             None,
         )
         .await
@@ -165,6 +193,7 @@ impl Core {
             None,
             "workspace",
             "goal",
+            None,
             None,
             None,
             Some(s(p, "expectedGoalRevision")),
@@ -182,6 +211,7 @@ impl Core {
         mode: &str,
         attachments: Option<&Value>,
         skills: Option<&Value>,
+        references: Option<&Value>,
         goal_resume_revision: Option<&str>,
     ) -> Result<Value> {
         ensure(
@@ -244,6 +274,7 @@ impl Core {
                     permission_mode,
                     mode,
                     attachments,
+                    references,
                     native_input: None,
                     skills,
                     goal_resume_revision,
@@ -267,6 +298,7 @@ impl Core {
             mode,
             attachments,
             native_input,
+            references,
             skills,
             goal_resume_revision,
         } = options;
@@ -404,6 +436,7 @@ impl Core {
             crate::composer::prepare_stored_input(&self.store, session_id, text, attachments)?
         };
         input.extend(skill_input);
+        input.extend(self.resolve_file_references(s(&session, "projectId"), references)?);
         ensure(
             paths::equal(&root, &paths::root(&self.store, s(&session, "projectId"))?)
                 && self.upstream()?.generation == rpc.generation

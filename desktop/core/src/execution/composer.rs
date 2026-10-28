@@ -189,3 +189,55 @@ pub(crate) fn prepare_stored_input(
     }
     Ok((input, names))
 }
+
+// Client references are relative to an explicit project grant; native absolute
+// paths and display labels are resolved by the Host, never trusted from Web.
+pub(crate) fn decode_file_references(value: &Value) -> Result<Vec<(&str, &str)>> {
+    let rows = value
+        .as_array()
+        .ok_or_else(|| crate::Error::new("INVALID_REQUEST", "Invalid file references"))?;
+    crate::ensure(
+        rows.len() <= 32,
+        "INVALID_REQUEST",
+        "At most 32 file references",
+    )?;
+    rows.iter()
+        .map(|row| {
+            let project = row["projectId"].as_str().unwrap_or("");
+            let path = row["path"].as_str().unwrap_or("");
+            crate::ensure(
+                row.as_object().is_some_and(|o| o.len() == 2)
+                    && !project.is_empty()
+                    && project.len() <= 160
+                    && !path.is_empty()
+                    && path.len() <= 4096
+                    && !path.chars().any(char::is_control),
+                "INVALID_REQUEST",
+                "Invalid file reference",
+            )?;
+            Ok((project, path))
+        })
+        .collect()
+}
+
+// A whole-span file marker is separate from the editable user instruction.
+// UTF-8 byte offsets follow Codex TextElement, not JavaScript character counts.
+pub(crate) fn file_reference_path(part: &Value) -> Option<&str> {
+    if part["type"] != "text" {
+        return None;
+    }
+    let text = part["text"].as_str()?;
+    let elements = part["text_elements"].as_array()?;
+    let path = std::path::Path::new(text);
+    let label = elements.first()?["placeholder"]
+        .as_str()?
+        .strip_prefix('@')?;
+    (path.is_absolute()
+        && !text.chars().any(char::is_control)
+        && elements.len() == 1
+        && elements[0]["byteRange"]["start"] == 0
+        && elements[0]["byteRange"]["end"] == text.len()
+        && !label.is_empty()
+        && !label.chars().any(char::is_control))
+    .then_some(text)
+}
