@@ -2,6 +2,57 @@
 
 通过 Web/PWA 操作电脑上的 Codex。Host 执行任务、保存会话权威状态；云端保存账户和设备归属并转发加密连接，不保存聊天或媒体、不持有 OpenAI 凭据、不运行模型。手机统一使用浏览器或 PWA。
 
+## 官方运行时三端共享候选（未发布）
+
+本批候选强制只执行官方预编译 Codex：当前固定官方 `0.166.0-alpha.1`（官方 alpha 包，并非稳定版），覆盖 Windows x64、Linux x64/ARM64、macOS arm64。启动前核对官方包 SHA-512 和全部文件 SHA-256，执行 `--version` 前也核对入口哈希；版本号相同的自编译程序也不能通过。未知程序不执行，缺失时自动下载官方包，损坏的托管包拒绝启动；旧源码编译脚本已禁用。更新基线须更新官方包清单并重新验收，不编译 Codex。
+
+首次启动自动生成回环地址和私有令牌，启动独立共享所有者；Host、`agentdeck codex` 和原版桌面代理复用该服务。Windows 安装器增加“Codex shared”开始菜单入口，`agentdeck desktop` 自动发现原版应用；macOS 桌面代理为待实机验证的候选。Linux 提供独立 runtime/Host systemd 用户服务，Host 保留现有隔离设置；不把 Linux 原版桌面列为已支持。原版桌面已经运行时要求空闲退出后重开，不强杀或迁移进行中的任务。已有手动管理的外部运行时保留配置，但不能仅靠版本号通过官方来源证明，迁移验收需单独处理。
+
+普通用户只需安装、登录 AgentDeck、授权项目和启动；需要 Codex 认证时执行 `agentdeck codex-login`（无浏览器环境可加 `--device-auth`）。不要求 Rust、Node、Python，也不要求用户填写端口、地址或令牌。`agentdeck runtime-check` 提供真实沙箱/指令检查及官方来源、完整性信息；实际就绪以 `status --json` 的 `codexReady`、`sandboxVerified`、`sharedRuntime` 为 true、`runtimeError` 为 null 为准。状态中的 `officialRuntime` 记录包来源与入口哈希，发布门槛核对它与候选清单一致，拒绝自编译或改哈希的运行时。
+
+本机验证：Linux x64 官方包的项目指令读取、内读写及外读写拒绝通过；两个独立认证连接共享同一 UUID、错误令牌拒绝、重复启动复用原生进程、真实模型文件写入和读回、断开后另一连接恢复会话通过。候选安装器已通过本机 HTTPS、隔离全新状态及无开发工具 PATH 的安装验证，首次自动下载、初始化、真实沙箱验证及 Host 重启保留原生 PID/身份/令牌通过；本机 HTTPS 安装不等于生产下载或云端转发验收。官方包损坏拒绝、同版本自定义程序不执行、三个并发启动复用同一所有者及普通 Linux 用户的真实指令/隔离与 Host 就绪检查通过；21 项 Rust 测试、严格 Clippy 和 13 项发布门槛测试通过。报告位于 `artifacts/official-runtime/`。Windows/macOS 用户自行实机验收，ARM64、生产云端、手机及系统重启仍未完成，本批不得晋升正式发布。历史“已发布”描述仅指之前版本。
+
+本地全链路验收（Linux x64）：已启动隔离 PostgreSQL、真实云端、HTTPS Web、Host 与官方 CLI，禁用浏览器局域网连接后实走云端加密转发；CLI 新建 → Web 读取并续聊、Web 新建 → CLI 按同一 UUID 续聊及网页实时更新通过，实际文件结果一致，整个过程原生 PID 不变，Host 更换程序也保留同一运行时。CLI 必须使用 `agentdeck codex` 共享入口，普通独立启动的 `codex` 不会自动接入。补齐官方 `project/create` 登记与重试：CLI 首次打开项目、Host 本地授权待运行时就绪后登记、重复登记不增副本、撤销授权后不自动恢复均通过；原生目录的名称和顺序仍以 `project/list` 为准。共享会话恢复时容纳 CLI 返回的上一轮文件系统信息，新一轮显式发送已验证的 Host 权限配置，不沿用 CLI 的临时目录授权；续聊后真实模型执行的项目内读写及外部测试目录读写拒绝通过。完整结果与脱敏截图见 `artifacts/official-runtime/fullstack-linux.json` 及同目录截图；本地云端验收不代表生产部署或原版桌面验收。
+
+本地私有 CA／自托管云端可在启动 Host 前设置 `AGENTDECK_CLOUD_CA_FILE` 为 PEM CA 路径；该显式配置同时限定云端 HTTPS 和 WSS 的信任根，仍校验证书与主机名，无效或空证书拒绝启动。正常公网安装无需此设置。
+
+### Windows / macOS 自行验收方法
+
+使用本批候选 ZIP/tar.gz，先核对同批 SHA-256，解包到独立目录。**当前线上稳定安装命令不会获得本批未发布改动。** 以下以候选目录中的程序运行；Windows 使用 `./agentdeck.exe`，macOS 使用 `./agentdeck`（首次先 `chmod +x agentdeck agentdeck-service agentdeck-codex-proxy`）。原版 Codex 桌面须预先安装。可用临时的 `AGENTDECK_DATA_DIR` 隔离验收身份，避免碰日常 Host；首次运行不要启用自启或覆盖现有服务。Linux 自定义运行时不要放在 `/tmp`，严格临时目录拒绝策略会阻止它自执行；使用默认用户数据目录。
+
+候选验收隔离设置（同一终端后续命令沿用；新终端使用相同目录）：
+
+```powershell
+# Windows PowerShell
+$env:AGENTDECK_DATA_DIR = Join-Path $env:LOCALAPPDATA 'AgentDeck-acceptance'
+$env:AGENTDECK_PORT = '49531'
+```
+
+```sh
+# macOS
+export AGENTDECK_DATA_DIR="$HOME/Library/Application Support/AgentDeck-acceptance"
+export AGENTDECK_PORT=49531
+```
+
+```sh
+./agentdeck runtime-check
+./agentdeck codex-login                 # 已有有效 Codex 认证可跳过
+./agentdeck login --username YOUR_NAME
+./agentdeck projects add ABSOLUTE_TEST_PROJECT_PATH
+./agentdeck start
+./agentdeck status --json
+./agentdeck desktop
+```
+
+1. 等待上述就绪字段全部满足，确认 `officialRuntime` 与同平台 `codex-runtime-manifests/` 中的版本、来源和入口哈希相同，没有 `dev.agentdeck`。自动发现遇到多个桌面版本时可用 `desktop ABSOLUTE_DESKTOP_EXE` 明确选择；macOS 桌面接入若失败就记录失败，不当作已支持。
+2. 在原版桌面新建测试会话，让模型创建 `shared-proof.txt` 写入 `DESKTOP`；在网页选择对应测试电脑和项目，打开同一会话，确认 UUID/历史相同，追加一轮把文件改为 `WEB`。
+3. 新开终端，使用同一个验收状态目录执行 `./agentdeck codex THREAD_UUID`，确认读到前两轮，追加一轮改为 `CLI`；回桌面和网页核对三轮历史、文件内容及完成状态。测试只使用新建会话和项目。
+4. 在普通权限下测试项目内读写、项目外未授权读写被阻止；触发一次性审批，分别允许和拒绝。完整访问仅用于明确的测试操作，随后切回普通权限再次验证隔离。
+5. 流式回复中断开网页并重连，确认结果不重复发送；任务空闲后执行 `./agentdeck restart`，确认设备身份、会话、历史及共享原生进程保持。最后实际注销/登录或重启系统，检查自启、认证与历史恢复；Mac 桌面和 launchd 必须分别记录结果。
+6. 保存版本、系统/架构、测试 UUID、各项结果和脱敏截图/日志，不记录密码、令牌或完整日常聊天。手机测试另验证 PWA 输入法、后台切换、切网与重连。
+
+开发者可在独立验收状态运行真实本地检查：`python scripts/codex/verify-shared-runtime.py --cli PATH_TO_CANDIDATE_CLI --data-directory ABSOLUTE_ACCEPTANCE_DIRECTORY --model YOUR_AVAILABLE_MODEL`。该脚本使用现有 Codex 认证、发送真实任务并归档自建会话；只证明本地运行时链路，不代替网页、云端或原版桌面验收。
+
 ## 当前实现与交付
 
 - Windows Codex 自动兼容（已发布）：启动前验证真实 AGENTS.md 读取、模型/原生项目协议及四项沙箱边界；现有版本缺少协议或存在 SystemRoot 缺陷时，自动安装固定的官方 `0.166.0-alpha.1` 兼容运行时，保留原程序与 Codex 状态目录。下载 SHA-512、45 个文件 SHA-256 核验及原子安装，不以关闭沙箱兜底；选择按原程序哈希记忆，已有共享任务不强制迁移。诊断命令 `agentdeck runtime-check [--codex-exe PATH]`，真实回归脚本 `scripts/codex/verify-runtime-compatibility.ps1`。官方 0.164 缺陷回退、0.159 协议缺口回退、正常新版保留、重开记忆、损坏资源拒绝、共享所有者与 Host 连接、隔离原生历史读回均通过；未调用模型，未重启日常 Host/桌面。
@@ -21,7 +72,27 @@
 
 ## 实际验证与下一步
 
-本批改动已按附件、对话模型记忆、Host Git 比较、文件工作区及侧栏状态拆分提交。2026-10-28 本地 Web 类型/ESLint/生产构建、13 项 Web 定向测试、4 项真实 Git 测试及 Host 全目标严格 Clippy 通过；用户明确豁免本次尚未完成的跨平台验收，仅部署 Web。2026-10-28 已将提交 `7bed42b2` 的同一份候选产物上线至 https://agent.ptsfdtz.top ，Web 版本 `ef34283a007145754621be83eb33822cd2101e5d4e31f2697b655e7571d71f93`；公网 13 个文件 SHA-256、健康检查及版本清单 no-store 核对通过；Chromium 公网登录页返回 200、无页面脚本异常，截图位于 `artifacts/web-candidate/7bed42b2/production-login.png`。云端进程与发布指针未变。旧 Web 与回退脚本保存在服务器 `/var/backups/agentdeck/web-7bed42b2-20261028T014053Z/`，保留旧哈希资源供已打开页面继续加载。Host、云端程序、管理端和下载指针未更新；Windows/Linux/macOS 经真实云端及模型的完整验收仍未完成。
+问题回答布局（Web 已部署）：提交/前后切换按钮与回答输入框并排，移除单独底部按钮行和空选项占位；桌面/320px/390px 对齐、空回答保护、多问题切换与提交失败保留内容检查通过，截图位于 `artifacts/questions/`。2026-10-28 已上线 Web `c464f5d5d6b147d6a07e52d47f479e71d9233a6c23b7c42d64ad1d4288f6519c`，公网 13 文件哈希/健康检查通过；仅更新 Web，回退备份 `/var/backups/agentdeck/web-c464f5d5d6b1-20261028T053050Z/`。
+
+新对话模型/强度修复（Web 已部署）：调整默认模型的思维强度时同步保存具体模型编号，发送/编辑重发前解析旧的仅强度偏好，使用 Host 返回的模型协议编号；没有可解析模型时在创建对话前提示，不发送孤立强度。10 项偏好/隔离/旧值修复测试与浏览器默认模型滑块、切换模型后首次发送参数检查通过，真实 Host 模型调用未执行。2026-10-28 已上线 Web `abf159eae08518c3f38f89b7c94d9aa972fc4af500ad7a806053f82e7132d75a`，公网 13 文件哈希/健康检查通过，Host 和云端程序未更新；备份 `/var/backups/agentdeck/web-abf159eae085-20261028T052107Z/`。
+
+输入框右侧操作区（Web 已部署）：权限移除告警描边、完整访问保留暖色盾牌，停止改为圆形主按钮，排队使用轻描边与淡色禁用态；浅深主题、320px 布局、权限菜单、停止/排队回归、Web 检查/构建通过，截图位于 `artifacts/composer/actions-*.png`。2026-10-28 已上线 Web `13e784e92fe0decd1792a3bd360d6285de48e80c346051aa381ca76247a919a7`，公网 13 文件哈希/健康检查通过，云端进程未变；回退备份 `/var/backups/agentdeck/web-13e784e92fe0-20261028T051545Z/`。
+
+2026-10-28 回复图片修复已上线：Web `714d67beea9b4380e3939891bac8fb9a6f61f987e6607e0c62521ce18c015e1d`，公网 13 文件哈希、健康检查及版本清单 no-store 通过；云端 PID/启动时间未变，仅更新 Web。候选与源码快照位于 `artifacts/web-candidate/714d67beea9b/`，服务器回退备份 `/var/backups/agentdeck/web-714d67beea9b-20261028T051318Z/`。
+
+回复图片显示（Web 已部署）：Markdown 项目内图片通过已有 `files.readImage` 授权接口分块读取，进入可视区域后自动展示，支持点击放大与失败重试，沿用 8 MiB/哈希校验及路径边界；切换电脑/项目/消息取消旧读取并释放图片资源。外部 HTTP(S) 图片保留明确链接，不自动发起远程请求；项目图片展示当前文件，原生历史附件仍沿用 `sessions.image`。浏览器受控响应验证内联显示、分块/校验、放大、390px、重试、非法路径、取消与资源释放通过；真实 Host 端到端尚未验收，截图位于 `artifacts/message-images/`。
+
+消息编辑框精简版已上线（2026-10-28）：移除顶部标题/快捷键和底部说明，仅保留内容、取消与保存并发送。Web 版本 `d891a5dfb6377447811ebe8ca36c47b4f27e3c9969a6404be908c58a59cb69c6`；检查/构建、浏览器编辑交互、公网 13 文件哈希和健康检查通过。仅更新 Web，云端进程未变；回退备份 `/var/backups/agentdeck/web-d891a5dfb637-20261028T050316Z/`。
+
+2026-10-28 Web 增量更新已上线：版本 `395cdc14d2b938908ae68b3051f288fe10ec77103bb80bde59e9901f9f7bf645`，包含输入框、消息编辑框及设置电脑页优化。产物绑定基线 `99d4112` 与当前未提交工作区，源差异、文件 SHA-256 和产物清单位于 `artifacts/web-candidate/395cdc14d2b9/`；公网 13 个文件哈希、健康检查和版本清单 no-store 通过，云端 PID/启动时间及发布指针未变。仅更新 Web，沿用用户本次 Web 的跨平台验收豁免；旧版与回退脚本位于服务器 `/var/backups/agentdeck/web-395cdc14d2b9-20261028T031418Z/`。
+
+已发送消息编辑框（Web 已部署）：统一圆角、单层焦点边框、自适应高度与按钮样式；移除顶部标题、快捷键小字与底部说明，仅保留内容和操作按钮，保留重发回退语义、原附件/技能及取消/快捷键。Web 检查/构建和 Chromium 浅深主题、320px/390px、空内容、输入法、忙碌保护和失败内容保留检查通过；截图位于 `artifacts/composer/message-editor-*.png`，真实 Host 重发未执行。
+
+输入框优化（Web 已部署）：单行自适应高度、紧凑模型/权限底栏、独立资源行、原生键盘菜单、图片缩略图/预览、文件拖拽与内联错误；压缩期间可输入，切换对话丢弃旧结果并释放预览资源，运行中默认排队且独立停止，不支持的队列资源提前提示。手机触屏回车换行，桌面 Enter 发送，保留原发送回执、草稿与对话模型记忆。Web 检查/生产构建、13 项已有定向测试、Chromium 组件交互与 14 项附件边界检查通过；截图位于 `artifacts/composer/`。浏览器发送/停止使用受控回调，软键盘使用视口模拟；真实 Host 端到端和手机真机尚未验收。
+
+设置电脑页（Web 已部署）：常规设置移除重复的设备列表，电脑页直接展示电脑列表、在线状态、切换/重连、删除、连接详情与本机显示名称；侧栏和顶部切换电脑入口统一打开设置电脑页，切换电脑与同步会话时保持设置打开。Web 检查/生产构建及 Chromium 受控目录响应下的入口、分类切换、390px 布局、切换后保持设置检查通过；未连接真实 Host，截图位于 `artifacts/settings-computers/`。
+
+上一批改动已按附件、对话模型记忆、Host Git 比较、文件工作区及侧栏状态拆分提交。2026-10-28 本地 Web 类型/ESLint/生产构建、13 项 Web 定向测试、4 项真实 Git 测试及 Host 全目标严格 Clippy 通过；用户明确豁免本次尚未完成的跨平台验收，仅部署 Web。2026-10-28 已将提交 `7bed42b2` 的同一份候选产物上线至 https://agent.ptsfdtz.top ，Web 版本 `ef34283a007145754621be83eb33822cd2101e5d4e31f2697b655e7571d71f93`；公网 13 个文件 SHA-256、健康检查及版本清单 no-store 核对通过；Chromium 公网登录页返回 200、无页面脚本异常，截图位于 `artifacts/web-candidate/7bed42b2/production-login.png`。云端进程与发布指针未变。旧 Web 与回退脚本保存在服务器 `/var/backups/agentdeck/web-7bed42b2-20261028T014053Z/`，保留旧哈希资源供已打开页面继续加载。Host、云端程序、管理端和下载指针未更新；Windows/Linux/macOS 经真实云端及模型的完整验收仍未完成。
 
 Web 项目文件工作区（Web 已部署）：右侧展开文件预览，左侧保留对话及输入框；目录树按需读取，多文件标签按账户/电脑/项目隔离并在当前浏览器标签页恢复，支持面包屑、文件内查找、引用、图片预览与工作区变更查看。桌面可拖动分栏，手机可收起目录并返回对话。代码预览提供行号及常见语言高亮，长文件仅渲染可见行；筛选作用于已加载目录，也可输入完整项目相对路径直接打开。保留文本 256 KiB、图片 8 MiB、项目授权及图片校验/取消边界，不增加文件写入或任意 RPC；同时修复 Git 在 Linux/macOS 上的程序名与空配置路径。Web 检查/格式/生产构建、7 项工作区定向测试、真实 Git 工作区定向测试及 Host 全目标严格 Clippy 通过；隔离的 Host Core 文件接口适配器与 Chromium 完成 16 项实际文件/图片分块/差异/两万行/竞态/键盘/390px 布局验收。Web 已部署；云端转发下真实会话与文件并排操作、手机真机及 Windows/macOS 本轮实测待验收；Linux/macOS Git 修复需更新 Host。源码在 `web/src/features/files/`，布局验收截图在 `artifacts/file-workspace/`。
 
@@ -276,6 +347,16 @@ pnpm schema:verify
 pnpm web:dev
 pnpm --filter @agentdeck/web build
 ```
+
+输入框浏览器检查：先运行 `pnpm web:dev`，另在临时目录安装 Playwright 与 Chromium（不加入生产依赖），再运行：
+
+```bash
+npm install --prefix /tmp/agentdeck-browser playwright@1.58.2
+node /tmp/agentdeck-browser/node_modules/playwright/cli.js install chromium
+PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm test:composer-browser
+```
+
+同一开发环境可运行 `pnpm test:message-images-browser` 检查回复图片。脚本隔离渲染真实组件并阻断 API，请求不发送到真实 Host；默认访问 `http://127.0.0.1:1430`，可用 `COMPOSER_TEST_ORIGIN` 指定其他本地 Vite 开发地址。截图输出到 `artifacts/composer/`，中文字体使用系统字体或通过 `COMPOSER_TEST_FONT` 指定本机字体文件。
 
 `pnpm web:dev` 打开 `http://localhost:1430`，本地页重新登录同一账户即可访问真实电脑与会话。`cloud-dev` 模式仅在回环开发服务器代理 API、Cookie/CSRF 和 WebSocket 到 `https://agent.ptsfdtz.top`；保存 Web 代码自动热更新，不部署、不修改远端白名单。电脑上的现有服务须保持在线；发送、审批和撤销会作用于真实环境。本地浏览器身份与正式网页独立。可用 `VITE_CLOUD_ORIGIN` 指向另一 HTTPS 云端，正式构建不包含开发代理。
 
