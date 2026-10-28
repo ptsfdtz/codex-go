@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { HistoryEntry } from './history';
@@ -16,37 +16,52 @@ import {
   Users,
   Minimize2,
 } from 'lucide-react';
+import { MessageImage, type MessageImageSource } from './features/message-images/MessageImage';
 import { DiffText } from './features/DiffText';
 import { displayCommand } from './features/command-display';
 
-export function Markdown({ text, onFile }: { text: string; onFile?: (path: string) => void }) {
+const MessageImages = createContext<MessageImageSource | undefined>(undefined);
+function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
+  const source = useContext(MessageImages);
+  return <MessageImage src={src} alt={alt} source={source} />;
+}
+
+export function Markdown({
+  text,
+  onFile,
+  images,
+}: {
+  text: string;
+  onFile?: (path: string) => void;
+  images?: MessageImageSource;
+}) {
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      skipHtml
-      urlTransform={(url) => url}
-      components={{
-        a: ({ href, children }) =>
-          href && /^(https?:\/\/|mailto:)/i.test(href) ? (
-            <a href={href} target="_blank" rel="noreferrer noopener">
-              {children}
-            </a>
-          ) : href &&
-            onFile &&
-            (!/^[a-z][a-z0-9+.-]*:/i.test(href) || /^(?:file:|[a-z]:[\\/])/i.test(href)) ? (
-            <button className="file-link" onClick={() => onFile(href)}>
-              {children}
-            </button>
-          ) : (
-            <span>{children}</span>
-          ),
-        // Remote image URLs are not fetched from message text. Saved image content
-        // must use the authorized, bounded sessions.image endpoint below.
-        img: ({ alt }) => <span className="muted">{alt ? `[图片：${alt}]` : '[图片]'}</span>,
-      }}
-    >
-      {text}
-    </ReactMarkdown>
+    <MessageImages.Provider value={images}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        skipHtml
+        urlTransform={(url) => url}
+        components={{
+          a: ({ href, children }) =>
+            href && /^(https?:\/\/|mailto:)/i.test(href) ? (
+              <a href={href} target="_blank" rel="noreferrer noopener">
+                {children}
+              </a>
+            ) : href &&
+              onFile &&
+              (!/^[a-z][a-z0-9+.-]*:/i.test(href) || /^(?:file:|[a-z]:[\\/])/i.test(href)) ? (
+              <button className="file-link" onClick={() => onFile(href)}>
+                {children}
+              </button>
+            ) : (
+              <span>{children}</span>
+            ),
+          img: MarkdownImage,
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </MessageImages.Provider>
   );
 }
 
@@ -183,6 +198,7 @@ export function RichContent({
   onImplementPlan,
   onRevisePlan,
   planDisabled,
+  images: projectImages,
 }: {
   entry: HistoryEntry;
   connection?: Bridge;
@@ -192,6 +208,7 @@ export function RichContent({
   onImplementPlan?: () => void;
   onRevisePlan?: () => void;
   planDisabled?: boolean;
+  images?: MessageImageSource;
 }) {
   const item = entry.item || {};
   const parts = Array.isArray(item.content) ? (item.content as Record<string, unknown>[]) : [];
@@ -243,7 +260,7 @@ export function RichContent({
             <span>Thinking</span>
             <ChevronRight size={14} />
           </summary>
-          <Markdown text={body} onFile={onFile} />
+          <Markdown text={body} onFile={onFile} images={projectImages} />
         </details>
       ) : item.type === 'plan' ? (
         <div className="plan-content">
@@ -251,7 +268,7 @@ export function RichContent({
             <ListChecks size={17} />
             计划
           </div>
-          <Markdown text={body} onFile={onFile} />
+          <Markdown text={body} onFile={onFile} images={projectImages} />
           {Array.isArray(item.plan) && (
             <ul className="plan-steps">
               {(item.plan as { step?: string; status?: string }[]).map((step, index) => (
@@ -277,7 +294,7 @@ export function RichContent({
           )}
         </div>
       ) : (
-        <Markdown text={body} onFile={onFile} />
+        <Markdown text={body} onFile={onFile} images={projectImages} />
       )}
       {!tool && imageContent && <ImageDisclosure>{imageContent}</ImageDisclosure>}
     </div>

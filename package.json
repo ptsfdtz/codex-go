@@ -20,7 +20,8 @@
     "format:check": "prettier --check .",
     "host:build": "cargo build --release --locked --manifest-path desktop/core/Cargo.toml --bins",
     "host:dev": "node scripts/host/dev.mjs",
-    "host:package": "node scripts/host/package.mjs"
+    "host:package": "node scripts/host/package.mjs",
+    "test:message-images-browser": "node scripts/web/test-message-images-browser.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",

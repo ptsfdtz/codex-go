@@ -1971,6 +1971,18 @@ export function App() {
                       ) : (
                         <RichContent
                           entry={entry}
+                          images={
+                            connected && supports('projectImagePreview') && selectedProject && !chat
+                              ? {
+                                  request,
+                                  projectId: selectedProject,
+                                  root:
+                                    projects.find(
+                                      (project) => project.projectId === selectedProject,
+                                    )?.canonicalPath || '',
+                                }
+                              : undefined
+                          }
                           connection={bridge.current}
                           sessionId={session || ''}
                           onFile={supports('projectTextPreview') ? openFile : undefined}
@@ -2327,6 +2339,17 @@ export function App() {
               <div className="message-reader">
                 <RichContent
                   entry={messageAction.entry}
+                  images={
+                    connected && supports('projectImagePreview') && selectedProject && !chat
+                      ? {
+                          request,
+                          projectId: selectedProject,
+                          root:
+                            projects.find((project) => project.projectId === selectedProject)
+                              ?.canonicalPath || '',
+                        }
+                      : undefined
+                  }
                   connection={bridge.current}
                   sessionId={session || ''}
                 />

@@ -2991,3 +2991,42 @@ small,
   overflow: auto;
   font: inherit;
 }
+.message-image {
+  display: block;
+  margin: 12px 0;
+  max-width: 100%;
+}
+.message-image-open {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--soft);
+  max-width: 100%;
+  cursor: zoom-in;
+}
+.message-image-open img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+.message-image-placeholder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 12px;
+}
+.message-image-expanded {
+  display: block;
+  max-width: 100%;
+  max-height: 75dvh;
+  margin: auto;
+  object-fit: contain;
+}
