@@ -3334,6 +3334,26 @@ small,
   margin-bottom: 0;
 }
 
+.selection-quote {
+  position: fixed;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--soft);
+  color: var(--text);
+  box-shadow: 0 4px 16px #0002;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.selection-quote:hover {
+  background: var(--hover);
+}
 .queued-messages {
   margin: 0 0 8px;
   padding: 8px 12px;

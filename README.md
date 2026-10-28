@@ -86,6 +86,8 @@ Web Plan 完成确认（未发布）：最新计划完成后，用输入区确�
 
 输入框上方队列（本地验收，未部署）：直接显示待发送提示词，可展开、删除和提前发出；任务运行中提前发出为补充当前任务，空闲时沿用原生队列启动。新增 Host `nativeQueueSteer` 能力与 `queue.steer`，在确认原生队列删除成功后才补充，失败或断线保留持久核对记录，不自动重发；旧 Host 与含资源消息会提示限制。Web 类型/ESLint/构建、Host 严格 Clippy、3 项队列单元测试及受控 Chromium 交互通过，桌面、390px 深色、320px 浅色截图位于 `artifacts/queue/`。真实 Host 的运行中补充、队列自动消费竞态与跨平台尚未验收；需升级 Host 才能使用运行中提前补充。浏览器回归：使用既有 Playwright 环境运行 `node scripts/web/test-queued-messages-browser.mjs`（复用 `PLAYWRIGHT_MODULE`、`COMPOSER_TEST_ORIGIN` 和 `COMPOSER_TEST_FONT`）。
 
+消息选中引用（本地验收通过，未部署）：在对话消息、表格或工具输出中选中文字后显示“添加到对话”，点击以 Markdown 引用追加到当前草稿并聚焦输入框，保留原草稿及附件，不自动发送。仅消息区域选择生效，输入框选择不触发；Esc、滚动、切换会话隐藏浮层。Chromium 已验证表格选择、草稿保留、单次插入、输入框排除、切换/滚动隐藏和 390px 边界；类型、ESLint 与构建通过，截图在 `artifacts/selection-quote/`。浏览器回归沿用 Playwright 环境运行 `pnpm test:selection-quote-browser`，默认本地 Vite 地址 `http://127.0.0.1:1491`（可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定），无真实发送；手机原生长按选区与系统菜单协作待真机验收。
+
 电脑名称云端保存（本地验收通过，未部署）：设置 → 电脑中的“电脑显示名称”使用“保存名称”写入云端，同一账户的浏览器/PWA 共享，目录每 15 秒刷新；设置后只显示自定义名，清空恢复原名。已有浏览器本地名称在首次连接新版云端时自动迁移，仅服务器从未配置名称时写入；服务器改名或明确清空优先，失败保留本地值重试，Host 重新登记不覆盖自定义名。云端增加兼容旧 Host 的可空名称及配置标记迁移、账户归属和 CSRF 校验。6 项名称/迁移测试、真实 PostgreSQL 持久化/并发/跨账户/撤销设备测试、HTTPS 云端与两个独立 Chromium 的保存/刷新/清空/失败重试、390px 布局通过；类型、ESLint、Web 构建和云端严格 Clippy 通过，报告与截图在 `artifacts/host-names/`。上线需同时更新 Web 和云端，Host 无需更新。
 
 问题回答布局（Web 已部署）：提交/前后切换按钮与回答输入框并排，移除单独底部按钮行和空选项占位；桌面/320px/390px 对齐、空回答保护、多问题切换与提交失败保留内容检查通过，截图位于 `artifacts/questions/`。2026-10-28 已上线 Web `c464f5d5d6b147d6a07e52d47f479e71d9233a6c23b7c42d64ad1d4288f6519c`，公网 13 文件哈希/健康检查通过；仅更新 Web，回退备份 `/var/backups/agentdeck/web-c464f5d5d6b1-20261028T053050Z/`。

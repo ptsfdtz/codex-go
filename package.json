@@ -24,6 +24,7 @@
     "test:composer-browser": "node scripts/web/test-composer-browser.mjs",
     "test:message-images-browser": "node scripts/web/test-message-images-browser.mjs",
     "test:host-names": "node --test scripts/web/test-host-names.mjs",
+    "test:selection-quote-browser": "node scripts/web/test-selection-quote-browser.mjs",
     "test:file-references-browser": "node scripts/web/test-file-references-browser.mjs"
   },
   "devDependencies": {

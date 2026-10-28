@@ -5,6 +5,7 @@ import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
 import { api, installationId, accountEvent } from './cloud';
 import { Bridge } from './transport/bridge';
 import { DeleteDevice } from './features/AccountDevices';
+import { SelectionQuote, appendQuote } from './features/SelectionQuote';
 import { HostNameEditor } from './features/HostNameEditor';
 import { hostName as cloudHostName, migrateHostNames, type HostName } from './features/host-names';
 import { AccountPassword } from './AccountPassword';
@@ -1986,6 +1987,20 @@ export function App() {
               activeTurn
             }
             stale={!connected}
+          />
+          <SelectionQuote
+            key={draftKey}
+            container={conversationElement}
+            onQuote={(text) => {
+              updateDraft({ text: appendQuote(draft.text, text) });
+              requestAnimationFrame(() => {
+                const input = conversationElement.current?.querySelector<HTMLTextAreaElement>(
+                  'textarea[aria-label="消息"]',
+                );
+                input?.focus();
+                if (input) input.setSelectionRange(input.value.length, input.value.length);
+              });
+            }}
           />
           <Timeline
             ref={timeline}
