@@ -18,6 +18,7 @@ import {
 import { IconButton } from '../ui';
 import { Collapse, MotionList } from '../motion';
 import type { Host, Project, Session } from '../workspace';
+import { isSessionWorking } from '../workspace';
 export function Sidebar({
   sessions,
   projects,
@@ -74,7 +75,8 @@ export function Sidebar({
             (filter === 'pinned'
               ? s.pinned === 1
               : filter === 'active'
-                ? ['running', 'queued', 'waitingApproval', 'unknown'].includes(s.status || '')
+                ? isSessionWorking(s) ||
+                  ['queued', 'waitingApproval', 'unknown'].includes(s.status || '')
                 : true)),
     )
     .sort(
@@ -184,7 +186,7 @@ export function Sidebar({
               >
                 <button className="session" onClick={() => onSelect(s)} title={s.title}>
                   <span className="session-title">{s.title || '未命名会话'}</span>
-                  {['running', 'inProgress'].includes(s.status || '') && (
+                  {isSessionWorking(s) && (
                     <span
                       className={`session-working ${connected ? '' : 'is-stale'}`}
                       role="img"

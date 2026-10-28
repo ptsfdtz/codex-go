@@ -119,6 +119,11 @@ export async function missedEvents(
 
 export function changesDirectory(packet: Packet): boolean {
   const action = packet.action || '';
+  if (
+    (action === 'turn.progress' || action === 'upstream.progress') &&
+    packet.payload?.method === 'turn/started'
+  )
+    return true;
   return /^(?:sessions?\.(?:created|updated|deleted|renamed|pinned|archived|restored|synced|historyChanged)|turn\.(?:queued|started|completed|failed|interrupted)|upstream\.turn\.completed|approvals?\.|projects?\.|devices?\.)/.test(
     action,
   );

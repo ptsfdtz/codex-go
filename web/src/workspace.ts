@@ -90,6 +90,14 @@ export const emptyDraft = (): Draft => ({
   model: '',
   effort: '',
 });
+export function isSessionWorking(session: Session) {
+  const nativeStatus = session.upstream?.status as { type?: string } | undefined;
+  // Automatically consumed native queue entries have no managed local turn.
+  // Their local status may be unknown while the native thread is active.
+  return (
+    ['running', 'inProgress'].includes(session.status || '') || nativeStatus?.type === 'active'
+  );
+}
 export function canManage(session?: Session) {
   return (
     !!session && !['queued', 'running', 'waitingApproval', 'unknown'].includes(session.status || '')
