@@ -90,6 +90,9 @@ import {
   readComposerPreferences,
   saveComposerPreferences,
   type ComposerPreferences,
+  readComposerModelPreferences,
+  saveComposerModelPreferences,
+  type ComposerModelPreferences,
 } from './features/composer-preferences';
 
 type HistoryPage = {
@@ -218,6 +221,9 @@ export function App() {
     [findIndex, setFindIndex] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem('agentdeck.web.theme') || 'system');
   const [preferences, setPreferences] = useState<Record<string, ComposerPreferences>>({});
+  const [modelPreferences, setModelPreferences] = useState<
+    Record<string, ComposerModelPreferences>
+  >({});
   const [receiptBlocked, setReceiptBlocked] = useState(false);
   const [messageAction, setMessageAction] = useState<{ entry: HistoryEntry; kind: string }>();
   const [editText, setEditText] = useState('');
@@ -249,17 +255,31 @@ export function App() {
     return label?.trim() || item.displayName;
   }
   const draftKey = JSON.stringify([scope, host?.hostId, session || `new:${selectedProject}`]);
+  const current = useMemo(
+    () => snapshot.sessions?.find((item) => item.sessionId === session),
+    [snapshot.sessions, session],
+  );
   const preferenceKey = host ? JSON.stringify([scope, host.hostId]) : '';
   const preference = useMemo(
     () => preferences[preferenceKey] || readComposerPreferences(preferenceKey),
     [preferences, preferenceKey],
   );
   const permission = preference.permission;
+  const modelPreferenceKey = host ? draftKey : '';
+  const modelPreference = useMemo(
+    () =>
+      modelPreferences[modelPreferenceKey] ||
+      readComposerModelPreferences(modelPreferenceKey, {
+        model: current?.model || '',
+        effort: current?.effort || '',
+      }),
+    [modelPreferences, modelPreferenceKey, current?.model, current?.effort],
+  );
   const storedDraft = drafts[draftKey];
   const draft = {
     ...(storedDraft || emptyDraft()),
-    model: preference.model,
-    effort: preference.effort,
+    model: modelPreference.model,
+    effort: modelPreference.effort,
   };
   function updatePreferences(change: Partial<ComposerPreferences>) {
     const next = { ...preference, ...change };
@@ -268,10 +288,12 @@ export function App() {
   }
   function updateDraft(change: Partial<Draft>) {
     if (change.model !== undefined || change.effort !== undefined) {
-      updatePreferences({
-        model: change.model ?? preference.model,
-        effort: change.effort ?? preference.effort,
-      });
+      const next = {
+        model: change.model ?? modelPreference.model,
+        effort: change.effort ?? modelPreference.effort,
+      };
+      saveComposerModelPreferences(modelPreferenceKey, next);
+      setModelPreferences((items) => ({ ...items, [modelPreferenceKey]: next }));
     }
     setDrafts((items) => ({
       ...items,
@@ -422,10 +444,6 @@ export function App() {
       scheduleRefresh(true);
     }
   }
-  const current = useMemo(
-    () => snapshot.sessions?.find((item) => item.sessionId === session),
-    [snapshot.sessions, session],
-  );
   const request = useMemo<Request>(() => {
     const connection = bridge.current,
       epoch = connectionEpoch.current;
@@ -1237,6 +1255,9 @@ export function App() {
         createdSession = id;
         startingSession.current = id;
         targetKey = JSON.stringify([scope, host?.hostId, id]);
+        const selection = { model: source.model, effort: source.effort };
+        saveComposerModelPreferences(targetKey, selection);
+        setModelPreferences((items) => ({ ...items, [targetKey]: selection }));
         setDrafts((items) => ({ ...items, [targetKey]: source }));
         selectSession(id);
         // sessions.create confirms a new empty thread. Codex cannot paginate
