@@ -5,6 +5,8 @@ import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
 import { api, installationId, accountEvent } from './cloud';
 import { Bridge } from './transport/bridge';
 import { DeleteDevice } from './features/AccountDevices';
+import { HostNameEditor } from './features/HostNameEditor';
+import { hostName as cloudHostName, migrateHostNames, type HostName } from './features/host-names';
 import { AccountPassword } from './AccountPassword';
 import type { HostGrant } from './host-book';
 import { contentText, RichContent } from './RichContent';
@@ -232,7 +234,6 @@ export function App() {
   const [editError, setEditError] = useState('');
   const messageActionPending = useRef(false);
   const [hostFingerprint, setHostFingerprint] = useState(''),
-    [hostLabel, setHostLabel] = useState(''),
     [lastSynced, setLastSynced] = useState('');
   const [notification, setNotification] = usePreference(
     'agentdeck.web.notifications',
@@ -267,11 +268,13 @@ export function App() {
     setFileWorkspaceView('files');
   }, [scope, host?.hostId, selectedProject]);
   function hostName(item: Host) {
-    const label =
-      item.hostId === host?.hostId
-        ? hostLabel
-        : localStorage.getItem(`agentdeck.web.label.${scope}.${item.hostId}`);
-    return label?.trim() || item.displayName;
+    return cloudHostName(hosts.find((entry) => entry.hostId === item.hostId) || item);
+  }
+  function hostNameSaved(name: HostName) {
+    setHosts((current) =>
+      current.map((item) => (item.hostId === name.hostId ? { ...item, ...name } : item)),
+    );
+    setHost((current) => (current?.hostId === name.hostId ? { ...current, ...name } : current));
   }
   const draftKey = JSON.stringify([scope, host?.hostId, session || `new:${selectedProject}`]);
   const current = useMemo(
@@ -620,10 +623,27 @@ export function App() {
       if (pending) return;
       pending = true;
       await api<{ hosts: Host[] }>('/api/v1/hosts')
-        .then((hostValue) => {
+        .then(async (hostValue) => {
+          if (cancelled || generation !== accountEpoch.current) return;
+          let migrationFailure = '';
+          try {
+            hostValue.hosts = await migrateHostNames(
+              hostValue.hosts || [],
+              scope,
+              localStorage,
+              (hostId, customName) =>
+                api<HostName>(`/api/v1/hosts/${encodeURIComponent(hostId)}/name`, {
+                  method: 'PUT',
+                  body: JSON.stringify({ customName, onlyIfUnset: true }),
+                }),
+              () => !cancelled && generation === accountEpoch.current,
+            );
+          } catch {
+            migrationFailure = '旧电脑名称尚未同步到服务器，正在重试；本地名称已保留。';
+          }
           if (cancelled || generation !== accountEpoch.current) return;
           setHosts(hostValue.hosts || []);
-          setDirectoryFailure('');
+          setDirectoryFailure(migrationFailure);
           if (
             hostRef.current &&
             !hostValue.hosts?.some((item) => item.hostId === hostRef.current?.hostId)
@@ -876,7 +896,6 @@ export function App() {
     if (!sameHost) {
       setCapabilities({});
       setModels([]);
-      setHostLabel(localStorage.getItem('agentdeck.web.label.' + scope + '.' + next.hostId) || '');
       setHostFingerprint('');
       setLastSynced('');
       historyResourceCache.current.clear();
@@ -2589,11 +2608,6 @@ export function App() {
                               <span className={`dot ${item.online ? 'online' : ''}`} />
                               <span className="computer-name">
                                 <span>{hostName(item)}</span>
-                                {hostName(item) !== item.displayName && (
-                                  <small className="computer-original-name">
-                                    {item.displayName}
-                                  </small>
-                                )}
                               </span>
                               <small>
                                 {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
@@ -2642,23 +2656,11 @@ export function App() {
                         </details>
                       )}
                       {host && (
-                        <>
-                          <label className="host-label">
-                            本机显示名称
-                            <input
-                              value={hostLabel}
-                              maxLength={80}
-                              placeholder={host.displayName}
-                              onChange={(e) => {
-                                setHostLabel(e.target.value);
-                                localStorage.setItem(
-                                  `agentdeck.web.label.${scope}.${host.hostId}`,
-                                  e.target.value,
-                                );
-                              }}
-                            />
-                          </label>
-                        </>
+                        <HostNameEditor
+                          key={JSON.stringify([scope, host.hostId])}
+                          host={hosts.find((item) => item.hostId === host.hostId) || host}
+                          onSaved={hostNameSaved}
+                        />
                       )}
                     </div>
                   )}

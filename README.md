@@ -78,6 +78,8 @@ Host 并发上限调整（本地通过，未部署）：普通发送、手动队
 
 历史图片预览修复（Web 本地验收，未部署）：消息中展开的历史附件/工具图片改为复用回复图片的页内预览，支持关闭、Escape 与焦点恢复，切换会话或断开连接清理预览和资源，不再打开新标签页。类型检查、定向 ESLint、生产构建和受控 Chromium 桌面/390px 的历史附件、无新标签、关闭/切换与资源释放回归通过；真实 Host 尚未验收，截图位于 `artifacts/message-images/history-preview-*.png`。
 
+电脑名称云端保存（本地验收通过，未部署）：设置 → 电脑中的“电脑显示名称”使用“保存名称”写入云端，同一账户的浏览器/PWA 共享，目录每 15 秒刷新；设置后只显示自定义名，清空恢复原名。已有浏览器本地名称在首次连接新版云端时自动迁移，仅服务器从未配置名称时写入；服务器改名或明确清空优先，失败保留本地值重试，Host 重新登记不覆盖自定义名。云端增加兼容旧 Host 的可空名称及配置标记迁移、账户归属和 CSRF 校验。6 项名称/迁移测试、真实 PostgreSQL 持久化/并发/跨账户/撤销设备测试、HTTPS 云端与两个独立 Chromium 的保存/刷新/清空/失败重试、390px 布局通过；类型、ESLint、Web 构建和云端严格 Clippy 通过，报告与截图在 `artifacts/host-names/`。上线需同时更新 Web 和云端，Host 无需更新。
+
 问题回答布局（Web 已部署）：提交/前后切换按钮与回答输入框并排，移除单独底部按钮行和空选项占位；桌面/320px/390px 对齐、空回答保护、多问题切换与提交失败保留内容检查通过，截图位于 `artifacts/questions/`。2026-10-28 已上线 Web `c464f5d5d6b147d6a07e52d47f479e71d9233a6c23b7c42d64ad1d4288f6519c`，公网 13 文件哈希/健康检查通过；仅更新 Web，回退备份 `/var/backups/agentdeck/web-c464f5d5d6b1-20261028T053050Z/`。
 
 新对话模型/强度修复（Web 已部署）：调整默认模型的思维强度时同步保存具体模型编号，发送/编辑重发前解析旧的仅强度偏好，使用 Host 返回的模型协议编号；没有可解析模型时在创建对话前提示，不发送孤立强度。10 项偏好/隔离/旧值修复测试与浏览器默认模型滑块、切换模型后首次发送参数检查通过，真实 Host 模型调用未执行。2026-10-28 已上线 Web `abf159eae08518c3f38f89b7c94d9aa972fc4af500ad7a806053f82e7132d75a`，公网 13 文件哈希/健康检查通过，Host 和云端程序未更新；备份 `/var/backups/agentdeck/web-abf159eae085-20261028T052107Z/`。
@@ -352,6 +354,12 @@ cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -
 pnpm schema:verify
 pnpm web:dev
 pnpm --filter @agentdeck/web build
+```
+
+电脑名称回归：`pnpm test:host-names`。真实 PostgreSQL 测试使用独立、可丢弃且数据库名以 `_test` 结尾的数据库：
+
+```sh
+AGENTDECK_TEST_DATABASE_URL=postgres://USER:PASSWORD@127.0.0.1:5432/agentdeck_names_test cargo test --locked --manifest-path server/Cargo.toml --test host_names -- --ignored
 ```
 
 输入框浏览器检查：先运行 `pnpm web:dev`，另在临时目录安装 Playwright 与 Chromium（不加入生产依赖），再运行：

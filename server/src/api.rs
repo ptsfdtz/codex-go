@@ -45,6 +45,7 @@ pub fn router(state: Arc<State>) -> Router {
         .route("/api/v1/hosts", get(hosts))
         .route("/api/v1/hosts/self", put(register_host))
         .route("/api/v1/hosts/{id}/access", post(host_access))
+        .route("/api/v1/hosts/{id}/name", put(rename_host))
         .route("/api/v1/hosts/access/validate", post(validate_host_access))
         .route("/api/v1/hosts/{id}", delete(unbind_host))
         .route("/api/v1/relay/control", get(crate::relay::control))
@@ -737,6 +738,39 @@ async fn hosts(AppState(state): AppState<Arc<State>>, headers: HeaderMap) -> Res
             .online(host["hostId"].as_str().unwrap_or_default()));
     }
     Ok(Json(json!({"hosts":hosts})))
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RenameHost {
+    custom_name: String,
+    #[serde(default)]
+    only_if_unset: bool,
+}
+async fn rename_host(
+    AppState(state): AppState<Arc<State>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<RenameHost>,
+) -> Result<Json<Value>> {
+    let auth = if headers.contains_key(header::ORIGIN)
+        || (!headers.contains_key(header::AUTHORIZATION)
+            && cookie(&headers, "__Host-agentdeck_web_access").is_some())
+    {
+        browser_auth(&state, &headers, true, true).await?
+    } else {
+        let auth = native_auth(&state, &headers).await?;
+        auth.ready()?;
+        auth
+    };
+    if !input.custom_name.is_empty() {
+        security::label(&input.custom_name)?;
+    }
+    Ok(Json(
+        state
+            .store
+            .rename_host(&auth, &id, input.custom_name.trim(), input.only_if_unset)
+            .await?,
+    ))
 }
 async fn unbind_host(
     AppState(state): AppState<Arc<State>>,
