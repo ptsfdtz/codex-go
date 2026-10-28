@@ -41,10 +41,22 @@ export function AccountPassword() {
           type="password"
           autoComplete="new-password"
           minLength={12}
+          aria-describedby="new-password-length"
+          aria-invalid={newPassword.length > 0 && newPassword.length < 12}
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
           placeholder="新密码（至少 12 个字符）"
         />
+        <p
+          id="new-password-length"
+          className={newPassword.length > 0 && newPassword.length < 12 ? 'error' : 'muted'}
+          role="status"
+        >
+          新密码至少需要 12 个字符
+          {newPassword.length > 0 && newPassword.length < 12
+            ? `，还需输入 ${12 - newPassword.length} 个字符。`
+            : '。'}
+        </p>
         <input
           aria-label="确认新密码"
           type="password"
