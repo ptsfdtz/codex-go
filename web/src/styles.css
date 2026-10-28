@@ -961,19 +961,6 @@ small,
   padding-left: 0;
   list-style: none;
 }
-.plan-confirmation {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--faint);
-}
-.plan-confirmation > p {
-  margin: 0 0 12px;
-  font-size: 14px;
-  font-weight: 500;
-}
-.plan-confirmation .button-row {
-  flex-wrap: wrap;
-}
 .saved-image {
   margin: 10px 0;
 }

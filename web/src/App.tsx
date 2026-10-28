@@ -28,6 +28,7 @@ import type {
 import { emptyDraft, canManage, chatProject } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { Composer } from './features/Composer';
+import { PlanConfirmation } from './features/plan/PlanConfirmation';
 import { ApprovalCard, AsyncQuestions } from './features/Questions';
 import { QueuedMessages } from './features/queue/QueuedMessages';
 import { ComposerStatus } from './features/ComposerStatus';
@@ -330,6 +331,32 @@ export function App() {
   const composerSupports = (key: string) =>
     (!chat || !['composerSkills', 'projectFileBrowser', 'plan', 'goal'].includes(key)) &&
     supports(key);
+  const [dismissedPlan, setDismissedPlan] = useState('');
+  const lastPlanMessage = [...renderedHistory]
+    .reverse()
+    .find((entry) =>
+      ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
+        String(entry.item?.type),
+      ),
+    );
+  const pendingPlan =
+    lastPlanMessage?.item?.type === 'plan' &&
+    !Array.isArray(lastPlanMessage.item.plan) &&
+    contentText(lastPlanMessage.item).trim() &&
+    !['failed', 'interrupted', 'declined', 'inProgress'].includes(
+      String(lastPlanMessage.item.status),
+    )
+      ? lastPlanMessage
+      : undefined;
+  const pendingPlanKey = pendingPlan ? JSON.stringify([draftKey, historyKey(pendingPlan)]) : '';
+  const showPlanConfirmation =
+    !!pendingPlan &&
+    pendingPlanKey !== dismissedPlan &&
+    !activeTurn &&
+    historyReady &&
+    !historyFailure &&
+    !chat &&
+    current?.archived !== 1;
   const bridge = useRef<Bridge | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
   const refreshTimer = useRef<number | undefined>(undefined);
@@ -1251,15 +1278,17 @@ export function App() {
     }
   }
 
-  async function send(kind?: 'queue' | 'steer', planText?: string) {
+  async function send(kind?: 'queue' | 'steer', planText?: string, revision?: string) {
     const connection = bridge.current;
     let source =
       planText === undefined
         ? draft
         : {
             ...draft,
-            text: `请按照以下计划开始开发：\n\n${planText}`,
-            mode: 'default',
+            text: revision
+              ? `请继续调整以下计划：\n\n${planText}\n\n调整要求：${revision}`
+              : `请按照以下计划开始开发：\n\n${planText}`,
+            mode: revision ? 'plan' : 'default',
             attachments: [],
             references: [],
             skills: [],
@@ -1367,7 +1396,7 @@ export function App() {
             next[key] =
               planText === undefined
                 ? { ...source, text: '', attachments: [], skills: [], references: [] }
-                : { ...draft, mode: 'default' };
+                : { ...draft, mode: revision ? 'plan' : 'default' };
         return next;
       });
       await refresh(!session && sessionRef.current === id);
@@ -2034,39 +2063,6 @@ export function App() {
                           sessionId={session || ''}
                           onFile={supports('projectTextPreview') ? openFile : undefined}
                           onAgent={openAgent}
-                          onImplementPlan={
-                            type === 'plan' &&
-                            !Array.isArray(item.plan) &&
-                            text.trim() &&
-                            !activeTurn &&
-                            historyReady &&
-                            !historyFailure &&
-                            !chat &&
-                            !['failed', 'interrupted', 'declined', 'inProgress'].includes(
-                              String(item.status),
-                            ) &&
-                            !renderedHistory
-                              .slice(entryIndex + 1)
-                              .some((next) =>
-                                [
-                                  'userMessage',
-                                  'agentMessage',
-                                  'assistantMessage',
-                                  'plan',
-                                ].includes(String(next.item?.type)),
-                              )
-                              ? () => void send(undefined, text)
-                              : undefined
-                          }
-                          onRevisePlan={() => {
-                            updateDraft({ mode: 'plan' });
-                            document
-                              .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
-                              ?.focus();
-                          }}
-                          planDisabled={
-                            !connected || busy || receiptBlocked || current?.archived === 1
-                          }
                         />
                       )}
                     </div>
@@ -2204,6 +2200,18 @@ export function App() {
           <Composer
             key={draftKey}
             draft={draft}
+            planConfirmation={
+              showPlanConfirmation && pendingPlan ? (
+                <PlanConfirmation
+                  key={pendingPlanKey}
+                  disabled={!connected || busy || receiptBlocked}
+                  error={sendFailure?.key === draftKey ? sendFailure.message : undefined}
+                  onImplement={() => void send(undefined, contentText(pendingPlan.item))}
+                  onRevise={(text) => void send(undefined, contentText(pendingPlan.item), text)}
+                  onDismiss={() => setDismissedPlan(pendingPlanKey)}
+                />
+              ) : undefined
+            }
             prompts={
               <>
                 {(snapshot.approvals || [])

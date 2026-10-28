@@ -196,9 +196,6 @@ export function RichContent({
   sessionId,
   onFile,
   onAgent,
-  onImplementPlan,
-  onRevisePlan,
-  planDisabled,
   images: projectImages,
 }: {
   entry: HistoryEntry;
@@ -206,9 +203,6 @@ export function RichContent({
   sessionId: string;
   onFile?: (path: string) => void;
   onAgent?: (id: string) => void;
-  onImplementPlan?: () => void;
-  onRevisePlan?: () => void;
-  planDisabled?: boolean;
   images?: MessageImageSource;
 }) {
   const item = entry.item || {};
@@ -279,19 +273,6 @@ export function RichContent({
                 </li>
               ))}
             </ul>
-          )}
-          {onImplementPlan && (
-            <div className="plan-confirmation">
-              <p>是否按照此计划开发？</p>
-              <div className="button-row">
-                <button disabled={planDisabled} onClick={onImplementPlan}>
-                  按照计划开发
-                </button>
-                <button disabled={planDisabled} onClick={onRevisePlan}>
-                  继续调整计划
-                </button>
-              </div>
-            </div>
           )}
         </div>
       ) : (
