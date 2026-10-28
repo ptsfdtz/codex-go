@@ -470,6 +470,40 @@ small,
   height: 30px;
   opacity: 0;
 }
+.session-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-row > .session {
+  gap: 8px;
+}
+.session-row > .session > svg,
+.session-working {
+  flex-shrink: 0;
+}
+.session-working {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+}
+.session-working > svg {
+  animation: session-working-spin 1.4s linear infinite;
+}
+.session-working.is-stale > svg {
+  animation-play-state: paused;
+}
+@keyframes session-working-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-working > svg {
+    animation: none;
+  }
+}
 .session-row:hover > .icon-button,
 .session-row:focus-within > .icon-button,
 .session-row.selected > .icon-button {

@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Computer,
   Folder,
+  LoaderCircle,
   Menu,
   MessageSquarePlus,
   MessageCircle,
@@ -21,6 +22,7 @@ export function Sidebar({
   sessions,
   projects,
   host,
+  connected,
   sessionId,
   projectId,
   open,
@@ -41,6 +43,7 @@ export function Sidebar({
   sessions: Session[];
   projects: Project[];
   host?: Host;
+  connected: boolean;
   sessionId?: string;
   projectId: string;
   open: boolean;
@@ -180,7 +183,17 @@ export function Sidebar({
                 key={s.sessionId}
               >
                 <button className="session" onClick={() => onSelect(s)} title={s.title}>
-                  {s.title || '未命名会话'}
+                  <span className="session-title">{s.title || '未命名会话'}</span>
+                  {['running', 'inProgress'].includes(s.status || '') && (
+                    <span
+                      className={`session-working ${connected ? '' : 'is-stale'}`}
+                      role="img"
+                      aria-label={connected ? '正在工作' : '连接中断，上次状态为正在工作'}
+                      title={connected ? '正在工作' : '连接中断，上次状态为正在工作'}
+                    >
+                      <LoaderCircle size={14} strokeWidth={1.6} aria-hidden="true" />
+                    </span>
+                  )}
                   {s.pinned === 1 && <Pin size={12} />}
                   {s.archived === 1 && <Archive size={12} />}
                 </button>
