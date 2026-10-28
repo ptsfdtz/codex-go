@@ -30,6 +30,12 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(origin);
+  assert.equal(await page.locator('.sidebar-brand .app-brand').innerText(), 'AgentDeck');
+  assert.equal(await page.getByRole('button', { name: '切换工作模式' }).count(), 0);
+  assert.equal(
+    await page.locator('.topbar').getByRole('button', { name: '新建会话', exact: true }).count(),
+    0,
+  );
   // Drawer and content must follow the same interrupted transition.
   const leftBefore = await page
     .locator('.conversation-layout')
@@ -40,6 +46,21 @@ try {
     .locator('.conversation-layout')
     .evaluate((node) => node.getBoundingClientRect().left);
   assert(leftBefore > leftAfter, 'Closing sidebar reclaims the whole layout width');
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({ width, height: 850 });
+    await page.waitForTimeout(350);
+    if (await page.locator('.shell.with-sidebar').count()) {
+      await page.locator('.sidebar-brand button').last().click();
+    }
+    await page.locator('.topbar .app-brand').waitFor();
+    assert.equal(await page.locator('.topbar .app-brand').innerText(), 'AgentDeck');
+    assert.equal(await page.locator('.topbar .mode-trigger').count(), 0);
+    assert.equal(
+      await page.locator('.topbar').getByRole('button', { name: '新建会话', exact: true }).count(),
+      0,
+    );
+    await page.screenshot({ path: new URL(`header-${width}.png`, out).pathname });
+  }
   await page.locator('.topbar .icon-button').first().click();
   await page.waitForTimeout(350);
   const settings = page.getByRole('button', { name: '设置', exact: true });

@@ -29,7 +29,7 @@ import type {
 } from './workspace';
 import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
-import { ModeSwitcher, type WorkMode } from './features/ModeSwitcher';
+import type { WorkMode } from './features/ModeSwitcher';
 import { deferred } from './deferred';
 const ApiChat = deferred<
   React.ComponentProps<typeof import('./features/api-chat/ApiChat').ApiChat>
@@ -79,7 +79,6 @@ import {
   Check,
   Computer,
   MoreHorizontal,
-  MessageSquarePlus,
   Settings,
   FileDiff,
   FolderOpen,
@@ -211,12 +210,12 @@ function Login({ onLogin }: { onLogin: () => void }) {
 }
 
 export function App() {
-  const [mode, setMode] = usePreference<WorkMode>(
+  const [mode] = usePreference<WorkMode>(
     'agentdeck.web.work-mode',
     'codex',
     (value): value is WorkMode => value === 'codex' || value === 'api',
   );
-  const modeControl = <ModeSwitcher mode={mode} onChange={setMode} />;
+  const modeControl = <span className="app-brand">AgentDeck</span>;
   return mode === 'api' ? (
     <ApiChatGate modeControl={modeControl} />
   ) : (
@@ -1957,7 +1956,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     onFile={openFile}
                   />
                 ))}
-            <IconButton icon={MessageSquarePlus} label="新建会话" onClick={newChat} />
             <IconButton icon={Computer} label="切换电脑" onClick={() => openPanel('computers')} />
             <div className="menu-anchor">
               <IconButton icon={MoreHorizontal} label="更多操作" onClick={() => setMenu(!menu)} />

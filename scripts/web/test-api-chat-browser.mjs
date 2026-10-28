@@ -446,10 +446,8 @@ try {
     const { LocalStore } = await import('/src/features/api-chat/local.ts');
     return (await new LocalStore('local-chat-test').list('summary')).length === 1;
   });
-  await page.getByRole('button', { name: '切换工作模式', exact: true }).click();
-  await page.getByRole('button', { name: 'Codex', exact: true }).click();
-  await page.getByRole('button', { name: '切换工作模式', exact: true }).click();
-  await page.getByRole('button', { name: 'AgentChat', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '切换工作模式', exact: true }).count(), 0);
+  await page.reload();
   await page.locator('.api-chat-row > button:first-child').filter({ hasText: '我想优化' }).click();
   assert.equal(await editor.inputValue(), '手机草稿\n');
   // A local write failure must retain the draft and must not contact the provider.
