@@ -766,6 +766,29 @@ impl Core {
                 s(p, "decision"),
                 p.get("answers"),
             ),
+            "git.branches" => {
+                crate::git::comparison::branches(&self.store, s(p, "projectId")).await
+            }
+            "git.compare" => {
+                crate::git::comparison::compare(
+                    &self.store,
+                    s(p, "projectId"),
+                    s(p, "base"),
+                    s(p, "head"),
+                    s(p, "mode"),
+                )
+                .await
+            }
+            "git.compareDiff" => {
+                crate::git::comparison::diff(
+                    &self.store,
+                    s(p, "projectId"),
+                    s(p, "base"),
+                    s(p, "head"),
+                    s(p, "fileId"),
+                )
+                .await
+            }
             "git.status" => crate::git::status(&self.store, s(p, "projectId")).await,
             "git.diff" => crate::git::diff(&self.store, s(p, "projectId"), s(p, "fileId")).await,
             "events.replay" => self.store.replay(

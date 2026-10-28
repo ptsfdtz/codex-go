@@ -61,6 +61,7 @@ pub fn describe_profile(
         "browser": false,
         "automationManagement": false
     });
+    features["gitBranchCompare"] = Value::Bool(true);
     features["multipleDevices"] = Value::Bool(true);
     features["hostUpdateCheck"] = Value::Bool(true);
     features["hostUpdateManage"] = Value::Bool(true);

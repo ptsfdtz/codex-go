@@ -88,7 +88,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "sessions.refreshIndex" => (&["contractVersion"], &[]),
         "projects.nativePage" => (&["contractVersion"], &["cursor", "limit"]),
         "settings.update" => (&["days", "maxMiB"], &[]),
-        "projects.remove" | "git.status" => (&["projectId"], &[]),
+        "projects.remove" | "git.status" | "git.branches" => (&["projectId"], &[]),
         "sessions.list" => (&[], &["projectId"]),
         "approvals.list" => (&[], &["sessionId"]),
         "sessions.create" => (&["projectId", "title"], &[]),
@@ -165,11 +165,24 @@ pub fn parse(v: Value) -> Result<Request> {
             &["sessionId", "turnId", "approvalId", "decision"],
             &["answers"],
         ),
+        "git.compare" => (&["projectId", "base", "head", "mode"], &[]),
+        "git.compareDiff" => (&["projectId", "base", "head", "fileId"], &[]),
         "git.diff" => (&["projectId", "fileId"], &[]),
         "events.replay" => (&[], &["cursor", "limit"]),
         _ => return Err(Error::new("INVALID_REQUEST", "Unsupported action")),
     };
     fields(p, required, optional)?;
+    if ["git.compare", "git.compareDiff"].contains(&r.action.as_str()) {
+        text(p, "base", 1, 512)?;
+        text(p, "head", 1, 512)?;
+    }
+    if r.action == "git.compare" {
+        ensure(
+            ["direct", "merge-base"].iter().any(|m| p["mode"] == *m),
+            "INVALID_REQUEST",
+            "Invalid comparison mode",
+        )?;
+    }
     if r.action == "system.updateInstall" {
         text(p, "version", 1, 80)?;
         ensure(
@@ -215,7 +228,7 @@ pub fn parse(v: Value) -> Result<Request> {
         }
     }
 
-    if let Some(mode) = p.get("mode") {
+    if let Some(mode) = p.get("mode").filter(|_| r.action != "git.compare") {
         ensure(
             ["default", "plan", "goal"].iter().any(|m| mode == *m),
             "INVALID_REQUEST",
