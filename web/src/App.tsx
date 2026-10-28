@@ -26,7 +26,7 @@ import type {
   Draft,
   Request,
 } from './workspace';
-import { emptyDraft, canManage, chatProject } from './workspace';
+import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { ModeSwitcher, type WorkMode } from './features/ModeSwitcher';
 import { deferred } from './deferred';
@@ -1802,6 +1802,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${filesVisible ? 'has-file-workspace' : ''}`}
     >
       <Sidebar
+        key={JSON.stringify([scope, host?.hostId])}
         brand={modeControl}
         sessions={snapshot.sessions || []}
         connected={connected}
@@ -1827,6 +1828,25 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         onProject={(id) => {
           setSelectedProject(id);
           selectSession(undefined);
+          setPanel('');
+          if (matchMedia('(max-width:760px)').matches) setSidebarOpen(false);
+        }}
+        actionsBlocked={receiptBlocked || busy}
+        onSessionAction={async (action, item) => {
+          const latest = snapshot.sessions?.find((s) => s.sessionId === item.sessionId);
+          if (
+            !connected ||
+            receiptBlocked ||
+            busy ||
+            !canManage(latest) ||
+            (latest && isSessionWorking(latest))
+          )
+            throw new Error('请先等待任务结束或核对当前状态');
+          await request(`sessions.${action}`, {
+            sessionId: item.sessionId,
+            ...(action === 'pin' ? { pinned: latest?.pinned !== 1 } : {}),
+          });
+          await refresh(false);
         }}
         onRefresh={() => void syncIndex()}
         onSettings={() => openPanel('settings')}

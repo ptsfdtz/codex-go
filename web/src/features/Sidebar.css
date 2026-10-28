@@ -1,0 +1,302 @@
+/* Desktop-style project trees and a separate chronological recents list. */
+.desktop-sidebar {
+  padding: 8px 6px 8px;
+}
+.desktop-sidebar .sidebar-brand {
+  padding-left: 12px;
+  height: 40px;
+}
+.desktop-sidebar .sidebar-primary {
+  margin: 5px 4px 18px;
+  gap: 2px;
+}
+.desktop-sidebar .sidebar-primary > button:first-child {
+  padding: 7px 7px;
+  gap: 9px;
+  min-height: 30px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.desktop-sidebar .sidebar-primary > .icon-button {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+.desktop-sidebar .sidebar-primary > .icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+.desktop-sidebar .sidebar-scroll {
+  scrollbar-gutter: stable;
+}
+.desktop-rail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  min-height: 28px;
+  width: fit-content;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.desktop-rail-heading > svg {
+  transition: transform var(--motion-fast, 120ms);
+}
+.desktop-rail-heading .is-collapsed {
+  transform: rotate(-90deg);
+}
+.sidebar-projects > .desktop-rail-heading > svg {
+  opacity: 0;
+}
+.sidebar-projects > .desktop-rail-heading:hover > svg,
+.sidebar-projects > .desktop-rail-heading:focus-visible > svg {
+  opacity: 1;
+}
+.sidebar-project {
+  margin-top: 8px;
+}
+.sidebar-project + .sidebar-project {
+  margin-top: 14px;
+}
+.sidebar-project-heading {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  min-width: 0;
+}
+.sidebar-project-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 5px 8px;
+  min-height: 30px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  color: var(--muted);
+}
+.sidebar-project-toggle > span:last-child {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.sidebar-folder-icon {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  flex-shrink: 0;
+}
+.sidebar-folder-icon > svg {
+  grid-area: 1 / 1;
+}
+.sidebar-folder-icon > svg:last-child {
+  opacity: 0;
+}
+.sidebar-folder-icon > .is-expanded {
+  transform: rotate(90deg);
+}
+.sidebar-project-toggle:hover .sidebar-folder-icon > svg:first-child,
+.sidebar-project-toggle:focus-visible .sidebar-folder-icon > svg:first-child {
+  opacity: 0;
+}
+.sidebar-project-toggle:hover .sidebar-folder-icon > svg:last-child,
+.sidebar-project-toggle:focus-visible .sidebar-folder-icon > svg:last-child {
+  opacity: 1;
+}
+.sidebar-project-heading > .icon-button {
+  width: 26px;
+  height: 26px;
+  margin-right: 4px;
+  opacity: 0;
+  color: var(--muted);
+}
+.sidebar-project-heading > .icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+.sidebar-project-heading:hover > .icon-button,
+.sidebar-project-heading:focus-within > .icon-button {
+  opacity: 1;
+}
+.desktop-sidebar .desktop-session-row {
+  position: relative;
+  min-height: 30px;
+  margin: 1px 0;
+  border-radius: 8px;
+}
+.desktop-sidebar .desktop-session-row > .session {
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 8px;
+  line-height: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.desktop-sidebar .sidebar-project-sessions .session {
+  padding-left: 32px;
+}
+.desktop-sidebar .desktop-session-row.selected {
+  background: var(--hover);
+}
+.desktop-sidebar .desktop-session-row:hover {
+  background: var(--soft);
+}
+.desktop-sidebar .desktop-session-row.selected:hover {
+  background: var(--hover);
+}
+.desktop-sidebar .desktop-session-row.selected > .session {
+  color: var(--text);
+}
+.sidebar-session-actions {
+  display: flex;
+  align-items: center;
+  position: absolute;
+  inset: 0 3px 0 auto;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--rail);
+  border-radius: 7px;
+}
+.desktop-session-row.selected .sidebar-session-actions {
+  background: var(--hover);
+}
+.desktop-session-row:hover .sidebar-session-actions {
+  background: var(--soft);
+}
+.desktop-session-row.selected:hover .sidebar-session-actions {
+  background: var(--hover);
+}
+.desktop-session-row:is(:hover, :focus-within, .selected) .sidebar-session-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.desktop-session-row:is(:hover, :focus-within, .selected) > .session {
+  padding-right: 62px;
+}
+.sidebar-session-actions > .icon-button {
+  width: 26px;
+  height: 28px;
+  color: var(--muted);
+  border-radius: 5px;
+}
+.sidebar-session-actions > .icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+.sidebar-session-actions > .sidebar-touch-menu {
+  display: none;
+}
+.sidebar-session-actions .is-pinned {
+  color: var(--text);
+}
+.sidebar-recents {
+  margin-top: 28px;
+}
+.sidebar-recents-heading {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  margin-bottom: 4px;
+}
+.sidebar-heading-actions {
+  display: flex;
+  margin-left: auto;
+  opacity: 0;
+}
+.sidebar-recents-heading:is(:hover, :focus-within) .sidebar-heading-actions,
+.sidebar-heading-actions:has([aria-pressed='true']) {
+  opacity: 1;
+}
+.sidebar-heading-actions .icon-button {
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+}
+.sidebar-heading-actions .icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+.sidebar-show-more,
+.sidebar-project-empty {
+  display: flex;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sidebar-project-sessions > .sidebar-show-more,
+.sidebar-project-empty {
+  margin-left: 24px;
+}
+.desktop-sidebar .rail-empty {
+  padding: 6px 8px;
+  margin: 0;
+}
+.desktop-sidebar .sidebar-footer {
+  margin: 8px 4px 0;
+  border: 0;
+}
+.desktop-sidebar .sidebar-footer > button {
+  color: var(--muted);
+}
+.sidebar-action-error {
+  margin: 8px;
+  font-size: 12px;
+}
+.sidebar-context-menu {
+  position: fixed;
+  margin: 0;
+  width: 204px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--rail);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.sidebar-context-menu:popover-open {
+  display: grid;
+}
+.sidebar-context-menu > button {
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 8px;
+  min-height: 34px;
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+}
+@media (hover: none), (pointer: coarse) {
+  .sidebar-project-heading > .icon-button,
+  .sidebar-heading-actions {
+    opacity: 1;
+  }
+  .sidebar-session-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .sidebar-session-actions > .icon-button {
+    display: none;
+  }
+  .sidebar-session-actions > .sidebar-touch-menu {
+    display: flex;
+  }
+  .desktop-sidebar .desktop-session-row > .session {
+    padding-right: 34px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-rail-heading > svg {
+    transition: none;
+  }
+}
