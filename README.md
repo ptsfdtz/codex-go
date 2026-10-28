@@ -55,9 +55,11 @@ export AGENTDECK_PORT=49531
 
 ## 当前实现与交付
 
-- Web 顶部品牌（本地未发布）：固定显示 AgentDeck，移除 Codex / AgentChat 切换和右上角新建会话按钮。Web 类型检查、定向 ESLint、UI 与 API 对话受控浏览器检查通过，覆盖 320/390px 与桌面宽度；截图见 `artifacts/ui-refresh/header-*.png`。
+- Web 顶部品牌（已部署）：侧栏展开显示 AgentDeck，折叠后顶部不显示品牌；移除 Codex / AgentChat 切换和右上角新建会话按钮。类型检查、ESLint、生产构建及受控浏览器 320/390px 与桌面回归通过；截图见 `artifacts/ui-refresh/header-*.png`。本次沿用用户的直接部署及跨平台验收豁免，公网文件 SHA-256 与健康检查通过；Web 版本 `d3938ef2e9e08dae5ce3be1a2364d0c678bbc3ed1ae208a8de0eb3963592fb0c`，回退脚本 `/var/backups/agentdeck/web-collapsed-brand-20261028T162004Z/rollback.sh`。
 
 - Web 侧栏桌面式交互（本地未发布）：原生顺序的项目下直接展示对话，最近对话跨项目按更新时间排列；项目与最近列表独立折叠，长列表可展开，选中及悬停行提供置顶/归档，右键或 Shift+F10 打开管理菜单，触屏保留管理按钮。归档确认、失败保留、断线/运行中/未知结果保护沿用现有接口。Web 类型/ESLint/生产构建及受控浏览器分组、切换、置顶、归档恢复、菜单键盘和 320/390px 触屏验证通过；未做真实 Host 或真机验收。
+
+- Web 命令间距（已部署）：运行命令阶段与前后内容的间距缩至 8px，摘要行最小高度 28px。类型/生产构建/格式及阶段折叠受控浏览器桌面、320/390px 回归通过，公网全部产物 SHA-256 与健康检查通过；沿用本次上线验收豁免。Web 版本 `6781c3f1b7ed17309df035bdac76f97bc9f534b841847c913dd9e1b22192f07f`，回退脚本 `/var/backups/agentdeck/web-command-spacing-20261028T162133Z/rollback.sh`。
 
 - Web 阶段操作折叠（本地未发布）：连续思考、命令和工具记录按阶段归组，执行中展开，后续正文出现或本轮结束后自动折叠；可手动及键盘展开，搜索命中会展开对应阶段。正文和计划保持直接显示。Web 类型检查、ESLint、生产构建及受控浏览器阶段切换/跨轮隔离/空思考/320px 与 390px 检查通过；未做真实 Host 验证。
 
@@ -367,6 +369,8 @@ Web 构建自动生成 `version.json`，与资源一同部署并保持该清单�
 在服务器执行 `sh scripts/host/publish-downloads.sh 上传目录 /opt/agentdeck/downloads`，先核对包校验值、发布不可变版本文件，最后原子更新 `stable.txt`；旧版本保留。将 `server/deploy/downloads.nginx.conf` 的规则 include 到现有 HTTPS server block，同一 server block 中另 include `server/deploy/web-updates.nginx.conf` 并沿用 Web 根目录，确保版本清单 no-store、PWA worker/安装清单重新验证；执行 `nginx -t` 后 reload。下载规则不替换现有 `/api/`、`/admin`、Web 或隧道转发；单个平台尚未发布时返回 404，不退回 HTML 页面冒充程序。
 
 生产云端程序仍由 `/opt/agentdeck/current/agentdeck-cloud` 提供，服务配置 `/etc/agentdeck/cloud.env`。运维：`ssh yecaoyun 'systemctl status agentdeck-cloud --no-pager'`；日志 `journalctl -u agentdeck-cloud -n 50 --no-pager`。`agentdeck-backup.timer` 每日 UTC 03:20 起随机延迟最多十分钟执行；可手动启动 `agentdeck-backup.service`。备份位于 `/var/backups/agentdeck/`，需要另做异机备份；云端备份不包含各 Host 的 Codex、项目和本机证书。Docker/Caddy 备用部署见 `server/deploy/`，当前生产未使用该路径。
+
+2026-10-29 Web 已部署：源码 `64038c2`，Web 版本 `d80e16dac6221afd282346e9e63769d3ce4fb795ca7908a859b38f30a9e4e91e`；用户明确豁免本次跨平台真实验收。类型检查、ESLint、格式与生产构建通过，生产 HTTPS 全部本批文件 SHA-256 及存活/就绪检查通过。发布目录 `/opt/agentdeck/releases/web-64038c2-20261028T161641Z`，回退脚本 `/var/backups/agentdeck/web-64038c2-20261028T161641Z/rollback.sh`；保留旧资源以兼容已打开页面。仅更新 Web，云端二进制一致且未重启，Host 与稳定下载指针未变；本次未进行真实模型和跨平台端到端验证。
 
 2026-10-28 AgentChat Web/云端已部署：源提交 `e574a8c6a204`，Web 版本 `1e5e971e60b75bb22bc30cd0e6380b0d6d6eb46745c0d9052d1a8ac8af1c0b45`。公网 13 文件 SHA-256、健康检查、真实 HTTPS 密钥库临时账户的保存/密文/读取/删除及清理、公开登录页渲染通过，未调用真实模型。发布目录 `/opt/agentdeck/releases/agentchat-e574a8c6a204`，回退入口 `/var/backups/agentdeck/agentchat-e574a8c6a204-20261028T154011Z/rollback.sh`；已运行数据库备份，新增加密主密钥保存在受保护的服务端环境文件中。用户明确授权本次 Web/云端上线并豁免未完成的跨平台真实验收；未更新 Host 或稳定下载指针，排除同时进行的设置页、模式菜单与通用样式修改。
 

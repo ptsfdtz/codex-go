@@ -52,8 +52,7 @@ try {
     if (await page.locator('.shell.with-sidebar').count()) {
       await page.locator('.sidebar-brand button').last().click();
     }
-    await page.locator('.topbar .app-brand').waitFor();
-    assert.equal(await page.locator('.topbar .app-brand').innerText(), 'AgentDeck');
+    assert.equal(await page.locator('.topbar .app-brand').count(), 0);
     assert.equal(await page.locator('.topbar .mode-trigger').count(), 0);
     assert.equal(
       await page.locator('.topbar').getByRole('button', { name: '新建会话', exact: true }).count(),

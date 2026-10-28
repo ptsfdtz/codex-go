@@ -3629,9 +3629,12 @@ small,
 }
 
 /* Consecutive tool records stay available beneath a compact phase summary. */
+.turn:has(+ .activity-stage) {
+  margin-bottom: 8px;
+}
 .activity-stage {
   min-width: 0;
-  margin: 0 0 22px;
+  margin: 0 0 8px;
   color: var(--muted);
   font-size: 13px;
 }
@@ -3639,7 +3642,7 @@ small,
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
+  min-height: 28px;
   width: fit-content;
   max-width: 100%;
   cursor: pointer;

@@ -1875,7 +1875,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className={sidebarOpen ? 'rail-toggle' : ''}
             />
-            {!sidebarOpen && modeControl}
             <div className="workspace-anchor">
               <button
                 className="workspace-title"
