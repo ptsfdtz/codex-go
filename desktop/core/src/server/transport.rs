@@ -306,10 +306,10 @@ async fn upgrade(
             .upgraded
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    ws.max_message_size(1024 * 1024)
-        .max_frame_size(1024 * 1024)
+    ws.max_message_size(4 * 1024 * 1024)
+        .max_frame_size(4 * 1024 * 1024)
         .write_buffer_size(0)
-        .max_write_buffer_size(2 * 1024 * 1024)
+        .max_write_buffer_size(8 * 1024 * 1024)
         .on_upgrade(move |socket| async move {
             let _slot = slot;
             let identity = remote.as_ref().map(|r| r.identity.clone());

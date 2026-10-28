@@ -1,7 +1,8 @@
 import type { Bridge } from './transport/bridge';
+import { compressAttachment, MAX_ATTACHMENT_BYTES } from './features/attachment-compression';
 
 export type Attachment = { name: string; data: string; mime: string; bytes: number };
-export const MAX_ATTACHMENTS = 512 * 1024;
+export const MAX_ATTACHMENTS = 4 * MAX_ATTACHMENT_BYTES;
 
 export function imageMime(bytes: Uint8Array): string | undefined {
   if ([137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => bytes[i] === v)) return 'image/png';
@@ -14,16 +15,12 @@ export async function attachmentsFromFiles(
   files: File[],
   current: Attachment[],
 ): Promise<Attachment[]> {
-  if (
-    files.length + current.length > 4 ||
-    files.reduce(
-      (n, f) => n + f.size,
-      current.reduce((n, f) => n + f.bytes, 0),
-    ) > MAX_ATTACHMENTS
-  )
-    throw new Error('最多选择 4 张图片，图片总大小不能超过 512 KiB');
+  if (files.length + current.length > 4) throw new Error('最多选择 4 张图片');
+  if (current.some((file) => file.bytes > MAX_ATTACHMENT_BYTES))
+    throw new Error('单文件最大 512 KiB，请重新添加超限图片');
   const additions: Attachment[] = [];
-  for (const file of files) {
+  for (const original of files) {
+    const file = await compressAttachment(original);
     const bytes = new Uint8Array(await file.arrayBuffer());
     const mime = imageMime(bytes);
     if (!mime) throw new Error('仅支持 PNG、JPEG、GIF 和 WebP 图片');

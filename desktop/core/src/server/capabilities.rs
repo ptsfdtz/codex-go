@@ -96,6 +96,6 @@ pub fn describe_profile(
             "externalThreadSync": false
         },
         "features": features,
-        "limits": {"attachmentCount": 4, "attachmentTotalBytes": 524288}
+        "limits": {"attachmentCount": 4, "attachmentBytes": 524288, "attachmentTotalBytes": 2097152}
     })
 }

@@ -67,7 +67,13 @@ export type Skill = {
   enabled: boolean;
   scope?: string;
 };
-export type Attachment = { name: string; data: string; bytes: number; mime: string };
+export type Attachment = {
+  name: string;
+  data: string;
+  bytes: number;
+  mime: string;
+  originalBytes?: number;
+};
 export type Draft = {
   text: string;
   attachments: Attachment[];

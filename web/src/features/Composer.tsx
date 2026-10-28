@@ -40,6 +40,7 @@ export function Composer({
   onNew,
   onError,
   chat = false,
+  attachmentTotalBytes = 512 * 1024,
 }: {
   draft: Draft;
   status?: ReactNode;
@@ -58,12 +59,30 @@ export function Composer({
   onNew: () => void;
   onError: (s: string) => void;
   chat?: boolean;
+  attachmentTotalBytes?: number;
 }) {
   const [menu, setMenu] = useState(false),
     [expanded, setExpanded] = useState(false);
   const file = useRef<HTMLInputElement>(null);
+  const readingAttachments = useRef(false);
+  const [addingAttachments, setAddingAttachments] = useState(false);
   const hasResources = !!(draft.attachments.length || draft.skills.length);
-  const ready = !disabled && !busy && !!(draft.text.trim() || hasResources);
+  const ready = !disabled && !busy && !addingAttachments && !!(draft.text.trim() || hasResources);
+  async function addAttachments(files: File[]) {
+    if (!files.length || disabled || busy || readingAttachments.current) return;
+    readingAttachments.current = true;
+    setAddingAttachments(true);
+    try {
+      onChange({
+        attachments: await readAttachments(files, draft.attachments, attachmentTotalBytes),
+      });
+    } catch (error) {
+      onError(String(error));
+    } finally {
+      readingAttachments.current = false;
+      setAddingAttachments(false);
+    }
+  }
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
@@ -88,8 +107,21 @@ export function Composer({
       value={draft.text}
       onChange={(e) => changeText(e.target.value)}
       onKeyDown={keyDown}
+      onPaste={(event) => {
+        const images = Array.from(event.clipboardData.items)
+          .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+          .map((item) => item.getAsFile())
+          .filter((image): image is File => image !== null);
+        if (!images.length) return;
+        event.preventDefault();
+        if (!supports('attachments')) {
+          onError('当前电脑不支持附件，请升级 Host');
+          return;
+        }
+        void addAttachments(images);
+      }}
       placeholder={disabled ? '连接电脑后开始' : chat ? '聊点什么…' : 'Ask Codex anything…'}
-      disabled={disabled || busy}
+      disabled={disabled || busy || addingAttachments}
       rows={expanded ? 16 : 2}
     />
   );
@@ -101,6 +133,11 @@ export function Composer({
         </div>
       )}
       {status && <div className="composer-status">{status}</div>}
+      {addingAttachments && (
+        <div className="composer-status" role="status">
+          正在读取或压缩附件…
+        </div>
+      )}
       <div className={`composer${expanded ? ' is-expanded' : ''}`}>
         {(draft.attachments.length > 0 || draft.skills.length > 0) && (
           <div className="composer-resources">
@@ -108,10 +145,11 @@ export function Composer({
               <span className="resource-chip" key={index}>
                 <Paperclip size={14} />
                 {f.name}
+                {f.originalBytes && `（已压缩至 ${Math.ceil(f.bytes / 1024)} KiB）`}
                 <IconButton
                   icon={X}
                   label={`移除附件 ${f.name}`}
-                  disabled={busy}
+                  disabled={busy || addingAttachments}
                   onClick={() =>
                     onChange({ attachments: draft.attachments.filter((_, i) => i !== index) })
                   }
@@ -140,7 +178,7 @@ export function Composer({
             <IconButton
               icon={Plus}
               label="添加附件和操作"
-              disabled={disabled || busy}
+              disabled={disabled || busy || addingAttachments}
               onClick={() => setMenu(!menu)}
             />
             <MotionPresence>
@@ -289,7 +327,7 @@ export function Composer({
             <IconButton
               className="send-button"
               icon={ArrowUp}
-              label={busy ? '处理中…' : '发送'}
+              label={addingAttachments ? '正在读取或压缩附件…' : busy ? '处理中…' : '发送'}
               disabled={!ready}
               onClick={() => onSend()}
             />
@@ -304,9 +342,7 @@ export function Composer({
             const input = e.currentTarget;
             const files = Array.from(input.files || []);
             input.value = '';
-            void readAttachments(files, draft.attachments)
-              .then((attachments) => onChange({ attachments }))
-              .catch((e) => onError(String(e)));
+            void addAttachments(files);
           }}
         />
       </div>
