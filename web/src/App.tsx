@@ -12,6 +12,7 @@ import { AccountPassword } from './AccountPassword';
 import type { HostGrant } from './host-book';
 import { contentText, RichContent } from './RichContent';
 import { Timeline } from './Timeline';
+import { ActivityStages } from './features/activity/ActivityStages';
 import { historyKey, mergeHistory, type HistoryEntry } from './history';
 import { applyProgress, historyError, mergeHistorySnapshot, finalItem } from './conversation';
 
@@ -1787,6 +1788,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       const node = Array.from(document.querySelectorAll<HTMLElement>('[data-history-key]')).find(
         (n) => n.dataset.historyKey === key,
       );
+      const stage = node?.closest<HTMLDetailsElement>('.activity-stage');
+      if (stage) stage.open = true;
       node?.scrollIntoView({ block: 'center', behavior: 'smooth' });
       node?.classList.add('search-highlight');
       setTimeout(() => node?.classList.remove('search-highlight'), 2000);
@@ -2141,163 +2144,175 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   {historyLoading ? '加载中…' : '加载更早记录'}
                 </button>
               )}
-              {renderedHistory.map((entry, entryIndex) => {
-                const item = entry.item || {},
-                  type = String(item.type || '');
-                if (type === 'reasoning' && !contentText(item)) return null;
-                const user = type === 'userMessage' || item.role === 'user',
-                  assistant =
-                    ['agentMessage', 'assistantMessage'].includes(type) ||
-                    item.role === 'assistant',
-                  text = contentText(item),
-                  actionText = assistant ? answers.get(entry) : text,
-                  editing =
-                    messageAction?.kind === 'revise' &&
-                    historyKey(messageAction.entry) === historyKey(entry);
-                return (
-                  <article
-                    className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
-                    key={historyKey(entry)}
-                    data-history-key={historyKey(entry)}
-                  >
-                    <div className={`message-content${editing ? ' editing-message' : ''}`}>
-                      {editing ? (
-                        <MessageEditor
-                          text={editText}
-                          busy={busy}
-                          disabled={
-                            !connected ||
-                            busy ||
-                            receiptBlocked ||
-                            !!activeTurn ||
-                            !historyReady ||
-                            current?.archived === 1 ||
-                            !canManage(current)
-                          }
-                          error={editError}
-                          onChange={setEditText}
-                          onCancel={cancelMessageEdit}
-                          onSend={() => void runMessageAction()}
-                        />
-                      ) : (
-                        <RichContent
-                          entry={entry}
-                          images={
-                            connected && supports('projectImagePreview') && selectedProject && !chat
-                              ? {
-                                  request,
-                                  projectId: selectedProject,
-                                  root:
-                                    projects.find(
-                                      (project) => project.projectId === selectedProject,
-                                    )?.canonicalPath || '',
-                                }
-                              : undefined
-                          }
-                          connection={bridge.current}
-                          sessionId={session || ''}
-                          onFile={supports('projectTextPreview') ? openFile : undefined}
-                          onAgent={openAgent}
-                        />
-                      )}
-                    </div>
-                    {(user || assistant) && actionText && !editing && (
-                      <div className="message-actions">
-                        <IconButton
-                          icon={Copy}
-                          label="复制消息"
-                          onClick={() =>
-                            void navigator.clipboard
-                              .writeText(actionText)
-                              .catch((e) => setError(String(e)))
-                          }
-                        />
-                        <IconButton
-                          icon={Quote}
-                          label="引用消息"
-                          onClick={() =>
-                            updateDraft({
-                              text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
-                                .split('\n')
-                                .map((line) => '> ' + line)
-                                .join('\n')}\n\n`,
-                            })
-                          }
-                        />
-                        <IconButton
-                          icon={Search}
-                          label="阅读完整消息"
-                          onClick={() => {
-                            setMessageAction({
-                              entry: assistant
-                                ? { ...entry, item: { ...item, text: actionText } }
-                                : entry,
-                              kind: 'read',
-                            });
-                          }}
-                        />
-                        {user && supports('sessionHistoryRevert') && (
-                          <IconButton
-                            icon={Pencil}
-                            label="编辑并重新发送"
-                            disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                            onClick={() => {
-                              editMessage(entry);
-                            }}
+              <ActivityStages
+                key={JSON.stringify([host?.hostId, session])}
+                entries={renderedHistory}
+                activeTurn={
+                  snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
+                  activeTurn
+                }
+              >
+                {(entry, entryIndex) => {
+                  const item = entry.item || {},
+                    type = String(item.type || '');
+                  if (type === 'reasoning' && !contentText(item)) return null;
+                  const user = type === 'userMessage' || item.role === 'user',
+                    assistant =
+                      ['agentMessage', 'assistantMessage'].includes(type) ||
+                      item.role === 'assistant',
+                    text = contentText(item),
+                    actionText = assistant ? answers.get(entry) : text,
+                    editing =
+                      messageAction?.kind === 'revise' &&
+                      historyKey(messageAction.entry) === historyKey(entry);
+                  return (
+                    <article
+                      className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
+                      key={historyKey(entry)}
+                      data-history-key={historyKey(entry)}
+                    >
+                      <div className={`message-content${editing ? ' editing-message' : ''}`}>
+                        {editing ? (
+                          <MessageEditor
+                            text={editText}
+                            busy={busy}
+                            disabled={
+                              !connected ||
+                              busy ||
+                              receiptBlocked ||
+                              !!activeTurn ||
+                              !historyReady ||
+                              current?.archived === 1 ||
+                              !canManage(current)
+                            }
+                            error={editError}
+                            onChange={setEditText}
+                            onCancel={cancelMessageEdit}
+                            onSend={() => void runMessageAction()}
                           />
-                        )}
-                        {assistant && supports('sessionHistoryRevert') && (
-                          <IconButton
-                            icon={RotateCcw}
-                            label="重试此回答"
-                            disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                            onClick={() => {
-                              const before = renderedHistory
-                                .slice(0, renderedHistory.indexOf(entry) + 1)
-                                .reverse()
-                                .find(
-                                  (e) =>
-                                    e.turnId === entry.turnId &&
-                                    (e.item?.type === 'userMessage' || e.item?.role === 'user'),
-                                );
-                              if (!before) {
-                                setError('此轮用户消息尚未加载，请先加载更早记录');
-                                return;
-                              }
-                              editMessage(before);
-                            }}
-                          />
-                        )}
-                        {supports('sessionForkAtTurn') && (
-                          <IconButton
-                            icon={GitFork}
-                            label="从此处分叉"
-                            disabled={busy || receiptBlocked || !!activeTurn}
-                            onClick={() => setMessageAction({ entry, kind: 'fork' })}
-                          />
-                        )}
-                        {supports('sessionHistoryRevert') && user && (
-                          <IconButton
-                            icon={History}
-                            label="回退到此消息之前"
-                            disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                            onClick={() => setMessageAction({ entry, kind: 'revert' })}
+                        ) : (
+                          <RichContent
+                            entry={entry}
+                            images={
+                              connected &&
+                              supports('projectImagePreview') &&
+                              selectedProject &&
+                              !chat
+                                ? {
+                                    request,
+                                    projectId: selectedProject,
+                                    root:
+                                      projects.find(
+                                        (project) => project.projectId === selectedProject,
+                                      )?.canonicalPath || '',
+                                  }
+                                : undefined
+                            }
+                            connection={bridge.current}
+                            sessionId={session || ''}
+                            onFile={supports('projectTextPreview') ? openFile : undefined}
+                            onAgent={openAgent}
                           />
                         )}
                       </div>
-                    )}
-                    {!activeTurn && renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
-                      <TurnChanges
-                        entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
-                        projectRoot={
-                          snapshot.projects?.find((p) => p.projectId === current?.projectId)
-                            ?.canonicalPath
-                        }
-                      />
-                    )}
-                  </article>
-                );
-              })}
+                      {(user || assistant) && actionText && !editing && (
+                        <div className="message-actions">
+                          <IconButton
+                            icon={Copy}
+                            label="复制消息"
+                            onClick={() =>
+                              void navigator.clipboard
+                                .writeText(actionText)
+                                .catch((e) => setError(String(e)))
+                            }
+                          />
+                          <IconButton
+                            icon={Quote}
+                            label="引用消息"
+                            onClick={() =>
+                              updateDraft({
+                                text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
+                                  .split('\n')
+                                  .map((line) => '> ' + line)
+                                  .join('\n')}\n\n`,
+                              })
+                            }
+                          />
+                          <IconButton
+                            icon={Search}
+                            label="阅读完整消息"
+                            onClick={() => {
+                              setMessageAction({
+                                entry: assistant
+                                  ? { ...entry, item: { ...item, text: actionText } }
+                                  : entry,
+                                kind: 'read',
+                              });
+                            }}
+                          />
+                          {user && supports('sessionHistoryRevert') && (
+                            <IconButton
+                              icon={Pencil}
+                              label="编辑并重新发送"
+                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                              onClick={() => {
+                                editMessage(entry);
+                              }}
+                            />
+                          )}
+                          {assistant && supports('sessionHistoryRevert') && (
+                            <IconButton
+                              icon={RotateCcw}
+                              label="重试此回答"
+                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                              onClick={() => {
+                                const before = renderedHistory
+                                  .slice(0, renderedHistory.indexOf(entry) + 1)
+                                  .reverse()
+                                  .find(
+                                    (e) =>
+                                      e.turnId === entry.turnId &&
+                                      (e.item?.type === 'userMessage' || e.item?.role === 'user'),
+                                  );
+                                if (!before) {
+                                  setError('此轮用户消息尚未加载，请先加载更早记录');
+                                  return;
+                                }
+                                editMessage(before);
+                              }}
+                            />
+                          )}
+                          {supports('sessionForkAtTurn') && (
+                            <IconButton
+                              icon={GitFork}
+                              label="从此处分叉"
+                              disabled={busy || receiptBlocked || !!activeTurn}
+                              onClick={() => setMessageAction({ entry, kind: 'fork' })}
+                            />
+                          )}
+                          {supports('sessionHistoryRevert') && user && (
+                            <IconButton
+                              icon={History}
+                              label="回退到此消息之前"
+                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                              onClick={() => setMessageAction({ entry, kind: 'revert' })}
+                            />
+                          )}
+                        </div>
+                      )}
+                      {!activeTurn && renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
+                        <TurnChanges
+                          entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
+                          projectRoot={
+                            snapshot.projects?.find((p) => p.projectId === current?.projectId)
+                              ?.canonicalPath
+                          }
+                        />
+                      )}
+                    </article>
+                  );
+                }}
+              </ActivityStages>
               {!renderedHistory.length && !historyFailure && (
                 <div className="empty">
                   {session && !historyReady ? (
