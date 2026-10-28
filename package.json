@@ -26,6 +26,9 @@
     "test:host-names": "node --test scripts/web/test-host-names.mjs",
     "test:selection-quote-browser": "node scripts/web/test-selection-quote-browser.mjs",
     "test:file-references-browser": "node scripts/web/test-file-references-browser.mjs",
+    "test:motion-browser": "node scripts/web/test-motion-browser.mjs",
+    "test:performance-browser": "node scripts/web/test-performance-browser.mjs",
+    "test:ui-browser": "node scripts/web/test-ui-browser.mjs",
     "test:api-chat-browser": "node scripts/web/test-api-chat-browser.mjs"
   },
   "devDependencies": {

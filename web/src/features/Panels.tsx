@@ -782,7 +782,7 @@ export function ProjectsPanel({
       <div className="panel-heading">
         <p className="muted">
           {supports('codexWorkspaceDiscovery')
-            ? '自动显示 Codex 已有工作区。移除后不再自动添加，电脑上的文件和 Codex 会话不会删除。'
+            ? '已同步的工作区'
             : '此电脑需要更新 Host 才能自动同步 Codex 工作区；当前仍可在电脑上使用 agentdeck projects add PATH 添加。'}
         </p>
         <IconButton
@@ -1024,7 +1024,20 @@ export function ConfigurationPanel({
                 详细程度
                 <select value={verbosity} onChange={(e) => setVerbosity(e.target.value)}>
                   {['default', 'low', 'medium', 'high'].map((v) => (
-                    <option key={v}>{v}</option>
+                    <option key={v} value={v}>
+                      {(
+                        {
+                          default: '默认',
+                          low: '精简',
+                          medium: '适中',
+                          high: '详细',
+                          auto: '自动',
+                          concise: '简短',
+                          detailed: '详细',
+                          none: '不显示',
+                        } as Record<string, string>
+                      )[v] || v}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -1032,7 +1045,20 @@ export function ConfigurationPanel({
                 思考摘要
                 <select value={summary} onChange={(e) => setSummary(e.target.value)}>
                   {['default', 'auto', 'concise', 'detailed', 'none'].map((v) => (
-                    <option key={v}>{v}</option>
+                    <option key={v} value={v}>
+                      {(
+                        {
+                          default: '默认',
+                          low: '精简',
+                          medium: '适中',
+                          high: '详细',
+                          auto: '自动',
+                          concise: '简短',
+                          detailed: '详细',
+                          none: '不显示',
+                        } as Record<string, string>
+                      )[v] || v}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -1061,7 +1087,12 @@ export function RetentionPanel({ request }: { request: Request }) {
   return (
     <div className="panel-stack">
       <LoadState {...{ error, loading, reload }} />
-      {value && <DataFields value={value} />}
+      {value && (
+        <details>
+          <summary>当前缓存策略</summary>
+          <DataFields value={value} />
+        </details>
+      )}
       <label>
         缓存保留天数
         <input

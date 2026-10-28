@@ -98,9 +98,7 @@ export function ModelPicker({
                   disabled={disabled}
                   onClick={() => choose('')}
                 >
-                  <span>
-                    默认模型<small>跟随电脑默认设置</small>
-                  </span>
+                  <span>跟随电脑默认模型</span>
                   {!draft.model && <Check size={18} />}
                 </button>
               )}

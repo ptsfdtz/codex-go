@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { motionDuration } from '../motion';
 import {
   Settings,
   SlidersHorizontal,
@@ -11,28 +12,25 @@ import {
 } from 'lucide-react';
 
 const categories = [
-  { id: 'general', name: '常规', icon: Settings, description: '调整外观、通知和应用偏好。' },
+  { id: 'general', name: '常规', icon: Settings },
   {
     id: 'configuration',
     name: '模型与输出',
     icon: SlidersHorizontal,
-    description: '管理所连接电脑的默认模型与回复方式。',
   },
   {
     id: 'conversations',
     name: '对话',
     icon: History,
-    description: '找回归档、查看草稿或同步已有对话。',
   },
-  { id: 'shortcuts', name: '快捷键', icon: Keyboard, description: '使用键盘更快地操作会话。' },
-  { id: 'computers', name: '电脑', icon: Computer, description: '查看并切换你的电脑连接。' },
-  { id: 'data', name: '数据', icon: Database, description: '管理所连接电脑的缓存与保留策略。' },
-  { id: 'diagnostics', name: '诊断', icon: FileText, description: '检查电脑连接与运行状态。' },
+  { id: 'shortcuts', name: '快捷键', icon: Keyboard },
+  { id: 'computers', name: '电脑', icon: Computer },
+  { id: 'data', name: '数据', icon: Database },
+  { id: 'diagnostics', name: '诊断', icon: FileText },
   {
     id: 'account',
     name: 'Codex 账户',
     icon: UserRound,
-    description: '查看所连接电脑的 Codex 账户信息。',
   },
 ];
 
@@ -46,9 +44,23 @@ export function SettingsLayout({
   children: ReactNode;
 }) {
   const category = categories.find(({ id }) => id === active) || categories[0]!;
+  const body = useRef<HTMLElement>(null);
+  const nav = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const node = body.current;
+    if (!node) return;
+    node.scrollTop = 0;
+    const selected = nav.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    selected?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const animation = node.animate([{ opacity: 0.65 }, { opacity: 1 }], {
+      duration: motionDuration(180),
+      easing: 'ease-out',
+    });
+    return () => animation.cancel();
+  }, [active]);
   return (
     <div className="settings-layout">
-      <nav className="settings-nav" aria-label="设置分类">
+      <nav ref={nav} className="settings-nav" aria-label="设置分类">
         {categories.map(({ id, name, icon: Icon }) => (
           <button
             key={id}
@@ -59,19 +71,19 @@ export function SettingsLayout({
             aria-controls="settings-content"
             onClick={() => onChange(id)}
           >
-            <Icon size={18} />
+            <Icon size={18} aria-hidden="true" />
+            <span>{name}</span>
           </button>
         ))}
       </nav>
       <section
+        ref={body}
         className="settings-body"
         id="settings-content"
         aria-labelledby="settings-heading"
-        key={active}
       >
         <header className="settings-heading">
           <h2 id="settings-heading">{category.name}</h2>
-          <p>{category.description}</p>
         </header>
         {children}
       </section>

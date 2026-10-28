@@ -126,8 +126,7 @@ export function AccountDevices() {
     <section className="settings-section panel-stack">
       <div className="setting-row">
         <div>
-          <h3>Host 设备</h3>
-          <small className="muted">管理已连接的电脑</small>
+          <h3>已登记电脑</h3>
         </div>
         <IconButton
           icon={RefreshCw}

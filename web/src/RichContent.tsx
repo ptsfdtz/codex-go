@@ -1,6 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { useEffect, useState, type ReactNode } from 'react';
+import { deferred } from './deferred';
 import type { HistoryEntry } from './history';
 import type { Bridge } from './transport/bridge';
 import { readHistoryImage } from './media';
@@ -18,54 +17,14 @@ import {
   Users,
   Minimize2,
 } from 'lucide-react';
-import { MessageImage, type MessageImageSource } from './features/message-images/MessageImage';
+import { type MessageImageSource } from './features/message-images/MessageImage';
 import { DiffText } from './features/DiffText';
 import { displayCommand } from './features/command-display';
 
-const MessageImages = createContext<MessageImageSource | undefined>(undefined);
-function MarkdownImage({ src, alt }: { src?: string; alt?: string }) {
-  const source = useContext(MessageImages);
-  return <MessageImage src={src} alt={alt} source={source} />;
-}
-
-export function Markdown({
-  text,
-  onFile,
-  images,
-}: {
-  text: string;
-  onFile?: (path: string) => void;
-  images?: MessageImageSource;
-}) {
-  return (
-    <MessageImages.Provider value={images}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        skipHtml
-        urlTransform={(url) => url}
-        components={{
-          a: ({ href, children }) =>
-            href && /^(https?:\/\/|mailto:)/i.test(href) ? (
-              <a href={href} target="_blank" rel="noreferrer noopener">
-                {children}
-              </a>
-            ) : href &&
-              onFile &&
-              (!/^[a-z][a-z0-9+.-]*:/i.test(href) || /^(?:file:|[a-z]:[\\/])/i.test(href)) ? (
-              <button className="file-link" onClick={() => onFile(href)}>
-                {children}
-              </button>
-            ) : (
-              <span>{children}</span>
-            ),
-          img: MarkdownImage,
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </MessageImages.Provider>
-  );
-}
+export const Markdown = deferred<Parameters<typeof import('./Markdown').Markdown>[0]>(
+  () => import('./Markdown').then((module) => ({ default: module.Markdown })),
+  ({ text }) => <div className="markdown-pending">{text}</div>,
+);
 
 function SavedImage({
   connection,
@@ -312,24 +271,26 @@ export function FileReferences({
   parts: unknown[];
   onFile?: (path: string) => void;
 }) {
+  const references = parts.flatMap((value, index) => {
+    const reference = fileReferencePart(value);
+    return reference ? [{ ...reference, index }] : [];
+  });
+  if (!references.length) return null;
+
   return (
     <div className="file-references">
-      {parts.flatMap((value, index) => {
-        const reference = fileReferencePart(value);
-        if (!reference) return [];
-        return [
-          <button
-            className="resource-chip file-reference-chip"
-            key={index}
-            title={reference.path}
-            disabled={!onFile}
-            onClick={() => onFile?.(reference.path)}
-          >
-            <FileText size={14} />
-            <span>{reference.name}</span>
-          </button>,
-        ];
-      })}
+      {references.map((reference) => (
+        <button
+          className="resource-chip file-reference-chip"
+          key={reference.index}
+          title={reference.path}
+          disabled={!onFile}
+          onClick={() => onFile?.(reference.path)}
+        >
+          <FileText size={14} />
+          <span>{reference.name}</span>
+        </button>
+      ))}
     </div>
   );
 }

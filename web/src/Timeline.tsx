@@ -22,6 +22,7 @@ export class Timeline extends Component<
   private content = createRef<HTMLDivElement>();
   private position: Position | null = null;
   private observer?: ResizeObserver;
+  private transition?: Animation;
   private following = true;
   private userIntent = false;
   private touchY?: number;
@@ -55,6 +56,7 @@ export class Timeline extends Component<
   }
   componentWillUnmount() {
     this.observer?.disconnect();
+    this.transition?.cancel();
   }
   getSnapshotBeforeUpdate(previous: Readonly<Props>): Position | null {
     if (previous.identity !== this.props.identity) return null;
@@ -76,6 +78,11 @@ export class Timeline extends Component<
   }
   componentDidUpdate(previous: Readonly<Props>, _state: unknown, position: Position | null) {
     if (previous.identity !== this.props.identity) {
+      this.transition?.cancel();
+      this.transition = this.content.current?.animate([{ opacity: 0.7 }, { opacity: 1 }], {
+        duration: motionDuration(180),
+        easing: 'ease-out',
+      });
       this.userIntent = false;
       this.olderRequested = false;
       if (this.state.away || this.state.unread) this.setState({ away: false, unread: false });

@@ -80,7 +80,7 @@ button:disabled {
   visibility: visible;
   transform: translateX(0);
 }
-.with-sidebar .conversation {
+.with-sidebar .conversation-layout {
   margin-left: var(--sidebar-width);
 }
 .sidebar-scrim {
@@ -141,7 +141,6 @@ button:disabled {
 .modal[data-motion='closed']::backdrop {
   background: transparent;
 }
-.settings-body,
 .card.login,
 .empty,
 .saved-image img,
@@ -210,7 +209,6 @@ button:disabled {
     opacity: 0;
     transform: translateY(8px);
   }
-  .settings-body,
   .empty,
   .saved-image img,
   .connection-error,
@@ -226,7 +224,7 @@ button:disabled {
   }
 }
 @media (max-width: 760px) {
-  .with-sidebar .conversation {
+  .with-sidebar .conversation-layout {
     margin-left: 0;
   }
   .sidebar {
@@ -463,5 +461,210 @@ button:disabled {
   .effort-fill,
   .effort-thumb {
     transition: none;
+  }
+}
+
+/* Native floating surfaces: one reversible CSS timeline, including top-layer
+   removal. Older engines retain native dismiss/focus and the WAAPI fallback. */
+[popover] {
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out),
+    display var(--motion-fast) allow-discrete,
+    overlay var(--motion-fast) allow-discrete;
+}
+[popover]:popover-open {
+  opacity: 1;
+  transform: none;
+}
+@starting-style {
+  [popover]:popover-open {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+/* Remaining interaction families share feedback, without moving text or
+   animating every streaming update. Native range/scroll/drag stays direct. */
+a,
+summary,
+[role='tab'],
+.file-tab,
+.file-tree-row,
+.branch-file,
+.settings-action,
+.api-provider-row,
+.api-conversation,
+.composer-feedback,
+.file-feedback,
+[role='status'],
+[role='alert'] {
+  transition:
+    color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease;
+}
+[role='tab'][aria-selected='true'] {
+  border-color: var(--muted);
+}
+:where(a, summary):active {
+  opacity: 0.72;
+}
+.module-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 96px;
+  padding: 24px;
+  color: var(--muted);
+}
+.markdown-pending {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.shell,
+.api-provider-form,
+.api-provider-list,
+.file-empty,
+.file-changes-overview,
+.branch-comparison,
+.file-explorer,
+.panel-empty,
+.module-status {
+  opacity: 1;
+  transition: opacity var(--motion-panel) var(--ease-out);
+}
+@starting-style {
+  .shell,
+  .api-provider-form,
+  .api-provider-list,
+  .file-empty,
+  .file-changes-overview,
+  .branch-comparison,
+  .file-explorer,
+  .panel-empty,
+  .module-status,
+  [role='status'],
+  [role='alert'] {
+    opacity: 0;
+  }
+}
+
+/* Local panel width transitions keep the neighboring conversation continuous.
+   Disable interpolation during direct manipulation of the divider. */
+.file-workspace {
+  overflow: clip;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    width var(--motion-drawer) var(--ease-drawer),
+    opacity var(--motion-panel) ease,
+    visibility var(--motion-drawer) allow-discrete;
+}
+.file-workspace[hidden] {
+  display: flex;
+  flex: 0 0 auto;
+  width: 0;
+  min-width: 0;
+  border: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.conversation-layout[data-resizing] .file-workspace {
+  transition: none;
+}
+@starting-style {
+  .file-workspace:not([hidden]) {
+    opacity: 0;
+  }
+}
+@media (max-width: 760px) {
+  .file-workspace {
+    transition: opacity var(--motion-panel) ease;
+  }
+  .file-workspace[hidden] {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [popover],
+  [popover]:popover-open {
+    transform: none;
+  }
+  @starting-style {
+    [popover]:popover-open {
+      transform: none;
+    }
+  }
+}
+
+.composer-attachment,
+.composer-resources,
+.queued-messages,
+.plan-decision,
+.composer-drop-hint,
+.selection-quote,
+.file-tree-message,
+.branch-preview,
+.usage-detail,
+.message-reader {
+  opacity: 1;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+@starting-style {
+  .composer-attachment,
+  .composer-resources,
+  .queued-messages,
+  .plan-decision,
+  .composer-drop-hint,
+  .selection-quote,
+  .file-tree-message,
+  .branch-preview,
+  .usage-detail,
+  .message-reader {
+    opacity: 0;
+  }
+}
+/* FLIP owns list-item transforms. Press feedback uses opacity on those nodes. */
+button[data-motion-item]:active:not(:disabled) {
+  transform: none;
+  opacity: 0.8;
+}
+/* Clamped queue previews expand locally; the rest of the page is not animated. */
+@supports (interpolate-size: allow-keywords) {
+  .queued-text {
+    interpolate-size: allow-keywords;
+    height: 2lh;
+    transition:
+      height var(--motion-panel) var(--ease-out),
+      background-color var(--motion-fast) ease;
+  }
+  .queued-text.is-expanded {
+    height: auto;
+  }
+}
+.branch-modes label,
+.plan-decision-checkbox,
+.api-chat-row {
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+
+.api-welcome,
+.api-message {
+  opacity: 1;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+@starting-style {
+  .api-welcome,
+  .api-message {
+    opacity: 0;
   }
 }

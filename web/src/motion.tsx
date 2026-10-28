@@ -67,10 +67,13 @@ export function usePopoverMotion() {
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    // Modern browsers use one CSS timeline for both open and close. WAAPI is
+    // only a fallback, never a second owner of the same transform.
+    if (CSS.supports('transition-behavior', 'allow-discrete')) return;
     let animation: Animation | undefined;
     const toggle = (event: Event) => {
-      if ((event as ToggleEvent).newState !== 'open') return;
       animation?.cancel();
+      if ((event as ToggleEvent).newState !== 'open') return;
       const duration = motionDuration(160);
       const transform = duration <= 100 ? 'none' : 'translateY(4px) scale(0.97)';
       animation = node.animate(
@@ -146,6 +149,15 @@ export function MotionList({
       running.current.clear();
     }
     const easing = getComputedStyle(document.documentElement).getPropertyValue('--ease-out').trim();
+    const moves: { child: HTMLElement; dx: number; dy: number }[] = [];
+    // Bound measurement cost on large directories; their controls still have
+    // state feedback without animating hundreds of offscreen rows.
+    if (node.children.length > 120) {
+      for (const animation of running.current.values()) animation.cancel();
+      running.current.clear();
+      previous.current.clear();
+      return;
+    }
     for (const child of node.children) {
       if (!(child instanceof HTMLElement) || !child.hasAttribute('data-motion-item')) continue;
       const rect = child.getBoundingClientRect();
@@ -163,6 +175,10 @@ export function MotionList({
       const dx = before.left - position.left + (matrix?.m41 || 0);
       const dy = before.top - position.top + (matrix?.m42 || 0);
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+      moves.push({ child, dx, dy });
+    }
+    // Complete every layout read before writing animation state.
+    for (const { child, dx, dy } of moves) {
       running.current.get(child)?.cancel();
       const animation = child.animate(
         [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
@@ -300,10 +316,11 @@ export function useSidebarMotion(open: boolean) {
     const scrim = node.parentElement?.querySelector<HTMLElement>(':scope > .sidebar-scrim');
     if (!sidebar || !scrim) return;
     const desktop = matchMedia('(min-width: 761px)').matches;
+    const before = previous.current;
+    if (before?.node === node && before.open === open && before.desktop === desktop) return;
     const transform = getComputedStyle(node).transform;
     const offset = transform === 'none' ? 0 : new DOMMatrix(transform).m41;
     const left = node.getBoundingClientRect().left - offset;
-    const before = previous.current;
     previous.current = { node, open, desktop, left };
     if (
       before?.node === node &&
@@ -370,5 +387,51 @@ export function useSidebarMotion(open: boolean) {
       animations.clear();
     };
   }, []);
+  return ref;
+}
+
+// Animate navigation identity, never live data updates or streaming tokens.
+export function useContentMotion<T extends HTMLElement = HTMLElement>(identity: string) {
+  const ref = useRef<T>(null);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const animation = node.animate([{ opacity: 0.7 }, { opacity: 1 }], {
+      duration: motionDuration(180),
+      easing: 'ease-out',
+    });
+    return () => animation.cancel();
+  }, [identity]);
+  return ref;
+}
+
+// One bounded height transition for an explicit composer expansion. Ordinary
+// typing and streamed content do not trigger measurements or delayed input.
+export function useExpansionMotion(expanded: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const previous = useRef<{ expanded: boolean; height: number } | undefined>(undefined);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const before = previous.current;
+    const height = node.getBoundingClientRect().height;
+    previous.current = { expanded, height };
+    const observer = new ResizeObserver(() => {
+      if (previous.current?.expanded === expanded)
+        previous.current.height = node.getBoundingClientRect().height;
+    });
+    observer.observe(node);
+    let animation: Animation | undefined;
+    if (before && before.expanded !== expanded && motionDuration(280) > 100) {
+      animation = node.animate([{ height: `${before.height}px` }, { height: `${height}px` }], {
+        duration: 280,
+        easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
+      });
+    }
+    return () => {
+      observer.disconnect();
+      animation?.cancel();
+    };
+  }, [expanded]);
   return ref;
 }

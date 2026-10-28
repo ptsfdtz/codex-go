@@ -1,4 +1,5 @@
-import { useId, useRef } from 'react';
+import { useId } from 'react';
+import { usePopoverMotion } from '../motion';
 import { Check, ChevronDown, Code2, MessageCircle } from 'lucide-react';
 export type WorkMode = 'codex' | 'api';
 export function ModeSwitcher({
@@ -9,7 +10,7 @@ export function ModeSwitcher({
   onChange: (mode: WorkMode) => void;
 }) {
   const id = useId();
-  const menu = useRef<HTMLDivElement>(null);
+  const menu = usePopoverMotion();
   return (
     <div className="mode-switcher">
       <button className="mode-trigger" popoverTarget={id} aria-label="切换工作模式">
@@ -19,10 +20,10 @@ export function ModeSwitcher({
       <div id={id} ref={menu} popover="auto" className="mode-menu" aria-label="工作模式">
         {(
           [
-            ['api', 'AgentChat', '连接模型，专注对话', MessageCircle],
-            ['codex', 'Codex', '连接电脑，构建与执行', Code2],
+            ['api', 'AgentChat', MessageCircle],
+            ['codex', 'Codex', Code2],
           ] as const
-        ).map(([value, label, hint, Icon]) => (
+        ).map(([value, label, Icon]) => (
           <button
             key={value}
             aria-current={mode === value ? 'true' : undefined}
@@ -32,10 +33,7 @@ export function ModeSwitcher({
             }}
           >
             <Icon size={18} />
-            <span>
-              {label}
-              <small>{hint}</small>
-            </span>
+            <span>{label}</span>
             {mode === value && <Check size={16} />}
           </button>
         ))}

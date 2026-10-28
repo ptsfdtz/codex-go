@@ -42,6 +42,7 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  compact = false,
   header,
   className = '',
 }: {
@@ -49,11 +50,13 @@ export function Modal({
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  compact?: boolean;
   header?: ReactNode;
   className?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const present = useMotionPresence();
+  const backdropPress = useRef(false);
   const [entered, setEntered] = useState(false);
   useLayoutEffect(() => {
     const node = dialog.current;
@@ -76,15 +79,19 @@ export function Modal({
   return (
     <dialog
       ref={dialog}
-      className={`modal ${wide ? 'modal-wide' : ''} ${className}`}
+      className={`modal ${wide ? 'modal-wide' : ''} ${compact ? 'modal-compact' : ''} ${className}`}
       aria-label={title}
       data-motion={present && entered ? 'open' : 'closed'}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
       }}
+      onPointerDown={(event) => {
+        backdropPress.current = event.target === dialog.current;
+      }}
       onClick={(event) => {
-        if (event.target === dialog.current) onClose();
+        if (event.target === dialog.current && backdropPress.current) onClose();
+        backdropPress.current = false;
       }}
     >
       <div className="modal-title">

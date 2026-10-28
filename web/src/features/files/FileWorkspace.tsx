@@ -1,3 +1,4 @@
+import { useContentMotion } from '../../motion';
 import type { FileReference } from '../../workspace';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -101,6 +102,7 @@ export function FileWorkspace({
   const positions = useRef(new Map<string, ScrollPosition>()),
     tabList = useRef<HTMLDivElement>(null);
   const active = workspace.tabs.find((tab) => tab.path === workspace.active);
+  const previewMotion = useContentMotion(`${workspace.active}:${active?.view || ''}`);
   const changes = git.value?.files || [];
   const changed = changes.find((file) => file.path === active?.path);
   const image = !!active && active.view === 'file' && isProjectImage(active.path);
@@ -301,6 +303,8 @@ export function FileWorkspace({
     <aside
       className={`file-workspace ${treeOpen ? 'with-file-tree' : ''}`}
       hidden={!visible}
+      inert={!visible}
+      aria-hidden={!visible}
       aria-label="项目文件工作区"
     >
       <header className="file-workspace-header" aria-label="文件预览导航">
@@ -462,7 +466,7 @@ export function FileWorkspace({
         )
       ) : (
         <div className="file-workspace-body">
-          <section className="file-editor" aria-label="文件预览">
+          <section ref={previewMotion} className="file-editor" aria-label="文件预览">
             {feedback && (
               <div className="file-feedback" role="status">
                 {feedback}

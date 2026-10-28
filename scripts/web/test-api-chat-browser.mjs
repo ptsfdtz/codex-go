@@ -384,6 +384,8 @@ try {
   await page.getByRole('button', { name: /我的接口.*2 个模型/ }).click();
   await screenshot('mobile-settings.png');
   await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click();
+  // Native modal restores focus after its exit transition; wait before editing.
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
   await page.setViewportSize({ width: 320, height: 560 });
   await editor.fill('手机草稿');
   await screenshot('mobile-320.png');
@@ -445,9 +447,9 @@ try {
     return (await new LocalStore('local-chat-test').list('summary')).length === 1;
   });
   await page.getByRole('button', { name: '切换工作模式', exact: true }).click();
-  await page.getByRole('button', { name: /Codex/ }).click();
+  await page.getByRole('button', { name: 'Codex', exact: true }).click();
   await page.getByRole('button', { name: '切换工作模式', exact: true }).click();
-  await page.getByRole('button', { name: /AgentChat/ }).click();
+  await page.getByRole('button', { name: 'AgentChat', exact: true }).click();
   await page.locator('.api-chat-row > button:first-child').filter({ hasText: '我想优化' }).click();
   assert.equal(await editor.inputValue(), '手机草稿\n');
   // A local write failure must retain the draft and must not contact the provider.

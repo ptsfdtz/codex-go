@@ -29,7 +29,10 @@ import type {
 import { emptyDraft, canManage, chatProject } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { ModeSwitcher, type WorkMode } from './features/ModeSwitcher';
-import { ApiChat } from './features/api-chat/ApiChat';
+import { deferred } from './deferred';
+const ApiChat = deferred<
+  React.ComponentProps<typeof import('./features/api-chat/ApiChat').ApiChat>
+>(() => import('./features/api-chat/ApiChat').then((module) => ({ default: module.ApiChat })));
 import './features/api-chat/api-chat.css';
 import { Composer } from './features/Composer';
 import { PlanConfirmation } from './features/plan/PlanConfirmation';
@@ -40,21 +43,38 @@ import { TurnChanges } from './features/TurnChanges';
 import { ProjectOverview } from './features/project-overview/ProjectOverview';
 import { projectRelativePath } from './features/turn-changes';
 import { turnOptions, resources } from './features/composer-input';
-import {
-  SessionPanel,
-  GoalPanel,
-  SkillsPanel,
-  QueuePanel,
-  ProjectsPanel,
-  ConfigurationPanel,
-  RetentionPanel,
-  DiagnosticsPanel,
-  AccountPanel,
-} from './features/Panels';
+const SessionPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').SessionPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.SessionPanel })));
+const GoalPanel = deferred<React.ComponentProps<typeof import('./features/Panels').GoalPanel>>(() =>
+  import('./features/Panels').then((module) => ({ default: module.GoalPanel })),
+);
+const SkillsPanel = deferred<React.ComponentProps<typeof import('./features/Panels').SkillsPanel>>(
+  () => import('./features/Panels').then((module) => ({ default: module.SkillsPanel })),
+);
+const QueuePanel = deferred<React.ComponentProps<typeof import('./features/Panels').QueuePanel>>(
+  () => import('./features/Panels').then((module) => ({ default: module.QueuePanel })),
+);
+const ProjectsPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').ProjectsPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.ProjectsPanel })));
+const ConfigurationPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').ConfigurationPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.ConfigurationPanel })));
+const RetentionPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').RetentionPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.RetentionPanel })));
+const DiagnosticsPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').DiagnosticsPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.DiagnosticsPanel })));
+const AccountPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').AccountPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.AccountPanel })));
 import { IconButton, Modal, DataFields } from './ui';
 import {
   Menu,
   ChevronDown,
+  ChevronLeft,
   Check,
   Computer,
   MoreHorizontal,
@@ -92,7 +112,18 @@ import { InstallApp } from './features/InstallApp';
 import { AppUpdates } from './features/AppUpdates';
 import { SettingsLayout } from './features/SettingsLayout';
 import { HostUpdates } from './features/HostUpdates';
-import { FileWorkspace } from './features/files/FileWorkspace';
+const FileWorkspace = deferred<
+  React.ComponentProps<typeof import('./features/files/FileWorkspace').FileWorkspace>
+>(
+  () =>
+    import('./features/files/FileWorkspace').then((module) => ({ default: module.FileWorkspace })),
+  () => (
+    <aside className="file-workspace module-status" role="status">
+      加载文件工作区…
+    </aside>
+  ),
+);
+import './features/files/file-workspace.css';
 import { usePreference } from './features/preferences';
 import {
   resolveComposerModelPreferences,
@@ -1578,6 +1609,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     }
     setMenu(false);
     setWorkspaceMenu(false);
+    setSettingsChild(name === 'drafts' && panel === 'settings');
     if (name === 'manage') setManageSession(current);
     if (name === 'computers') {
       setSettingsTab('computers');
@@ -1690,6 +1722,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           ?.focus({ preventScroll: true }),
       );
   }
+  const [settingsChild, setSettingsChild] = useState(false);
   const [settingsTab, setSettingsTab] = usePreference(
     'agentdeck.web.settingsTab',
     'general',
@@ -1730,6 +1763,17 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const matches = renderedHistory.filter(
     (entry) => find.trim() && contentText(entry.item).toLowerCase().includes(find.toLowerCase()),
   );
+  const visibleDrafts =
+    panel === 'drafts'
+      ? Object.entries(drafts).filter(([key, d]) => {
+          const [account, id] = JSON.parse(key);
+          return (
+            account === scope &&
+            id === host?.hostId &&
+            (d.text || d.attachments.length || d.skills.length || d.references?.length)
+          );
+        })
+      : [];
   const matchingSessions = (snapshot.sessions || []).filter((s) =>
     `${s.title || ''} ${snapshot.projects?.find((p) => p.projectId === s.projectId)?.name || ''}`
       .toLowerCase()
@@ -2424,6 +2468,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             onPointerDown={(event) => {
               event.preventDefault();
               setFileWorkspaceWide(false);
+              event.currentTarget.parentElement?.setAttribute('data-resizing', 'true');
               event.currentTarget.setPointerCapture(event.pointerId);
             }}
             onPointerMove={(event) => {
@@ -2435,6 +2480,9 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     Math.max(35, Math.min(75, ((box.right - event.clientX) / box.width) * 100)),
                   ),
                 );
+            }}
+            onLostPointerCapture={(event) => {
+              event.currentTarget.parentElement?.removeAttribute('data-resizing');
             }}
             onPointerUp={(event) => {
               if (event.currentTarget.hasPointerCapture(event.pointerId))
@@ -2482,7 +2530,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       <MotionPresence>
         {messageAction && messageAction.kind !== 'revise' && (
           <Modal
-            wide
+            wide={messageAction.kind === 'read'}
+            compact={messageAction.kind !== 'read'}
             title={
               messageAction.kind === 'read'
                 ? '消息'
@@ -2520,12 +2569,17 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     ? '从该原生轮次创建独立会话？'
                     : '回退此消息和之后的轮次？此操作会改变电脑上的原会话。'}
                 </p>
-                <button
-                  disabled={busy || receiptBlocked || !canManage(current)}
-                  onClick={() => void runMessageAction()}
-                >
-                  确认
-                </button>
+                <div className="button-row">
+                  <button disabled={busy} onClick={() => setMessageAction(undefined)}>
+                    取消
+                  </button>
+                  <button
+                    disabled={busy || receiptBlocked || !canManage(current)}
+                    onClick={() => void runMessageAction()}
+                  >
+                    {busy ? '处理中…' : messageAction.kind === 'fork' ? '创建分叉' : '确认回退'}
+                  </button>
+                </div>
                 {error && <p className="error">{error}</p>}
               </div>
             )}
@@ -2537,7 +2591,24 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           <Modal
             wide={['git', 'files', 'history', 'settings'].includes(panel)}
             title={titles[panel] || panel}
-            className={panel === 'settings' ? 'settings-modal' : ''}
+            className={
+              panel === 'settings' || (panel === 'drafts' && settingsChild) ? 'settings-modal' : ''
+            }
+            header={
+              panel === 'drafts' && settingsChild ? (
+                <div className="modal-navigation">
+                  <IconButton
+                    icon={ChevronLeft}
+                    label="返回设置"
+                    onClick={() => {
+                      setSettingsChild(false);
+                      setPanel('settings');
+                    }}
+                  />
+                  <h2>未发送草稿</h2>
+                </div>
+              ) : undefined
+            }
             onClose={() => setPanel('')}
           >
             <div
@@ -2548,18 +2619,15 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 panel,
                 manageSession?.sessionId,
               ])}
-              className="panel-content"
+              className={`panel-content ${panel === 'drafts' && settingsChild ? 'settings-subpage' : ''}`}
             >
               {panel === 'settings' && (
                 <SettingsLayout active={settingsTab} onChange={setSettingsTab}>
                   {settingsTab === 'general' && (
                     <div className="settings-general">
                       <section className="settings-section panel-stack">
-                        <h3>使用偏好</h3>
                         <label className="setting-row">
-                          <span>
-                            外观<small>选择适合你的界面主题。</small>
-                          </span>
+                          <span>外观</span>
                           <select
                             aria-label="外观"
                             value={theme}
@@ -2572,7 +2640,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         </label>
                         <label className="setting-row">
                           <span>
-                            任务通知<small>仅显示状态；网页关闭后不能接收通知。</small>
+                            任务通知<small>仅在应用打开时接收</small>
                           </span>
                           <input
                             type="checkbox"
@@ -2603,7 +2671,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       <section className="settings-section panel-stack">
                         <h3>安装应用</h3>
                         <InstallApp />
-                        <p className="settings-installed">当前已在独立应用窗口中打开。</p>
+                        <p className="settings-installed">已安装</p>
                       </section>
                       <section className="settings-section">
                         <AppUpdates />
@@ -2611,7 +2679,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       <section className="settings-section setting-row">
                         <div>
                           <h3>AgentDeck 账户</h3>
-                          <p className="muted">退出当前网页或 PWA 的登录。</p>
                         </div>
                         <button
                           className="settings-logout"
@@ -2679,13 +2746,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       >
                         <span>
                           <strong>查看归档对话</strong>
-                          <small>重新找到暂时收起的历史对话。</small>
                         </span>
                       </button>
                       <button className="settings-action" onClick={() => openPanel('drafts')}>
                         <span>
                           <strong>未发送草稿</strong>
-                          <small>继续编辑尚未发送的内容。</small>
                         </span>
                       </button>
                       <button
@@ -2695,16 +2760,12 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       >
                         <span>
                           <strong>同步电脑已有对话</strong>
-                          <small>从当前连接的电脑重新核对会话列表。</small>
                         </span>
                       </button>
                     </div>
                   )}
                   {settingsTab === 'computers' && (
                     <div className="panel-stack">
-                      <p className="muted">
-                        在线表示电脑已连到云端；浏览器仍需完成授权、安全连接与会话同步。
-                      </p>
                       {directoryFailure && (
                         <p className="error" role="status">
                           {directoryFailure}
@@ -2851,40 +2912,37 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               )}
               {panel === 'drafts' && (
                 <div className="panel-stack">
-                  <p className="muted">草稿按电脑和会话隔离，仅保留在当前标签页中。</p>
-                  {Object.entries(drafts)
-                    .filter(([key, d]) => {
-                      const [account, id] = JSON.parse(key);
-                      return (
-                        account === scope &&
-                        id === host?.hostId &&
-                        (d.text || d.attachments.length || d.skills.length || d.references?.length)
-                      );
-                    })
-                    .map(([key, d]) => {
-                      const id = JSON.parse(key)[2] as string;
-                      return (
-                        <button
-                          className="draft-entry"
-                          key={key}
-                          onClick={() => {
-                            if (id.startsWith('new:')) {
-                              setSelectedProject(id.slice(4));
-                              selectSession(undefined);
-                            } else selectSession(id);
-                            setPanel('');
-                          }}
-                        >
-                          <strong>
-                            {snapshot.sessions?.find((s) => s.sessionId === id)?.title || '新对话'}
-                          </strong>
-                          <span>
-                            {d.text.slice(0, 180) ||
-                              `${d.attachments.length} 个附件 · ${d.skills.length} 个技能 · ${d.references?.length || 0} 个引用`}
-                          </span>
-                        </button>
-                      );
-                    })}
+                  {visibleDrafts.length ? (
+                    <p className="muted">仅保留在当前标签页，关闭后不会保存。</p>
+                  ) : (
+                    <div className="panel-empty" role="status">
+                      暂无未发送草稿
+                    </div>
+                  )}
+                  {visibleDrafts.map(([key, d]) => {
+                    const id = JSON.parse(key)[2] as string;
+                    return (
+                      <button
+                        className="draft-entry"
+                        key={key}
+                        onClick={() => {
+                          if (id.startsWith('new:')) {
+                            setSelectedProject(id.slice(4));
+                            selectSession(undefined);
+                          } else selectSession(id);
+                          setPanel('');
+                        }}
+                      >
+                        <strong>
+                          {snapshot.sessions?.find((s) => s.sessionId === id)?.title || '新对话'}
+                        </strong>
+                        <span>
+                          {d.text.slice(0, 180) ||
+                            `${d.attachments.length} 个附件 · ${d.skills.length} 个技能 · ${d.references?.length || 0} 个引用`}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               {panel === 'search' && (
@@ -2950,7 +3008,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               )}
               {panel === 'history' && (
                 <div className="panel-stack">
-                  <p className="muted">来自电脑原会话的已加载记录</p>
                   {historyCursor && (
                     <button disabled={historyLoading} onClick={() => void loadOlderHistory()}>
                       加载更早记录

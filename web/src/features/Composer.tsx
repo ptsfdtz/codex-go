@@ -15,7 +15,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { IconButton, Modal } from '../ui';
-import { MotionPresence, usePopoverMotion } from '../motion';
+import { MotionPresence, usePopoverMotion, useExpansionMotion } from '../motion';
 import type { Attachment, Draft, Model } from '../workspace';
 import { readAttachments } from './composer-input';
 import { PermissionPicker } from './PermissionPicker';
@@ -120,6 +120,7 @@ export function Composer({
   const feedbackId = useId();
   const [expanded, setExpanded] = useState(false),
     [addingAttachments, setAddingAttachments] = useState(false);
+  const expansion = useExpansionMotion(expanded);
   const [attachmentError, setAttachmentError] = useState(''),
     [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<{ url: string; attachment: Attachment }>();
@@ -271,6 +272,7 @@ export function Composer({
         </>
       ) : (
         <div
+          ref={expansion}
           className={`composer${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}`}
           onDragEnter={(event) => {
             if (!isFileDrag(event)) return;

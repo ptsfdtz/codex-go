@@ -9,6 +9,7 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { IconButton, Modal } from '../../ui';
+import { MotionPresence, MotionList, useSidebarMotion, useContentMotion } from '../../motion';
 import { Markdown } from '../../RichContent';
 import { ApiSettings } from './ApiSettings';
 import {
@@ -66,6 +67,8 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     sending = useRef(false),
     mounted = useRef(true);
   selectedRef.current = selected;
+  const sidebarMotion = useSidebarMotion(sidebar);
+  const contentMotion = useContentMotion<HTMLDivElement>(selected);
   const timeline = useRef<HTMLDivElement>(null),
     stick = useRef(true);
   const text = drafts[selected || 'new'] || '';
@@ -568,11 +571,15 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
-        <nav className="sidebar-scroll api-chat-list" aria-label="AgentChat 记录">
+        <MotionList as="nav" className="sidebar-scroll api-chat-list" label="AgentChat 记录">
           {chats
             .filter((chat) => chat.title.toLowerCase().includes(search.toLowerCase()))
             .map((chat) => (
-              <div key={chat.id} className={`api-chat-row ${selected === chat.id ? 'active' : ''}`}>
+              <div
+                data-motion-item
+                key={chat.id}
+                className={`api-chat-row ${selected === chat.id ? 'active' : ''}`}
+              >
                 <button disabled={busy} onClick={() => select(chat.id)}>
                   {chat.title}
                 </button>
@@ -590,7 +597,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
               </div>
             ))}
           {!chats.length && <p className="api-list-empty">对话会保存在这里</p>}
-        </nav>
+        </MotionList>
         <div className="sidebar-footer">
           <button onClick={() => setSettings(true)}>
             <Settings size={18} />
@@ -598,7 +605,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           </button>
         </div>
       </aside>
-      <section className="conversation-layout">
+      <section ref={sidebarMotion} className="conversation-layout">
         <section className="conversation">
           <header className="topbar">
             <IconButton
@@ -634,7 +641,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                 )}
               </div>
             ) : (
-              <div className="api-messages">
+              <div ref={contentMotion} className="api-messages">
                 {loading && !detail && (
                   <p className="muted" role="status">
                     正在读取对话…
@@ -714,64 +721,70 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           />
         </section>
       </section>
-      {settings && (
-        <ApiSettings
-          scope={scope}
-          providers={providers}
-          enabled={enabled}
-          onClose={() => setSettings(false)}
-          onChanged={refresh}
-        />
-      )}
-      {confirmSend && (
-        <Modal title="上次请求结果未知" onClose={() => setConfirmSend(false)}>
-          <p>直连请求无法查询发送回执。再次发送可能产生重复用量。</p>
-          <div className="button-row">
-            <button onClick={() => void execute(true)}>仍然发送</button>
-            <button onClick={() => setConfirmSend(false)}>保留草稿</button>
-          </div>
-        </Modal>
-      )}
-      {deleting && (
-        <Modal title="删除对话" onClose={() => setDeleting('')}>
-          <p>删除此浏览器中的对话记录？</p>
-          <div className="button-row">
-            <button
-              disabled={busy}
-              onClick={() => {
-                setBusy(true);
-                void store
-                  .write([
-                    { kind: 'chat', id: deleting },
-                    { kind: 'summary', id: deleting },
-                  ])
-                  .then(async () => {
-                    memory.current.delete(deleting);
-                    setDrafts((values) => {
-                      const next = { ...values };
-                      delete next[deleting];
-                      return next;
-                    });
-                    setChoices((values) => {
-                      const next = { ...values };
-                      delete next[deleting];
-                      return next;
-                    });
-                    if (selected === deleting) select('');
-                    channel.current?.postMessage({ type: 'updated', id: deleting });
-                    setDeleting('');
-                    await refresh();
-                  })
-                  .catch((error) => setError(String(error)))
-                  .finally(() => setBusy(false));
-              }}
-            >
-              删除对话
-            </button>
-            <button onClick={() => setDeleting('')}>取消</button>
-          </div>
-        </Modal>
-      )}
+      <MotionPresence>
+        {settings && (
+          <ApiSettings
+            scope={scope}
+            providers={providers}
+            enabled={enabled}
+            onClose={() => setSettings(false)}
+            onChanged={refresh}
+          />
+        )}
+      </MotionPresence>
+      <MotionPresence>
+        {confirmSend && (
+          <Modal compact title="上次请求结果未知" onClose={() => setConfirmSend(false)}>
+            <p>直连请求无法查询发送回执。再次发送可能产生重复用量。</p>
+            <div className="button-row">
+              <button onClick={() => void execute(true)}>仍然发送</button>
+              <button onClick={() => setConfirmSend(false)}>保留草稿</button>
+            </div>
+          </Modal>
+        )}
+      </MotionPresence>
+      <MotionPresence>
+        {deleting && (
+          <Modal compact title="删除对话" onClose={() => setDeleting('')}>
+            <p>删除此浏览器中的对话记录？</p>
+            <div className="button-row">
+              <button
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true);
+                  void store
+                    .write([
+                      { kind: 'chat', id: deleting },
+                      { kind: 'summary', id: deleting },
+                    ])
+                    .then(async () => {
+                      memory.current.delete(deleting);
+                      setDrafts((values) => {
+                        const next = { ...values };
+                        delete next[deleting];
+                        return next;
+                      });
+                      setChoices((values) => {
+                        const next = { ...values };
+                        delete next[deleting];
+                        return next;
+                      });
+                      if (selected === deleting) select('');
+                      channel.current?.postMessage({ type: 'updated', id: deleting });
+                      setDeleting('');
+                      await refresh();
+                    })
+                    .catch((error) => setError(String(error)))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                删除对话
+              </button>
+              <button onClick={() => setDeleting('')}>取消</button>
+            </div>
+          </Modal>
+        )}
+      </MotionPresence>
     </div>
   );
 }

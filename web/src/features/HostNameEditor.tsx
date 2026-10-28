@@ -58,7 +58,7 @@ export function HostNameEditor({
           {saving ? '保存中…' : '保存名称'}
         </button>
       </div>
-      <small className="muted">保存后同步到此账户的其他设备；留空恢复默认名称。</small>
+      <small className="muted">留空恢复默认名称</small>
       {saved && <p role="status">名称已保存</p>}
       {error && (
         <p className="error" role="alert">

@@ -1,3 +1,4 @@
+import { MotionPresence } from '../motion';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageSquarePlus } from 'lucide-react';
@@ -74,23 +75,26 @@ export function SelectionQuote({
       window.removeEventListener('resize', dismiss);
     };
   }, [container]);
-  if (!quote) return null;
   return createPortal(
-    <button
-      ref={button}
-      type="button"
-      className="selection-quote"
-      style={{ left: quote.x, top: quote.y }}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={() => {
-        callback.current(quote.text);
-        window.getSelection()?.removeAllRanges();
-        setQuote(undefined);
-      }}
-    >
-      <MessageSquarePlus size={15} />
-      添加到对话
-    </button>,
+    <MotionPresence>
+      {quote && (
+        <button
+          ref={button}
+          type="button"
+          className="selection-quote"
+          style={{ left: quote.x, top: quote.y }}
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => {
+            callback.current(quote.text);
+            window.getSelection()?.removeAllRanges();
+            setQuote(undefined);
+          }}
+        >
+          <MessageSquarePlus size={15} />
+          添加到对话
+        </button>
+      )}
+    </MotionPresence>,
     document.body,
   );
 }
