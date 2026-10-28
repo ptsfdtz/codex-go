@@ -28,6 +28,9 @@ import type {
 } from './workspace';
 import { emptyDraft, canManage, chatProject } from './workspace';
 import { Sidebar } from './features/Sidebar';
+import { ModeSwitcher, type WorkMode } from './features/ModeSwitcher';
+import { ApiChat } from './features/api-chat/ApiChat';
+import './features/api-chat/api-chat.css';
 import { Composer } from './features/Composer';
 import { PlanConfirmation } from './features/plan/PlanConfirmation';
 import { ApprovalCard, AsyncQuestions } from './features/Questions';
@@ -176,6 +179,55 @@ function Login({ onLogin }: { onLogin: () => void }) {
 }
 
 export function App() {
+  const [mode, setMode] = usePreference<WorkMode>(
+    'agentdeck.web.work-mode',
+    'codex',
+    (value): value is WorkMode => value === 'codex' || value === 'api',
+  );
+  const modeControl = <ModeSwitcher mode={mode} onChange={setMode} />;
+  return mode === 'api' ? (
+    <ApiChatGate modeControl={modeControl} />
+  ) : (
+    <CodexApp modeControl={modeControl} />
+  );
+}
+function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
+  const [identity, setIdentity] = useState<{
+    accountId: string;
+    mustChangePassword: boolean;
+  } | null>();
+  const [generation, setGeneration] = useState(0);
+  useEffect(() => {
+    let current = true;
+    const changed = () => {
+      setIdentity(undefined);
+      setGeneration((value) => value + 1);
+    };
+    window.addEventListener(accountEvent, changed);
+    void api<{ accountId: string; mustChangePassword: boolean }>('/api/v1/web/session')
+      .then((value) => {
+        if (current) setIdentity(value);
+      })
+      .catch(() => {
+        if (current) setIdentity(null);
+      });
+    return () => {
+      current = false;
+      window.removeEventListener(accountEvent, changed);
+    };
+  }, [generation]);
+  if (identity === undefined) return <main className="center">加载中…</main>;
+  if (identity === null) return <Login onLogin={() => setGeneration((value) => value + 1)} />;
+  if (identity.mustChangePassword) return <AccountPassword />;
+  return (
+    <ApiChat
+      key={`${identity.accountId}:${generation}`}
+      scope={identity.accountId}
+      modeControl={modeControl}
+    />
+  );
+}
+function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [scope, setScope] = useState('');
   const [mustChangePassword, setMustChangePassword] = useState(false);
@@ -1706,6 +1758,7 @@ export function App() {
       className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${filesVisible ? 'has-file-workspace' : ''}`}
     >
       <Sidebar
+        brand={modeControl}
         sessions={snapshot.sessions || []}
         connected={connected}
         projects={projects}
@@ -1756,6 +1809,7 @@ export function App() {
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className={sidebarOpen ? 'rail-toggle' : ''}
             />
+            {!sidebarOpen && modeControl}
             <div className="workspace-anchor">
               <button
                 className="workspace-title"

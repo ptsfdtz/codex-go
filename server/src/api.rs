@@ -23,6 +23,7 @@ use std::{
 pub fn router(state: Arc<State>) -> Router {
     let web_origins = state.config.web_origins.clone();
     Router::new()
+        .merge(crate::chat::router())
         .route("/health/live", get(|| async { Json(json!({"ok":true})) }))
         .route("/health/ready", get(health))
         .route("/api/v1/auth/login", post(login))

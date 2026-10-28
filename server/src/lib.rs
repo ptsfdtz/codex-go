@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod api;
+pub mod chat;
 pub mod config;
 pub mod relay;
 pub mod security;
@@ -89,6 +90,7 @@ impl IntoResponse for Error {
 }
 
 pub struct State {
+    pub chat: chat::Chat,
     pub config: config::Config,
     pub store: storage::Store,
     pub hub: relay::Hub,
@@ -100,6 +102,7 @@ impl State {
         let store = storage::Store::open(&config.database_url).await?;
         let passwords = security::Passwords::new().await?;
         Ok(Arc::new(Self {
+            chat: chat::Chat::environment()?,
             hub: relay::Hub::new(config.max_tunnels),
             config,
             store,

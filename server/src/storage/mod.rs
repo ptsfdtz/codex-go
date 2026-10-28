@@ -9,7 +9,7 @@ use uuid::Uuid;
 mod access;
 
 pub struct Store {
-    pool: Pool,
+    pub(crate) pool: Pool,
 }
 pub enum Refreshed {
     Issued(SessionTokens),

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Archive,
   ChevronDown,
@@ -20,6 +20,7 @@ import { Collapse, MotionList } from '../motion';
 import type { Host, Project, Session } from '../workspace';
 import { isSessionWorking } from '../workspace';
 export function Sidebar({
+  brand,
   sessions,
   projects,
   host,
@@ -41,6 +42,7 @@ export function Sidebar({
   filter,
   setFilter,
 }: {
+  brand?: ReactNode;
   sessions: Session[];
   projects: Project[];
   host?: Host;
@@ -95,7 +97,7 @@ export function Sidebar({
       />
       <aside className={`sidebar ${open ? 'open' : ''}`} inert={!open} aria-hidden={!open}>
         <div className="sidebar-brand">
-          <strong>AgentDeck</strong>
+          {brand || <strong>AgentDeck</strong>}
           <IconButton icon={Menu} label="收起会话列表" onClick={onClose} />
         </div>
         <div className="sidebar-primary">

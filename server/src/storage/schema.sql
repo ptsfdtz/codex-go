@@ -75,3 +75,44 @@ INSERT INTO migrations(version) VALUES(3) ON CONFLICT DO NOTHING;
 ALTER TABLE hosts ADD COLUMN IF NOT EXISTS custom_name TEXT;
 ALTER TABLE hosts ADD COLUMN IF NOT EXISTS custom_name_configured BOOLEAN NOT NULL DEFAULT false;
 INSERT INTO migrations(version) VALUES(4) ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS chat_providers(
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    api_key TEXT NOT NULL,
+    models JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS chat_provider_account ON chat_providers(account_id);
+CREATE TABLE IF NOT EXISTS chat_conversations(
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS chat_conversation_account ON chat_conversations(account_id,updated_at DESC);
+CREATE TABLE IF NOT EXISTS chat_messages(
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+    request_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+    content TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN ('complete','running','stopped','failed','interrupted')),
+    error TEXT,
+    provider_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(conversation_id,request_id,role)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS chat_one_generation ON chat_messages(conversation_id) WHERE status='running';
+INSERT INTO migrations(version) VALUES(5) ON CONFLICT DO NOTHING;
+ALTER TABLE chat_providers ADD COLUMN IF NOT EXISTS model_efforts JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS effort TEXT NOT NULL DEFAULT '';
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS effort TEXT NOT NULL DEFAULT '';
+INSERT INTO migrations(version) VALUES(6) ON CONFLICT DO NOTHING;

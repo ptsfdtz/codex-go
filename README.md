@@ -74,6 +74,10 @@ export AGENTDECK_PORT=49531
 
 Host 并发上限调整（本地通过，未部署）：普通发送、手动队列启动、编辑重发、启动信号量及能力声明统一使用 `server/service.rs` 的 `MAX_CONCURRENT_TASKS = 5`；队列启动在已有 5 个任务时拒绝新增。Rust 格式与全目标严格 Clippy 通过，未运行真实五任务并发；需更新 Host 后生效。原生队列自动续跑及外部 CLI/桌面任务仍未统一纳入本地并发计数。
 
+AgentChat（本地候选，未部署）：左上角切换 Codex / AgentChat，AgentChat 模式不挂载电脑连接模块；支持多个 OpenAI 兼容 Chat Completions 接口、手动模型列表、独立会话模型、纯文字流式回复、停止、搜索/删除、账户同步。接口密钥使用 AES-256-GCM 加密并绑定账户/接口，不回显或保存在浏览器；请求通过云端转发，仅允许公网 HTTPS、固定解析地址且不跟随重定向。聊天记录在 PostgreSQL，草稿和未确认请求按账户保存在当前浏览器，重试沿用同一请求 ID，不自动重发。服务器收到请求后即独立生成，离开页面不会停止；显式停止会关闭上游连接，但供应商可能仍产生已发生的用量。每账户最多同时生成 2 条，单服务进程最多 32 条，单条输入 12,000 字节、输出 512 KiB、生成 5 分钟；长对话达到上下文/存储限制时提示新建。输入区、展开编辑器和模型/思考强度选择复用 AgentDeck Composer；左下角统一为“设置”。设置中按模型声明支持的思考强度档位，请求通过 `reasoning_effort` 传递；未配置时使用接口默认值，不发送该参数。不支持附件、工具、联网搜索或原生 Claude/Gemini 协议。
+
+参考并适配 MIT 项目 [NextChat](https://github.com/ChatGPTNextWeb/NextChat) 的流式增量处理及会话配置方式，来源与许可证保留在 `third_party/nextchat/`，UI 沿用本项目组件。Web 类型/定向 ESLint/生产构建、云端严格 Clippy、4 项解析/加密/地址边界测试及独立 PostgreSQL + 本地模拟 API 的鉴权/CSRF/账户隔离/并发去重/真实 HTTP SSE/停止/中断保留测试通过；Chromium 受控 API 验证设备零连接、配置、流式展示、独立模型、失败草稿和丢失回执恢复、模式切换保留草稿、触屏回车/中文输入法保护、320/390px 布局通过。截图位于 `artifacts/api-chat/`。未使用真实供应商密钥调用模型，手机软键盘/跨平台实机及生产部署尚未验收。
+
 排队续跑状态图标修复（Web 本地通过，未部署）：侧栏同时读取本地轮次与原生会话运行状态，原生队列自动继续时显示旋转图标；开始事件触发列表同步，活动筛选同步识别原生任务。`node --test scripts/web/test-session-working.mjs` 的 3 项回归、类型/ESLint/格式/生产构建及受控 Chromium 开始/结束/待排队/断线暂停检查通过，桌面与 390px 截图位于 `artifacts/queue/sidebar-native-running-*.png`；真实 Host 自动消费队列与手机真机未验收，仅需更新 Web。
 
 文件预览导航精简（本地通过，未部署）：项目标题、文件标签与文件操作合并为单行，左侧多文件标签可横向滚动但不显示滚动条，键盘切换自动定位当前标签，右侧统一使用图标按钮并保留悬停提示与无障碍名称；查找并入该行，移除重复路径栏及底部大小上限/只读说明。图片与文本读取限制、错误及实际截断提示保留。类型、ESLint、构建、7 项工作区测试、引用回归及 Chromium 多标签/键盘/查找/目录切换/浅深主题/320px 与 390px 检查通过，受控接口截图位于 `artifacts/file-toolbar/`；手机真机未验证。仅需更新 Web。
@@ -336,6 +340,10 @@ Web 构建自动生成 `version.json`，与资源一同部署并保持该清单�
 生产云端程序仍由 `/opt/agentdeck/current/agentdeck-cloud` 提供，服务配置 `/etc/agentdeck/cloud.env`。运维：`ssh yecaoyun 'systemctl status agentdeck-cloud --no-pager'`；日志 `journalctl -u agentdeck-cloud -n 50 --no-pager`。`agentdeck-backup.timer` 每日 UTC 03:20 起随机延迟最多十分钟执行；可手动启动 `agentdeck-backup.service`。备份位于 `/var/backups/agentdeck/`，需要另做异机备份；云端备份不包含各 Host 的 Codex、项目和本机证书。Docker/Caddy 备用部署见 `server/deploy/`，当前生产未使用该路径。
 
 ## 开发与验证
+
+AgentChat需同时更新 Web 和云端，Host 无需更新。云端启动前设置 `AGENTDECK_CHAT_ENCRYPTION_KEY` 为 **32 个随机字节的标准 Base64 编码**（例如 `openssl rand -base64 32`）；Docker Compose 已透传此变量。未设置时保留原功能，AgentChat配置/发送禁用；格式不正确时拒绝启动。密钥必须持久保存并与数据库备份分别保管，重启沿用原值，直接更换会导致已有接口密钥无法解密，需重新填写；不可提交真实值。数据库启动自动创建 `chat_providers`、`chat_conversations`、`chat_messages`，删除账户级联清理聊天数据。反向代理须允许该接口至少 310 秒读取时间；SSE 响应带 `X-Accel-Buffering: no`，避免 Nginx 缓冲。兼容接口 Base URL 填到 `/v1` 等 API 前缀，不包含 `/chat/completions`；模型名称按供应商实际提供的标识填写。
+
+AgentChat回归：`pnpm test:api-chat-browser`（复用下方 Playwright 环境变量）；服务端单元测试 `cargo test --locked --manifest-path server/Cargo.toml --lib chat`。数据库与模拟流式 API 验收使用独立、可丢弃且以 `_test` 结尾的数据库：`AGENTDECK_TEST_DATABASE_URL=postgresql://.../agentdeck_chat_test cargo test --locked --manifest-path server/Cargo.toml --lib chat -- --include-ignored`，不可指向日常数据库。测试生成隔离账户，供应商请求指向仅测试编译中启用的本地模拟服务，不调用真实模型。
 
 默认在 `release` 分支开发，不自动提交或推送。Host Rust 源码暂保留 `desktop/core/` 路径，以维持公开入口、测试和协议导出的兼容性；这不表示仍依赖桌面 UI。
 
