@@ -161,6 +161,7 @@ impl Rpc {
         args: &[String],
         isolated_home: Option<&std::path::Path>,
     ) -> Result<(Arc<Self>, mpsc::Receiver<Value>)> {
+        crate::host::runtime_compatibility::verify_official(executable)?;
         let mut command = Command::new(executable);
         command
             .args(args)
@@ -303,7 +304,9 @@ impl Rpc {
         } else {
             json!({"id":id,"method":method,"params":params})
         };
-        if self.protocol() == ProtocolVersion::DesktopBaseline && method == "project/list" {
+        if self.protocol() == ProtocolVersion::DesktopBaseline && method == "project/create" {
+            self.validate("official/ProjectCreateParams", &packet["params"])?;
+        } else if self.protocol() == ProtocolVersion::DesktopBaseline && method == "project/list" {
             self.validate("experimental/ProjectListParams", &packet["params"])?;
         } else if self.protocol() == ProtocolVersion::DesktopBaseline
             && [

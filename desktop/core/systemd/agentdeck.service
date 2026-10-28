@@ -1,7 +1,7 @@
 [Unit]
 Description=AgentDeck Linux host
-After=network-online.target
-Wants=network-online.target
+After=network-online.target agentdeck-runtime.service
+Wants=network-online.target agentdeck-runtime.service
 StartLimitIntervalSec=300
 StartLimitBurst=3
 

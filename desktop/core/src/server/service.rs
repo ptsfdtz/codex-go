@@ -164,6 +164,17 @@ impl Core {
         let mut state = json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.visible_projects()?,"devices":devices,"approvals":approvals,"pairings":self.pairing.pending_all(),"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() });
         state["cloud"] = json!(self.cloud.status());
         state["runtimeError"] = json!(*self.runtime_error.read().unwrap());
+        state["officialRuntime"] = if self.ready.load(Ordering::SeqCst) {
+            self.store
+                .meta("officialRuntime")?
+                .and_then(|v| serde_json::from_str::<Value>(&v).ok())
+                .unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        };
+        state["sharedRuntime"] = json!(
+            self.ready.load(Ordering::SeqCst) && self.attached_runtime.load(Ordering::SeqCst)
+        );
         state["hostId"] = json!(self.store.meta("hostId")?);
         state["activeTurns"] = json!(self.store.turns(None)?.len());
         state["servicePid"] = json!(std::process::id());
@@ -364,7 +375,7 @@ impl Core {
             .store(target.attached(), Ordering::SeqCst);
         *self.runtime_protocol.write().unwrap() = target.protocol();
         let mut failures = 0u32;
-        let mut args = codex::args();
+        let mut args = codex::args_for(&exe);
         let mut discovered = false;
         while !self.stopping.load(Ordering::SeqCst) {
             let result: Result<()> = async {
@@ -409,7 +420,6 @@ impl Core {
                     // Preserve the actual native boundary proof across every
                     // reconnect. Never relabel a probe of one installed binary
                     // as verification of a different attached server version.
-                    #[cfg(any(windows, target_os = "macos"))]
                     if self.verified.load(Ordering::SeqCst) {
                         if let Some(probed) = self.store.meta("sandboxProbeVersion")? {
                             ensure(
@@ -475,7 +485,7 @@ impl Core {
                         .request("config/read", json!({"includeLayers":false}))
                         .await?;
                     rpc.validate("v2/ConfigReadResponse", &config)?;
-                    codex::check_policy(&config)?;
+                    codex::check_policy_for(&config, Some(&exe))?;
                     self.ready.store(true, Ordering::SeqCst);
                     *self.runtime_error.write().unwrap() = None;
                     self.reconcile(&rpc).await?;
@@ -887,6 +897,7 @@ pub async fn boundary(exe: &Path) -> Result<Value> {
     boundary_runtime(exe, &std::env::current_exe()?).await
 }
 pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
+    crate::host::runtime_compatibility::verify_official(exe)?;
     // Tests and diagnostics also call this directly, outside main's host gate.
     // A low-integrity parent cannot launch MXC even from a normal terminal.
     security::verify_host_integrity()?;
@@ -913,7 +924,20 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
     std::fs::write(inside.join("sentinel.txt"), "INSIDE")?;
     std::fs::write(outside.join("sentinel.txt"), "OUTSIDE")?;
     let executable = runtime.to_string_lossy().replace('\\', "/");
-    let profile=format!("permissions={{agentdeck={{extends=\":workspace\",filesystem={{\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\",{}=\"read\"}},network={{enabled=false}}}}}}",json!(executable));
+    let mut profile=format!("permissions={{agentdeck={{extends=\":workspace\",filesystem={{\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\",{}=\"read\"}},network={{enabled=false}}}}}}",json!(executable));
+    if cfg!(target_os = "linux") {
+        let package_root = exe.parent().and_then(Path::parent).ok_or_else(|| {
+            Error::new(
+                "RUNTIME_INTEGRITY_ERROR",
+                "Official runtime package root missing",
+            )
+        })?;
+        // Insert into the existing filesystem table before network policy.
+        profile = profile.replace(
+            "},network=",
+            &format!(",{}=\"read\"}},network=", json!(package_root)),
+        );
+    }
     let mut command = tokio::process::Command::new(exe);
     #[cfg(windows)]
     command.args(["-c", "windows.sandbox=\"mxc\""]);
@@ -997,7 +1021,7 @@ fn boundary_launch_error(stderr: &[u8]) -> Error {
     } else {
         Error::new(
             "SANDBOX_UNVERIFIED",
-            "Windows 隔离检查未返回有效结果；请检查 Codex 隔离组件和启动环境",
+            "隔离检查未返回有效结果；请检查官方 Codex 沙箱组件和系统支持",
         )
     }
 }

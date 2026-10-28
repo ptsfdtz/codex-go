@@ -1,0 +1,180 @@
+{
+  "version": "0.166.0-alpha.1",
+  "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-alpha.1-linux-x64.tgz",
+  "integrity": "sha512-Tbtn7JG1eYI5P/LhPKH3DOJsEsNUPaktbpqvPglU5LxBzsyh+eYHfAdW4rMXipXxi+1zv1WHp7SSS0MzzqQ7FQ==",
+  "archiveRoot": "package/vendor/x86_64-unknown-linux-musl",
+  "files": [
+    {
+      "path": "bin/codex",
+      "sha256": "024a5f04692900156bb1f9eaa11c8fafd1ce925d04b30eb65a65f614e5799e09"
+    },
+    {
+      "path": "bin/codex-code-mode-host",
+      "sha256": "ea5128f3b663d2bfb60d8818980b646a489d81fc7715b63accd14fdca214f692"
+    },
+    {
+      "path": "codex-package.json",
+      "sha256": "f2354f0e4c1161acd67c2951746e3a28719d388d7c299fe35af880597a3ff78f"
+    },
+    {
+      "path": "codex-path/rg",
+      "sha256": "e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849"
+    },
+    {
+      "path": "codex-resources/bwrap",
+      "sha256": "3a81c19ad10a70436529c58e77898e2a447abe80167f813fc20ec34bd9eafdeb"
+    },
+    {
+      "path": "codex-resources/voice/NOTICE.md",
+      "sha256": "40097a1799441051aa0b6645cdc819cceb19be73cdd265eb602aa2b15e0b1f48"
+    },
+    {
+      "path": "codex-resources/voice/bin/codex-voice-host",
+      "sha256": "e89f7f0b742ccae26fd71baac391af4823d8d141610e1da0ce49e76bcfaae7bd"
+    },
+    {
+      "path": "codex-resources/voice/lib/gstreamer-1.0/libgstapp.so",
+      "sha256": "e6c32f19d1e8e06a9767a2f6c91a601375c5a6efc519bb56b7102f5f7c383977"
+    },
+    {
+      "path": "codex-resources/voice/lib/gstreamer-1.0/libgstaudioconvert.so",
+      "sha256": "fb89a8f45bc732097c1d3d9443a63cc732d821eae0c7e7877e552ce657addbcb"
+    },
+    {
+      "path": "codex-resources/voice/lib/gstreamer-1.0/libgstaudioresample.so",
+      "sha256": "7b2a73ad4e5c98fc2c9d3b31f9f56de7c1fdd90cd1696b9e0d485bde082e15b9"
+    },
+    {
+      "path": "codex-resources/voice/lib/gstreamer-1.0/libgstcoreelements.so",
+      "sha256": "ccc76f19fffa06140c8b5ee523a84e0ef7c07289c852997ed1e43c8f8455dc78"
+    },
+    {
+      "path": "codex-resources/voice/lib/gstreamer-1.0/libgstopus.so",
+      "sha256": "0f0ff64686d77036224de9b70b874e576266523a67c3f040d4163eaf5faebff5"
+    },
+    {
+      "path": "codex-resources/voice/lib/gstreamer-1.0/libgstrtp.so",
+      "sha256": "7bf839b65871050776681de94a2798321449c9567010189f92798d0735b9e229"
+    },
+    {
+      "path": "codex-resources/voice/lib/gstreamer-1.0/libgstrtpmanager.so",
+      "sha256": "23ad729c8d629a8c6734248d6737c8f38f22e47b9579a98478a035537249f446"
+    },
+    {
+      "path": "codex-resources/voice/lib/libffi.so.8",
+      "sha256": "bdec19c4e46b8fbf1c3e0b39f7b3fad933b77b43e2c37631157c97950fd2b174"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgio-2.0.so.0",
+      "sha256": "e67ab46a96ede0b8104e471d334f847ba581dd9a7c4e24f4190fcf1f2112cbb1"
+    },
+    {
+      "path": "codex-resources/voice/lib/libglib-2.0.so.0",
+      "sha256": "2177b7338114a509730e8f92185b972a3491815ae463c76f6fcb75fd7590ba05"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgmodule-2.0.so.0",
+      "sha256": "1158809de3e776981b850a78ad110baadbefa2dab1bd7c44cf6709073e7c5408"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgobject-2.0.so.0",
+      "sha256": "a6976679abfecc3dd0553035424d7d4eddb53174ce916fda408a436204ab81d7"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstallocators-1.0.so.0",
+      "sha256": "9b85e20611e0986f5a9143b76d6acc59e6b63705ec137040ee8b466eab2975e4"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstapp-1.0.so.0",
+      "sha256": "30f94ed01741ba050326355d7cd791edad4c72d3aada91cc6083f22981acaac2"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstaudio-1.0.so.0",
+      "sha256": "9159265f12feb43ad5f52d548c525a15fdff81bc4d6ed1ec2eda5c4e9ae15e9b"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstbase-1.0.so.0",
+      "sha256": "efa118dfc05298ccc5d7de9f0d6b40ae85a98c1cb1989c847014d9e458498227"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstnet-1.0.so.0",
+      "sha256": "fbb8a6840cddab66da3d306ecd4274d3ee57e2db207bdef8632be1941ecfef87"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstpbutils-1.0.so.0",
+      "sha256": "d964814517a83d6852a9169e84399edfee509d6fd6620ffa4beb9c50c68db67d"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstreamer-1.0.so.0",
+      "sha256": "9115c7aebbd1d70cf67d97e996d18b103188d05207bad7d6bd2c5c22c22f861e"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstrtp-1.0.so.0",
+      "sha256": "36d5ccf35d0b6ffc346511ff6795bec15e452e9f26892264aeca662b5126c11a"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgsttag-1.0.so.0",
+      "sha256": "459140a25b33bf7583b3bb287d60ce2cf006871b3e36166a7d38184a18d49e95"
+    },
+    {
+      "path": "codex-resources/voice/lib/libgstvideo-1.0.so.0",
+      "sha256": "86f89267e25f04248d31bffd1334132730972f6573a9f86dd22d9cdc40fac91b"
+    },
+    {
+      "path": "codex-resources/voice/lib/libintl.so.8",
+      "sha256": "3745518bbcd678e70f7560496596c8adc8b9215d23839c5eb2d0dea0bce3975a"
+    },
+    {
+      "path": "codex-resources/voice/lib/libopus.so.0",
+      "sha256": "f06da69ca0542b923a32f441da62a4fae8a603be7c4ee922c69282508b2960e0"
+    },
+    {
+      "path": "codex-resources/voice/lib/libpcre2-8.so.0",
+      "sha256": "e39519b242f40686734ed8d0218f68cac24f0e956ec64c8c1b49b9da5cc9788b"
+    },
+    {
+      "path": "codex-resources/voice/lib/libz.so.1",
+      "sha256": "6c5d765f42d9368cc4bdbd11f725c1bcf6b14b78322033d3c94f787fc6261f5e"
+    },
+    {
+      "path": "codex-resources/voice/licenses/LGPL-2.1.txt",
+      "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db"
+    },
+    {
+      "path": "codex-resources/voice/licenses/Opus.txt",
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+    },
+    {
+      "path": "codex-resources/voice/licenses/PCRE2.md",
+      "sha256": "197d8a73ffee0d6b09adba2f9c677b5f5aede24edf89258a68e48248d010d811"
+    },
+    {
+      "path": "codex-resources/voice/licenses/libffi.txt",
+      "sha256": "17b64dc60f3b6897a60f971e288b973f655c2edcdf08b25f3c3dd5549857881c"
+    },
+    {
+      "path": "codex-resources/voice/licenses/proxy-libintl.txt",
+      "sha256": "d245807f90032872d1438d741ed21e2490e1175dc8aa3afa5ddb6c8e529b58e5"
+    },
+    {
+      "path": "codex-resources/voice/licenses/sljit.txt",
+      "sha256": "5f216505c0f6ea3273caec89e766eef93cdeb7bbb0c429f9360116d7c938feeb"
+    },
+    {
+      "path": "codex-resources/voice/licenses/zlib.txt",
+      "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2"
+    },
+    {
+      "path": "codex-resources/voice/manifest.json",
+      "sha256": "65028851de8b00520fb744d4dfd8f8c1d0a0c8104c5cb0104f2dac1e8b4d83c3"
+    },
+    {
+      "path": "codex-resources/voice/runtime.json",
+      "sha256": "520f739d162f6c92a4371f9118ef6bb9424c83197dc50b5d308404e3a878b0e4"
+    },
+    {
+      "path": "codex-resources/voice/sources.json",
+      "sha256": "e2f6b124f6277e7c3c4f5c7cc8830c66190f671ad65e972bb2cc9507dbfcb937"
+    }
+  ]
+}

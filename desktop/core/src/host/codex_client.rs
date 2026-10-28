@@ -23,14 +23,16 @@ pub async fn command(
             "Host 尚未连接共享运行时；不会为 CLI 启动独立的 Codex 会话进程。",
         ));
     };
+    super::runtime_compatibility::verify_official(executable)?;
     let help = codex::sync_command(&executable.to_string_lossy(), &["--help"], None)?;
     ensure(
         help.contains("--remote ") && help.contains("--remote-auth-token-env "),
         "UPSTREAM_FEATURE_UNSUPPORTED",
         "当前 Codex 不支持原生远程终端；请使用支持 --remote 的兼容版本。",
     )?;
-    let (token, home) = verify_runtime(executable, &target).await?;
-    let mut command = native_command(executable, endpoint, &token, thread);
+    let (token, home, directory) = verify_runtime_thread(executable, &target, thread, true).await?;
+    let directory = directory.unwrap_or(std::env::current_dir()?);
+    let mut command = native_command(executable, endpoint, &token, thread, &directory);
     command.env("CODEX_HOME", home);
     Ok(command)
 }
@@ -39,7 +41,7 @@ pub(super) async fn verify_runtime(
     executable: &Path,
     target: &RuntimeTarget,
 ) -> Result<(String, PathBuf)> {
-    let (token, home, _) = verify_runtime_thread(executable, target, None).await?;
+    let (token, home, _) = verify_runtime_thread(executable, target, None, false).await?;
     Ok((token, home))
 }
 
@@ -47,6 +49,7 @@ pub(super) async fn verify_runtime_thread(
     executable: &Path,
     target: &RuntimeTarget,
     thread: Option<&str>,
+    register_project: bool,
 ) -> Result<(String, PathBuf, Option<PathBuf>)> {
     let RuntimeTarget::Attached { endpoint, .. } = target else {
         return Err(Error::new(
@@ -100,6 +103,10 @@ pub(super) async fn verify_runtime_thread(
                 "目标会话的本地项目目录不存在或无法访问",
             )?;
             Some(directory)
+        } else if register_project {
+            let directory = std::env::current_dir()?;
+            rpc.ensure_native_project(&directory).await?;
+            Some(directory)
         } else {
             None
         };
@@ -112,10 +119,18 @@ pub(super) async fn verify_runtime_thread(
     Ok((token, home, directory))
 }
 
-fn native_command(executable: &Path, endpoint: &str, token: &str, thread: Option<&str>) -> Command {
+fn native_command(
+    executable: &Path,
+    endpoint: &str,
+    token: &str,
+    thread: Option<&str>,
+    directory: &Path,
+) -> Command {
     let mut command = Command::new(executable);
     command
         .args(["--remote", endpoint, "--remote-auth-token-env", TOKEN_ENV])
+        .arg("--cd")
+        .arg(directory)
         .env(TOKEN_ENV, token)
         .env_remove("CODEX_CLI_PATH");
     if let Some(thread) = thread {

@@ -120,3 +120,27 @@ for (const kind of ['Params', 'Response']) {
     throw new Error(`Queue start schema differs: ${name}`);
 }
 console.log('Verified desktop experimental queue start contracts');
+
+const officialProjects = JSON.parse(
+  readFileSync(resolve(root, 'versions/0.166.0-alpha.1/projects-lock.json')),
+);
+if (
+  officialProjects.codexVersion !== '0.166.0-alpha.1' ||
+  officialProjects.experimental !== true ||
+  officialProjects.files.length !== 2
+)
+  throw new Error('Invalid official project creation schema lock');
+for (const kind of ['Params', 'Response']) {
+  const name = `ProjectCreate${kind}`;
+  const file = officialProjects.files.find((entry) => entry.name === name);
+  const source = `versions/0.166.0-alpha.1/${name}.json`;
+  if (
+    !file ||
+    file.source !== source ||
+    createHash('sha256')
+      .update(readFileSync(resolve(root, source)))
+      .digest('hex') !== file.sha256
+  )
+    throw new Error(`Official project creation schema differs: ${name}`);
+}
+console.log('Verified official 0.166.0-alpha.1 project creation contracts');

@@ -1,0 +1,16 @@
+{
+  "codexVersion": "0.166.0-alpha.1",
+  "experimental": true,
+  "files": [
+    {
+      "name": "ProjectCreateParams",
+      "source": "versions/0.166.0-alpha.1/ProjectCreateParams.json",
+      "sha256": "4fb1b90646d4af61d486b3616d09ff98909e446d14b5e6f3c5c6567341de9188"
+    },
+    {
+      "name": "ProjectCreateResponse",
+      "source": "versions/0.166.0-alpha.1/ProjectCreateResponse.json",
+      "sha256": "c78d0b2412d3a3778955a037ba2521460a54fb5f49752c958056b9a2934455d5"
+    }
+  ]
+}

@@ -31,6 +31,58 @@ fn page_parameters(rpc: &Rpc, cursor: Option<&str>, limit: usize) -> Result<()> 
 }
 
 impl Rpc {
+    /// Register an explicitly selected local root through the official API.
+    /// A deterministic key reconciles retries and concurrent CLI/Host startup.
+    pub(crate) async fn ensure_native_project(&self, root: &Path) -> Result<()> {
+        use sha2::{Digest, Sha256};
+        let root = paths::canonical(root)?;
+        paths::valid(&root)?;
+        ensure(
+            root.is_dir() && root.parent().is_some(),
+            "WORKSPACE_FORBIDDEN",
+            "Choose a project directory",
+        )?;
+        let mut cursor = None;
+        for page in 0..100 {
+            let response = self.project_page(cursor.as_deref(), 100).await?;
+            if response["data"].as_array().unwrap().iter().any(|project| {
+                project["roots"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|entry| paths::equal(Path::new(s(entry, "path")), &root))
+            }) {
+                return Ok(());
+            }
+            cursor = response["nextCursor"].as_str().map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+            ensure(page < 99, "SYNC_LIMIT", "Native project page limit reached")?;
+        }
+        let identity = root.to_string_lossy().into_owned();
+        let identity = if cfg!(windows) {
+            identity.to_lowercase()
+        } else {
+            identity
+        };
+        let response = self.request("project/create", json!({
+            "idempotencyKey":format!("agentdeck-root-{:x}",Sha256::digest(identity.as_bytes())),
+            "name":root.file_name().unwrap_or_default().to_string_lossy(),
+            "roots":[{"path":root}],
+        })).await?;
+        self.validate("official/ProjectCreateResponse", &response)?;
+        ensure(
+            response["project"]["roots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| paths::equal(Path::new(s(entry, "path")), &root)),
+            "UPSTREAM_PROTOCOL_ERROR",
+            "Native project root differs from the requested directory",
+        )
+    }
+
     /// Returns the authoritative source page without creating Bridge projects or
     /// granting roots. Core must apply local grants before remote exposure.
     pub async fn project_page(&self, cursor: Option<&str>, limit: usize) -> Result<Value> {

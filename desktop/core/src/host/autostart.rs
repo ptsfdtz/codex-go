@@ -50,13 +50,27 @@ pub fn configure(action: &str) -> Result<String> {
                     "ReadWritePaths=%h/.local/state/agentdeck",
                     &format!("ReadWritePaths=\"{}\"", quote(&data_dir()?)),
                 );
+            super::shared_runtime::initialize()?;
+            let runtime = include_str!("../../systemd/agentdeck-runtime.service")
+                .replace(
+                    "ExecStart=%h/.local/bin/agentdeck runtime-serve",
+                    &format!(
+                        "ExecStart=\"{}\" runtime-serve",
+                        quote(&std::env::current_exe()?)
+                    ),
+                )
+                .replace(
+                    "Environment=AGENTDECK_DATA_DIR=%h/.local/state/agentdeck",
+                    &format!("Environment=\"AGENTDECK_DATA_DIR={}\"", quote(&data_dir()?)),
+                );
+            std::fs::write(unit_dir.join("agentdeck-runtime.service"), runtime)?;
             std::fs::write(unit_dir.join("agentdeck.service"), unit)?;
             run(&["daemon-reload"])?;
-            run(&["enable", "agentdeck.service"])?;
+            run(&["enable", "agentdeck-runtime.service", "agentdeck.service"])?;
             return Ok("enabled (user session; boot before login requires administrator-configured lingering)".into());
         }
         if action == "disable" {
-            run(&["disable", "agentdeck.service"])?;
+            run(&["disable", "agentdeck-runtime.service", "agentdeck.service"])?;
             return Ok("disabled".into());
         }
         let output = Command::new("systemctl")

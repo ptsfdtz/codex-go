@@ -104,6 +104,7 @@ pub async fn stop() -> Result<()> {
 }
 
 pub async fn supervise() -> Result<()> {
+    super::shared_runtime::initialize()?;
     let file = lock("host.lock")?;
     if file.try_lock_exclusive().is_err() {
         return Ok(());

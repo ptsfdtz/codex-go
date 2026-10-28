@@ -10,6 +10,19 @@ use std::{
 impl Core {
     pub(crate) async fn discover_codex_workspaces(&self) -> Result<Option<Vec<Value>>> {
         let rpc = self.upstream()?;
+        for grant in self.store.projects()? {
+            let key = format!("pendingNativeProject:{}", s(&grant, "projectId"));
+            if let Some(pending) = self.store.meta(&key)?.filter(|value| !value.is_empty()) {
+                let root = paths::root(&self.store, s(&grant, "projectId"))?;
+                ensure(
+                    paths::equal(std::path::Path::new(&pending), &root),
+                    "SYNC_CONFLICT",
+                    "Pending project authorization changed",
+                )?;
+                rpc.ensure_native_project(&root).await?;
+                self.store.set_meta(&key, "")?;
+            }
+        }
         let mut roots = HashSet::<PathBuf>::new();
         let started = Instant::now();
         let mut catalog = None;

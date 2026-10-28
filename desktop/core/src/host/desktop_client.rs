@@ -1,7 +1,11 @@
 //! Start the original desktop against this Host's explicitly attached runtime.
 //! No account migration, private database edits or independent app-server.
 use crate::{codex, ensure, runtime::RuntimeTarget, security, Error, Result};
-use std::{io::Write, path::Path, process::Command};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 /// Bootstrap the combined desktop's local project route before selecting an
 /// existing conversation. Observe public protocol acknowledgements only.
@@ -62,9 +66,9 @@ pub async fn command(desktop: &Path, thread: Option<&str>) -> Result<Command> {
 
 async fn prepare(desktop: &Path, thread: Option<&str>, bootstrap: bool) -> Result<Command> {
     ensure(
-        cfg!(windows),
+        cfg!(any(windows, target_os = "macos")),
         "UNSUPPORTED",
-        "原版桌面接入目前仅支持 Windows",
+        "原版桌面接入仅提供 Windows 和 macOS 候选；Linux 请使用 Web 或共享 CLI",
     )?;
     ensure(
         desktop.is_absolute() && desktop.is_file(),
@@ -99,6 +103,20 @@ async fn prepare(desktop: &Path, thread: Option<&str>, bootstrap: bool) -> Resul
             "原版桌面已运行，无法更换它的运行时；请在任务空闲并退出原版桌面后重试。不会终止现有任务。",
         )?;
     }
+    super::shared_runtime::background().await?;
+    #[cfg(target_os = "macos")]
+    {
+        let name = desktop
+            .file_name()
+            .and_then(|v| v.to_str())
+            .ok_or_else(|| Error::new("CONFIG_ERROR", "Invalid desktop executable"))?;
+        let output = Command::new("/usr/bin/pgrep").args(["-x", name]).output()?;
+        ensure(
+            output.status.code() == Some(1),
+            "DESKTOP_ALREADY_RUNNING",
+            "请在任务空闲后退出原版桌面再打开共享入口；不会终止现有任务",
+        )?;
+    }
     let config = super::Config::load()?;
     let target = config.runtime_target()?;
     let RuntimeTarget::Attached {
@@ -113,15 +131,16 @@ async fn prepare(desktop: &Path, thread: Option<&str>, bootstrap: bool) -> Resul
         ));
     };
     let native = config.codex_executable()?;
+    super::runtime_compatibility::verify_official(&native)?;
     // Use the original server's public home metadata for the desktop's native
     // startup policy read as well as its transport. Never copy credentials or
     // silently select a different local configuration directory.
     let (_, source_home, project) =
-        super::codex_client::verify_runtime_thread(&native, &target, thread).await?;
+        super::codex_client::verify_runtime_thread(&native, &target, thread, false).await?;
     let source = std::env::current_exe()?
         .parent()
         .unwrap()
-        .join("agentdeck-codex-proxy.exe");
+        .join(proxy_name());
     ensure(
         source.is_file(),
         "HOST_COMPONENT_MISSING",
@@ -131,10 +150,16 @@ async fn prepare(desktop: &Path, thread: Option<&str>, bootstrap: bool) -> Resul
     let fingerprint = crate::digest(&bytes);
     let directory = super::data_dir()?.join("desktop-client").join(fingerprint);
     security::restrict_directory(&directory)?;
-    let proxy = directory.join("agentdeck-codex-proxy.exe");
+    let proxy = directory.join(proxy_name());
     if !proxy.is_file() {
         let mut file = tempfile::NamedTempFile::new_in(&directory)?;
         file.write_all(&bytes)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o700))?;
+        }
         file.persist(&proxy)
             .map_err(|_| Error::new("IO_ERROR", "Cannot install desktop runtime adapter"))?;
     } else {
@@ -183,4 +208,57 @@ async fn prepare(desktop: &Path, thread: Option<&str>, bootstrap: bool) -> Resul
         command.arg(link.as_str());
     }
     Ok(command)
+}
+
+fn proxy_name() -> &'static str {
+    if cfg!(windows) {
+        "agentdeck-codex-proxy.exe"
+    } else {
+        "agentdeck-codex-proxy"
+    }
+}
+/// Discover installed original applications. Never download or substitute a UI.
+pub fn discover() -> Result<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    #[cfg(windows)]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let root = PathBuf::from(local);
+            for relative in [
+                "Programs/Codex/Codex.exe",
+                "OpenAI/Codex/Codex.exe",
+                "OpenAI/ChatGPT/ChatGPT.exe",
+                "Programs/ChatGPT/ChatGPT.exe",
+            ] {
+                candidates.push(root.join(relative));
+            }
+        }
+        let script = "$ErrorActionPreference='Stop'; Get-AppxPackage | Where-Object { $_.Name -match 'OpenAI|ChatGPT|Codex' } | ForEach-Object { $p=$_; $m=Get-AppxPackageManifest $p; $m.Package.Applications.Application | ForEach-Object { if ($_.Executable -match '(ChatGPT|Codex)\\.exe$') { Join-Path $p.InstallLocation $_.Executable } } }";
+        if let Ok(output) = codex::sync_command(
+            "powershell.exe",
+            &["-NoProfile", "-NonInteractive", "-Command", script],
+            None,
+        ) {
+            candidates.extend(output.lines().map(|line| PathBuf::from(line.trim())));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        for name in ["Codex", "ChatGPT"] {
+            candidates.push(PathBuf::from(format!(
+                "/Applications/{name}.app/Contents/MacOS/{name}"
+            )));
+            if let Some(home) = std::env::var_os("HOME") {
+                candidates.push(
+                    PathBuf::from(home)
+                        .join(format!("Applications/{name}.app/Contents/MacOS/{name}")),
+                );
+            }
+        }
+    }
+    candidates.retain(|path| path.is_absolute() && path.is_file());
+    candidates.sort();
+    candidates.dedup();
+    ensure(candidates.len() == 1, "DESKTOP_DISCOVERY_REQUIRED", "未找到唯一的原版 Codex 桌面；请先安装原版应用，多版本时用 agentdeck desktop ABSOLUTE_DESKTOP_EXE 指定")?;
+    crate::paths::canonical(&candidates.remove(0))
 }

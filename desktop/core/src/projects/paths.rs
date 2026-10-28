@@ -250,6 +250,9 @@ pub fn add_local(store: &Store, path: &Path) -> Result<Value> {
             [identity, id.clone()],
         )?;
     }
+    // Persist intent before the runtime becomes ready; discovery reconciles it
+    // through project/create rather than inventing a Web-only project catalog.
+    store.set_meta(&format!("pendingNativeProject:{id}"), &path)?;
     store.append("projects.updated", json!({}), None, None)?;
     Ok(store
         .projects()?

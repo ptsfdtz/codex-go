@@ -1,0 +1,20 @@
+[Unit]
+Description=AgentDeck official Codex shared runtime
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/agentdeck/host.env
+Environment=AGENTDECK_DATA_DIR=%h/.local/state/agentdeck
+ExecStart=%h/.local/bin/agentdeck runtime-serve
+UMask=0077
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

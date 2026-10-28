@@ -3,7 +3,6 @@ pub mod autostart;
 pub mod codex_client;
 pub mod desktop_client;
 mod process;
-#[cfg(windows)]
 pub mod runtime_compatibility;
 pub mod shared_runtime;
 pub mod update_job;
@@ -65,7 +64,6 @@ impl Config {
     /// Match service configuration precedence for local terminal/diagnostic use.
     pub fn codex_executable(&self) -> Result<PathBuf> {
         let requested = self.requested_codex_executable()?;
-        #[cfg(windows)]
         if let Some(compatible) = runtime_compatibility::remembered(&requested)? {
             return Ok(compatible);
         }
@@ -81,7 +79,6 @@ impl Config {
             }
         }
         let found = crate::codex::find();
-        #[cfg(windows)]
         if found
             .as_ref()
             .is_err_and(|e| e.code == "CODEX_CLI_NOT_FOUND")
