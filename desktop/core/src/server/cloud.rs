@@ -18,6 +18,50 @@ use tokio::{
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
 const SAVED_KEY: &str = "cloudSessionProtectedV1";
+
+// An explicitly configured private cloud CA replaces public roots for both
+// transports. Never disable certificate or hostname verification.
+fn cloud_tls_client() -> std::result::Result<
+    (reqwest::Client, Option<tokio_tungstenite::Connector>),
+    Box<dyn std::error::Error>,
+> {
+    let pem = std::env::var_os("AGENTDECK_CLOUD_CA_FILE")
+        .map(std::fs::read)
+        .transpose()?;
+    build_cloud_tls_client(pem.as_deref())
+}
+
+fn build_cloud_tls_client(
+    pem: Option<&[u8]>,
+) -> std::result::Result<
+    (reqwest::Client, Option<tokio_tungstenite::Connector>),
+    Box<dyn std::error::Error>,
+> {
+    let mut http = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(25));
+    let connector = if let Some(mut pem) = pem {
+        let mut roots = rustls::RootCertStore::empty();
+        http = http.tls_built_in_root_certs(false);
+        for certificate in rustls_pemfile::certs(&mut pem) {
+            let certificate = certificate?;
+            http = http.add_root_certificate(reqwest::Certificate::from_der(&certificate)?);
+            roots.add(certificate)?;
+        }
+        if roots.is_empty() {
+            return Err("No CA certificates found".into());
+        }
+        let tls = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        Some(tokio_tungstenite::Connector::Rustls(Arc::new(tls)))
+    } else {
+        None
+    };
+    Ok((http.build()?, connector))
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Tokens {
@@ -51,6 +95,7 @@ pub struct Cloud {
     access_cache:
         tokio::sync::Mutex<std::collections::HashMap<String, (RemoteIdentity, std::time::Instant)>>,
     client: reqwest::Client,
+    tls_connector: Option<tokio_tungstenite::Connector>,
     saved: tokio::sync::Mutex<Option<Saved>>,
     status: RwLock<Status>,
     changed: watch::Sender<u64>,
@@ -58,14 +103,12 @@ pub struct Cloud {
 }
 impl Default for Cloud {
     fn default() -> Self {
+        let (client, tls_connector) = cloud_tls_client()
+            .expect("Invalid AGENTDECK_CLOUD_CA_FILE: expected a readable PEM CA certificate");
         Self {
             access_cache: Default::default(),
-            client: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(25))
-                .build()
-                .expect("Valid HTTP client configuration"),
+            client,
+            tls_connector,
             saved: tokio::sync::Mutex::new(None),
             status: RwLock::new(Status::default()),
             changed: watch::channel(0).0,
@@ -84,7 +127,7 @@ impl Cloud {
         >,
         tokio_tungstenite::tungstenite::Error,
     > {
-        let connector = None;
+        let connector = self.tls_connector.clone();
         let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
             .max_message_size(Some(limit))
             .max_frame_size(Some(limit));
@@ -656,4 +699,31 @@ async fn serve_tunnel(
         finished.notified().await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod private_ca_tests {
+    use super::build_cloud_tls_client;
+
+    #[test]
+    fn explicit_ca_never_falls_back_to_public_roots_on_invalid_input() {
+        assert!(build_cloud_tls_client(Some(b"")).is_err());
+        assert!(build_cloud_tls_client(Some(b"not a certificate")).is_err());
+        assert!(build_cloud_tls_client(Some(
+            b"-----BEGIN CERTIFICATE-----\nYWJj\n-----END CERTIFICATE-----\n"
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn explicit_ca_configures_both_transports() {
+        let certificate = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let (_, connector) =
+            build_cloud_tls_client(Some(certificate.cert.pem().as_bytes())).unwrap();
+        assert!(matches!(
+            connector,
+            Some(tokio_tungstenite::Connector::Rustls(_))
+        ));
+        assert!(build_cloud_tls_client(None).unwrap().1.is_none());
+    }
 }
