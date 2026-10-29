@@ -353,7 +353,7 @@ impl Startup {
             if let Some(kind) = if ancestor_type_mismatch {
                 Some("TYPE")
             } else {
-                override_mismatch(actual, expected)
+                override_mismatch(actual, expected, path)
             } {
                 let domain = match path.first().map(String::as_str) {
                     Some("mcp_servers") => "MCP",
@@ -449,27 +449,50 @@ fn diagnostic_shape(value: Option<&Value>, budget: &mut usize) -> Value {
 }
 // The final CLI table is merged with file/default tables by native Codex.
 // Unmentioned base fields remain authoritative; arrays/scalars replace whole values.
-fn override_mismatch(actual: Option<&Value>, expected: &Value) -> Option<&'static str> {
-    let Some(actual) = actual else {
-        return Some("MISSING");
-    };
+fn override_mismatch(
+    actual: Option<&Value>,
+    expected: &Value,
+    path: &[String],
+) -> Option<&'static str> {
+    // Pinned official 0.166.0-alpha.1: PluginMcpServerConfig::enabled
+    // defaults to true. This is only the per-server policy gate, not plugin
+    // activation or a global MCP setting. Never replace an explicit value or
+    // write an overlay to the shared runtime; its restrictions stay authoritative.
+    if actual.is_none()
+        && expected == &Value::Bool(true)
+        && matches!(path, [plugins, _, servers, _, enabled]
+            if plugins == "plugins" && servers == "mcp_servers" && enabled == "enabled")
+    {
+        return None;
+    }
     match expected {
         Value::Object(table) => {
-            let Some(object) = actual.as_object() else {
+            if actual.is_some_and(|value| !value.is_object()) {
                 return Some("TYPE");
-            };
+            }
+            // Missing parents may contain only proven native default leaves.
+            // An empty or otherwise unknown table has no established default.
+            if actual.is_none() && table.is_empty() {
+                return Some("MISSING");
+            }
             for (key, value) in table {
-                let Some(actual) = object.get(key) else {
-                    return Some("MISSING");
-                };
-                if let Some(kind) = override_mismatch(Some(actual), value) {
+                let mut child_path = path.to_vec();
+                child_path.push(key.clone());
+                if let Some(kind) = override_mismatch(
+                    actual.and_then(|object| object.get(key)),
+                    value,
+                    &child_path,
+                ) {
                     return Some(kind);
                 }
             }
             None
         }
-        _ if actual == expected => None,
-        _ if std::mem::discriminant(actual) != std::mem::discriminant(expected) => Some("TYPE"),
+        _ if actual.is_none() => Some("MISSING"),
+        _ if actual == Some(expected) => None,
+        _ if std::mem::discriminant(actual.unwrap()) != std::mem::discriminant(expected) => {
+            Some("TYPE")
+        }
         _ => Some("VALUE"),
     }
 }
@@ -787,6 +810,131 @@ mod startup_diagnostic_tests {
         assert_eq!(
             diagnostic_shape(Some(&json!(["secret"])), &mut budget),
             json!({"type":"array"})
+        );
+    }
+}
+
+#[cfg(test)]
+mod plugin_mcp_default_tests {
+    use super::*;
+
+    fn startup(assignment: &str) -> Startup {
+        Startup::parse(&["app-server".into(), "-c".into(), assignment.into()]).unwrap()
+    }
+
+    #[test]
+    fn omitted_plugin_server_enablement_accepts_only_the_native_true_default() {
+        for plugins in [
+            json!({}),
+            json!({"example":{}}),
+            json!({"example":{"mcp_servers":{}}}),
+            json!({"example":{"mcp_servers":{"server":{}}}}),
+            json!({"example":{"mcp_servers":{"server":{"enabled":true}}}}),
+        ] {
+            let config = json!({"config":{"plugins":plugins}});
+            let before = config.clone();
+            startup("plugins.example.mcp_servers.server.enabled=true")
+                .check(&config)
+                .unwrap();
+            assert_eq!(config, before);
+            assert!(startup("plugins.example.mcp_servers.server.enabled=false")
+                .check(&config)
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn inline_tables_observe_the_same_narrow_default() {
+        let config = json!({"config":{}});
+        for assignment in [
+            "plugins={example={mcp_servers={server={enabled=true}}}}",
+            "plugins.example={mcp_servers={server={enabled=true}}}",
+            "plugins.example.mcp_servers={server={enabled=true}}",
+            "plugins.example.mcp_servers.server={enabled=true}",
+        ] {
+            startup(assignment).check(&config).unwrap();
+        }
+        for assignment in [
+            "plugins={example={mcp_servers={server={enabled=true,enabled_tools=[]}}}}",
+            "plugins={example={enabled=true,mcp_servers={server={enabled=true}}}}",
+            "plugins={example={mcp_servers={server={enabled=true},unknown={}}}}",
+            "plugins={}",
+        ] {
+            assert_eq!(
+                startup(assignment).check(&config).unwrap_err().message,
+                "PROXY_STARTUP_PLUGINS_MISSING"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_server_disablement_is_never_replaced_by_a_default() {
+        let config =
+            json!({"config":{"plugins":{"example":{"mcp_servers":{"server":{"enabled":false}}}}}});
+        for assignment in [
+            "plugins.example.mcp_servers.server.enabled=true",
+            "plugins={example={mcp_servers={server={enabled=true}}}}",
+        ] {
+            assert_eq!(
+                startup(assignment).check(&config).unwrap_err().message,
+                "PROXY_STARTUP_PLUGINS_VALUE"
+            );
+        }
+        startup("plugins.example.mcp_servers.server.enabled=false")
+            .check(&config)
+            .unwrap();
+    }
+
+    #[test]
+    fn malformed_values_and_ancestors_still_reject() {
+        for malformed in [json!(null), json!(false), json!("true"), json!([])] {
+            for plugins in [
+                malformed.clone(),
+                json!({"example":malformed}),
+                json!({"example":{"mcp_servers":malformed}}),
+                json!({"example":{"mcp_servers":{"server":malformed}}}),
+                json!({"example":{"mcp_servers":{"server":{"enabled":malformed}}}}),
+            ] {
+                let config = json!({"config":{"plugins":plugins}});
+                for assignment in [
+                    "plugins.example.mcp_servers.server.enabled=true",
+                    "plugins={example={mcp_servers={server={enabled=true}}}}",
+                ] {
+                    assert!(startup(assignment).check(&config).is_err());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn plugin_activation_global_mcp_and_other_policies_remain_strict() {
+        let config = json!({"config":{}});
+        for assignment in [
+            "plugins.example.enabled=true",
+            "plugins._default.enabled=true",
+            "mcp_servers.server.enabled=true",
+            "plugins.example.mcp_servers.server.tools.tool.enabled=true",
+            "plugins.example.mcp_servers.server.default_tools_approval_mode=\"never\"",
+            "plugins.example.mcp_servers.server.enabled=\"true\"",
+        ] {
+            assert!(startup(assignment).check(&config).is_err());
+        }
+    }
+
+    #[test]
+    fn accepting_a_server_default_does_not_activate_a_disabled_plugin() {
+        let config = json!({"config":{"plugins":{"example":{"enabled":false}}}});
+        let before = config.clone();
+        startup("plugins.example.mcp_servers.server.enabled=true")
+            .check(&config)
+            .unwrap();
+        assert_eq!(config, before);
+        assert_eq!(
+            startup("plugins.example.enabled=true")
+                .check(&config)
+                .unwrap_err()
+                .message,
+            "PROXY_STARTUP_PLUGINS_VALUE"
         );
     }
 }
