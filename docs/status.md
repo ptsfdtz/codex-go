@@ -57,9 +57,9 @@
 
 日常原版桌面的最终共享切换尚未完成。此前日常桌面仍连原运行时，记录的诊断构建为 `0.164.0-dev.agentdeck.6905ece`；它不能作为当前官方包候选的来源证明，也不代表只保留一个原生进程的目标已完成。
 
-Windows 现场报告：Host `0.4.1`、官方运行时 `0.166.0-alpha.1` 的 `codexReady`、`sharedRuntime`、`sandboxVerified` 为 true，但原图标启动的桌面会话在 Web 续聊时返回 `THREAD_IN_USE`；这些字段不能证明桌面已接入。改用共享入口后出现配置比较失败，桌面仍未成功接入。源码已用官方 `experimentalFeature/list` 分页核对 `config/read` 省略的功能标志，并提供原子保存的脱敏 `desktop-startup-diagnostic.json`；启动提示仅确认已请求启动。此前功能标志的 5 项真实运行时验证与诊断落盘验证保留在 `artifacts/official-runtime/desktop-startup-features.json`、`artifacts/plugin-startup-diagnosis/`。
+Windows 现场：Host `0.4.1`、官方运行时 `0.166.0-alpha.1` 的 `codexReady`、`sharedRuntime`、`sandboxVerified` 为 true，但原图标启动的桌面会话在 Web 续聊时返回 `THREAD_IN_USE`；这些字段不能证明桌面已接入。改用共享入口后依次遇到功能标志和插件配置比较失败；用户编译 `dc4ed44` 后，错误转为 `PROXY_ANALYTICS_UNVERIFIED`，桌面仍未成功接入。源码已通过官方 `experimentalFeature/list` 核对省略的功能标志，识别固定版本中插件单 MCP 策略 `enabled=true` 的省略默认值，并提供脱敏启动报告和仅确认请求启动的提示；显式禁用、未知开关、插件整体启用及其他 MCP/审批配置差异仍拒绝。
 
-本次 Windows 诊断确认功能标志一致，缺失的是 `plugins.<插件>.mcp_servers.<服务器>.enabled=true`。已核对官方 `rust-v0.166.0-alpha.1` 的 `PluginMcpServerConfig`，该单服务器策略开关默认为 true；当前源码仅为这一确切字段接受省略的默认 true，点路径及内联表行为一致，不写入原生配置。显式 false、错误类型、请求省略字段为 false、插件整体启用、全局 MCP、工具及审批策略仍严格比较；接受默认值不安装或启用插件，也不改变共享运行时的限制。14 项相关单元测试、严格 Clippy、CLI/代理构建及 Linux x64 官方真实运行时的 9 项隔离代理验证通过，覆盖默认值接受、禁用拒绝和原生配置不变，未调用模型；本批证据为 `artifacts/plugin-startup-diagnosis/native-plugin-defaults.json`。改动处于源码与本地验证阶段，未部署或更新稳定下载；Windows 桌面启动及三端续聊仍待用户实机验收。
+本批源码修复 analytics 默认提示的误判：官方 `AnalyticsConfigToml.enabled` 为 `Option<bool>`，允许省略及 null；桌面的 `--analytics-default-enabled` 沿用已运行所有者的默认值和显式偏好，不改变统计设置。显式 `-c analytics.enabled` 仍严格比较，错误类型仍拒绝。此前真实代理测试显式设置了 `analytics.enabled=false`，未覆盖本次未配置场景，不构成本批验收。18 项相关单元测试、严格 Clippy、CLI/代理构建和 Linux x64 官方运行时的 12 项隔离代理检查通过，覆盖未配置、显式 false/true、桌面组合参数、显式覆盖冲突及配置保持不变；未调用模型，证据为 `artifacts/plugin-startup-diagnosis/native-analytics-{absent,false,true}.json`。改动仅处于源码与本地验证阶段；Windows 桌面启动和共享续聊仍未验收，未部署或更新稳定下载。
 
 Linux 本机曾使用 `local-root-policy-repair-20261027` 修复运行权限，真实终端的普通→完整访问→普通隔离恢复及重启身份保持通过；这是本机修复，未晋升公开下载。macOS 本地 Host、launchd、seatbelt 和本地 HTTPS 安装通过，线上安装/升级及真实模型仍未完成。历史 Linux/ARM64 隔离基线不代替本批候选实测。
 

@@ -367,12 +367,24 @@ impl Startup {
                 ));
             }
         }
-        // An explicit opt-in/out wins over a CLI default. Never turn analytics on.
+        // --analytics-default-enabled is a fallback for a newly started native
+        // process, not an explicit analytics.enabled override. This proxy joins
+        // an existing owner: keep its fallback and preference, including None.
+        // Official AnalyticsConfigToml::enabled is Option<bool>; config/read
+        // may omit the table/field or serialize either as null. Never turn
+        // analytics on or write a preference just to attach another client.
         if self.analytics_default {
+            let analytics = config["config"].get("analytics");
             ensure(
-                config["config"]["analytics"]["enabled"].is_boolean(),
+                match analytics {
+                    None | Some(Value::Null) => true,
+                    Some(Value::Object(table)) => table
+                        .get("enabled")
+                        .is_none_or(|value| value.is_null() || value.is_boolean()),
+                    _ => false,
+                },
                 "PROXY_ANALYTICS_UNVERIFIED",
-                "Shared runtime requires an explicit analytics preference",
+                "Shared runtime analytics preference has an unsupported type",
             )?;
         }
         Ok(())
@@ -810,6 +822,104 @@ mod startup_diagnostic_tests {
         assert_eq!(
             diagnostic_shape(Some(&json!(["secret"])), &mut budget),
             json!({"type":"array"})
+        );
+    }
+}
+
+#[cfg(test)]
+mod analytics_default_tests {
+    use super::*;
+
+    fn startup(overrides: &[&str]) -> Startup {
+        let mut args = vec!["app-server".into(), "--analytics-default-enabled".into()];
+        for assignment in overrides {
+            args.extend(["-c".into(), (*assignment).into()]);
+        }
+        Startup::parse(&args).unwrap()
+    }
+
+    #[test]
+    fn desktop_fallback_preserves_omitted_null_and_explicit_owner_preferences() {
+        for root in [
+            json!({}),
+            json!({"analytics":null}),
+            json!({"analytics":{}}),
+            json!({"analytics":{"enabled":null}}),
+            json!({"analytics":{"enabled":false}}),
+            json!({"analytics":{"enabled":true}}),
+        ] {
+            let config = json!({"config":root});
+            let before = config.clone();
+            startup(&[]).check(&config).unwrap();
+            assert_eq!(config, before);
+        }
+    }
+
+    #[test]
+    fn explicit_analytics_overrides_still_require_matching_owner_config() {
+        for enabled in [true, false] {
+            let assignment = format!("analytics.enabled={enabled}");
+            let request = startup(&[&assignment]);
+            request
+                .check(&json!({"config":{"analytics":{"enabled":enabled}}}))
+                .unwrap();
+            assert_eq!(
+                request
+                    .check(&json!({"config":{"analytics":{"enabled":!enabled}}}))
+                    .unwrap_err()
+                    .message,
+                "PROXY_STARTUP_OTHER_VALUE"
+            );
+            assert_eq!(
+                request.check(&json!({"config":{}})).unwrap_err().message,
+                "PROXY_STARTUP_OTHER_MISSING"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_analytics_preferences_are_not_treated_as_absent() {
+        for analytics in [
+            json!(true),
+            json!("false"),
+            json!([]),
+            json!({"enabled":"false"}),
+            json!({"enabled":0}),
+            json!({"enabled":{}}),
+        ] {
+            assert_eq!(
+                startup(&[])
+                    .check(&json!({"config":{"analytics":analytics}}))
+                    .unwrap_err()
+                    .code,
+                "PROXY_ANALYTICS_UNVERIFIED"
+            );
+        }
+    }
+
+    #[test]
+    fn combined_desktop_defaults_accept_without_weakening_other_checks() {
+        let request = startup(&[
+            "features.shell_tool=true",
+            "plugins.example.mcp_servers.server.enabled=true",
+        ]);
+        let mut config = json!({"config":{"analytics":null,"features":{}}});
+        assert!(missing_startup_features(
+            &request.check(&config).unwrap_err()
+        ));
+        merge_effective_features(
+            &mut config,
+            &json!({"data":[{"name":"shell_tool","enabled":true}]}),
+        )
+        .unwrap();
+        let before = config.clone();
+        request.check(&config).unwrap();
+        assert_eq!(config, before);
+        config["config"]["plugins"] =
+            json!({"example":{"mcp_servers":{"server":{"enabled":false}}}});
+        assert_eq!(
+            request.check(&config).unwrap_err().message,
+            "PROXY_STARTUP_PLUGINS_VALUE"
         );
     }
 }
