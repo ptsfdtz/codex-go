@@ -73,6 +73,7 @@ pub fn describe_profile(
     features["stableTlsIdentity"] = Value::Bool(true);
     features["pairingV2"] = Value::Bool(true);
     features["projectFileBrowser"] = Value::Bool(true);
+    features["sessionMessageImages"] = Value::Bool(true);
     features["projectImagePreview"] = Value::Bool(true);
     features["projectTextPreview"] = Value::Bool(true);
     features["fileReferenceInputs"] = Value::Bool(true);

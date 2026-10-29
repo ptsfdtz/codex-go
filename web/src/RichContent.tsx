@@ -89,7 +89,7 @@ function SavedImage({
           {connection ? '读取图片中…' : '连接电脑后读取图片'}
         </p>
       )}
-      {error && <p className="error">{error}。历史图片不可用时请勿以当前文件替代。</p>}
+      {error && <p className="error">图片暂不可用：{error}</p>}
     </div>
   );
 }
@@ -156,6 +156,7 @@ export function RichContent({
   onFile,
   onAgent,
   images: projectImages,
+  sessionImages = false,
 }: {
   entry: HistoryEntry;
   connection?: Bridge;
@@ -163,8 +164,24 @@ export function RichContent({
   onFile?: (path: string) => void;
   onAgent?: (id: string) => void;
   images?: MessageImageSource;
+  sessionImages?: boolean;
 }) {
   const item = entry.item || {};
+  const messageImages: MessageImageSource | undefined =
+    sessionImages &&
+    connection &&
+    sessionId &&
+    entry.turnId &&
+    item.id &&
+    ['agentMessage', 'assistantMessage'].includes(String(item.type))
+      ? {
+          request: connection.request.bind(connection),
+          projectId: '',
+          root: '',
+          session: { connection, sessionId, turnId: entry.turnId, itemId: String(item.id) },
+        }
+      : projectImages;
+
   const parts = Array.isArray(item.content) ? (item.content as Record<string, unknown>[]) : [];
   const images = parts.flatMap((part, index) =>
     ['localImage', 'image'].includes(String(part.type)) ? [{ part, index }] : [],
@@ -214,7 +231,7 @@ export function RichContent({
             <span>Thinking</span>
             <ChevronRight size={14} />
           </summary>
-          <Markdown text={body} onFile={onFile} images={projectImages} />
+          <Markdown text={body} onFile={onFile} images={messageImages} />
         </details>
       ) : item.type === 'plan' ? (
         <div className="plan-content">
@@ -222,7 +239,7 @@ export function RichContent({
             <ListChecks size={17} />
             计划
           </div>
-          <Markdown text={body} onFile={onFile} images={projectImages} />
+          <Markdown text={body} onFile={onFile} images={messageImages} />
           {Array.isArray(item.plan) && (
             <ul className="plan-steps">
               {(item.plan as { step?: string; status?: string }[]).map((step, index) => (
@@ -235,7 +252,7 @@ export function RichContent({
           )}
         </div>
       ) : (
-        <Markdown text={body} onFile={onFile} images={projectImages} />
+        <Markdown text={body} onFile={onFile} images={messageImages} />
       )}
       {!tool && <FileReferences parts={parts} onFile={onFile} />}
       {!tool && imageContent && <ImageDisclosure>{imageContent}</ImageDisclosure>}

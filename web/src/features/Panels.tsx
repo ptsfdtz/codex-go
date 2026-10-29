@@ -90,17 +90,14 @@ function LoadState({
 function useAction() {
   const pending = useRef(false);
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState(''),
-    [done, setDone] = useState('');
+    [error, setError] = useState('');
   const run = async (fn: () => Promise<unknown>) => {
     if (pending.current) return false;
     pending.current = true;
     setBusy(true);
     setError('');
-    setDone('');
     try {
       await fn();
-      setDone('已完成');
       return true;
     } catch (e) {
       setError(String(e));
@@ -115,18 +112,11 @@ function useAction() {
     run,
     feedback: (
       <MotionPresence>
-        {(error || done) && (
+        {error && (
           <div className="action-feedback" aria-live="polite">
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-            {done && (
-              <p className="muted" role="status">
-                {done}
-              </p>
-            )}
+            <p className="error" role="alert">
+              {error}
+            </p>
           </div>
         )}
       </MotionPresence>
@@ -296,13 +286,6 @@ export function SessionPanel({
       {!safe && <p className="muted">请先停止或核对正在进行的任务，再管理会话。</p>}
       {action.feedback}
       <LoadState {...{ error, loading, reload }} />
-      {value && (
-        <details className="technical-details">
-          <summary>会话信息与活动记录</summary>
-          <DataFields value={value.session} />
-          <pre>{output(value.events)}</pre>
-        </details>
-      )}
     </div>
   );
 }
@@ -939,10 +922,6 @@ export function ConfigurationPanel({
       <LoadState {...{ error, loading, reload }} />
       {value && (
         <>
-          <details>
-            <summary>当前模型、沙盒和配置来源</summary>
-            <DataFields value={value} />
-          </details>
           {supports('modelDefaultsWrite') && (
             <form
               className="panel-stack"
@@ -1087,12 +1066,6 @@ export function RetentionPanel({ request }: { request: Request }) {
   return (
     <div className="panel-stack">
       <LoadState {...{ error, loading, reload }} />
-      {value && (
-        <details>
-          <summary>当前缓存策略</summary>
-          <DataFields value={value} />
-        </details>
-      )}
       <label>
         缓存保留天数
         <input

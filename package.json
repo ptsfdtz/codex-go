@@ -29,6 +29,7 @@
     "test:motion-browser": "node scripts/web/test-motion-browser.mjs",
     "test:performance-browser": "node scripts/web/test-performance-browser.mjs",
     "test:ui-browser": "node scripts/web/test-ui-browser.mjs",
+    "test:project-settings-browser": "node scripts/web/test-project-settings-browser.mjs",
     "test:api-chat-browser": "node scripts/web/test-api-chat-browser.mjs"
   },
   "devDependencies": {

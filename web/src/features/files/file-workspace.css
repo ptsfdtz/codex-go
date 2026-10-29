@@ -421,16 +421,37 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 18px;
+  padding: 0 10px 10px;
 }
-.file-changes-overview h3 {
-  font-size: 15px;
-  margin: 0 0 5px;
-}
-.file-changes-overview h3 small {
-  font-size: 11px;
-  font-weight: 400;
+.file-changes-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  border-bottom: 1px solid var(--border);
   color: var(--muted);
+}
+.file-changes-heading small {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--hover);
+  font-size: 10px;
+  line-height: 18px;
+}
+.file-changes-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: help;
+}
+.file-changes-info:hover,
+.file-changes-info:focus-visible {
+  color: var(--text);
+  background: var(--hover);
 }
 .file-changes-overview > button {
   width: 100%;
@@ -438,7 +459,7 @@
   border: 0;
   border-bottom: 1px solid var(--faint);
   border-radius: 0;
-  padding: 10px 0;
+  padding: 7px 0;
   justify-content: flex-start;
   font-size: 12px;
   text-align: left;

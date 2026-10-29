@@ -59,6 +59,13 @@ const QueuePanel = deferred<React.ComponentProps<typeof import('./features/Panel
 const ProjectsPanel = deferred<
   React.ComponentProps<typeof import('./features/Panels').ProjectsPanel>
 >(() => import('./features/Panels').then((module) => ({ default: module.ProjectsPanel })));
+const ProjectSettings = deferred<
+  React.ComponentProps<typeof import('./features/project-settings/ProjectSettings').ProjectSettings>
+>(() =>
+  import('./features/project-settings/ProjectSettings').then((module) => ({
+    default: module.ProjectSettings,
+  })),
+);
 const ConfigurationPanel = deferred<
   React.ComponentProps<typeof import('./features/Panels').ConfigurationPanel>
 >(() => import('./features/Panels').then((module) => ({ default: module.ConfigurationPanel })));
@@ -319,8 +326,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const [editText, setEditText] = useState('');
   const [editError, setEditError] = useState('');
   const messageActionPending = useRef(false);
-  const [hostFingerprint, setHostFingerprint] = useState(''),
-    [lastSynced, setLastSynced] = useState('');
   const [notification, setNotification] = usePreference(
     'agentdeck.web.notifications',
     false,
@@ -926,7 +931,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       const next = await value.request<Snapshot>('snapshot.get', {});
       if (epoch !== connectionEpoch.current || value !== bridge.current) return;
       setSnapshot(next);
-      setLastSynced(new Date().toISOString());
       const id = sessionRef.current;
       const running = next.turns?.find(
         (turn) =>
@@ -1009,8 +1013,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     if (!sameHost) {
       setCapabilities({});
       setModels([]);
-      setHostFingerprint('');
-      setLastSynced('');
       historyResourceCache.current.clear();
       selectSession(undefined, false);
       setSnapshot({});
@@ -1140,7 +1142,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         if (changesDirectory(packet)) scheduleRefresh(false);
       }
       setHistory(entries, true);
-      if (packets.length) setLastSynced(new Date().toISOString());
     }
 
     try {
@@ -1161,7 +1162,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             !/^[A-Za-z0-9_-]{43}$/.test(grant.credential)
           )
             throw new Error('电脑授权信息无效，请更新 Host');
-          setHostFingerprint(grant.fingerprint);
           const value = new Bridge(scope);
           context.own(() => {
             if (flushTimer !== undefined) clearTimeout(flushTimer);
@@ -1225,7 +1225,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           configuration = { caps, models: modelList.models || [] };
           if (!context.current() || epoch !== connectionEpoch.current) return;
           setSnapshot(snap);
-          setLastSynced(new Date().toISOString());
           setCapabilities(configuration.caps);
           setModels(configuration.models);
           setReceiptBlocked(value.awaitingReceipt);
@@ -2205,6 +2204,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                                   }
                                 : undefined
                             }
+                            sessionImages={connected && supports('sessionMessageImages')}
                             connection={bridge.current}
                             sessionId={session || ''}
                             onFile={supports('projectTextPreview') ? openFile : undefined}
@@ -2590,6 +2590,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         }
                       : undefined
                   }
+                  sessionImages={connected && supports('sessionMessageImages')}
                   connection={bridge.current}
                   sessionId={session || ''}
                 />
@@ -2794,6 +2795,21 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           <strong>同步电脑已有对话</strong>
                         </span>
                       </button>
+                      <ProjectSettings
+                        key={host?.hostId || 'disconnected'}
+                        request={request}
+                        projects={projects}
+                        connected={connected}
+                        hostName={host ? hostName(host) : undefined}
+                        currentProject={selectedProject}
+                        canSync={supports('codexWorkspaceDiscovery')}
+                        onChanged={() => refresh()}
+                        onProject={(id) => {
+                          setSelectedProject(id);
+                          selectSession(undefined);
+                          setPanel('');
+                        }}
+                      />
                     </div>
                   )}
                   {settingsTab === 'computers' && (
@@ -2855,20 +2871,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         ))}
                       </MotionList>
                       {!hosts.length && <p>尚未绑定电脑。请先在电脑端登录同一账户。</p>}
-                      {host && (
-                        <details className="technical-details">
-                          <summary>连接详情</summary>
-                          <DataFields
-                            value={{
-                              hostId: host.hostId,
-                              fingerprint: hostFingerprint,
-                              lastSynced,
-                              codexVersion: capabilities.codexVersion,
-                              status: connectionLabels[connectionState],
-                            }}
-                          />
-                        </details>
-                      )}
                       {host && (
                         <HostNameEditor
                           key={JSON.stringify([scope, host.hostId])}

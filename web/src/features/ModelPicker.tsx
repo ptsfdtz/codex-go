@@ -78,7 +78,7 @@ export function ModelPicker({
         id={id}
         ref={popup}
         popover="auto"
-        className="model-picker-popup"
+        className={`model-picker-popup${effort === 'ultra' ? ' is-ultra' : ''}`}
         aria-label="模型与思维强度"
       >
         <div className="model-picker-view">
@@ -120,7 +120,9 @@ export function ModelPicker({
           </Collapse>
 
           <div className="effort-picker-heading">
-            <strong>思维强度 · {effort ? effortLabel(effort) : '默认'}</strong>
+            <strong>
+              思维强度 · <span>{effort ? effortLabel(effort) : '默认'}</span>
+            </strong>
             <button
               className="icon-button"
               title="重置思维强度"
@@ -139,7 +141,9 @@ export function ModelPicker({
                 style={{
                   width: `calc(${(index / (efforts.length - 1)) * 100}% + ${14 - (index / (efforts.length - 1)) * 28}px)`,
                 }}
-              />
+              >
+                <span className="effort-ultra-glow" />
+              </div>
               <div className="effort-ticks" aria-hidden="true">
                 {efforts.map((e) => (
                   <i key={e} />

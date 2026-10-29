@@ -55,6 +55,22 @@ export AGENTDECK_PORT=49531
 
 ## 当前实现与交付
 
+- 2026-10-29 本批 Web：用户确认仅更新 Web，直接上线，跨平台真实验收未完成。版本 `5f82885406428f1bb2ccf9bb235055927429eb4e23d90af3d6a1a40cd4d93274`；类型、ESLint、格式、生产构建、23 项定向单元测试及项目设置/会话图片受控浏览器回归通过。Host 定向测试与严格 Clippy 通过，Host 改动仅提交，不安装；云端程序和稳定下载指针不更新。公网校验结果待部署后记录。
+
+- Web 思维强度滑块（本地未发布）：填充与滑块同步缓动，拖动时缩短跟随延迟；Ultra 使用蓝紫渐变和轻微星光，标题沿用原有单行“思维强度 · Ultra”，仅 Ultra 文字显示紫色，遵循减少动态效果设置。类型/生产构建、定向 ESLint/格式、10 项模型偏好测试及受控浏览器键盘档位/重置/Ultra/减少动态效果与 320/390px 布局检查通过；未做真机验收；此前环境阻塞已解除，本次仅部署 Web。
+
+- 2026-10-29 Web UI 已部署：版本 `321e9c9fdaf752d26eb92d509c421152dd2d3055a5372445657b711d251785e0`，包含排队精简、管理反馈清理、Git 状态字母及标题左侧隐藏按钮占位修复。Web 类型/ESLint/格式/生产构建、7 项文件工作区测试、受控浏览器排队/会话/设置/图片/320–390px 检查，以及公网全部文件 SHA-256 和健康检查通过；未做跨平台真实模型/真机验收。按用户要求补发不新增备份，上传临时包已清理，云端与 Host 未更新、云端进程未重启。
+
+- Web 文件标签 Git 标记（已部署）：文件名右侧按实际 Git 状态显示 M/D/U/A/R/C 等字母，文件与差异视图一致，无变更不显示标记；移除“差异”文字。Web 类型、定向 ESLint/格式及 7 项文件工作区检查通过；未做真实 Host/浏览器验收。
+
+- Codex 会话图片（本地未发布）：`imageView`、生成图片和正文 Markdown 图片按原生会话记录读取，不再要求图片位于项目目录，支持 `.codex`、临时目录与项目相对路径；正文路径须匹配原生消息中的图片链接，保留会话身份、图片格式/大小、分块校验与资源变化检查。新增 `sessionMessageImages` 能力及 `sessions.image` 可选 `sourcePath`，旧请求与 Rust 公开入口不变，无数据库迁移；旧 Host 继续项目预览。Rust 定向测试、严格 Clippy、Web 类型/ESLint/构建及受控图片浏览器回归通过；未做真实 Host/真机验收，需更新 Host 与 Web。
+
+- Web 管理与设置精简（已部署）：移除会话活动记录、配置来源、原始缓存策略和连接详情等附加展示；各功能面板、电脑名称及文件复制/引用不再新增成功提示行，保留错误、审批依据和实际配置项。Web 类型/生产构建、定向 ESLint/格式与受控浏览器会话保存、失败提示及 320/390px 布局检查通过；未做真实 Host/真机验收，待实际使用确认。
+
+- Web 排队消息（已部署）：沿用 Plan/Goal 的中性色与圆角，消息默认单行、点击展开，附件与发送限制收为图标提示，结果待确认仍显示文字。Web 生产构建、定向 ESLint/格式及受控浏览器桌面、320/390px 布局与展开检查通过；未做真实 Host/真机验收，待实际使用确认。
+
+- 分支比较紧凑界面（本地未发布）：移除重复标题，分支选择及图标操作合为工具栏，文件查找并入路径栏，收紧文件行与摘要间距；桌面工具栏 53px，手机 90px。工作区变更同样移除大标题和常驻说明，使用图标、数量及悬停提示，摘要栏 34px，收紧列表行；320/390/788px 受控布局检查通过。Web 类型/ESLint/生产构建及受控浏览器 320/390/788/1280px、分支交换、方式切换与文件查找通过；截图见 `artifacts/branch-comparison/`，未做真实 Host/真机验收。
+
 - Web 顶部品牌（已部署）：侧栏展开显示 AgentDeck，折叠后顶部不显示品牌；移除 Codex / AgentChat 切换和右上角新建会话按钮。类型检查、ESLint、生产构建及受控浏览器 320/390px 与桌面回归通过；截图见 `artifacts/ui-refresh/header-*.png`。本次沿用用户的直接部署及跨平台验收豁免，公网文件 SHA-256 与健康检查通过；Web 版本 `d3938ef2e9e08dae5ce3be1a2364d0c678bbc3ed1ae208a8de0eb3963592fb0c`，回退脚本 `/var/backups/agentdeck/web-collapsed-brand-20261028T162004Z/rollback.sh`。
 
 - Web 侧栏桌面式交互（本地未发布）：原生顺序的项目下直接展示对话，最近对话跨项目按更新时间排列；项目与最近列表独立折叠，长列表可展开，选中及悬停行提供置顶/归档，右键或 Shift+F10 打开管理菜单，触屏保留管理按钮。归档确认、失败保留、断线/运行中/未知结果保护沿用现有接口。Web 类型/ESLint/生产构建及受控浏览器分组、切换、置顶、归档恢复、菜单键盘和 320/390px 触屏验证通过；未做真实 Host 或真机验收。
@@ -71,6 +87,7 @@ export AGENTDECK_PORT=49531
 - 正式入口：[Web/PWA](https://agent.ptsfdtz.top/)、[管理端](https://agent.ptsfdtz.top/admin)；备用站点：[GitHub Pages](https://ptsfdtz.github.io/codex-go/)。
 - 发布 `release-20261027-2`，Host 稳定版本 `host-b9817e05cbca6a3058efd4c698ffec0828fb1da3`：Windows x64、Linux x64、Linux ARM64 及 SHA-256/平台清单；Web 构建 `eeeb2b690f6a35bca9c65e6368e6965e61bd315e7c7e000da925e3f6427d3ebd`。管理页随云端二进制更新。
 - Web 项目名称与顺序仅取自原生 `project/list`；会话跟随原生交互目录，完整同步隐藏失效索引，不删除本地历史或撤销授权。归档不在普通列表展示，可在归档视图跨项目读历史；已删除会话不显示。保留运行中任务、审批和未知结果保护。
+- 项目自动登记（本地通过，未发布）：Host 自动读取 Codex 已信任目录及会话工作目录，将有效授权但缺少原生项目的目录通过官方 `project/create` 补登记，再读取原生名称与顺序；无需额外执行 `projects add`。普通聊天、主动移除和目录身份失效的项目不补登记。27 项库测试、严格 Clippy 及隔离官方 `0.166.0-alpha.1` 真实接口的信任目录发现、旧授权补登记、重复同步和撤销保留通过；未更新日常 Host，真实 Web 自动出现待验收。定向测试：`cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests`；真实接口验收需设置 `AGENTDECK_TEST_OFFICIAL_CODEX` 为已验证的官方可执行文件绝对路径，并追加 `-- --include-ignored`，不调用模型。
 - Host、CLI、原版桌面的本地 Codex 模式及 Web 可连接同一认证原生运行时，沿用 UUID 与权威历史，不复制或改写桌面私有数据库。Codex 最低可识别 `0.159.2`，接受兼容的新版本，Windows 功能不兼容时自动使用经验证的官方兼容运行时；优先复用现有程序，显式路径配置优先，私有副本仅作最后回退。最低版本准入不替代协议与沙箱检查。
 - 安装版/开发版默认共用账户、电脑身份、证书、项目、附件和运行时配置；显式 `AGENTDECK_DATA_DIR` 才隔离。开发启动复用运行中 Host，空闲后显式 `--restart` 才切换程序。
 - 附件统一存于 Host 附件库，SHA-256 去重并保留会话授权引用；历史项目附件继续按原路径读取。保留审批和只读访问边界，不开放整个状态目录。
@@ -102,6 +119,8 @@ Markdown、设置面板、AgentChat、文件工作区按需加载，失败提供
 复现命令：开发服务器启动后，设置 `PLAYWRIGHT_MODULE` 与 `COMPOSER_TEST_ORIGIN`，运行 `pnpm test:ui-browser` / `pnpm test:motion-browser`；生产 preview 启动后运行 `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认 `http://127.0.0.1:1599`，可用 `PERF_BASELINE_ORIGIN` 指定对照站。测量应使用独立、固定的构建目录，避免并行构建替换资源。性能/动效源码回滚补丁为 `artifacts/performance/source-changes.patch`；先执行 `git apply --reverse --check` 检查，再定向回滚，不恢复整个工作区。
 
 Web 交互与设置精简（本地，未部署）：保留现有配色，设置改为文字分类与分组行，手机全屏显示；清理重复说明，保留操作后果和必要状态。设置进入草稿支持返回，确认窗口使用紧凑尺寸与明确操作；AgentChat 弹窗补齐退出动效，拖选文字到遮罩不再误关闭。默认输出选项使用中文标签，协议值不变。类型/生产构建、Web ESLint、26 项定向单元测试及输入区、API 聊天、图片、队列、文件引用、选中文字引用浏览器回归通过；新增 `pnpm test:ui-browser` 验证设置导航、主题、返回、320/390px、焦点恢复、遮罩拖选与 Reduced Motion（复用 `PLAYWRIGHT_MODULE`、`COMPOSER_TEST_ORIGIN`）。截图在 `artifacts/ui-refresh/`；测试使用受控接口，真实 Host、供应商及手机真机未验收。
+
+设置中的项目管理（Web 本地通过，未部署）：在“对话”标签展示当前电脑的项目名称、路径和当前标记，支持打开、同步、超过五个项目时搜索及确认移除；沿用真实项目接口，移除撤销 Web 访问并保留电脑文件和 Codex 会话。断线、旧 Host、操作等待及失败提示沿用连接边界。类型、ESLint、生产构建及 `pnpm test:project-settings-browser` 的受控 Chromium 设置入口、搜索、同步防重、移除失败/重试/焦点、深浅主题和 320/390px 检查通过；截图在 `artifacts/project-settings/`，测试复用上述 Playwright 环境变量。真实 Host 整链路和手机真机未验收，仅需更新 Web。
 
 Host 并发上限调整（本地通过，未部署）：普通发送、手动队列启动、编辑重发、启动信号量及能力声明统一使用 `server/service.rs` 的 `MAX_CONCURRENT_TASKS = 5`；队列启动在已有 5 个任务时拒绝新增。Rust 格式与全目标严格 Clippy 通过，未运行真实五任务并发；需更新 Host 后生效。原生队列自动续跑及外部 CLI/桌面任务仍未统一纳入本地并发计数。
 

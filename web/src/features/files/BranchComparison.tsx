@@ -57,6 +57,7 @@ export function BranchComparison({
   const fileFilter = useRef<HTMLInputElement>(null);
   const [diff, setDiff] = useState<Diff>();
   const [retry, setRetry] = useState(0);
+  const [findToken, setFindToken] = useState(0);
   const [loading, setLoading] = useState(false),
     [diffLoading, setDiffLoading] = useState(false);
   const [error, setError] = useState(''),
@@ -208,40 +209,14 @@ export function BranchComparison({
           void compare();
         }}
       >
-        <div className="branch-heading">
-          <span>
-            <GitCompareArrows size={16} strokeWidth={1.6} />
-            比较分支
-          </span>
-          <div>
-            <details className="branch-help" ref={help}>
-              <summary aria-label="比较说明" title="比较说明">
-                <Info size={16} />
-              </summary>
-              <div>
-                分支改动：目标分支从共同祖先以来的改动。
-                <br />
-                两端差异：比较两个分支的最终内容。
-                <hr />
-                仅比较本机已有的提交，不含未提交改动；远程分支使用本地记录，不自动拉取。
-              </div>
-            </details>
-            <IconButton
-              icon={RefreshCw}
-              label="刷新分支"
-              disabled={loading}
-              onClick={() => setRevision((v) => v + 1)}
-            />
-          </div>
-        </div>
         <div className="branch-selectors">
           <label className="branch-select-field">
-            <span>基准</span>
+            <span className="branch-sr-only">基准</span>
             <div>
               <GitBranch size={14} />
               <select
                 aria-label="基准分支"
-                title={label(base)}
+                title={`基准分支：${label(base)}`}
                 value={base}
                 disabled={loading || !branches}
                 onChange={(e) => setBase(e.target.value)}
@@ -265,12 +240,12 @@ export function BranchComparison({
             }}
           />
           <label className="branch-select-field">
-            <span>目标</span>
+            <span className="branch-sr-only">目标</span>
             <div>
               <GitBranch size={14} />
               <select
                 aria-label="目标分支"
-                title={label(head)}
+                title={`目标分支：${label(head)}`}
                 value={head}
                 disabled={loading || !branches}
                 onChange={(e) => setHead(e.target.value)}
@@ -284,8 +259,21 @@ export function BranchComparison({
               </select>
             </div>
           </label>
+          <button
+            className="branch-compare-button"
+            type="submit"
+            aria-label={loading ? '正在比较' : '比较分支'}
+            title="比较分支"
+            disabled={loading || !branches || !base}
+          >
+            {loading ? (
+              <LoaderCircle className="pending-icon" size={14} />
+            ) : (
+              <GitCompareArrows size={14} />
+            )}
+          </button>
         </div>
-        <div className="branch-options">
+        <div className="branch-heading">
           <fieldset className="branch-modes" aria-label="比较方式">
             <legend>比较方式</legend>
             <label title="目标分支从共同祖先以来的改动">
@@ -297,7 +285,10 @@ export function BranchComparison({
                 disabled={loading}
                 onChange={() => setMode('merge-base')}
               />
-              <span>分支改动</span>
+              <span>
+                <GitBranch size={15} />
+                <span className="branch-sr-only">分支改动</span>
+              </span>
             </label>
             <label title="两个分支的最终内容差异">
               <input
@@ -308,21 +299,32 @@ export function BranchComparison({
                 disabled={loading}
                 onChange={() => setMode('direct')}
               />
-              <span>两端差异</span>
+              <span>
+                <GitCompareArrows size={15} />
+                <span className="branch-sr-only">两端差异</span>
+              </span>
             </label>
           </fieldset>
-          <button
-            className="branch-compare-button"
-            type="submit"
-            disabled={loading || !branches || !base}
-          >
-            {loading ? (
-              <LoaderCircle className="pending-icon" size={14} />
-            ) : (
-              <GitCompareArrows size={14} />
-            )}
-            {loading ? '读取中' : '比较'}
-          </button>
+          <div>
+            <details className="branch-help" ref={help}>
+              <summary aria-label="比较说明" title="比较说明">
+                <Info size={16} />
+              </summary>
+              <div>
+                分支改动：目标分支从共同祖先以来的改动。
+                <br />
+                两端差异：比较两个分支的最终内容。
+                <hr />
+                仅比较本机已有的提交，不含未提交改动；远程分支使用本地记录，不自动拉取。
+              </div>
+            </details>
+            <IconButton
+              icon={RefreshCw}
+              label="刷新分支"
+              disabled={loading}
+              onClick={() => setRevision((v) => v + 1)}
+            />
+          </div>
         </div>
       </form>
       {branches?.truncated && <p className="branch-notice">分支列表已达上限，部分分支未显示。</p>}
@@ -445,6 +447,12 @@ export function BranchComparison({
                   </span>
                   {file && (
                     <div className="branch-file-navigation">
+                      <IconButton
+                        icon={Search}
+                        label="文件内查找"
+                        disabled={!diff || diff.binary}
+                        onClick={() => setFindToken((value) => value + 1)}
+                      />
                       <span>
                         {index + 1} / {result.files.length}
                       </span>
@@ -490,7 +498,7 @@ export function BranchComparison({
                         path={file?.path || ''}
                         text={diff.text}
                         diff
-                        diffLabel="分支差异"
+                        findToken={findToken}
                         onScroll={() => {}}
                       />
                     )}

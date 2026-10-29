@@ -349,14 +349,29 @@ button:disabled {
   }
 }
 .effort-fill {
-  transition: width var(--motion-fast) var(--ease-out);
+  transition: width 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .effort-thumb {
-  transition: transform var(--motion-fast) var(--ease-out);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .effort-slider:active .effort-fill,
 .effort-slider:active .effort-thumb {
-  transition: none;
+  transition-duration: 80ms;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .is-ultra .effort-ultra-glow::after {
+    animation: effort-starlight 3s ease-in-out infinite alternate;
+  }
+}
+@keyframes effort-starlight {
+  from {
+    opacity: 0.4;
+    transform: translateX(-2px);
+  }
+  to {
+    opacity: 0.95;
+    transform: translateX(2px);
+  }
 }
 
 /* Shared state changes: content fades, while layout changes stay local to
@@ -639,7 +654,7 @@ button[data-motion-item]:active:not(:disabled) {
 @supports (interpolate-size: allow-keywords) {
   .queued-text {
     interpolate-size: allow-keywords;
-    height: 2lh;
+    height: 1lh;
     transition:
       height var(--motion-panel) var(--ease-out),
       background-color var(--motion-fast) ease;

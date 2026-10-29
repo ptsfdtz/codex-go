@@ -55,6 +55,7 @@ export async function readHistoryImage(
   itemId: string,
   contentIndex: number,
   current: () => boolean,
+  sourcePath?: string,
 ): Promise<Blob> {
   let offset = 0,
     hash = '',
@@ -67,6 +68,7 @@ export async function readHistoryImage(
       turnId,
       itemId,
       contentIndex,
+      ...(sourcePath ? { sourcePath } : {}),
       offset,
       ...(hash ? { sha256: hash } : {}),
     });

@@ -710,13 +710,14 @@ impl Core {
             }
             "sessions.image" => tokio::time::timeout(
                 Duration::from_secs(30),
-                self.session_image(
+                self.session_image_source(
                     s(p, "sessionId"),
                     s(p, "turnId"),
                     s(p, "itemId"),
                     p["contentIndex"].as_u64().unwrap_or(0) as usize,
                     p["offset"].as_u64().unwrap() as usize,
                     p["sha256"].as_str(),
+                    p["sourcePath"].as_str(),
                 ),
             )
             .await

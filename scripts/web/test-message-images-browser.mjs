@@ -172,7 +172,7 @@ try {
     window.text = '![Offline](artifacts/preview.png)';
     window.render();
   });
-  await page.getByText('连接支持图片预览的项目电脑后查看').waitFor();
+  await page.getByText('连接电脑后查看图片').waitFor();
   assert.equal(await page.evaluate(() => window.calls.length), before);
   // Expanded historical attachments use the same viewer as Markdown images.
   const tabs = browser.contexts()[0].pages().length;
@@ -255,11 +255,61 @@ try {
   await openSaved.click();
   await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });
+  // Codex messages use their native session identity, including paths outside the project.
+  for (const path of ['/tmp/queue-ui-current.png', '/home/user/.codex/images/result.png']) {
+    const before = await page.evaluate(() => window.calls.length);
+    await page.evaluate(async (path) => {
+      const React = (await import('/node_modules/.vite/deps/react.js')).default;
+      const { RichContent } = await import('/src/RichContent.tsx');
+      window.root.render(
+        React.createElement(RichContent, {
+          key: path,
+          sessionImages: true,
+          connection: window.savedConnection,
+          sessionId: 'codex-session',
+          entry: {
+            turnId: 'codex-turn',
+            item: {
+              id: 'codex-message',
+              type: 'agentMessage',
+              text: `![Codex preview](${path})`,
+            },
+          },
+        }),
+      );
+    }, path);
+    await page.getByRole('button', { name: '放大图片 Codex preview', exact: true }).waitFor();
+    assert(
+      await page.evaluate(
+        ({ before, path }) => {
+          const calls = window.calls.slice(before);
+          return (
+            calls.length > 1 &&
+            calls.every(
+              (c) =>
+                c.action === 'sessions.image' &&
+                c.sessionId === 'codex-session' &&
+                c.turnId === 'codex-turn' &&
+                c.itemId === 'codex-message' &&
+                c.sourcePath === path,
+            )
+          );
+        },
+        { before, path },
+      ),
+    );
+    await page
+      .locator('.rich-content')
+      .first()
+      .screenshot({
+        path: out + (path.startsWith('/tmp') ? 'session-tmp.png' : 'session-codex.png'),
+      });
+  }
   await page.evaluate(() => window.root.unmount());
   await page.waitForFunction(() => window.liveURLs.size === 0);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: inline Markdown images, multichunk hash validation, zoom, no repeat reads on rerender, mobile bounds, path authorization, remote no-fetch, retry, corrupt hash, context cancellation, historical attachment in-page preview (no new tab), Escape/focus restore, close button and URL cleanup. Controlled RPC responses; no real Host.',
+    'PASS: inline Markdown images, multichunk hash validation, zoom, no repeat reads on rerender, mobile bounds, path authorization, remote no-fetch, retry, corrupt hash, context cancellation, Codex session Markdown images outside project (.codex and /tmp), historical attachment in-page preview (no new tab), Escape/focus restore, close button and URL cleanup. Controlled RPC responses; no real Host.',
   );
 } finally {
   await browser.close();

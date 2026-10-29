@@ -7,6 +7,7 @@ import {
   FileDiff,
   FolderOpen,
   GitCompareArrows,
+  Info,
   ListTree,
   Maximize2,
   Minimize2,
@@ -104,6 +105,7 @@ export function FileWorkspace({
   const active = workspace.tabs.find((tab) => tab.path === workspace.active);
   const previewMotion = useContentMotion(`${workspace.active}:${active?.view || ''}`);
   const changes = git.value?.files || [];
+  const gitStatusByPath = new Map(changes.map((file) => [file.path, gitLabel(file)]));
   const changed = changes.find((file) => file.path === active?.path);
   const image = !!active && active.view === 'file' && isProjectImage(active.path);
   const scrollKey = `${active?.view}:${active?.path}`;
@@ -278,13 +280,12 @@ export function FileWorkspace({
     delete directoryRef.current[path];
     setExpanded((items) => new Set(items));
   }
-  async function action(run: () => Promise<void>, message: string) {
+  async function action(run: () => Promise<void>) {
     if (actionBusy) return;
     setActionBusy(true);
     setFeedback('');
     try {
       await run();
-      setFeedback(message);
     } catch (error) {
       setFeedback(String(error));
     } finally {
@@ -357,7 +358,11 @@ export function FileWorkspace({
                     <FileIcon path={tab.path} />
                   )}
                   <span>{tab.view === 'changes' ? '全部变更' : tab.path.split('/').pop()}</span>
-                  {tab.view === 'diff' && <small>差异</small>}
+                  {gitStatusByPath.has(tab.path) && (
+                    <small className={`file-git-status status-${gitStatusByPath.get(tab.path)}`}>
+                      {gitStatusByPath.get(tab.path)}
+                    </small>
+                  )}
                 </button>
                 <button
                   className="file-tab-close"
@@ -398,12 +403,7 @@ export function FileWorkspace({
                   icon={Copy}
                   label="复制文件内容"
                   disabled={actionBusy}
-                  onClick={() =>
-                    void action(
-                      () => navigator.clipboard.writeText(content.text!),
-                      '文件内容已复制',
-                    )
-                  }
+                  onClick={() => void action(() => navigator.clipboard.writeText(content.text!))}
                 />
               )}
               {active.view === 'file' && !content.loading && !content.error && (
@@ -419,7 +419,7 @@ export function FileWorkspace({
                         path: active.path,
                       });
                       if (version === generation.current) onReference(result);
-                    }, '已引用到对话')
+                    })
                   }
                 />
               )}
@@ -485,10 +485,22 @@ export function FileWorkspace({
               </div>
             ) : active.view === 'changes' ? (
               <div className="file-changes-overview">
-                <h3>
-                  工作区变更 <small>{changes.length}</small>
-                </h3>
-                <p className="muted">当前电脑的实际工作区改动，可能包含其他应用的修改。</p>
+                <div
+                  className="file-changes-heading"
+                  aria-label={`工作区变更，${changes.length} 个文件`}
+                >
+                  <FileDiff size={15} aria-hidden="true" />
+                  <small>{changes.length}</small>
+                  <span
+                    className="file-changes-info"
+                    tabIndex={0}
+                    role="img"
+                    aria-label="当前电脑的实际工作区改动，可能包含其他应用的修改。"
+                    title="当前电脑的实际工作区改动，可能包含其他应用的修改。"
+                  >
+                    <Info size={15} aria-hidden="true" />
+                  </span>
+                </div>
                 {git.loading && <p role="status">正在读取变更…</p>}
                 {git.error && (
                   <p className="error" role="alert">

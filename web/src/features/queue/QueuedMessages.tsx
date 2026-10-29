@@ -184,18 +184,24 @@ export function QueuedMessages({
                 >
                   {text || '资源消息'}
                 </button>
-                <FileReferences parts={entry.input} />
-                {resources && (
-                  <span className="queued-resource">
-                    <Paperclip size={12} />
-                    包含附件、技能或引用
-                  </span>
-                )}
-                {reason && <small className="queued-reason">{reason}</small>}
+                {expanded.includes(entry.id) && <FileReferences parts={entry.input} />}
+                {entry.deliveryState && <small className="queued-reason">{reason}</small>}
               </div>
               <div className="queued-actions">
+                {resources && (
+                  <span
+                    className="queued-resource"
+                    title="包含附件、技能或引用"
+                    aria-label="包含附件、技能或引用"
+                    role="img"
+                  >
+                    <Paperclip size={14} />
+                  </span>
+                )}
                 <span
                   title={reason || (active ? '补充到当前任务，不停止运行' : '立即发送这条消息')}
+                  tabIndex={reason ? 0 : undefined}
+                  aria-label={reason || undefined}
                 >
                   <IconButton
                     icon={ArrowUp}

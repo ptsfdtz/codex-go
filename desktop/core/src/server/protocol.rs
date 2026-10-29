@@ -102,7 +102,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "sessions.goal" => (&["sessionId"], &[]),
         "sessions.image" => (
             &["sessionId", "turnId", "itemId", "offset"],
-            &["contentIndex", "sha256"],
+            &["contentIndex", "sha256", "sourcePath"],
         ),
         "sessions.observe" => (&["sessionId"], &[]),
         "sessions.history" => (&["sessionId"], &["cursor", "limit", "sortDirection"]),
@@ -415,6 +415,9 @@ pub fn parse(v: Value) -> Result<Request> {
         )?;
     }
     if ["sessions.image", "files.readImage"].contains(&r.action.as_str()) {
+        if p.get("sourcePath").is_some() {
+            text(p, "sourcePath", 1, 4096)?;
+        }
         integer(p, "offset", 0, 8 * 1024 * 1024)?;
         if p.get("contentIndex").is_some() {
             integer(p, "contentIndex", 0, 255)?;
