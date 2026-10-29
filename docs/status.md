@@ -61,6 +61,8 @@ Windows 现场：Host `0.4.1`、官方运行时 `0.166.0-alpha.1` 的 `codexRead
 
 本批源码修复 analytics 默认提示的误判：官方 `AnalyticsConfigToml.enabled` 为 `Option<bool>`，允许省略及 null；桌面的 `--analytics-default-enabled` 沿用已运行所有者的默认值和显式偏好，不改变统计设置。显式 `-c analytics.enabled` 仍严格比较，错误类型仍拒绝。此前真实代理测试显式设置了 `analytics.enabled=false`，未覆盖本次未配置场景，不构成本批验收。18 项相关单元测试、严格 Clippy、CLI/代理构建和 Linux x64 官方运行时的 12 项隔离代理检查通过，覆盖未配置、显式 false/true、桌面组合参数、显式覆盖冲突及配置保持不变；未调用模型，证据为 `artifacts/plugin-startup-diagnosis/native-analytics-{absent,false,true}.json`。改动仅处于源码与本地验证阶段；Windows 桌面启动和共享续聊仍未验收，未部署或更新稳定下载。
 
+Windows 实测在 `1c3f97f` 后桌面已能启动且不报错，但桌面新建的 `appServer` 对话未出现在 AgentDeck 侧栏。原因是 Host 索引同步请求了 `appServer`，入库过滤却只保留 `cli`/`vscode`。源码已补齐 `appServer`，仍保留非临时会话、授权项目和规范化工作目录校验；1 项定向索引测试、严格 Clippy 和 CLI/代理构建通过。待 Windows 拉取本批提交后确认新桌面对话可见及 Web 续聊。
+
 Linux 本机曾使用 `local-root-policy-repair-20261027` 修复运行权限，真实终端的普通→完整访问→普通隔离恢复及重启身份保持通过；这是本机修复，未晋升公开下载。macOS 本地 Host、launchd、seatbelt 和本地 HTTPS 安装通过，线上安装/升级及真实模型仍未完成。历史 Linux/ARM64 隔离基线不代替本批候选实测。
 
 `0.4.0` 首轮候选 `8e7552a` 因 Windows 共享运行时的 PowerShell PATH 问题未晋升；源码修复后必须重新构建验收。临时 ARM64 workflow 不自动生成通过记录，结束后须清理凭据和测试账户。
