@@ -377,6 +377,75 @@ impl Startup {
         }
         Ok(())
     }
+
+    fn diagnostic(&self, config: &Value, error: &Error) -> Value {
+        let mut budget = 256;
+        let overrides = self
+            .overrides
+            .iter()
+            .map(|(path, expected)| {
+                let mut actual = Some(&config["config"]);
+                for key in path {
+                    actual = actual.and_then(|value| value.get(key));
+                }
+                json!({
+                    "path": path.iter().map(|key| diagnostic_key(key)).collect::<Vec<_>>(),
+                    "expected": diagnostic_shape(Some(expected), &mut budget),
+                    "actual": diagnostic_shape(actual, &mut budget)
+                })
+            })
+            .collect::<Vec<_>>();
+        json!({"formatVersion":1,"createdAt":crate::now(),"error":startup_diagnostic(error),"overrides":overrides})
+    }
+
+    fn save_diagnostic(&self, config: &Value, error: &Error) -> Result<()> {
+        use std::io::Write;
+        let directory = crate::host::data_dir()?;
+        crate::security::restrict_directory(&directory)?;
+        let mut file = tempfile::NamedTempFile::new_in(&directory)?;
+        serde_json::to_writer_pretty(&mut file, &self.diagnostic(config, error))
+            .map_err(|_| failure("PROXY_IO_ERROR"))?;
+        file.write_all(b"\n")?;
+        file.persist(directory.join("desktop-startup-diagnostic.json"))
+            .map_err(|_| failure("PROXY_IO_ERROR"))?;
+        Ok(())
+    }
+}
+
+// Diagnostics expose structure and booleans only. Arbitrary key names can be
+// plugin identities, server addresses or paths, so do not write or print them.
+fn diagnostic_key(key: &str) -> &str {
+    match key {
+        "plugins" | "_default" | "enabled" | "mcp_servers" | "features" | "analytics" => key,
+        _ => "<redacted>",
+    }
+}
+
+fn diagnostic_shape(value: Option<&Value>, budget: &mut usize) -> Value {
+    if *budget == 0 {
+        return json!({"type":"truncated"});
+    }
+    *budget -= 1;
+    match value {
+        None => json!({"type":"missing"}),
+        Some(Value::Bool(value)) => json!({"type":"boolean","value":value}),
+        Some(Value::Object(fields)) => {
+            let mut result = Vec::new();
+            for (key, value) in fields {
+                if *budget == 0 {
+                    break;
+                }
+                result.push(
+                    json!({"key":diagnostic_key(key),"value":diagnostic_shape(Some(value),budget)}),
+                );
+            }
+            json!({"type":"object","fields":result,"fieldCount":fields.len()})
+        }
+        Some(Value::Array(_)) => json!({"type":"array"}),
+        Some(Value::String(_)) => json!({"type":"string"}),
+        Some(Value::Number(_)) => json!({"type":"number"}),
+        Some(Value::Null) => json!({"type":"null"}),
+    }
 }
 // The final CLI table is merged with file/default tables by native Codex.
 // Unmentioned base fields remain authoritative; arrays/scalars replace whole values.
@@ -519,6 +588,7 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         .map_err(|_| failure("PROXY_IO_TIMEOUT"))?
         .map_err(|_| failure("PROXY_IO_ERROR"))?;
     let mut protocol = target.protocol();
+    let mut observed_config = None;
     let gate = async {
         let mut buffered = Vec::new();
         let mut total = 0;
@@ -570,6 +640,7 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             } else if initialized && value.get("method").is_none() && value["id"] == check_id {
                 crate::rpc::validate_for(protocol, "v2/ConfigReadResponse", &value["result"])
                     .map_err(|_| failure("PROXY_CONFIG_UNAVAILABLE"))?;
+                observed_config = Some(value["result"].clone());
                 match startup.check(&value["result"]) {
                     Ok(()) => return Ok(buffered),
                     Err(error) if missing_startup_features(&error) => {
@@ -590,6 +661,7 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                     .as_mut()
                     .ok_or_else(|| failure("PROXY_CONFIG_UNAVAILABLE"))?;
                 merge_effective_features(config, &value["result"])?;
+                observed_config = Some(config.clone());
                 match startup.check(config) {
                     Ok(()) => return Ok(buffered),
                     Err(error) if missing_startup_features(&error) => {
@@ -616,9 +688,18 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             buffered.push(value);
         }
     };
-    let buffered = tokio::time::timeout(WAIT, gate)
+    let checked = tokio::time::timeout(WAIT, gate)
         .await
-        .map_err(|_| failure("PROXY_IO_TIMEOUT"))??;
+        .map_err(|_| failure("PROXY_IO_TIMEOUT"))?;
+    if let Err(error) = &checked {
+        if let Some(config) = &observed_config {
+            if startup_diagnostic(error).is_some() {
+                // Diagnostic failure must not hide or change the startup error.
+                let _ = startup.save_diagnostic(config, error);
+            }
+        }
+    }
+    let buffered = checked?;
     for value in buffered {
         emit(&mut output, &value).await?;
     }
@@ -645,6 +726,68 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod startup_diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn reports_all_overrides_without_identifiers_paths_or_secret_values() {
+        let request = Startup::parse(&[
+            "app-server".into(),
+            "-c".into(),
+            "plugins._default.enabled=false".into(),
+            "-c".into(),
+            "plugins.private_plugin={remote_plugin_id=\"secret_plugin\",release_id=\"secret_release\",enabled=true}".into(),
+            "-c".into(),
+            "mcp_servers.private_server.command=\"C:/private-user/private-tool\"".into(),
+        ])
+        .unwrap();
+        let config = json!({"config":{"plugins":{},"mcp_servers":{"private_server":{"command":"secret_command"}}}});
+        let error = request.check(&config).unwrap_err();
+        let report = request.diagnostic(&config, &error);
+        assert_eq!(report["error"], "PROXY_STARTUP_PLUGINS_MISSING");
+        assert_eq!(report["overrides"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            report["overrides"][0]["path"],
+            json!(["plugins", "_default", "enabled"])
+        );
+        assert_eq!(
+            report["overrides"][0]["expected"],
+            json!({"type":"boolean","value":false})
+        );
+        assert_eq!(report["overrides"][0]["actual"]["type"], "missing");
+        let serialized = report.to_string();
+        for secret in [
+            "private_plugin",
+            "secret_plugin",
+            "secret_release",
+            "private_server",
+            "private-user",
+            "private-tool",
+            "secret_command",
+        ] {
+            assert!(!serialized.contains(secret));
+        }
+    }
+
+    #[test]
+    fn structure_output_is_bounded_and_arrays_are_not_exposed() {
+        let request =
+            Startup::parse(&["app-server".into(), "-c".into(), "plugins={}".into()]).unwrap();
+        let fields = (0..1000)
+            .map(|i| (format!("private_{i}"), json!({"enabled":true})))
+            .collect::<serde_json::Map<_, _>>();
+        let config = json!({"config":{"plugins":fields}});
+        let report = request.diagnostic(&config, &failure("PROXY_CONFIG_MISMATCH"));
+        assert!(report.to_string().len() < 32768);
+        let mut budget = 5;
+        assert_eq!(
+            diagnostic_shape(Some(&json!(["secret"])), &mut budget),
+            json!({"type":"array"})
+        );
     }
 }
 

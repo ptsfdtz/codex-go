@@ -16,6 +16,8 @@
 
 本地私有 CA／自托管云端可在启动 Host 前设置 `AGENTDECK_CLOUD_CA_FILE` 为 PEM CA 路径；该显式配置同时限定云端 HTTPS 和 WSS 的信任根，仍校验证书与主机名，无效或空证书拒绝启动。正常公网安装无需此设置。
 
+共享桌面代理若报 `PROXY_CONFIG_MISMATCH`，包含本次诊断改动的版本会在退出前将脱敏报告写到 Host 状态目录的 `desktop-startup-diagnostic.json`；`agentdeck desktop` 会显示完整路径。报告只保留字段结构、类型及布尔开关，隐藏插件/服务器标识、路径和字符串值。Windows 默认读取命令为 `Get-Content -Raw -LiteralPath "$env:LOCALAPPDATA\AgentDeck\desktop-startup-diagnostic.json"`；设置了 `AGENTDECK_DATA_DIR` 时从该目录读取。核对报告 `createdAt` 与本次启动时间，避免把旧文件视为本次结果。报告用于定位启动配置差异，不代表可以忽略插件、MCP 或沙箱冲突。
+
 ### Windows / macOS 自行验收方法
 
 使用本批候选 ZIP/tar.gz，先核对同批 SHA-256，解包到独立目录。**当前线上稳定安装命令不会获得本批未发布改动。** 以下以候选目录中的程序运行；Windows 使用 `./agentdeck.exe`，macOS 使用 `./agentdeck`（首次先 `chmod +x agentdeck agentdeck-service agentdeck-codex-proxy`）。原版 Codex 桌面须预先安装。可用临时的 `AGENTDECK_DATA_DIR` 隔离验收身份，避免碰日常 Host；首次运行不要启用自启或覆盖现有服务。Linux 自定义运行时不要放在 `/tmp`，严格临时目录拒绝策略会阻止它自执行；使用默认用户数据目录。
