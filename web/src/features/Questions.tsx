@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  CheckCircle,
   MessageCircle,
   ChevronLeft,
   ChevronRight,
@@ -15,7 +14,7 @@ import type { Approval, Request } from '../workspace';
 import type { HistoryEntry } from '../history';
 import { messageQuestions, confirmedAnswers, replyText, type Question } from './question-replies';
 import { DataFields, IconButton } from '../ui';
-import { MotionPresence } from '../motion';
+import { Collapse, MotionPresence } from '../motion';
 
 function ApprovalDetails({ approval }: { approval: Approval }) {
   const context = approval.context || {};
@@ -125,53 +124,57 @@ function QuestionFields({
             </button>
           ))}
       </div>
-      <label>
-        {q.secret ? '敏感回答' : q.options.length ? '其他回答' : '你的回答'}
-        <input
-          className="question-answer"
-          type={q.secret ? 'password' : 'text'}
-          autoComplete="off"
-          value={answers[q.id] || ''}
-          maxLength={16000}
-          disabled={disabled}
-          onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              advance();
-            }
-          }}
-        />
-      </label>
-      {q.secret && <small>敏感回答仅保留在内存中。</small>}
-      <div className="question-actions">
-        {secondary && <div className="question-secondary">{secondary}</div>}
-        {questions.length > 1 && (
-          <IconButton
-            icon={ChevronLeft}
-            label="上一个问题"
-            disabled={disabled || currentIndex === 0}
-            onClick={() => navigate(currentIndex - 1)}
+      <div className="question-response">
+        <label>
+          {q.secret ? '敏感回答' : q.options.length ? '其他回答' : '你的回答'}
+          <input
+            className="question-answer"
+            type={q.secret ? 'password' : 'text'}
+            autoComplete="off"
+            value={answers[q.id] || ''}
+            maxLength={16000}
+            disabled={disabled}
+            onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                advance();
+              }
+            }}
           />
-        )}
-        {last ? (
-          <IconButton
-            icon={Send}
-            label="提交回答"
-            disabled={
-              disabled || !canSubmit || questions.some((question) => !answers[question.id]?.trim())
-            }
-            onClick={onSubmit}
-          />
-        ) : (
-          <IconButton
-            icon={ChevronRight}
-            label="下一个问题"
-            disabled={disabled || !answers[q.id]?.trim()}
-            onClick={advance}
-          />
-        )}
+        </label>
+        <div className="question-actions">
+          {secondary && <div className="question-secondary">{secondary}</div>}
+          {questions.length > 1 && (
+            <IconButton
+              icon={ChevronLeft}
+              label="上一个问题"
+              disabled={disabled || currentIndex === 0}
+              onClick={() => navigate(currentIndex - 1)}
+            />
+          )}
+          {last ? (
+            <IconButton
+              icon={Send}
+              label="提交回答"
+              disabled={
+                disabled ||
+                !canSubmit ||
+                questions.some((question) => !answers[question.id]?.trim())
+              }
+              onClick={onSubmit}
+            />
+          ) : (
+            <IconButton
+              icon={ChevronRight}
+              label="下一个问题"
+              disabled={disabled || !answers[q.id]?.trim()}
+              onClick={advance}
+            />
+          )}
+        </div>
       </div>
+      {q.secret && <small>敏感回答仅保留在内存中。</small>}
     </div>
   );
 }
@@ -497,41 +500,41 @@ export function AsyncQuestions({
     }
   }
   return (
-    <section className="async-questions">
-      <div className="questions-heading">
-        {allSent ? <CheckCircle size={18} /> : <MessageCircle size={18} />}
-        <strong>{allSent ? '已回答 Codex 的问题' : 'Codex 需要你的回答'}</strong>
-        <small>
-          {allSent
-            ? '已提交'
-            : busy
+    <Collapse open={!allSent}>
+      <section className="async-questions">
+        <div className="questions-heading">
+          <MessageCircle size={18} />
+          <strong>Codex 需要你的回答</strong>
+          <small>
+            {busy
               ? '发送中…'
               : phase === 'unknown' && !reconciled
                 ? '等待确认'
                 : `${done.size + remaining.filter((q) => answers[q.id]?.trim()).length} / ${questions.length}`}
-        </small>
-      </div>
-      {!allSent && (
-        <>
-          <QuestionFields
-            questions={remaining}
-            {...{ answers, setAnswers }}
-            disabled={locked}
-            onSubmit={() => void submit()}
-            secondary={
-              phase !== 'editing' && (
-                <IconButton
-                  icon={RefreshCw}
-                  label="核对会话"
-                  disabled={disabled}
-                  onClick={onRefresh}
-                />
-              )
-            }
-          />
-        </>
-      )}
-      {error && <p className="error">{error}</p>}
-    </section>
+          </small>
+        </div>
+        {!allSent && (
+          <>
+            <QuestionFields
+              questions={remaining}
+              {...{ answers, setAnswers }}
+              disabled={locked}
+              onSubmit={() => void submit()}
+              secondary={
+                phase !== 'editing' && (
+                  <IconButton
+                    icon={RefreshCw}
+                    label="核对会话"
+                    disabled={disabled}
+                    onClick={onRefresh}
+                  />
+                )
+              }
+            />
+          </>
+        )}
+        {error && <p className="error">{error}</p>}
+      </section>
+    </Collapse>
   );
 }

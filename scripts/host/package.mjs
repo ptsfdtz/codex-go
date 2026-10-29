@@ -3,9 +3,14 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-const platform = process.platform === 'win32' ? 'windows' : process.platform;
+const platform =
+  process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
 const arch = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : '';
-if (!arch || !['windows', 'linux'].includes(platform) || (platform === 'windows' && arch !== 'x64'))
+if (
+  !arch ||
+  !['windows', 'linux', 'macos'].includes(platform) ||
+  (platform === 'windows' && arch !== 'x64')
+)
   throw new Error('Unsupported release platform');
 const version = process.env.AGENTDECK_RELEASE_VERSION || '0.3.0';
 if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(version) || version.includes('..'))
@@ -23,7 +28,8 @@ execFileSync(
     'agentdeck',
     '--bin',
     'agentdeck-service',
-    ...(platform === 'windows' ? ['--bin', 'agentdeck-codex-proxy'] : []),
+    '--bin',
+    'agentdeck-codex-proxy',
   ],
   { stdio: 'inherit', windowsHide: true },
 );
@@ -39,19 +45,15 @@ const releases = join(output, 'releases', version);
 const staging = resolve(`artifacts/host-${platform}-${arch}-${version}`);
 mkdirSync(staging, { recursive: true });
 mkdirSync(releases, { recursive: true });
-for (const name of [
-  'agentdeck',
-  'agentdeck-service',
-  ...(platform === 'windows' ? ['agentdeck-codex-proxy'] : []),
-]) {
+for (const name of ['agentdeck', 'agentdeck-service', 'agentdeck-codex-proxy']) {
   const file = name + (platform === 'windows' ? '.exe' : '');
   cpSync(join(metadata.target_directory, 'release', file), join(staging, file));
-  if (platform === 'linux') chmodSync(join(staging, file), 0o755);
+  if (platform !== 'windows') chmodSync(join(staging, file), 0o755);
 }
 const starter = platform === 'windows' ? 'start.ps1' : 'start.sh';
 writeFileSync(join(staging, 'release.txt'), `${version}\n`);
 cpSync(`scripts/host/${starter}`, join(staging, starter));
-if (platform === 'linux') chmodSync(join(staging, starter), 0o755);
+if (platform !== 'windows') chmodSync(join(staging, starter), 0o755);
 const filename = `agentdeck-${platform}-${arch}.${platform === 'windows' ? 'zip' : 'tar.gz'}`;
 const archive = join(releases, filename);
 if (platform === 'windows') {
@@ -81,6 +83,7 @@ if (platform === 'windows') {
     staging,
     'agentdeck',
     'agentdeck-service',
+    'agentdeck-codex-proxy',
     starter,
     'release.txt',
   ]);

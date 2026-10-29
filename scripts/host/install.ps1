@@ -33,7 +33,7 @@ try {
     $staging = Join-Path $temporaryRoot 'package'
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Compression.ZipFile]::ExtractToDirectory($archive, $staging)
-    foreach ($name in @('agentdeck.exe', 'agentdeck-service.exe', 'start.ps1')) {
+    foreach ($name in @('agentdeck.exe', 'agentdeck-service.exe', 'agentdeck-codex-proxy.exe', 'start.ps1')) {
         if (-not (Test-Path -LiteralPath (Join-Path $staging $name) -PathType Leaf)) { throw "Release is missing $name." }
     }
     # Version directories avoid overwriting a running executable. Keep older versions for rollback.
@@ -76,8 +76,19 @@ try {
         & $cli autostart enable
         if ($LASTEXITCODE -ne 0) { throw 'Installed, but automatic startup could not be configured.' }
     }
+    # A normal Start-menu entry discovers the installed original desktop; no
+    # private runtime path, address, or token is embedded in the shortcut.
+    $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'AgentDeck'
+    New-Item -ItemType Directory -Path $menu -Force | Out-Null
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut((Join-Path $menu 'Codex shared.lnk'))
+    $shortcut.TargetPath = $cli
+    $shortcut.Arguments = 'desktop'
+    $shortcut.WorkingDirectory = $env:USERPROFILE
+    $shortcut.Save()
     Write-Output "Installed AgentDeck Host $Version. Account and project data are preserved."
     Write-Output 'Next: agentdeck login --username NAME; agentdeck projects add PATH; agentdeck start; agentdeck autostart enable'
+    Write-Output 'Official Codex downloads and shared transport initialize automatically on first start. If authentication is needed: agentdeck codex-login. Start the original desktop with the Codex shared shortcut.'
     Write-Output 'Open a new terminal if agentdeck is not found. An already running host keeps its current version until agentdeck restart.'
 } finally {
     # Both paths are fixed descendants of this invocation's unique temporary directory.

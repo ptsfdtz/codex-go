@@ -1,4 +1,4 @@
-import { MotionPresence } from '../motion';
+import { MotionPresence, useContentMotion } from '../motion';
 import { useId, useState } from 'react';
 import { FileDiff } from 'lucide-react';
 import type { HistoryEntry } from '../history';
@@ -18,6 +18,7 @@ export function TurnChanges({
     [selected, setSelected] = useState(''),
     [expanded, setExpanded] = useState(false);
   const file = files.find((f) => f.path === selected) || files[0];
+  const contentMotion = useContentMotion<HTMLDivElement>(`${open}:${selected}`);
   const panelId = useId();
   const displayPath = (path: string) =>
     projectRelativePath(path, projectRoot) || path.replaceAll('\\', '/').split('/').pop() || path;
@@ -110,6 +111,7 @@ export function TurnChanges({
             <div
               key={file.path}
               id={panelId}
+              ref={contentMotion}
               role="tabpanel"
               aria-labelledby={`${panelId}-${files.indexOf(file)}`}
               tabIndex={0}

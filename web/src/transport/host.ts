@@ -3,7 +3,7 @@ import type { BinaryTransport, TlsChannel } from './tls';
 
 const encode = (text: string) => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-const MAX_MESSAGE = 1024 * 1024;
+const MAX_MESSAGE = 4 * 1024 * 1024;
 const join = (a: Uint8Array, b: Uint8Array) => {
   const result = new Uint8Array(a.length + b.length);
   result.set(a);

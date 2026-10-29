@@ -1,0 +1,188 @@
+{
+  "version": "0.166.0-alpha.1",
+  "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.166.0-alpha.1-win32-x64.tgz",
+  "integrity": "sha512-9qqQIaKG7XedrOOz6EbwZgSG0oGkzDfgzluzrj6idm6qTku+8hG+/I0sPeKuJVNCj/XNd2QKZ/WtTF9yHmk+/A==",
+  "archiveRoot": "package/vendor/x86_64-pc-windows-msvc",
+  "files": [
+    {
+      "path": "bin/codex-code-mode-host.exe",
+      "sha256": "48038b6d08f8f0bbcffc859ab921556402aaf9128ae6c6747e21a0a79465345c"
+    },
+    {
+      "path": "bin/codex.exe",
+      "sha256": "bcc638989659378aaf8ac55c783f19d77d5fa29ed9afb11d47cf75ca7327aa2b"
+    },
+    {
+      "path": "codex-package.json",
+      "sha256": "736f98aa400d3fcf81c72a9f98fa0ac055ab3e6395f7a5d68c4cf69e5e43ce5c"
+    },
+    {
+      "path": "codex-path/rg.exe",
+      "sha256": "14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680"
+    },
+    {
+      "path": "codex-resources/codex-command-runner.exe",
+      "sha256": "1737d06fdd1bf27426e419d5694a844ae5c54be5c0a8c7004cff168b62e6421b"
+    },
+    {
+      "path": "codex-resources/codex-windows-sandbox-setup.exe",
+      "sha256": "21e17968592d7dd962dd8dbefe6c24d60ef7cccee2c4d84e4aa22d0ae6e7b7da"
+    },
+    {
+      "path": "codex-resources/voice/bin/codex-voice-host.exe",
+      "sha256": "e6ed26816bb007a578f0ed1486176e97d28f9866bf330f0f6dc2868c338d7825"
+    },
+    {
+      "path": "codex-resources/voice/bin/gio-2.0-0.dll",
+      "sha256": "f5ffe8018232e4a0084961e602fcb39a61402b8b948e2bbfd25636ca043d93e9"
+    },
+    {
+      "path": "codex-resources/voice/bin/glib-2.0-0.dll",
+      "sha256": "21bc4b701e75a37d0cf3afd66398371384f9ff5dad481be39717c5c739360cdc"
+    },
+    {
+      "path": "codex-resources/voice/bin/gmodule-2.0-0.dll",
+      "sha256": "5a2230397d26328006e2157479903c7c3f7a76b58608c680957b059cc38fab1f"
+    },
+    {
+      "path": "codex-resources/voice/bin/gobject-2.0-0.dll",
+      "sha256": "a146ebbccde7c95706fe725bc94d2226b588d29ce22e1c13836244d9012f0f81"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstapp-1.0-0.dll",
+      "sha256": "7f1ca5462eed2f3908fd9391c0a9aadf9adc85f57daa0bfc02cb7e9848460342"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstapp.dll",
+      "sha256": "88869a0255a1d077c05b5619147d019f496ab88bccc8cb535c3c6549aeacff06"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstaudio-1.0-0.dll",
+      "sha256": "2df84888bc769c49e440f9cf33470e88569383693319ac93af852263b592b198"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstaudioconvert.dll",
+      "sha256": "e7f815297017ef03cdf2322c4a54533a676195ffe25f734976636c621d380ee3"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstaudioresample.dll",
+      "sha256": "249cff142a91933ccc921cb5ade21e3b20f1a57f8b7b264944e85342e0cbc922"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstbase-1.0-0.dll",
+      "sha256": "34c3f25d78953de1c85f9acd094b3921bf21329be2c3f562b49dedc691d92d20"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstcoreelements.dll",
+      "sha256": "dc62ecb8be96ce66d2a31ac1bc9f2ef796953e0c216b1a4a86bd570c32c9883e"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstnet-1.0-0.dll",
+      "sha256": "0ef0eded5065c4bb55ba752f95a40661960f8f3c44c4cbc516b308cb2ac14a11"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstopus.dll",
+      "sha256": "0bd1d5b56c739d319c1eaf0f5dfec5ade93185d5fd4502f86e0c1d9c636ccbf9"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstpbutils-1.0-0.dll",
+      "sha256": "bbb20ea2a6179e075e3f140ce893939aba50711199f00c04d84d8b9bdcddc8d7"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstreamer-1.0-0.dll",
+      "sha256": "5b8455554499e896a476db88b9edab5296580887deb71c3cee719cc6cb10f139"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstrtp-1.0-0.dll",
+      "sha256": "9693d67cabb458705b786db06c365d7adc89e25f9e0f87fec14424fcb419379f"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstrtp.dll",
+      "sha256": "f2d430989072b8d7383bb6daa6ab5f0b5d14fc9c7d44ccbffe571d0ecf67ff67"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstrtpmanager.dll",
+      "sha256": "d57f031aeb6c1e26d8d359f8d10fe32872ec07190ded66f539a4c43394d5d3d6"
+    },
+    {
+      "path": "codex-resources/voice/bin/gsttag-1.0-0.dll",
+      "sha256": "e7dadf303d723167342b17a709b1732d2f53cdb37c14e4a92179b7212b4e20af"
+    },
+    {
+      "path": "codex-resources/voice/bin/gstvideo-1.0-0.dll",
+      "sha256": "d34c7808e39ff44ac59160d34fa5342824827586592d93a726e8657eb91abf3a"
+    },
+    {
+      "path": "codex-resources/voice/bin/intl-8.dll",
+      "sha256": "22447e68463c9cd7cbe8776c58d404aead1f3d5b4d586395cd2e3e63eee6f748"
+    },
+    {
+      "path": "codex-resources/voice/bin/libffi-8.dll",
+      "sha256": "44a70bab3ed48e10e418f84d10b2c1fe91e7854c0c3a2e6a700df94f798e0781"
+    },
+    {
+      "path": "codex-resources/voice/bin/opus.dll",
+      "sha256": "042a3dd368a0f427a55c4c4979f69c103ec3d758b2bc259322fd2cedda47a05f"
+    },
+    {
+      "path": "codex-resources/voice/bin/pcre2-8.dll",
+      "sha256": "5aeba422e2b3c902468e689c05f467c83b65e5ecec38c085b5756b1d7a88c6a4"
+    },
+    {
+      "path": "codex-resources/voice/bin/vcruntime140.dll",
+      "sha256": "184146852727a9db4eea06178716bec3cdbb1015c911f6b0f915b184ad7775b2"
+    },
+    {
+      "path": "codex-resources/voice/bin/z.dll",
+      "sha256": "4ca728e33f8de04bee539d5aadae967205eb706a65fe85fb90767842dfa72e01"
+    },
+    {
+      "path": "codex-resources/voice/licenses/LGPL-2.1.txt",
+      "sha256": "c7ce1276717604c29c5469179a2f368eac42846557be671bb52f4e16e884b2ad"
+    },
+    {
+      "path": "codex-resources/voice/licenses/libffi.txt",
+      "sha256": "e2a9b884b1c5d718efd6121457a1fbe7ece431352ca75c901260cef2e7d040e5"
+    },
+    {
+      "path": "codex-resources/voice/licenses/Opus.txt",
+      "sha256": "cbd8bd07329a234413710c02b19d22c0cf78fc451882593e817130779b5455e3"
+    },
+    {
+      "path": "codex-resources/voice/licenses/PCRE2.md",
+      "sha256": "4195c519dcfe4a4ffedc4b8ccc5d49e4dd02efd5ece6b69a4fba5d20080902a9"
+    },
+    {
+      "path": "codex-resources/voice/licenses/proxy-libintl.txt",
+      "sha256": "aa092600e3f475f0a55821fb9c529583d8e23e41bf0461254f02fcf94d3a32c2"
+    },
+    {
+      "path": "codex-resources/voice/licenses/sljit.txt",
+      "sha256": "37c7a090fc61388430d63fc97bf8a22ffce92d3ca2249aac572cfaf411d3070f"
+    },
+    {
+      "path": "codex-resources/voice/licenses/zlib.txt",
+      "sha256": "439c75ab12b340c5362b9d4b08ff05ec3a4d0eb7667a6fff49a9b16d8795c78e"
+    },
+    {
+      "path": "codex-resources/voice/manifest.json",
+      "sha256": "7ddfc4e210d61a3ecb45542d4fd554a0d16f42f6c70db3ac0e95dabbfa125a7f"
+    },
+    {
+      "path": "codex-resources/voice/NOTICE.md",
+      "sha256": "473fcf8ccb68ce726111d016d133f0555adba730d057591512f3f71fb46aeb6e"
+    },
+    {
+      "path": "codex-resources/voice/runtime.json",
+      "sha256": "49dc1d49dc36765dcdff785e036b50a00cbbdfa56517067103642e477936ee89"
+    },
+    {
+      "path": "codex-resources/voice/sources.json",
+      "sha256": "e2f6b124f6277e7c3c4f5c7cc8830c66190f671ad65e972bb2cc9507dbfcb937"
+    },
+    {
+      "path": "codex-resources/voice/windows-crt.json",
+      "sha256": "d16939bc85da395ded5411724fed84ffd36810b78d47c756cf094b0956bc3892"
+    }
+  ]
+}

@@ -43,6 +43,9 @@ export class Bridge {
   }
   constructor(private readonly scope: string) {}
   private readonly mutationActions = new Set([
+    'system.updateInstall',
+    'system.updateApply',
+    'system.updateCancel',
     'sessions.create',
     'turn.start',
     'turn.steer',
@@ -64,6 +67,7 @@ export class Bridge {
     'queue.add',
     'queue.update',
     'queue.start',
+    'queue.steer',
     'queue.delete',
     'queue.reorder',
     'skills.setEnabled',

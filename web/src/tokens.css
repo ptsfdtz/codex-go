@@ -1,0 +1,80 @@
+/* Existing palette is deliberately preserved. Legacy semantic names remain
+   public so feature styles and third-party surfaces inherit the same theme. */
+:root {
+  --bg: #fff;
+  --rail: #f9f9f9;
+  --text: #0d0d0d;
+  --muted: #676767;
+  --soft: #f4f4f4;
+  --hover: #ededed;
+  --border: #e3e3e3;
+  --faint: #f0f0f0;
+  --button: #171717;
+  --button-text: #fff;
+  --danger: #ba3d35;
+  --danger-bg: #fff2ef;
+  --code: #f5f5f5;
+  --green: #26885c;
+  --shadow: 0 8px 40px #0002;
+  --font-sans: Inter, 'Segoe UI', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 15px;
+  --font-size-lg: 18px;
+  --font-size-title: 24px;
+  --line-body: 1.6;
+  --line-heading: 1.35;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 8px;
+  --radius-control: 9px;
+  --radius-md: 12px;
+  --radius-popover: 14px;
+  --radius-lg: 20px;
+  --radius-composer: 26px;
+  --shadow-subtle: 0 2px 8px #00000008;
+  --focus-ring: var(--muted);
+  --content-width: 824px;
+  --control-size: 36px;
+}
+:root[data-theme='dark'] {
+  --bg: #212121;
+  --rail: #171717;
+  --text: #ececec;
+  --muted: #b4b4b4;
+  --soft: #303030;
+  --hover: #363636;
+  --border: #3c3c3c;
+  --faint: #2b2b2b;
+  --button: #ececec;
+  --button-text: #171717;
+  --danger: #ff9e92;
+  --danger-bg: #412a27;
+  --code: #171717;
+  --green: #76cba4;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #212121;
+    --rail: #171717;
+    --text: #ececec;
+    --muted: #b4b4b4;
+    --soft: #303030;
+    --hover: #363636;
+    --border: #3c3c3c;
+    --faint: #2b2b2b;
+    --button: #ececec;
+    --button-text: #171717;
+    --danger: #ff9e92;
+    --danger-bg: #412a27;
+    --code: #171717;
+    --green: #76cba4;
+    color-scheme: dark;
+  }
+}

@@ -11,6 +11,8 @@
     "web:dev": "pnpm --filter @agentdeck/web dev",
     "build": "pnpm host:build",
     "check": "pnpm -r check && eslint .",
+    "test:composer-preferences": "node --test scripts/web/test-composer-preferences.mjs",
+    "test:file-workspace": "node --test scripts/web/test-file-workspace.mjs",
     "start": "node scripts/host/dev.mjs --start",
     "dev": "pnpm host:dev",
     "schema:verify": "node scripts/protocol/schema.mjs",
@@ -18,7 +20,17 @@
     "format:check": "prettier --check .",
     "host:build": "cargo build --release --locked --manifest-path desktop/core/Cargo.toml --bins",
     "host:dev": "node scripts/host/dev.mjs",
-    "host:package": "node scripts/host/package.mjs"
+    "host:package": "node scripts/host/package.mjs",
+    "test:composer-browser": "node scripts/web/test-composer-browser.mjs",
+    "test:message-images-browser": "node scripts/web/test-message-images-browser.mjs",
+    "test:host-names": "node --test scripts/web/test-host-names.mjs",
+    "test:selection-quote-browser": "node scripts/web/test-selection-quote-browser.mjs",
+    "test:file-references-browser": "node scripts/web/test-file-references-browser.mjs",
+    "test:motion-browser": "node scripts/web/test-motion-browser.mjs",
+    "test:performance-browser": "node scripts/web/test-performance-browser.mjs",
+    "test:ui-browser": "node scripts/web/test-ui-browser.mjs",
+    "test:project-settings-browser": "node scripts/web/test-project-settings-browser.mjs",
+    "test:api-chat-browser": "node scripts/web/test-api-chat-browser.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",

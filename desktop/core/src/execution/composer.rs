@@ -6,6 +6,37 @@ use serde_json::{json, Value};
 use std::{io::Write, path::Path};
 
 pub const MAX_ATTACHMENT_BYTES: usize = 512 * 1024;
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+
+    fn attachment(size: usize) -> Value {
+        json!({"name": "file.bin", "data": STANDARD.encode(vec![0; size])})
+    }
+
+    #[test]
+    fn accepts_four_files_at_individual_limit() {
+        let files = Value::Array((0..4).map(|_| attachment(MAX_ATTACHMENT_BYTES)).collect());
+        let decoded = decode_attachments(&files).unwrap();
+        assert_eq!(decoded.len(), 4);
+        assert!(decoded
+            .iter()
+            .all(|(_, bytes)| bytes.len() == MAX_ATTACHMENT_BYTES));
+    }
+
+    #[test]
+    fn rejects_one_byte_over_limit_even_with_valid_base64_length() {
+        assert!(decode_attachments(&json!([attachment(MAX_ATTACHMENT_BYTES + 1)])).is_err());
+    }
+
+    #[test]
+    fn rejects_excess_count_and_invalid_encoding() {
+        let files = Value::Array((0..5).map(|_| attachment(1)).collect());
+        assert!(decode_attachments(&files).is_err());
+        assert!(decode_attachments(&json!([{"name":"file.bin","data":"!!!!"}])).is_err());
+    }
+}
 pub fn validate_turn(params: &Value) -> Result<()> {
     validate_turn_for(crate::rpc::ProtocolVersion::Managed, params)
 }
@@ -53,7 +84,6 @@ pub fn decode_attachments(files: &Value) -> Result<Vec<(String, Vec<u8>)>> {
         .ok_or_else(|| Error::new("INVALID_REQUEST", "Attachments must be an array"))?;
     ensure(files.len() <= 4, "INVALID_REQUEST", "最多添加 4 个附件")?;
     let mut result = Vec::new();
-    let mut total = 0;
     for file in files {
         protocol::fields(file, &["name", "data"], &[])?;
         protocol::text(file, "name", 1, 120)?;
@@ -72,16 +102,15 @@ pub fn decode_attachments(files: &Value) -> Result<Vec<(String, Vec<u8>)>> {
         ensure(
             encoded.len() <= MAX_ATTACHMENT_BYTES.div_ceil(3) * 4,
             "INVALID_REQUEST",
-            "附件总大小不能超过 512 KB",
+            "单个附件不能超过 512 KiB",
         )?;
         let bytes = STANDARD
             .decode(encoded)
             .map_err(|_| Error::new("INVALID_REQUEST", "Invalid attachment data"))?;
-        total += bytes.len();
         ensure(
-            total <= MAX_ATTACHMENT_BYTES,
+            bytes.len() <= MAX_ATTACHMENT_BYTES,
             "INVALID_REQUEST",
-            "附件总大小不能超过 512 KB",
+            "单个附件不能超过 512 KiB",
         )?;
         result.push((name.to_owned(), bytes));
     }
@@ -159,4 +188,56 @@ pub(crate) fn prepare_stored_input(
         names.push(name);
     }
     Ok((input, names))
+}
+
+// Client references are relative to an explicit project grant; native absolute
+// paths and display labels are resolved by the Host, never trusted from Web.
+pub(crate) fn decode_file_references(value: &Value) -> Result<Vec<(&str, &str)>> {
+    let rows = value
+        .as_array()
+        .ok_or_else(|| crate::Error::new("INVALID_REQUEST", "Invalid file references"))?;
+    crate::ensure(
+        rows.len() <= 32,
+        "INVALID_REQUEST",
+        "At most 32 file references",
+    )?;
+    rows.iter()
+        .map(|row| {
+            let project = row["projectId"].as_str().unwrap_or("");
+            let path = row["path"].as_str().unwrap_or("");
+            crate::ensure(
+                row.as_object().is_some_and(|o| o.len() == 2)
+                    && !project.is_empty()
+                    && project.len() <= 160
+                    && !path.is_empty()
+                    && path.len() <= 4096
+                    && !path.chars().any(char::is_control),
+                "INVALID_REQUEST",
+                "Invalid file reference",
+            )?;
+            Ok((project, path))
+        })
+        .collect()
+}
+
+// A whole-span file marker is separate from the editable user instruction.
+// UTF-8 byte offsets follow Codex TextElement, not JavaScript character counts.
+pub(crate) fn file_reference_path(part: &Value) -> Option<&str> {
+    if part["type"] != "text" {
+        return None;
+    }
+    let text = part["text"].as_str()?;
+    let elements = part["text_elements"].as_array()?;
+    let path = std::path::Path::new(text);
+    let label = elements.first()?["placeholder"]
+        .as_str()?
+        .strip_prefix('@')?;
+    (path.is_absolute()
+        && !text.chars().any(char::is_control)
+        && elements.len() == 1
+        && elements[0]["byteRange"]["start"] == 0
+        && elements[0]["byteRange"]["end"] == text.len()
+        && !label.is_empty()
+        && !label.chars().any(char::is_control))
+    .then_some(text)
 }

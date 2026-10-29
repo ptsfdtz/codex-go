@@ -9,7 +9,7 @@ use uuid::Uuid;
 mod access;
 
 pub struct Store {
-    pool: Pool,
+    pub(crate) pool: Pool,
 }
 pub enum Refreshed {
     Issued(SessionTokens),
@@ -417,7 +417,22 @@ impl Store {
         Ok(self.pool.get().await?.query_opt("SELECT d.id FROM hosts h JOIN devices d ON d.id=h.device_id JOIN accounts a ON a.id=d.account_id WHERE h.host_id=$1 AND d.account_id=$2 AND d.revoked_at IS NULL AND NOT a.disabled",&[&host,&account]).await?.ok_or_else(Error::forbidden)?.get(0))
     }
     pub async fn hosts(&self, account: &str) -> Result<Vec<Value>> {
-        Ok(self.pool.get().await?.query("SELECT json_build_object('hostId',h.host_id,'cloudDeviceId',d.id,'displayName',h.display_name,'fingerprint',h.fingerprint,'endpoints',h.endpoints) FROM hosts h JOIN devices d ON d.id=h.device_id WHERE d.account_id=$1 AND d.revoked_at IS NULL ORDER BY h.created_at",&[&account]).await?.into_iter().map(|r|r.get(0)).collect())
+        Ok(self.pool.get().await?.query("SELECT json_build_object('hostId',h.host_id,'cloudDeviceId',d.id,'displayName',h.display_name,'customName',h.custom_name,'customNameConfigured',h.custom_name_configured,'fingerprint',h.fingerprint,'endpoints',h.endpoints) FROM hosts h JOIN devices d ON d.id=h.device_id WHERE d.account_id=$1 AND d.revoked_at IS NULL ORDER BY h.created_at",&[&account]).await?.into_iter().map(|r|r.get(0)).collect())
+    }
+    pub async fn rename_host(
+        &self,
+        auth: &Auth,
+        host: &str,
+        name: &str,
+        only_if_unset: bool,
+    ) -> Result<Value> {
+        let row = self.pool.get().await?.query_opt(
+            "UPDATE hosts h SET custom_name=CASE WHEN $4 AND h.custom_name_configured THEN h.custom_name ELSE NULLIF($3,'') END,custom_name_configured=true FROM devices d,accounts a WHERE h.host_id=$1 AND h.device_id=d.id AND d.account_id=$2 AND d.revoked_at IS NULL AND a.id=d.account_id AND NOT a.disabled RETURNING h.custom_name,h.custom_name_configured",
+            &[&host,&auth.account_id,&name,&only_if_unset],
+        ).await?.ok_or_else(Error::forbidden)?;
+        Ok(
+            json!({"hostId":host,"customName":row.get::<_,Option<String>>("custom_name"),"customNameConfigured":row.get::<_,bool>("custom_name_configured")}),
+        )
     }
     pub async fn unbind_host(&self, auth: &Auth, host: &str) -> Result<String> {
         let device = self.host_owner(host, &auth.account_id).await?;

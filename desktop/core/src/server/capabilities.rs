@@ -28,7 +28,6 @@ pub fn describe_profile(
         "accountSummary": true,
         "sessionManagement": true,
         "nativeQueue": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
-        "nativeQueueStart": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
         "nativeQueueAttachments": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
         "nativeQueueEvents": protocol == crate::rpc::ProtocolVersion::DesktopBaseline,
         "sessionHistoryRevert": true,
@@ -61,14 +60,23 @@ pub fn describe_profile(
         "browser": false,
         "automationManagement": false
     });
+    features["nativeQueueStart"] =
+        Value::Bool(protocol == crate::rpc::ProtocolVersion::DesktopBaseline);
+    features["nativeQueueSteer"] =
+        Value::Bool(protocol == crate::rpc::ProtocolVersion::DesktopBaseline);
+    features["gitBranchCompare"] = Value::Bool(true);
     features["multipleDevices"] = Value::Bool(true);
     features["hostUpdateCheck"] = Value::Bool(true);
+    features["hostUpdateManage"] = Value::Bool(true);
     features["projectlessChat"] = Value::Bool(true);
     features["codexWorkspaceDiscovery"] = Value::Bool(true);
     features["stableTlsIdentity"] = Value::Bool(true);
     features["pairingV2"] = Value::Bool(true);
     features["projectFileBrowser"] = Value::Bool(true);
+    features["sessionMessageImages"] = Value::Bool(true);
+    features["projectImagePreview"] = Value::Bool(true);
     features["projectTextPreview"] = Value::Bool(true);
+    features["fileReferenceInputs"] = Value::Bool(true);
     features["projectFileReference"] = Value::Bool(true);
     features["skillConfiguration"] = Value::Bool(true);
     features["outputDefaultsWrite"] = Value::Bool(true);
@@ -83,7 +91,7 @@ pub fn describe_profile(
         "protocolVersion": 1,
         "capabilitiesVersion": 1,
         "codexVersion": protocol.version(),
-        "concurrency": 2,
+        "concurrency": crate::service::MAX_CONCURRENT_TASKS,
         "approvals": ["command", "fileChange", "permissions"],
         "sandboxVerified": sandbox_verified,
         "upstreamReady": upstream_ready,
@@ -94,6 +102,6 @@ pub fn describe_profile(
             "externalThreadSync": false
         },
         "features": features,
-        "limits": {"attachmentCount": 4, "attachmentTotalBytes": 524288}
+        "limits": {"attachmentCount": 4, "attachmentBytes": 524288, "attachmentTotalBytes": 2097152}
     })
 }

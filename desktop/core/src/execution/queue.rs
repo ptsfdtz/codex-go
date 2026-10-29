@@ -94,6 +94,7 @@ impl Core {
         let entries = queue_entries(&rpc, s(&session, "upstreamThreadId")).await?;
         check()?;
         if action == "queue.list" {
+            let entries = self.queue_transfer_views(id, entries)?;
             let entries = entries
                 .iter()
                 .map(|entry| {
@@ -111,6 +112,37 @@ impl Core {
             "CONFLICT",
             "Restore archived conversation before editing its queue",
         )?;
+        if action == "queue.steer" {
+            check()?;
+            return self
+                .steer_queued_submission(&rpc, &session, &entries, p, message_id)
+                .await;
+        }
+        if action == "queue.reorder" {
+            ensure(
+                self.queue_transfer_views(id, Vec::new())?.is_empty(),
+                "OUTCOME_UNKNOWN",
+                "Review pending instructions before reordering queue",
+            )?;
+        }
+        let transfer_key = queue_transfer_key(id, s(p, "submissionId"));
+        if action == "queue.delete" && self.store.meta(&transfer_key)?.is_some() {
+            // Dismissing a transfer only clears its diagnostic copy after the native
+            // queue entry is confirmed absent. It never retries the instruction.
+            if !entries.iter().any(|entry| entry["id"] == p["submissionId"]) {
+                self.store
+                    .exec("DELETE FROM meta WHERE key=?", [&transfer_key])?;
+                self.store
+                    .append("queue.changed", json!({"sessionId":id}), Some(id), None)?;
+                return Ok(json!({"sessionId":id,"dismissed":true}));
+            }
+        } else if action != "queue.add" {
+            ensure(
+                self.store.meta(&transfer_key)?.is_none(),
+                "OUTCOME_UNKNOWN",
+                "Queued instruction requires review; do not resend",
+            )?;
+        }
         if action == "queue.start" {
             let entry = entries
                 .iter()
@@ -142,6 +174,9 @@ impl Core {
                     p.get("attachments"),
                 )?;
                 input.extend(skill_input);
+                input.extend(
+                    self.resolve_file_references(s(&session, "projectId"), p.get("references"))?,
+                );
                 params["input"] = json!(input);
                 ensure(
                     serde_json::to_vec(&entries).unwrap().len()
@@ -217,6 +252,10 @@ impl Core {
                 &response,
             )?;
             check()?;
+            if action == "queue.delete" && response["deleted"] == true {
+                self.store
+                    .exec("DELETE FROM meta WHERE key=?", [&transfer_key])?;
+            }
             self.store
                 .append("queue.changed", json!({"sessionId":id}), Some(id), None)?;
             Ok(
@@ -230,6 +269,124 @@ impl Core {
             )
         })
     }
+    fn queue_transfer_views(
+        &self,
+        session_id: &str,
+        mut entries: Vec<Value>,
+    ) -> Result<Vec<Value>> {
+        let prefix = format!("queueSteer:{}:", crate::digest(session_id));
+        for row in self.store.query(
+            "SELECT value FROM meta WHERE substr(key,1,?)=?",
+            rusqlite::params![prefix.len(), prefix],
+        )? {
+            let receipt: Value = serde_json::from_str(s(&row, "value"))
+                .map_err(|_| Error::new("DATABASE_ERROR", "Invalid queued instruction receipt"))?;
+            let mut view = receipt["entry"].clone();
+            view["deliveryState"] = json!("needsReview");
+            view["status"] = json!("needsReview");
+            view["deliveryMessage"] =
+                json!("提前发送结果需核对；不会自动重发。可核对会话后删除此记录。");
+            if let Some(existing) = entries.iter_mut().find(|entry| entry["id"] == view["id"]) {
+                *existing = view;
+            } else {
+                entries.push(view);
+            }
+        }
+        Ok(entries)
+    }
+
+    async fn steer_queued_submission(
+        &self,
+        rpc: &Rpc,
+        session: &Value,
+        entries: &[Value],
+        p: &Value,
+        message_id: &str,
+    ) -> Result<Value> {
+        let id = s(session, "sessionId");
+        let check = || -> Result<()> {
+            let current = self.store.session(id)?;
+            ensure(
+                current["upstreamThreadId"] == session["upstreamThreadId"]
+                    && current["projectId"] == session["projectId"]
+                    && current["archived"] != 1
+                    && !self.store.thread_deleted(s(session, "upstreamThreadId"))?
+                    && paths::root(&self.store, s(&current, "projectId")).is_ok()
+                    && rpc.alive.load(Ordering::SeqCst)
+                    && self.upstream()?.generation == rpc.generation,
+                "SYNC_CONFLICT",
+                "Queued instruction source or authorization changed",
+            )
+        };
+        let key = queue_transfer_key(id, s(p, "submissionId"));
+        ensure(
+            self.store.meta(&key)?.is_none(),
+            "OUTCOME_UNKNOWN",
+            "Queued instruction requires review; do not resend",
+        )?;
+        ensure(
+            self.verified.load(Ordering::SeqCst),
+            "SANDBOX_UNVERIFIED",
+            "Native boundary must be verified before instructions",
+        )?;
+        let entry = entries
+            .iter()
+            .find(|entry| entry["id"] == p["submissionId"])
+            .ok_or_else(|| Error::new("QUEUE_CHANGED", "Queued message no longer exists"))?;
+        ensure(
+            p["expectedInputRevision"].as_str() == Some(input_revision(entry).as_str()),
+            "QUEUE_CHANGED",
+            "Queued input changed; refresh before sending",
+        )?;
+        let text = queue_steer_text(entry)?;
+        let active = self.active_upstream_turn(id).await?;
+        ensure(
+            active["upstreamTurnId"] == p["expectedTurnId"] && !s(p, "expectedTurnId").is_empty(),
+            "TURN_CHANGED",
+            "The active task changed; refresh before sending",
+        )?;
+        ensure(
+            self.upstream()?.generation == rpc.generation,
+            "SYNC_CONFLICT",
+            "Runtime changed before queued instruction",
+        )?;
+        check()?;
+        let pending = self.queue_transfer_views(id, Vec::new())?;
+        ensure(
+            pending.len() < 128
+                && json!(pending).to_string().len() + entry.to_string().len() < 384 * 1024,
+            "RATE_LIMITED",
+            "Review pending queued instructions before adding more",
+        )?;
+        // Persist before changing the native queue. A crash never auto-replays this transfer.
+        self.store.set_meta(
+            &key,
+            &json!({"entry":entry,"expectedTurnId":p["expectedTurnId"]}).to_string(),
+        )?;
+        let result: Result<Value> = async {
+            let deleted = rpc.request("thread/queue/delete", json!({"threadId":session["upstreamThreadId"],"queuedSubmissionId":entry["id"]})).await?;
+            rpc.validate("experimental/ThreadQueueDeleteResponse",&deleted)?;
+            if deleted["deleted"] != true {
+                self.store.exec("DELETE FROM meta WHERE key=?",[&key])?;
+                return Err(Error::new("QUEUE_CHANGED","Queued message was already consumed; no instruction sent"));
+            }
+            // Only a positive delete acknowledgement permits steering, preventing
+            // automatic queue execution from also delivering the same instruction.
+            let current = self.active_upstream_turn(id).await?;
+            ensure(current["upstreamTurnId"]==p["expectedTurnId"] && self.upstream()?.generation==rpc.generation,"TURN_CHANGED","Task changed after queue removal; instruction retained for review")?;
+            check()?;
+            let response = rpc.request("turn/steer",json!({"threadId":session["upstreamThreadId"],"expectedTurnId":p["expectedTurnId"],"clientUserMessageId":message_id,"input":[{"type":"text","text":text,"text_elements":[]}]})).await?;
+            rpc.validate("v2/TurnSteerResponse",&response)?;
+            ensure(response["turnId"]==p["expectedTurnId"],"OUTCOME_UNKNOWN","Additional instruction acknowledgement changed task")?;
+            let local_turn = self.store.query("SELECT turnId FROM turns WHERE sessionId=? AND upstreamTurnId=?", [id, s(p, "expectedTurnId")])?;
+            self.store.append("turn.steered",json!({"text":text,"upstreamTurnId":p["expectedTurnId"],"clientUserMessageId":message_id,"queuedSubmissionId":entry["id"]}),Some(id),local_turn.first().map(|turn| s(turn,"turnId")))?;
+            self.store.exec("DELETE FROM meta WHERE key=?",[&key])?;
+            self.store.append("queue.changed",json!({"sessionId":id}),Some(id),None)?;
+            Ok(json!({"sessionId":id,"accepted":true,"submissionId":entry["id"],"upstreamTurnId":p["expectedTurnId"]}))
+        }.await;
+        result.map_err(|error| if error.code=="QUEUE_CHANGED" {error} else { Error::new("OUTCOME_UNKNOWN","Queued instruction requires review; it was not automatically retried. Refresh the queue and check the conversation.") })
+    }
+
     async fn start_queued_submission(
         &self,
         rpc: &Rpc,
@@ -240,7 +397,7 @@ impl Core {
         let _permit = self
             .task_limit
             .try_acquire()
-            .map_err(|_| Error::new("RATE_LIMITED", "Two task starts are active"))?;
+            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
         ensure(
             self.verified.load(Ordering::SeqCst),
             "SANDBOX_UNVERIFIED",
@@ -260,9 +417,9 @@ impl Core {
             .filter(|turn| ["queued", "running", "waitingApproval"].contains(&s(turn, "status")))
             .count();
         ensure(
-            active + self.busy.lock().unwrap().len() <= 2,
+            active + self.busy.lock().unwrap().len() < crate::service::MAX_CONCURRENT_TASKS,
             "RATE_LIMITED",
-            "Two tasks are already active",
+            "Five tasks are already active",
         )?;
         let latest = self.latest_upstream_turn(id).await?;
         ensure(
@@ -409,6 +566,41 @@ impl Core {
     }
 }
 
+fn queue_transfer_key(session_id: &str, submission_id: &str) -> String {
+    format!(
+        "queueSteer:{}:{}",
+        crate::digest(session_id),
+        crate::digest(submission_id)
+    )
+}
+fn queue_steer_text(entry: &Value) -> Result<String> {
+    let input = entry["input"]
+        .as_array()
+        .ok_or_else(|| Error::new("INVALID_REQUEST", "Missing queued input"))?;
+    ensure(
+        input.iter().all(|part| {
+            part["type"] == "text"
+                && part["text"].as_str().is_some()
+                && part
+                    .get("text_elements")
+                    .is_none_or(|v| v.as_array().is_some_and(Vec::is_empty))
+        }),
+        "UNSUPPORTED",
+        "Only plain text queued instructions can supplement a running task; resources stay queued",
+    )?;
+    let text = input
+        .iter()
+        .filter_map(|part| part["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    ensure(
+        !text.trim().is_empty() && text.chars().count() <= 64000,
+        "INVALID_REQUEST",
+        "Queued instruction is empty or too long",
+    )?;
+    Ok(text)
+}
+
 fn input_revision(entry: &Value) -> String {
     format!(
         "{:x}",
@@ -421,7 +613,13 @@ pub(crate) fn replace_resource_text(entry: &Value, text: &str) -> Result<Vec<Val
         .as_array()
         .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Missing queued input"))?;
     ensure(
-        input.iter().filter(|part| part["type"] == "text").count() <= 1,
+        input
+            .iter()
+            .filter(|part| {
+                part["type"] == "text" && crate::composer::file_reference_path(part).is_none()
+            })
+            .count()
+            <= 1,
         "UNSUPPORTED",
         "Multiple text inputs cannot yet be edited without changing their order",
     )?;
@@ -429,6 +627,9 @@ pub(crate) fn replace_resource_text(entry: &Value, text: &str) -> Result<Vec<Val
     let mut replaced = false;
     for part in input {
         match s(part, "type") {
+            "text" if crate::composer::file_reference_path(part).is_some() => {
+                result.push(part.clone())
+            }
             "text" => {
                 ensure(
                     part.get("text_elements")
@@ -508,6 +709,22 @@ pub(crate) fn authorize_queue_input(root: &std::path::Path, entry: &Value) -> Re
     use std::io::Read;
     for part in entry["input"].as_array().unwrap() {
         match s(part, "type") {
+            "text" if crate::composer::file_reference_path(part).is_some() => {
+                let path = paths::canonical(std::path::Path::new(
+                    crate::composer::file_reference_path(part).unwrap(),
+                ))?;
+                ensure(
+                    paths::within(root, &path),
+                    "WORKSPACE_FORBIDDEN",
+                    "Referenced file is outside granted workspace",
+                )?;
+                let file = std::fs::File::open(&path)?;
+                ensure(
+                    file.metadata()?.is_file() && paths::within(root, &paths::opened_path(&file)?),
+                    "WORKSPACE_FORBIDDEN",
+                    "Referenced file handle is outside granted workspace",
+                )?;
+            }
             "text" => {}
             "localImage" => {
                 let path = paths::canonical(std::path::Path::new(s(part, "path")))?;
@@ -549,4 +766,87 @@ pub(crate) fn authorize_queue_input(root: &std::path::Path, entry: &Value) -> Re
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{security::Certificate, store::Store};
+    use std::sync::Arc;
+
+    fn core(store: Arc<Store>) -> Arc<Core> {
+        let (local, _) = tokio::sync::mpsc::channel(1);
+        Core::new(
+            store,
+            Certificate {
+                cert: String::new(),
+                key: String::new(),
+                fingerprint: String::new(),
+                ips: Vec::new(),
+            },
+            "127.0.0.1".into(),
+            0,
+            local,
+        )
+    }
+
+    #[test]
+    fn queue_instruction_preserves_text_and_rejects_resources() {
+        assert_eq!(queue_steer_text(&json!({"input":[{"type":"text","text":"第一条","text_elements":[]},{"type":"text","text":"第二条"}]})).unwrap(), "第一条\n第二条");
+        for input in [
+            json!([]),
+            json!([{"type":"text","text":"  "}]),
+            json!([{"type":"image","url":"file:///test.png"}]),
+            json!([{"type":"text","text":"reference","text_elements":[{"type":"file"}]}]),
+            json!([{"type":"skill","name":"test"}]),
+            json!([{"type":"text","text":"a".repeat(64001)}]),
+        ] {
+            assert!(queue_steer_text(&json!({"input":input})).is_err());
+        }
+    }
+
+    #[test]
+    fn pending_transfer_survives_restart_without_duplicate_or_cross_session_rows() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("queue.db");
+        let entry = json!({"id":"one","input":[{"type":"text","text":"保留这条指令"}]});
+        {
+            let store = Store::open(&path).unwrap();
+            store
+                .set_meta(
+                    &queue_transfer_key("a", "one"),
+                    &json!({"entry":entry,"expectedTurnId":"turn"}).to_string(),
+                )
+                .unwrap();
+        }
+        let core = core(Arc::new(Store::open(&path).unwrap()));
+        let recovery = core.queue_transfer_views("a", Vec::new()).unwrap();
+        assert_eq!(recovery.len(), 1);
+        assert_eq!(recovery[0]["input"], entry["input"]);
+        assert_eq!(recovery[0]["deliveryState"], "needsReview");
+        assert_eq!(
+            core.queue_transfer_views("a", vec![entry]).unwrap().len(),
+            1
+        );
+        assert!(core
+            .queue_transfer_views("b", Vec::new())
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            core.queue_transfer_views("a", Vec::new()).unwrap(),
+            recovery
+        );
+        assert!(core.rpc.read().unwrap().is_none()); // Reading recovery never starts a runtime or resends.
+    }
+
+    #[test]
+    fn queued_steering_protocol_requires_task_and_content_revision() {
+        let valid = json!({"v":1,"type":"request","id":"request","action":"queue.steer","payload":{"sessionId":"a","submissionId":"one","expectedTurnId":"turn","expectedInputRevision":"a".repeat(64)}});
+        assert!(crate::protocol::parse(valid.clone()).is_ok());
+        for field in ["expectedTurnId", "expectedInputRevision"] {
+            let mut value = valid.clone();
+            value["payload"].as_object_mut().unwrap().remove(field);
+            assert!(crate::protocol::parse(value).is_err());
+        }
+    }
 }

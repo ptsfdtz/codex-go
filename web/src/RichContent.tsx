@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { deferred } from './deferred';
 import type { HistoryEntry } from './history';
 import type { Bridge } from './transport/bridge';
 import { readHistoryImage } from './media';
+import { ImagePreview } from './features/message-images/ImagePreview';
 import {
   Terminal,
   FileDiff,
+  FileText,
   Globe,
   Wrench,
   Image,
@@ -16,39 +17,14 @@ import {
   Users,
   Minimize2,
 } from 'lucide-react';
+import { type MessageImageSource } from './features/message-images/MessageImage';
 import { DiffText } from './features/DiffText';
 import { displayCommand } from './features/command-display';
 
-export function Markdown({ text, onFile }: { text: string; onFile?: (path: string) => void }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      skipHtml
-      urlTransform={(url) => url}
-      components={{
-        a: ({ href, children }) =>
-          href && /^(https?:\/\/|mailto:)/i.test(href) ? (
-            <a href={href} target="_blank" rel="noreferrer noopener">
-              {children}
-            </a>
-          ) : href &&
-            onFile &&
-            (!/^[a-z][a-z0-9+.-]*:/i.test(href) || /^(?:file:|[a-z]:[\\/])/i.test(href)) ? (
-            <button className="file-link" onClick={() => onFile(href)}>
-              {children}
-            </button>
-          ) : (
-            <span>{children}</span>
-          ),
-        // Remote image URLs are not fetched from message text. Saved image content
-        // must use the authorized, bounded sessions.image endpoint below.
-        img: ({ alt }) => <span className="muted">{alt ? `[图片：${alt}]` : '[图片]'}</span>,
-      }}
-    >
-      {text}
-    </ReactMarkdown>
-  );
-}
+export const Markdown = deferred<Parameters<typeof import('./Markdown').Markdown>[0]>(
+  () => import('./Markdown').then((module) => ({ default: module.Markdown })),
+  ({ text }) => <div className="markdown-pending">{text}</div>,
+);
 
 function SavedImage({
   connection,
@@ -68,10 +44,10 @@ function SavedImage({
   useEffect(() => {
     let active = true,
       objectUrl = '';
-    if (!connection || !requested) return;
-    setLoading(true);
+    setLoading(!!connection);
     setError('');
     setUrl('');
+    if (!connection || !requested) return;
     void readHistoryImage(
       connection,
       sessionId,
@@ -99,9 +75,7 @@ function SavedImage({
   return (
     <div className="saved-image">
       {url ? (
-        <a href={url} target="_blank" rel="noreferrer">
-          <img src={url} alt="会话历史图片" />
-        </a>
+        <ImagePreview key={url} src={url} alt="会话历史图片" />
       ) : error ? (
         <button
           className="ghost"
@@ -115,7 +89,7 @@ function SavedImage({
           {connection ? '读取图片中…' : '连接电脑后读取图片'}
         </p>
       )}
-      {error && <p className="error">{error}。历史图片不可用时请勿以当前文件替代。</p>}
+      {error && <p className="error">图片暂不可用：{error}</p>}
     </div>
   );
 }
@@ -139,6 +113,7 @@ export function contentText(value: unknown): string {
   if (Array.isArray(value)) return value.map(contentText).filter(Boolean).join('\n');
   if (!value || typeof value !== 'object') return '';
   const object = value as Record<string, unknown>;
+  if (fileReferencePart(object)) return '';
   for (const key of [
     'text',
     'content',
@@ -180,20 +155,33 @@ export function RichContent({
   sessionId,
   onFile,
   onAgent,
-  onImplementPlan,
-  onRevisePlan,
-  planDisabled,
+  images: projectImages,
+  sessionImages = false,
 }: {
   entry: HistoryEntry;
   connection?: Bridge;
   sessionId: string;
   onFile?: (path: string) => void;
   onAgent?: (id: string) => void;
-  onImplementPlan?: () => void;
-  onRevisePlan?: () => void;
-  planDisabled?: boolean;
+  images?: MessageImageSource;
+  sessionImages?: boolean;
 }) {
   const item = entry.item || {};
+  const messageImages: MessageImageSource | undefined =
+    sessionImages &&
+    connection &&
+    sessionId &&
+    entry.turnId &&
+    item.id &&
+    ['agentMessage', 'assistantMessage'].includes(String(item.type))
+      ? {
+          request: connection.request.bind(connection),
+          projectId: '',
+          root: '',
+          session: { connection, sessionId, turnId: entry.turnId, itemId: String(item.id) },
+        }
+      : projectImages;
+
   const parts = Array.isArray(item.content) ? (item.content as Record<string, unknown>[]) : [];
   const images = parts.flatMap((part, index) =>
     ['localImage', 'image'].includes(String(part.type)) ? [{ part, index }] : [],
@@ -243,7 +231,7 @@ export function RichContent({
             <span>Thinking</span>
             <ChevronRight size={14} />
           </summary>
-          <Markdown text={body} onFile={onFile} />
+          <Markdown text={body} onFile={onFile} images={messageImages} />
         </details>
       ) : item.type === 'plan' ? (
         <div className="plan-content">
@@ -251,7 +239,7 @@ export function RichContent({
             <ListChecks size={17} />
             计划
           </div>
-          <Markdown text={body} onFile={onFile} />
+          <Markdown text={body} onFile={onFile} images={messageImages} />
           {Array.isArray(item.plan) && (
             <ul className="plan-steps">
               {(item.plan as { step?: string; status?: string }[]).map((step, index) => (
@@ -262,24 +250,64 @@ export function RichContent({
               ))}
             </ul>
           )}
-          {onImplementPlan && (
-            <div className="plan-confirmation">
-              <p>是否按照此计划开发？</p>
-              <div className="button-row">
-                <button disabled={planDisabled} onClick={onImplementPlan}>
-                  按照计划开发
-                </button>
-                <button disabled={planDisabled} onClick={onRevisePlan}>
-                  继续调整计划
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       ) : (
-        <Markdown text={body} onFile={onFile} />
+        <Markdown text={body} onFile={onFile} images={messageImages} />
       )}
+      {!tool && <FileReferences parts={parts} onFile={onFile} />}
       {!tool && imageContent && <ImageDisclosure>{imageContent}</ImageDisclosure>}
+    </div>
+  );
+}
+
+export function fileReferencePart(value: unknown): { name: string; path: string } | undefined {
+  if (!value || typeof value !== 'object') return;
+  const part = value as {
+    type?: string;
+    text?: string;
+    text_elements?: { byteRange?: { start?: number; end?: number }; placeholder?: string }[];
+  };
+  const text = part.text;
+  if (part.type !== 'text' || typeof text !== 'string' || !/^(?:\/|[A-Za-z]:[\\/])/.test(text))
+    return;
+  const elements = part.text_elements;
+  const name = elements?.[0]?.placeholder?.startsWith('@') ? elements[0].placeholder.slice(1) : '';
+  if (
+    name &&
+    Array.isArray(elements) &&
+    elements.length === 1 &&
+    elements[0]?.byteRange?.start === 0 &&
+    elements[0]?.byteRange?.end === new TextEncoder().encode(text).length
+  )
+    return { name, path: text };
+}
+export function FileReferences({
+  parts,
+  onFile,
+}: {
+  parts: unknown[];
+  onFile?: (path: string) => void;
+}) {
+  const references = parts.flatMap((value, index) => {
+    const reference = fileReferencePart(value);
+    return reference ? [{ ...reference, index }] : [];
+  });
+  if (!references.length) return null;
+
+  return (
+    <div className="file-references">
+      {references.map((reference) => (
+        <button
+          className="resource-chip file-reference-chip"
+          key={reference.index}
+          title={reference.path}
+          disabled={!onFile}
+          onClick={() => onFile?.(reference.path)}
+        >
+          <FileText size={14} />
+          <span>{reference.name}</span>
+        </button>
+      ))}
     </div>
   );
 }

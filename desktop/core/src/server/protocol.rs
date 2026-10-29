@@ -74,6 +74,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "system.hello" => (&["client", "version"], &[]),
         "system.capabilities"
         | "system.updateCheck"
+        | "system.updateStatus"
         | "system.diagnostics"
         | "snapshot.get"
         | "models.list"
@@ -82,10 +83,12 @@ pub fn parse(v: Value) -> Result<Request> {
         | "settings.get"
         | "devices.revokeSelf" => (&[], &[]),
         "requests.status" => (&["requestId"], &[]),
+        "system.updateInstall" => (&["version"], &[]),
+        "system.updateApply" | "system.updateCancel" => (&["jobId"], &[]),
         "sessions.refreshIndex" => (&["contractVersion"], &[]),
         "projects.nativePage" => (&["contractVersion"], &["cursor", "limit"]),
         "settings.update" => (&["days", "maxMiB"], &[]),
-        "projects.remove" | "git.status" => (&["projectId"], &[]),
+        "projects.remove" | "git.status" | "git.branches" => (&["projectId"], &[]),
         "sessions.list" => (&[], &["projectId"]),
         "approvals.list" => (&[], &["sessionId"]),
         "sessions.create" => (&["projectId", "title"], &[]),
@@ -99,7 +102,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "sessions.goal" => (&["sessionId"], &[]),
         "sessions.image" => (
             &["sessionId", "turnId", "itemId", "offset"],
-            &["contentIndex", "sha256"],
+            &["contentIndex", "sha256", "sourcePath"],
         ),
         "sessions.observe" => (&["sessionId"], &[]),
         "sessions.history" => (&["sessionId"], &["cursor", "limit", "sortDirection"]),
@@ -116,6 +119,7 @@ pub fn parse(v: Value) -> Result<Request> {
                 "mode",
                 "attachments",
                 "skills",
+                "references",
             ],
         ),
         "settings.execution" => (&[], &["projectId"]),
@@ -124,14 +128,27 @@ pub fn parse(v: Value) -> Result<Request> {
         "skills.catalog" => (&["projectId"], &[]),
         "skills.setEnabled" => (&["projectId", "skillId", "enabled", "expectedEnabled"], &[]),
         "files.list" => (&["projectId"], &["directory"]),
+        "files.readImage" => (&["projectId", "path", "offset"], &["sha256"]),
         "files.readText" => (&["projectId", "path"], &[]),
         "files.reference" => (&["projectId", "path"], &[]),
         "account.status" => (&[], &[]),
         "queue.list" => (&["sessionId"], &[]),
-        "queue.add" => (&["sessionId", "text"], &["attachments", "skills"]),
+        "queue.add" => (
+            &["sessionId", "text"],
+            &["attachments", "skills", "references"],
+        ),
         "queue.update" => (
             &["sessionId", "submissionId", "text"],
             &["expectedInputRevision"],
+        ),
+        "queue.steer" => (
+            &[
+                "sessionId",
+                "submissionId",
+                "expectedTurnId",
+                "expectedInputRevision",
+            ],
+            &[],
         ),
         "queue.start" => (&["sessionId", "submissionId"], &[]),
         "queue.delete" => (&["sessionId", "submissionId"], &[]),
@@ -161,11 +178,40 @@ pub fn parse(v: Value) -> Result<Request> {
             &["sessionId", "turnId", "approvalId", "decision"],
             &["answers"],
         ),
+        "git.compare" => (&["projectId", "base", "head", "mode"], &[]),
+        "git.compareDiff" => (&["projectId", "base", "head", "fileId"], &[]),
         "git.diff" => (&["projectId", "fileId"], &[]),
         "events.replay" => (&[], &["cursor", "limit"]),
         _ => return Err(Error::new("INVALID_REQUEST", "Unsupported action")),
     };
     fields(p, required, optional)?;
+    if ["git.compare", "git.compareDiff"].contains(&r.action.as_str()) {
+        text(p, "base", 1, 512)?;
+        text(p, "head", 1, 512)?;
+    }
+    if r.action == "git.compare" {
+        ensure(
+            ["direct", "merge-base"].iter().any(|m| p["mode"] == *m),
+            "INVALID_REQUEST",
+            "Invalid comparison mode",
+        )?;
+    }
+    if r.action == "system.updateInstall" {
+        text(p, "version", 1, 80)?;
+        ensure(
+            crate::host::updates::valid_version(crate::s(p, "version")),
+            "INVALID_REQUEST",
+            "Invalid release version",
+        )?;
+    }
+    if ["system.updateApply", "system.updateCancel"].contains(&r.action.as_str()) {
+        text(p, "jobId", 36, 36)?;
+        ensure(
+            uuid::Uuid::parse_str(crate::s(p, "jobId")).is_ok(),
+            "INVALID_REQUEST",
+            "Invalid update job ID",
+        )?;
+    }
     if r.action == "sessions.goal.edit"
         || r.action == "sessions.goal.clear"
         || r.action == "sessions.goal.resume"
@@ -195,12 +241,15 @@ pub fn parse(v: Value) -> Result<Request> {
         }
     }
 
-    if let Some(mode) = p.get("mode") {
+    if let Some(mode) = p.get("mode").filter(|_| r.action != "git.compare") {
         ensure(
             ["default", "plan", "goal"].iter().any(|m| mode == *m),
             "INVALID_REQUEST",
             "Invalid conversation mode",
         )?;
+    }
+    if let Some(references) = p.get("references") {
+        crate::composer::decode_file_references(references)?;
     }
     if let Some(files) = p.get("attachments") {
         crate::composer::decode_attachments(files)?;
@@ -221,6 +270,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "itemId",
         "submissionId",
         "expectedTurnId",
+        "expectedInputRevision",
         "lastTurnId",
         "beforeTurnId",
         "expectedLastTurnId",
@@ -263,7 +313,7 @@ pub fn parse(v: Value) -> Result<Request> {
     if p.get("directory").is_some() {
         text(p, "directory", 0, 4096)?;
     }
-    if ["files.readText", "files.reference"].contains(&r.action.as_str()) {
+    if ["files.readText", "files.readImage", "files.reference"].contains(&r.action.as_str()) {
         text(p, "path", 1, 4096)?;
     }
     if r.action == "system.hello" {
@@ -278,7 +328,12 @@ pub fn parse(v: Value) -> Result<Request> {
         if let Some(t) = p[key].as_str() {
             let t = t.trim().to_owned();
             p[key] = json!(t);
-            text(p, key, 1, max)?;
+            let resource_only = key == "text"
+                && ["turn.start", "queue.add"].contains(&r.action.as_str())
+                && p["references"]
+                    .as_array()
+                    .is_some_and(|refs| !refs.is_empty());
+            text(p, key, if resource_only { 0 } else { 1 }, max)?;
         } else if p.get(key).is_some() {
             return Err(Error::new("INVALID_REQUEST", "Text required"));
         }
@@ -359,7 +414,10 @@ pub fn parse(v: Value) -> Result<Request> {
             "Invalid submission IDs",
         )?;
     }
-    if r.action == "sessions.image" {
+    if ["sessions.image", "files.readImage"].contains(&r.action.as_str()) {
+        if p.get("sourcePath").is_some() {
+            text(p, "sourcePath", 1, 4096)?;
+        }
         integer(p, "offset", 0, 8 * 1024 * 1024)?;
         if p.get("contentIndex").is_some() {
             integer(p, "contentIndex", 0, 255)?;

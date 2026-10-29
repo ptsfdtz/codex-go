@@ -182,6 +182,35 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
     println!("cargo:rerun-if-changed={}", start_lock_path.display());
+    let project_lock_path = root.join("versions/0.166.0-alpha.1/projects-lock.json");
+    let project_lock: serde_json::Value =
+        serde_json::from_slice(&fs::read(&project_lock_path).unwrap()).unwrap();
+    assert_eq!(project_lock["codexVersion"], "0.166.0-alpha.1");
+    assert_eq!(project_lock["experimental"], true);
+    assert_eq!(project_lock["files"].as_array().unwrap().len(), 2);
+    for kind in ["Params", "Response"] {
+        let name = format!("ProjectCreate{kind}");
+        let file = project_lock["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|file| file["name"] == name)
+            .unwrap();
+        let source = format!("versions/0.166.0-alpha.1/{name}.json");
+        assert_eq!(file["source"], source);
+        let path = root.join(source);
+        assert_eq!(
+            format!("{:x}", Sha256::digest(fs::read(&path).unwrap())),
+            file["sha256"].as_str().unwrap()
+        );
+        generated.push_str(&format!(
+            "{:?}=>Some(include_str!({:?})),\n",
+            format!("official/{name}"),
+            path.to_string_lossy()
+        ));
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    println!("cargo:rerun-if-changed={}", project_lock_path.display());
     generated.push_str("_=>None}}\n");
     println!("cargo:rerun-if-changed={}", composer_path.display());
     println!("cargo:rerun-if-changed={}", composer_lock_path.display());

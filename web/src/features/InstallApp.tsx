@@ -74,7 +74,6 @@ export function InstallApp() {
           )}
           <details>
             <summary>添加到主屏幕</summary>
-            <p>从主屏幕图标打开，可使用没有浏览器地址栏和工具栏的独立窗口。</p>
             <ul>
               <li>Android：在浏览器菜单中选择“安装应用”或“添加到主屏幕”。</li>
               <li>

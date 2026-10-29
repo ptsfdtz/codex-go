@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { Check, ChevronDown, RotateCcw } from 'lucide-react';
 import type { Draft, Model } from '../workspace';
+import { resolveComposerModelPreferences } from './composer-preferences';
 import { Collapse, usePopoverMotion } from '../motion';
 
 const effortLabel = (value: string) =>
@@ -25,17 +26,19 @@ export function ModelPicker({
   models,
   disabled,
   onChange,
+  allowDefault = true,
 }: {
   draft: Draft;
   models: Model[];
   disabled: boolean;
   onChange: (change: Partial<Draft>) => void;
+  allowDefault?: boolean;
 }) {
   const id = useId();
   const popup = usePopoverMotion();
   const [modelExpanded, setModelExpanded] = useState(false);
   const model =
-    models.find((m) => (m.id || m.model) === draft.model) ||
+    models.find((m) => m.model === draft.model || m.id === draft.model) ||
     (!draft.model ? models.find((m) => m.isDefault) : undefined);
   const efforts =
     model?.supportedReasoningEfforts?.map((e) => (typeof e === 'string' ? e : e.reasoningEffort)) ||
@@ -75,7 +78,7 @@ export function ModelPicker({
         id={id}
         ref={popup}
         popover="auto"
-        className="model-picker-popup"
+        className={`model-picker-popup${effort === 'ultra' ? ' is-ultra' : ''}`}
         aria-label="模型与思维强度"
       >
         <div className="model-picker-view">
@@ -89,18 +92,18 @@ export function ModelPicker({
           </button>
           <Collapse open={modelExpanded}>
             <div role="group" aria-label="模型">
-              <button
-                className={`model-picker-option ${!draft.model ? 'selected' : ''}`}
-                disabled={disabled}
-                onClick={() => choose('')}
-              >
-                <span>
-                  默认模型<small>跟随电脑默认设置</small>
-                </span>
-                {!draft.model && <Check size={18} />}
-              </button>
+              {allowDefault && (
+                <button
+                  className={`model-picker-option ${!draft.model ? 'selected' : ''}`}
+                  disabled={disabled}
+                  onClick={() => choose('')}
+                >
+                  <span>跟随电脑默认模型</span>
+                  {!draft.model && <Check size={18} />}
+                </button>
+              )}
               {models.map((m) => {
-                const value = m.id || m.model;
+                const value = m.model || m.id;
                 return value ? (
                   <button
                     key={value}
@@ -117,7 +120,9 @@ export function ModelPicker({
           </Collapse>
 
           <div className="effort-picker-heading">
-            <strong>思维强度 · {effort ? effortLabel(effort) : '默认'}</strong>
+            <strong>
+              思维强度 · <span>{effort ? effortLabel(effort) : '默认'}</span>
+            </strong>
             <button
               className="icon-button"
               title="重置思维强度"
@@ -136,7 +141,9 @@ export function ModelPicker({
                 style={{
                   width: `calc(${(index / (efforts.length - 1)) * 100}% + ${14 - (index / (efforts.length - 1)) * 28}px)`,
                 }}
-              />
+              >
+                <span className="effort-ultra-glow" />
+              </div>
               <div className="effort-ticks" aria-hidden="true">
                 {efforts.map((e) => (
                   <i key={e} />
@@ -156,8 +163,15 @@ export function ModelPicker({
                 max={efforts.length - 1}
                 step={1}
                 value={index}
-                disabled={disabled}
-                onChange={(event) => onChange({ effort: efforts[Number(event.target.value)] })}
+                disabled={disabled || !(model?.model || model?.id || draft.model)}
+                onChange={(event) =>
+                  onChange(
+                    resolveComposerModelPreferences(
+                      { model: draft.model, effort: efforts[Number(event.target.value)]! },
+                      models,
+                    ),
+                  )
+                }
               />
             </div>
           ) : (

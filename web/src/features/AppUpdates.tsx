@@ -63,9 +63,8 @@ export function AppUpdates() {
     };
   }, []);
   return (
-    <div className="panel-stack">
-      <h3>网页与 PWA 更新</h3>
-      <small>更新由 AgentDeck 服务器提供，重新加载后生效。</small>
+    <div className="panel-stack app-updates">
+      <h3>应用更新</h3>
       {message && <p role="status">{message}</p>}
       <button
         disabled={busy || !import.meta.env.PROD}
@@ -74,9 +73,8 @@ export function AppUpdates() {
           setChecking(true);
         }}
       >
-        {busy ? '正在检查…' : '检查更新'}
+        {!import.meta.env.PROD ? '开发版' : busy ? '正在检查…' : '检查更新'}
       </button>
-      {!import.meta.env.PROD && <small>开发模式使用热更新。</small>}
       {checked && available && <button onClick={() => setConfirmReload(true)}>重新加载更新</button>}
       <MotionPresence>
         {confirmReload && (

@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useId, useLayoutEffect, useRef } from 'react';
+import { ArrowUp, LoaderCircle } from 'lucide-react';
 
 export function MessageEditor({
   text,
@@ -17,6 +18,7 @@ export function MessageEditor({
   onCancel: () => void;
   onSend: () => void;
 }) {
+  const errorId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     textarea.current?.focus({ preventScroll: true });
@@ -32,8 +34,26 @@ export function MessageEditor({
   useLayoutEffect(() => {
     const node = textarea.current;
     if (!node) return;
-    node.style.height = 'auto';
-    node.style.height = `${Math.min(node.scrollHeight, 420)}px`;
+    const resize = () => {
+      node.style.height = '0px';
+      const max = Math.min(320, (window.visualViewport?.height || window.innerHeight) * 0.35);
+      node.style.height = `${Math.min(Math.max(40, node.scrollHeight), Math.max(40, max))}px`;
+    };
+    resize();
+    let width = node.clientWidth;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry || node.clientWidth === width) return;
+      width = node.clientWidth;
+      resize();
+    });
+    observer.observe(node);
+    window.addEventListener('resize', resize);
+    window.visualViewport?.addEventListener('resize', resize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', resize);
+      window.visualViewport?.removeEventListener('resize', resize);
+    };
   }, [text]);
   return (
     <form
@@ -41,44 +61,52 @@ export function MessageEditor({
       aria-label="编辑消息"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!disabled && text.trim()) onSend();
+        if (!disabled && !busy && text.trim()) onSend();
       }}
     >
       <textarea
         ref={textarea}
         aria-label="修改消息"
-        aria-describedby="message-edit-hint"
-        rows={2}
+        aria-describedby={error ? errorId : undefined}
+        rows={1}
         value={text}
         readOnly={busy}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === 'Escape' && !busy) {
             event.preventDefault();
             onCancel();
           }
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault();
-            if (!disabled && text.trim()) onSend();
+            if (!disabled && !busy && text.trim()) onSend();
           }
         }}
       />
-      <p id="message-edit-hint" className="message-edit-hint">
-        发送后将替换此消息并回退后续回复，保留原附件和技能。
-      </p>
       {error && (
-        <p className="error" role="alert">
+        <p id={errorId} className="message-edit-error" role="alert">
           {error}
         </p>
       )}
-      <div className="message-edit-actions">
-        <button type="button" disabled={busy} onClick={onCancel}>
-          取消
-        </button>
-        <button type="submit" className="message-edit-send" disabled={disabled || !text.trim()}>
-          {busy ? '发送中…' : '保存并发送'}
-        </button>
+      <div className="message-edit-footer">
+        <div className="message-edit-actions">
+          <button type="button" disabled={busy} onClick={onCancel}>
+            取消
+          </button>
+          <button
+            type="submit"
+            className="message-edit-send"
+            disabled={disabled || busy || !text.trim()}
+          >
+            {busy ? (
+              <LoaderCircle size={15} className="pending-icon" aria-hidden="true" />
+            ) : (
+              <ArrowUp size={15} aria-hidden="true" />
+            )}
+            {busy ? '发送中…' : '保存并发送'}
+          </button>
+        </div>
       </div>
     </form>
   );

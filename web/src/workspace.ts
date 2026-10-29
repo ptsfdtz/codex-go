@@ -1,4 +1,11 @@
-export type Host = { cloudDeviceId?: string; hostId: string; displayName: string; online: boolean };
+export type Host = {
+  customName?: string | null;
+  customNameConfigured?: boolean;
+  cloudDeviceId?: string;
+  hostId: string;
+  displayName: string;
+  online: boolean;
+};
 export const chatProject = 'agentdeck-chat';
 export type Device = { deviceId: string; kind: string; displayName: string; revoked?: boolean };
 export type Model = {
@@ -67,8 +74,16 @@ export type Skill = {
   enabled: boolean;
   scope?: string;
 };
-export type Attachment = { name: string; data: string; bytes: number; mime: string };
+export type Attachment = {
+  name: string;
+  data: string;
+  bytes: number;
+  mime: string;
+  originalBytes?: number;
+};
+export type FileReference = { projectId: string; path: string; name: string };
 export type Draft = {
+  references?: FileReference[];
   text: string;
   attachments: Attachment[];
   skills: Skill[];
@@ -84,6 +99,14 @@ export const emptyDraft = (): Draft => ({
   model: '',
   effort: '',
 });
+export function isSessionWorking(session: Session) {
+  const nativeStatus = session.upstream?.status as { type?: string } | undefined;
+  // Automatically consumed native queue entries have no managed local turn.
+  // Their local status may be unknown while the native thread is active.
+  return (
+    ['running', 'inProgress'].includes(session.status || '') || nativeStatus?.type === 'active'
+  );
+}
 export function canManage(session?: Session) {
   return (
     !!session && !['queued', 'running', 'waitingApproval', 'unknown'].includes(session.status || '')

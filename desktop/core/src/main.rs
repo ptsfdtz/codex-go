@@ -1,8 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#[cfg(windows)]
-use agentdeck_service::service::boundary;
+use agentdeck_service::codex;
 use agentdeck_service::{
-    codex, ensure, security,
+    ensure, security,
     service::{sandbox_probe, Core},
     store::Store,
     Error, Result,
@@ -56,6 +55,9 @@ async fn run() -> Result<()> {
     let headless = std::env::var("AGENTDECK_HEADLESS").as_deref() == Ok("1");
     security::verify_host_integrity()?;
     let _ = rustls::crypto::ring::default_provider().install_default();
+    if !login_only {
+        agentdeck_service::host::shared_runtime::initialize()?;
+    }
     let directory = agentdeck_service::host::data_dir()?;
     security::restrict_directory(&directory)
         .map_err(|e| Error::new(&e.code, &format!("准备服务数据目录失败：{}", e.message)))?;
@@ -245,38 +247,28 @@ async fn run() -> Result<()> {
 }
 
 async fn run_runtime(core: &Arc<Core>) -> Result<()> {
-    let target = agentdeck_service::runtime::RuntimeTarget::from_environment()?;
-    #[cfg(not(windows))]
-    ensure(target.attached(), "CONFIG_ERROR", "Linux requires a configured authenticated runtime; use agentdeck configure --runtime-ws URL --runtime-token-file PATH --protocol VERSION")?;
-    // Windows must probe the selected native executable even when attaching.
-    // A PATH lookup for `codex` can select an older npm shim and certify a
-    // different binary from the one that actually executes shared threads.
-    let exe = if target.attached() && !cfg!(windows) {
-        PathBuf::from("codex")
-    } else {
-        agentdeck_service::host::Config::load()?.codex_executable()?
-    };
-    if !target.attached() || cfg!(windows) {
-        codex::verify_for(&exe, target.protocol())?;
-    }
-    #[cfg(windows)]
-    let report = boundary(&exe).await?;
-    #[cfg(not(windows))]
-    let report = json!({"passed":std::env::var("AGENTDECK_LINUX_SANDBOX_VERIFIED").as_deref()==Ok("1"),"platform":"linux","mode":"attached-runtime","verification":"explicit-operator-declaration"});
+    agentdeck_service::host::shared_runtime::background().await?;
+    let config = agentdeck_service::host::Config::load()?;
+    let target = config.runtime_target()?;
+    let exe = config.codex_executable()?;
+    agentdeck_service::host::runtime_compatibility::verify_official(&exe)?;
+    let report = agentdeck_service::service::boundary(&exe).await?;
     let verified = report["passed"] == true;
     std::fs::write(
         agentdeck_service::host::data_dir()?.join("sandbox-verification.json"),
         report.to_string(),
     )?;
-    #[cfg(windows)]
     ensure(
         verified,
         "SANDBOX_UNVERIFIED",
-        "Native Windows isolation probe failed; inspect sandbox-verification.json",
+        "Native isolation probe failed; inspect sandbox-verification.json",
     )?;
-    #[cfg(windows)]
     core.store
         .set_meta("sandboxProbeVersion", &codex::executable_version(&exe)?)?;
+    core.store.set_meta(
+        "officialRuntime",
+        &agentdeck_service::host::runtime_compatibility::origin(&exe)?.to_string(),
+    )?;
     core.verified.store(verified, Ordering::SeqCst);
     // Record the actual negotiated runtime version after initialization. A schema
     // hint is not evidence that this executable passed a boundary check.

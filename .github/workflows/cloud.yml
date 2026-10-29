@@ -6,10 +6,12 @@ on:
   pull_request:
     paths: ['server/**', 'packages/connection-protocol/**', '.github/workflows/cloud.yml']
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:
   binary:
+    needs: cloud
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4

@@ -11,6 +11,7 @@ pub(crate) struct ComposerOptions<'a> {
     pub(crate) permission_mode: &'a str,
     pub(crate) mode: &'a str,
     pub(crate) attachments: Option<&'a Value>,
+    pub(crate) references: Option<&'a Value>,
     pub(crate) native_input: Option<&'a [Value]>,
     pub(crate) skills: Option<&'a Value>,
     pub(crate) goal_resume_revision: Option<&'a str>,
@@ -142,6 +143,32 @@ impl Core {
         attachments: Option<&Value>,
         skills: Option<&Value>,
     ) -> Result<Value> {
+        self.start_turn_with_references(
+            session_id,
+            text,
+            model,
+            effort,
+            permission_mode,
+            mode,
+            attachments,
+            skills,
+            None,
+        )
+        .await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn start_turn_with_references(
+        &self,
+        session_id: &str,
+        text: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+        permission_mode: &str,
+        mode: &str,
+        attachments: Option<&Value>,
+        skills: Option<&Value>,
+        references: Option<&Value>,
+    ) -> Result<Value> {
         self.start_composer_reserving(
             session_id,
             text,
@@ -151,6 +178,7 @@ impl Core {
             mode,
             attachments,
             skills,
+            references,
             None,
         )
         .await
@@ -165,6 +193,7 @@ impl Core {
             None,
             "workspace",
             "goal",
+            None,
             None,
             None,
             Some(s(p, "expectedGoalRevision")),
@@ -182,6 +211,7 @@ impl Core {
         mode: &str,
         attachments: Option<&Value>,
         skills: Option<&Value>,
+        references: Option<&Value>,
         goal_resume_revision: Option<&str>,
     ) -> Result<Value> {
         ensure(
@@ -201,7 +231,7 @@ impl Core {
         let _permit = self
             .task_limit
             .try_acquire()
-            .map_err(|_| Error::new("RATE_LIMITED", "Two task starts are active"))?;
+            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
         {
             let mut busy = self.busy.lock().unwrap();
             let current = self.store.session(session_id)?;
@@ -227,9 +257,9 @@ impl Core {
                 .filter(|v| ["queued", "running", "waitingApproval"].contains(&s(v, "status")))
                 .count();
             ensure(
-                active + busy.len() < 2,
+                active + busy.len() < crate::service::MAX_CONCURRENT_TASKS,
                 "RATE_LIMITED",
-                "Two tasks are already active",
+                "Five tasks are already active",
             )?;
             busy.insert(session_id.into());
         }
@@ -244,6 +274,7 @@ impl Core {
                     permission_mode,
                     mode,
                     attachments,
+                    references,
                     native_input: None,
                     skills,
                     goal_resume_revision,
@@ -267,18 +298,18 @@ impl Core {
             mode,
             attachments,
             native_input,
+            references,
             skills,
             goal_resume_revision,
         } = options;
         let session = self.store.session(session_id)?;
         if s(&session, "projectId") == paths::CHAT_PROJECT {
             ensure(
-                permission_mode == "workspace"
-                    && mode == "default"
+                mode == "default"
                     && goal_resume_revision.is_none()
                     && skills.is_none_or(|v| v.as_array().is_some_and(|a| a.is_empty())),
                 "INVALID_REQUEST",
-                "General chat does not support project skills, task modes or full access",
+                "General chat does not support project skills or task modes",
             )?;
         }
         ensure(
@@ -405,6 +436,7 @@ impl Core {
             crate::composer::prepare_stored_input(&self.store, session_id, text, attachments)?
         };
         input.extend(skill_input);
+        input.extend(self.resolve_file_references(s(&session, "projectId"), references)?);
         ensure(
             paths::equal(&root, &paths::root(&self.store, s(&session, "projectId"))?)
                 && self.upstream()?.generation == rpc.generation
@@ -537,12 +569,16 @@ impl Core {
             Some(&turn),
         )?;
         let mut params = json!({"threadId":session["upstreamThreadId"],"input":input,"collaborationMode":{"mode":if mode == "plan" { "plan" } else { "default" },"settings":{"model":mode_model,"reasoning_effort":if selected_effort.is_empty() { Value::Null } else { json!(selected_effort) },"developer_instructions":null}},"approvalPolicy":"on-request","approvalsReviewer":"user"});
-        // Set both policies on every turn so switching back never inherits full access.
+        // Reset roots and permissions every turn, including after full access or
+        // a native client continuation. Legacy workspaceWrite drops :minimal
+        // reads when combined with our deny-root profile, breaking Linux tools.
+        params["cwd"] = json!(root);
+        params["runtimeWorkspaceRoots"] = json!([root]);
         if permission_mode == "full" {
             params["approvalPolicy"] = json!("never");
             params["sandboxPolicy"] = json!({"type":"dangerFullAccess"});
         } else {
-            params["sandboxPolicy"] = json!({"type":"workspaceWrite","writableRoots":[root],"networkAccess":false,"excludeTmpdirEnvVar":true,"excludeSlashTmp":true});
+            params["permissions"] = json!("agentdeck");
         }
         if !selected_model.is_empty() {
             params["model"] = json!(selected_model);

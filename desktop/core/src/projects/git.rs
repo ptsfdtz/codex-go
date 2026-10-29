@@ -1,3 +1,5 @@
+#[path = "branch_compare.rs"]
+pub mod comparison;
 use crate::{digest, ensure, paths, redact, s, store::Store, Error, Result};
 use serde_json::{json, Value};
 use std::{path::Path, process::Stdio, time::Duration};
@@ -8,7 +10,7 @@ pub struct Output {
     pub success: bool,
 }
 pub async fn run(root: &Path, args: &[&str], limit: usize) -> Result<Output> {
-    let mut cmd = Command::new("git.exe");
+    let mut cmd = Command::new(if cfg!(windows) { "git.exe" } else { "git" });
     cmd.args([
         "--no-optional-locks",
         "-c",
@@ -35,7 +37,10 @@ pub async fn run(root: &Path, args: &[&str], limit: usize) -> Result<Output> {
         }
     }
     cmd.env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "NUL")
+        .env(
+            "GIT_CONFIG_GLOBAL",
+            if cfg!(windows) { "NUL" } else { "/dev/null" },
+        )
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0");
     #[cfg(windows)]
@@ -92,14 +97,14 @@ pub fn parse(data: &[u8]) -> Vec<Value> {
     }
     result
 }
-pub async fn status(store: &Store, id: &str) -> Result<Value> {
+pub(super) async fn authorized_root(store: &Store, id: &str) -> Result<std::path::PathBuf> {
     let root = paths::root(store, id)?;
     let top = run(&root, &["rev-parse", "--show-toplevel"], 32768).await?;
-    if !top.success {
-        return Ok(
-            json!({"available":false,"files":[],"truncated":false,"attribution":"working-tree","baseline":null}),
-        );
-    }
+    ensure(
+        top.success,
+        "GIT_UNAVAILABLE",
+        "No Git repository available",
+    )?;
     ensure(
         paths::equal(
             &root,
@@ -118,6 +123,19 @@ pub async fn status(store: &Store, id: &str) -> Result<Value> {
         "WORKSPACE_FORBIDDEN",
         "External Git metadata forbidden",
     )?;
+    Ok(root)
+}
+pub async fn status(store: &Store, id: &str) -> Result<Value> {
+    let root = paths::root(store, id)?;
+    if !run(&root, &["rev-parse", "--show-toplevel"], 32768)
+        .await?
+        .success
+    {
+        return Ok(
+            json!({"available":false,"files":[],"truncated":false,"attribution":"working-tree","baseline":null}),
+        );
+    }
+    let root = authorized_root(store, id).await?;
     let output = run(
         &root,
         &[
@@ -215,4 +233,61 @@ pub async fn diff(store: &Store, id: &str, file_id: &str) -> Result<Value> {
     Ok(
         json!({"path":entry["path"],"text":redact(&text),"binary":text.contains("Binary files "),"truncated":staged.truncated||unstaged.truncated,"attribution":"working-tree; may include external changes"}),
     )
+}
+
+#[cfg(test)]
+mod file_workspace_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn real_worktree_previews_modified_deleted_and_untracked_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
+        assert!(run(&root, &["init"], 4096).await.unwrap().success);
+        for name in ["modified.txt", "deleted.txt"] {
+            std::fs::write(root.join(name), "original\n").unwrap();
+        }
+        assert!(run(&root, &["add", "."], 4096).await.unwrap().success);
+        assert!(
+            run(
+                &root,
+                &[
+                    "-c",
+                    "user.name=Workspace Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "commit",
+                    "-m",
+                    "Initial test files"
+                ],
+                4096
+            )
+            .await
+            .unwrap()
+            .success
+        );
+        std::fs::write(root.join("modified.txt"), "updated\n").unwrap();
+        std::fs::remove_file(root.join("deleted.txt")).unwrap();
+        std::fs::write(root.join("new.txt"), "new content\n").unwrap();
+        let store = Store::open(&directory.path().join("state.db")).unwrap();
+        let project = paths::add_local(&store, &root).unwrap();
+        let id = s(&project, "projectId");
+        let state = status(&store, id).await.unwrap();
+        let files = state["files"].as_array().unwrap();
+        assert_eq!(files.len(), 3);
+        for (name, expected) in [
+            ("modified.txt", "+updated"),
+            ("deleted.txt", "-original"),
+            ("new.txt", "new content"),
+        ] {
+            let entry = files.iter().find(|entry| entry["path"] == name).unwrap();
+            let result = diff(&store, id, s(entry, "fileId")).await.unwrap();
+            assert!(s(&result, "text").contains(expected));
+        }
+        assert!(diff(&store, id, "unknown-file-id").await.is_err());
+        assert!(status(&store, "unauthorized-project").await.is_err());
+    }
 }

@@ -12,6 +12,7 @@ pub fn protocol_for_version(version: &str) -> Result<crate::rpc::ProtocolVersion
     super::codex_version::profile(version)
 }
 pub fn executable_version(exe: &Path) -> Result<String> {
+    crate::host::runtime_compatibility::verify_entry(exe)?;
     super::codex_version::cli(&sync_command(&exe.to_string_lossy(), &["--version"], None)?)
 }
 pub fn sync_command(exe: &str, args: &[&str], cwd: Option<&Path>) -> Result<String> {
@@ -129,7 +130,56 @@ pub fn filtered_path(path: &str) -> String {
         .join(";")
 }
 pub fn args() -> Vec<String> {
-    ["app-server","--listen","stdio://","-c","windows.sandbox=\"mxc\"","-c","approval_policy=\"on-request\"","-c","approvals_reviewer=\"user\"","-c","default_permissions=\"agentdeck\"","-c","permissions={agentdeck={extends=\":workspace\",filesystem={\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\"},network={enabled=false}}}","-c","web_search=\"disabled\"","-c","mcp_servers={}","-c","hooks={}","-c","shell_environment_policy.inherit=\"core\""].iter().map(|s|s.to_string()).collect()
+    let mut args: Vec<String> = ["app-server", "--listen", "stdio://"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    #[cfg(windows)]
+    args.extend(["-c", "windows.sandbox=\"mxc\""].map(str::to_string));
+    // macOS keeps a legacy sandbox_mode even when a permissions profile is
+    // active. Override a broader user setting before the managed server starts.
+    #[cfg(target_os = "macos")]
+    args.extend(["-c", "sandbox_mode=\"workspace-write\""].map(str::to_string));
+    args.extend(
+        [
+            "-c",
+            "approval_policy=\"on-request\"",
+            "-c",
+            "approvals_reviewer=\"user\"",
+            "-c",
+            "default_permissions=\"agentdeck\"",
+            "-c",
+            "permissions={agentdeck={extends=\":workspace\",filesystem={\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\"},network={enabled=false}}}",
+            "-c",
+            "web_search=\"disabled\"",
+            "-c",
+            "mcp_servers={}",
+            "-c",
+            "hooks={}",
+            "-c",
+            "shell_environment_policy.inherit=\"core\"",
+        ]
+        .map(str::to_string),
+    );
+    args
+}
+/// Linux re-executes its official binary inside bwrap. Grant only this
+/// immutable package read access, never the surrounding state/config directory.
+pub fn args_for(executable: &Path) -> Vec<String> {
+    let mut args = args();
+    if cfg!(target_os = "linux") {
+        if let Some(root) = executable.parent().and_then(Path::parent) {
+            for value in &mut args {
+                if value.starts_with("permissions=") {
+                    *value = value.replace(
+                        "},network=",
+                        &format!(",{}=\"read\"}},network=", json!(root)),
+                    );
+                }
+            }
+        }
+    }
+    args
 }
 pub async fn initialize(rpc: &Arc<Rpc>) -> Result<()> {
     initialize_checked(rpc).await
@@ -161,12 +211,27 @@ async fn initialize_checked(rpc: &Arc<Rpc>) -> Result<()> {
     rpc.send(json!({"method":"initialized","params":{}}))
 }
 pub fn check_policy(v: &Value) -> Result<()> {
+    let executable = crate::host::Config::load()
+        .and_then(|c| c.codex_executable())
+        .ok();
+    check_policy_for(v, executable.as_deref())
+}
+pub fn check_policy_for(v: &Value, executable: Option<&Path>) -> Result<()> {
+    let package_root = executable
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(|p| p.to_string_lossy().into_owned());
     let c = &v["config"];
     let profile = &c["permissions"]["agentdeck"];
     let fs = &profile["filesystem"];
+    let sandbox_mode = if cfg!(target_os = "macos") {
+        c["sandbox_mode"] == "workspace-write"
+    } else {
+        c["sandbox_mode"].is_null()
+    };
     ensure(
         c["default_permissions"] == "agentdeck"
-            && c["sandbox_mode"].is_null()
+            && sandbox_mode
             && profile["extends"] == ":workspace",
         "UNSAFE_UPSTREAM_CONFIG",
         "Workspace permission profile overridden",
@@ -180,6 +245,9 @@ pub fn check_policy(v: &Value) -> Result<()> {
                 o.iter().all(|(k, v)| {
                     [":root", ":minimal", ":tmpdir", ":slash_tmp"].contains(&k.as_str())
                         || (k == "glob_scan_max_depth" && v.is_null())
+                        || (cfg!(target_os = "linux")
+                            && package_root.as_deref() == Some(k)
+                            && v == "read")
                 })
             }),
         "UNSAFE_UPSTREAM_CONFIG",
@@ -225,8 +293,8 @@ pub fn checked_thread_with_full(
 }
 // Loaded shared threads report their original workspace roots on resume,
 // even after a desktop continuation changes cwd. Only the immediate turn
-// path may accept those historical roots: it supplies a complete sandboxPolicy
-// for the authorized current root before any execution can start.
+// path may accept those historical roots: it replaces runtime workspace roots
+// and permissions for the authorized current root before execution can start.
 pub(crate) fn checked_thread_for_turn(
     v: &Value,
     root: &Path,
@@ -265,11 +333,18 @@ pub(crate) fn checked_thread_for_turn(
         ),
     )?;
     if b["type"] == "workspaceWrite" {
-        ensure(
-            b["excludeTmpdirEnvVar"] == true && b["excludeSlashTmp"] == true,
-            "UNSAFE_UPSTREAM_CONFIG",
-            "Temporary access broadened",
-        )?;
+        // An already loaded official CLI thread reports its historical temp
+        // grants even when resume requests the named profile. The next turn
+        // explicitly replaces filesystem permissions with the verified Host
+        // profile; this exception never applies to thread creation or an
+        // execution path that does not replace the policy.
+        if !replaces_workspace_policy {
+            ensure(
+                b["excludeTmpdirEnvVar"] == true && b["excludeSlashTmp"] == true,
+                "UNSAFE_UPSTREAM_CONFIG",
+                "Temporary access broadened",
+            )?;
+        }
         for p in b["writableRoots"]
             .as_array()
             .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Missing roots"))?
@@ -352,8 +427,6 @@ mod shared_resume_policy_tests {
         assert!(checked_thread_for_turn(&response, &root, false, false, true).is_err());
         for (pointer, value) in [
             ("/sandbox/networkAccess", json!(true)),
-            ("/sandbox/excludeTmpdirEnvVar", json!(false)),
-            ("/sandbox/excludeSlashTmp", json!(false)),
             ("/sandbox/type", json!("dangerFullAccess")),
             ("/approvalPolicy", json!("never")),
             ("/approvalsReviewer", json!("auto_review")),
@@ -363,5 +436,13 @@ mod shared_resume_policy_tests {
             *unsafe_response.pointer_mut(pointer).unwrap() = value;
             assert!(checked_thread_for_turn(&unsafe_response, &root, true, false, true).is_err());
         }
+        let mut cli_response = response.clone();
+        cli_response["sandbox"]["writableRoots"] = json!([]);
+        cli_response["sandbox"]["excludeTmpdirEnvVar"] = json!(false);
+        cli_response["sandbox"]["excludeSlashTmp"] = json!(false);
+        assert!(checked_thread(&cli_response, &root, true).is_err());
+        assert!(checked_thread_for_turn(&cli_response, &root, true, false, false).is_err());
+        assert!(checked_thread_for_turn(&cli_response, &root, false, false, true).is_err());
+        assert!(checked_thread_for_turn(&cli_response, &root, true, false, true).is_ok());
     }
 }

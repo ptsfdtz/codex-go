@@ -154,6 +154,28 @@ impl Core {
         offset: usize,
         expected_hash: Option<&str>,
     ) -> Result<Value> {
+        self.session_image_source(
+            session_id,
+            turn_id,
+            item_id,
+            content_index,
+            offset,
+            expected_hash,
+            None,
+        )
+        .await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn session_image_source(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        item_id: &str,
+        content_index: usize,
+        offset: usize,
+        expected_hash: Option<&str>,
+        source_path: Option<&str>,
+    ) -> Result<Value> {
         use std::{collections::HashSet, io::Read, sync::atomic::Ordering};
         let session = self.store.session(session_id)?;
         let root = paths::root(&self.store, s(&session, "projectId"))?;
@@ -188,23 +210,34 @@ impl Core {
                 "Image item was not found in bounded saved history",
             )
         })?;
-        let path = match s(&item, "type") {
-            "imageView" if content_index == 0 => s(&item, "path"),
-            "imageGeneration" if content_index == 0 => s(&item, "savedPath"),
-            "userMessage" => {
-                let part = &item["content"][content_index];
-                ensure(
-                    part["type"] == "localImage",
-                    "RESOURCE_UNAVAILABLE",
-                    "Saved input has no local image resource",
-                )?;
-                s(part, "path")
-            }
-            _ => {
-                return Err(crate::Error::new(
-                    "RESOURCE_UNAVAILABLE",
-                    "This item has no supported local image",
-                ))
+        let path = if let Some(path) = source_path {
+            ensure(
+                content_index == 0
+                    && matches!(s(&item, "type"), "agentMessage" | "assistantMessage")
+                    && recorded_image_path(s(&item, "text"), path),
+                "RESOURCE_UNAVAILABLE",
+                "Image path is not present in the Codex message",
+            )?;
+            path
+        } else {
+            match s(&item, "type") {
+                "imageView" if content_index == 0 => s(&item, "path"),
+                "imageGeneration" if content_index == 0 => s(&item, "savedPath"),
+                "userMessage" => {
+                    let part = &item["content"][content_index];
+                    ensure(
+                        part["type"] == "localImage",
+                        "RESOURCE_UNAVAILABLE",
+                        "Saved input has no local image resource",
+                    )?;
+                    s(part, "path")
+                }
+                _ => {
+                    return Err(crate::Error::new(
+                        "RESOURCE_UNAVAILABLE",
+                        "This item has no supported local image",
+                    ))
+                }
             }
         };
         ensure(
@@ -213,26 +246,35 @@ impl Core {
             "Image source path is unavailable",
         )?;
         let target = std::path::Path::new(path);
-        paths::valid(target)?;
+        let target = if target.is_absolute() {
+            target.to_path_buf()
+        } else {
+            root.join(target)
+        };
+        paths::valid(&target)?;
         let original_target = target.to_path_buf();
-        let target = paths::canonical(target)?;
-        let read_root = root.clone();
+        let target = paths::canonical(&target).map_err(|error| {
+            if !target.exists() {
+                crate::Error::new(
+                    "RESOURCE_UNAVAILABLE",
+                    "Codex image file is no longer available",
+                )
+            } else {
+                error
+            }
+        })?;
         let store = self.store.clone();
         let image_session = session_id.to_owned();
         let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
             if let Some(bytes) = store.read_attachment(&image_session, &original_target)? {
                 return Ok(bytes);
             }
-            ensure(
-                paths::within(&read_root, &target),
-                "WORKSPACE_FORBIDDEN",
-                "Image is outside the authorized project",
-            )?;
+            // The path comes from the authoritative Codex item, not a browser file request.
             let file = std::fs::File::open(&target)?;
             ensure(
-                paths::within(&read_root, &paths::opened_path(&file)?),
-                "WORKSPACE_FORBIDDEN",
-                "Opened image escaped the project",
+                paths::equal(&target, &paths::opened_path(&file)?),
+                "CONTENT_CHANGED",
+                "Image path changed while opening",
             )?;
             ensure(
                 file.metadata()?.is_file() && file.metadata()?.len() <= 8 * 1024 * 1024,
@@ -384,5 +426,44 @@ fn image_mime(bytes: &[u8]) -> Option<&'static str> {
         Some("image/webp")
     } else {
         None
+    }
+}
+
+// Match a complete Markdown image destination; never authorize a mere path substring.
+fn recorded_image_path(text: &str, path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    let escaped = regex::escape(path);
+    let pattern =
+        format!(r#"!\[[^\]\n]*\]\(\s*(?:<{escaped}>|{escaped})(?:\s+["'][^\n]*?["'])?\s*\)"#);
+    regex::Regex::new(&pattern).unwrap().is_match(text)
+}
+
+#[cfg(test)]
+mod session_image_path_tests {
+    use super::recorded_image_path;
+    #[test]
+    fn only_recorded_image_destinations_are_allowed() {
+        for path in [
+            "/tmp/preview.png",
+            "/home/user/.codex/images/result.png",
+            "relative/image.png",
+            "/tmp/preview(1).png",
+            "C:\\Users\\user\\.codex\\preview.png",
+        ] {
+            assert!(recorded_image_path(&format!("![预览]({path})"), path));
+            assert!(!recorded_image_path(
+                &format!("![预览]({path}.other)"),
+                path
+            ));
+            assert!(!recorded_image_path(&format!("[下载]({path})"), path));
+            assert!(!recorded_image_path(path, path));
+        }
+        assert!(recorded_image_path(
+            "![图](</tmp/with space.png> \"caption\")",
+            "/tmp/with space.png"
+        ));
+        assert!(!recorded_image_path("", ""));
     }
 }

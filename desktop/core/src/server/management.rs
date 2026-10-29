@@ -113,6 +113,52 @@ async fn control(State(state): State<Arc<Control>>, Json(request): Json<Value>) 
     let result = tokio::time::timeout(Duration::from_secs(90), async {
         let _guard = state.mutation.lock().await;
         match s(&request, "action") {
+            "update.prepare" => {
+                protocol::fields(&request, &["action", "jobId"], &[])?;
+                let _barrier = state.core.update_gate.write().await;
+                let job = crate::host::update_job::status()?;
+                ensure(
+                    job["job"]["id"] == request["jobId"] && job["job"]["phase"] == "waitingIdle",
+                    "UPDATE_CHANGED",
+                    "Update request changed",
+                )?;
+                if state.core.ready.load(std::sync::atomic::Ordering::SeqCst) {
+                    tokio::time::timeout(Duration::from_secs(15), state.core.sync_thread_index())
+                        .await
+                        .map_err(|_| {
+                            Error::new(
+                                "UPDATE_NOT_IDLE",
+                                "Cannot verify native task state yet; restart remains queued",
+                            )
+                        })??;
+                }
+                crate::host::update_job::ensure_idle(
+                    &state.core.store,
+                    !state.core.busy.lock().unwrap().is_empty(),
+                )?;
+                state
+                    .core
+                    .update_draining
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(json!({"prepared":true}))
+            }
+            "update.release" => {
+                protocol::fields(&request, &["action", "jobId"], &[])?;
+                let job = crate::host::update_job::status()?;
+                ensure(
+                    job["job"]["id"] == request["jobId"]
+                        && ["failed", "installed", "complete"]
+                            .iter()
+                            .any(|phase| job["job"]["phase"] == *phase),
+                    "UPDATE_CHANGED",
+                    "Update is still switching or its identity changed",
+                )?;
+                state
+                    .core
+                    .update_draining
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                Ok(json!({"released":true}))
+            }
             "state" => {
                 protocol::fields(&request, &["action"], &[])?;
                 state.core.state()

@@ -154,6 +154,14 @@ impl Rpc {
         executable: &std::path::Path,
         args: &[String],
     ) -> Result<(Arc<Self>, mpsc::Receiver<Value>)> {
+        Self::start_with_home(executable, args, None)
+    }
+    pub(crate) fn start_with_home(
+        executable: &std::path::Path,
+        args: &[String],
+        isolated_home: Option<&std::path::Path>,
+    ) -> Result<(Arc<Self>, mpsc::Receiver<Value>)> {
+        crate::host::runtime_compatibility::verify_official(executable)?;
         let mut command = Command::new(executable);
         command
             .args(args)
@@ -161,6 +169,13 @@ impl Rpc {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
+        if let Some(home) = isolated_home {
+            command
+                .env("CODEX_HOME", home)
+                .env("CODEX_SQLITE_HOME", home);
+            // A compatibility check must never access the user's credential store.
+            command.env_remove("CODEX_CLI_PATH");
+        }
         #[cfg(windows)]
         {
             command.creation_flags(0x08000000);
@@ -289,7 +304,9 @@ impl Rpc {
         } else {
             json!({"id":id,"method":method,"params":params})
         };
-        if self.protocol() == ProtocolVersion::DesktopBaseline && method == "project/list" {
+        if self.protocol() == ProtocolVersion::DesktopBaseline && method == "project/create" {
+            self.validate("official/ProjectCreateParams", &packet["params"])?;
+        } else if self.protocol() == ProtocolVersion::DesktopBaseline && method == "project/list" {
             self.validate("experimental/ProjectListParams", &packet["params"])?;
         } else if self.protocol() == ProtocolVersion::DesktopBaseline
             && [

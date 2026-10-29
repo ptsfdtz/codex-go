@@ -306,10 +306,10 @@ async fn upgrade(
             .upgraded
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    ws.max_message_size(1024 * 1024)
-        .max_frame_size(1024 * 1024)
+    ws.max_message_size(4 * 1024 * 1024)
+        .max_frame_size(4 * 1024 * 1024)
         .write_buffer_size(0)
-        .max_write_buffer_size(2 * 1024 * 1024)
+        .max_write_buffer_size(8 * 1024 * 1024)
         .on_upgrade(move |socket| async move {
             let _slot = slot;
             let identity = remote.as_ref().map(|r| r.identity.clone());
@@ -615,6 +615,9 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
     let mutate = matches!(
         r.action.as_str(),
         "sessions.create"
+            | "system.updateInstall"
+            | "system.updateApply"
+            | "system.updateCancel"
             | "skills.setEnabled"
             | "settings.outputDefaults"
             | "settings.modelDefaults"
@@ -623,6 +626,7 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
             | "queue.delete"
             | "queue.reorder"
             | "queue.start"
+            | "queue.steer"
             | "sessions.goal.resume"
             | "sessions.goal.clear"
             | "sessions.goal.edit"
@@ -645,6 +649,22 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
             | "devices.revokeSelf"
             | "settings.update"
     );
+    let _update_guard = if mutate {
+        Some(core.update_gate.read().await)
+    } else {
+        None
+    };
+    if mutate
+        && core
+            .update_draining
+            .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return Error::new(
+            "UPDATE_RESTARTING",
+            "Host is switching versions; reconnect before changing state",
+        )
+        .packet(Some(&r.id));
+    }
     if mutate {
         match core.store.reserve(device, &r.id, &r.action, &r.payload) {
             Ok(Some(v)) => return v,

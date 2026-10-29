@@ -449,7 +449,7 @@ impl Core {
         let _permit = self
             .task_limit
             .try_acquire()
-            .map_err(|_| Error::new("RATE_LIMITED", "Two task starts are active"))?;
+            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
         let active = self
             .store
             .turns(None)?
@@ -457,9 +457,9 @@ impl Core {
             .filter(|turn| ["queued", "running", "waitingApproval"].contains(&s(turn, "status")))
             .count();
         ensure(
-            active + self.busy.lock().unwrap().len() <= 2,
+            active + self.busy.lock().unwrap().len() <= crate::service::MAX_CONCURRENT_TASKS,
             "RATE_LIMITED",
-            "Two tasks are already active",
+            "Five tasks are already active",
         )?;
         ensure(
             self.verified.load(Ordering::SeqCst),
@@ -574,6 +574,7 @@ impl Core {
                     permission_mode: p["permissionMode"].as_str().unwrap_or("workspace"),
                     mode: p["mode"].as_str().unwrap_or("default"),
                     attachments: None,
+                    references: None,
                     native_input: Some(&input),
                     skills: None,
                     goal_resume_revision: None,

@@ -4,11 +4,15 @@ import './styles.css';
 import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
 import { api, installationId, accountEvent } from './cloud';
 import { Bridge } from './transport/bridge';
-import { AccountDevices, DeleteDevice } from './features/AccountDevices';
+import { DeleteDevice } from './features/AccountDevices';
+import { SelectionQuote, appendQuote } from './features/SelectionQuote';
+import { HostNameEditor } from './features/HostNameEditor';
+import { hostName as cloudHostName, migrateHostNames, type HostName } from './features/host-names';
 import { AccountPassword } from './AccountPassword';
 import type { HostGrant } from './host-book';
 import { contentText, RichContent } from './RichContent';
 import { Timeline } from './Timeline';
+import { ActivityStages } from './features/activity/ActivityStages';
 import { historyKey, mergeHistory, type HistoryEntry } from './history';
 import { applyProgress, historyError, mergeHistorySnapshot, finalItem } from './conversation';
 
@@ -23,34 +27,65 @@ import type {
   Draft,
   Request,
 } from './workspace';
-import { emptyDraft, canManage, chatProject } from './workspace';
+import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
+import type { WorkMode } from './features/ModeSwitcher';
+import { deferred } from './deferred';
+const ApiChat = deferred<
+  React.ComponentProps<typeof import('./features/api-chat/ApiChat').ApiChat>
+>(() => import('./features/api-chat/ApiChat').then((module) => ({ default: module.ApiChat })));
+import './features/api-chat/api-chat.css';
 import { Composer } from './features/Composer';
+import { PlanConfirmation } from './features/plan/PlanConfirmation';
 import { ApprovalCard, AsyncQuestions } from './features/Questions';
+import { QueuedMessages } from './features/queue/QueuedMessages';
 import { ComposerStatus } from './features/ComposerStatus';
 import { TurnChanges } from './features/TurnChanges';
+import { ProjectOverview } from './features/project-overview/ProjectOverview';
 import { projectRelativePath } from './features/turn-changes';
 import { turnOptions, resources } from './features/composer-input';
-import {
-  SessionPanel,
-  GoalPanel,
-  FilesPanel,
-  GitPanel,
-  SkillsPanel,
-  QueuePanel,
-  ProjectsPanel,
-  ConfigurationPanel,
-  RetentionPanel,
-  DiagnosticsPanel,
-  AccountPanel,
-} from './features/Panels';
+const SessionPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').SessionPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.SessionPanel })));
+const GoalPanel = deferred<React.ComponentProps<typeof import('./features/Panels').GoalPanel>>(() =>
+  import('./features/Panels').then((module) => ({ default: module.GoalPanel })),
+);
+const SkillsPanel = deferred<React.ComponentProps<typeof import('./features/Panels').SkillsPanel>>(
+  () => import('./features/Panels').then((module) => ({ default: module.SkillsPanel })),
+);
+const QueuePanel = deferred<React.ComponentProps<typeof import('./features/Panels').QueuePanel>>(
+  () => import('./features/Panels').then((module) => ({ default: module.QueuePanel })),
+);
+const ProjectsPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').ProjectsPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.ProjectsPanel })));
+const ProjectSettings = deferred<
+  React.ComponentProps<typeof import('./features/project-settings/ProjectSettings').ProjectSettings>
+>(() =>
+  import('./features/project-settings/ProjectSettings').then((module) => ({
+    default: module.ProjectSettings,
+  })),
+);
+const ConfigurationPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').ConfigurationPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.ConfigurationPanel })));
+const RetentionPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').RetentionPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.RetentionPanel })));
+const DiagnosticsPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').DiagnosticsPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.DiagnosticsPanel })));
+const AccountPanel = deferred<
+  React.ComponentProps<typeof import('./features/Panels').AccountPanel>
+>(() => import('./features/Panels').then((module) => ({ default: module.AccountPanel })));
 import { IconButton, Modal, DataFields } from './ui';
 import {
   Menu,
   ChevronDown,
+  ChevronLeft,
+  Check,
   Computer,
   MoreHorizontal,
-  MessageSquarePlus,
   Settings,
   FileDiff,
   FolderOpen,
@@ -84,10 +119,27 @@ import { InstallApp } from './features/InstallApp';
 import { AppUpdates } from './features/AppUpdates';
 import { SettingsLayout } from './features/SettingsLayout';
 import { HostUpdates } from './features/HostUpdates';
+const FileWorkspace = deferred<
+  React.ComponentProps<typeof import('./features/files/FileWorkspace').FileWorkspace>
+>(
+  () =>
+    import('./features/files/FileWorkspace').then((module) => ({ default: module.FileWorkspace })),
+  () => (
+    <aside className="file-workspace module-status" role="status">
+      加载文件工作区…
+    </aside>
+  ),
+);
+import './features/files/file-workspace.css';
+import { usePreference } from './features/preferences';
 import {
+  resolveComposerModelPreferences,
   readComposerPreferences,
   saveComposerPreferences,
   type ComposerPreferences,
+  readComposerModelPreferences,
+  saveComposerModelPreferences,
+  type ComposerModelPreferences,
 } from './features/composer-preferences';
 
 type HistoryPage = {
@@ -165,6 +217,55 @@ function Login({ onLogin }: { onLogin: () => void }) {
 }
 
 export function App() {
+  const [mode] = usePreference<WorkMode>(
+    'agentdeck.web.work-mode',
+    'codex',
+    (value): value is WorkMode => value === 'codex' || value === 'api',
+  );
+  const modeControl = <span className="app-brand">AgentDeck</span>;
+  return mode === 'api' ? (
+    <ApiChatGate modeControl={modeControl} />
+  ) : (
+    <CodexApp modeControl={modeControl} />
+  );
+}
+function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
+  const [identity, setIdentity] = useState<{
+    accountId: string;
+    mustChangePassword: boolean;
+  } | null>();
+  const [generation, setGeneration] = useState(0);
+  useEffect(() => {
+    let current = true;
+    const changed = () => {
+      setIdentity(undefined);
+      setGeneration((value) => value + 1);
+    };
+    window.addEventListener(accountEvent, changed);
+    void api<{ accountId: string; mustChangePassword: boolean }>('/api/v1/web/session')
+      .then((value) => {
+        if (current) setIdentity(value);
+      })
+      .catch(() => {
+        if (current) setIdentity(null);
+      });
+    return () => {
+      current = false;
+      window.removeEventListener(accountEvent, changed);
+    };
+  }, [generation]);
+  if (identity === undefined) return <main className="center">加载中…</main>;
+  if (identity === null) return <Login onLogin={() => setGeneration((value) => value + 1)} />;
+  if (identity.mustChangePassword) return <AccountPassword />;
+  return (
+    <ApiChat
+      key={`${identity.accountId}:${generation}`}
+      scope={identity.accountId}
+      modeControl={modeControl}
+    />
+  );
+}
+function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [scope, setScope] = useState('');
   const [mustChangePassword, setMustChangePassword] = useState(false);
@@ -192,6 +293,7 @@ export function App() {
   const [historyReady, setHistoryReady] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const sending = useRef(false);
+  const [sendFailure, setSendFailure] = useState<{ key: string; message: string }>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [activeTurn, setActiveTurn] = useState<string>();
@@ -216,37 +318,82 @@ export function App() {
     [findIndex, setFindIndex] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem('agentdeck.web.theme') || 'system');
   const [preferences, setPreferences] = useState<Record<string, ComposerPreferences>>({});
+  const [modelPreferences, setModelPreferences] = useState<
+    Record<string, ComposerModelPreferences>
+  >({});
   const [receiptBlocked, setReceiptBlocked] = useState(false);
   const [messageAction, setMessageAction] = useState<{ entry: HistoryEntry; kind: string }>();
   const [editText, setEditText] = useState('');
   const [editError, setEditError] = useState('');
   const messageActionPending = useRef(false);
-  const [hostFingerprint, setHostFingerprint] = useState(''),
-    [hostLabel, setHostLabel] = useState(''),
-    [lastSynced, setLastSynced] = useState('');
-  const [notification, setNotification] = useState(false);
+  const [notification, setNotification] = usePreference(
+    'agentdeck.web.notifications',
+    false,
+    (value): value is boolean => typeof value === 'boolean',
+  );
   const notificationRef = useRef(notification);
   notificationRef.current = notification;
   const [statusRevision, setStatusRevision] = useState(0);
+  const [queueRevision, setQueueRevision] = useState(0);
   const [observedUsage, setObservedUsage] =
     useState<Parameters<typeof ComposerStatus>[0]['observedUsage']>();
   const [filePath, setFilePath] = useState<string>();
+  const [fileWorkspaceOpen, setFileWorkspaceOpen] = useState(false);
+  const [fileWorkspaceSeen, setFileWorkspaceSeen] = useState(false);
+  const [fileWorkspaceWide, setFileWorkspaceWide] = useState(false);
+  const [fileWorkspaceView, setFileWorkspaceView] = useState<'files' | 'changes'>('files');
+  const [fileTargetProject, setFileTargetProject] = useState('');
+  const [fileOpenToken, setFileOpenToken] = useState(0);
+  const [filePaneWidth, setFilePaneWidth] = usePreference(
+    'agentdeck.web.filePaneWidth',
+    '60',
+    (value): value is string =>
+      typeof value === 'string' && Number(value) >= 35 && Number(value) <= 75,
+  );
   const reconnect = useRef<ReconnectLoop>(undefined);
   const connectRef = useRef<(h: Host) => void>(undefined);
   const hostRef = useRef(host);
   hostRef.current = host;
+  useEffect(() => {
+    setFileTargetProject('');
+    setFilePath(undefined);
+    setFileWorkspaceView('files');
+  }, [scope, host?.hostId, selectedProject]);
+  function hostName(item: Host) {
+    return cloudHostName(hosts.find((entry) => entry.hostId === item.hostId) || item);
+  }
+  function hostNameSaved(name: HostName) {
+    setHosts((current) =>
+      current.map((item) => (item.hostId === name.hostId ? { ...item, ...name } : item)),
+    );
+    setHost((current) => (current?.hostId === name.hostId ? { ...current, ...name } : current));
+  }
   const draftKey = JSON.stringify([scope, host?.hostId, session || `new:${selectedProject}`]);
+  const current = useMemo(
+    () => snapshot.sessions?.find((item) => item.sessionId === session),
+    [snapshot.sessions, session],
+  );
   const preferenceKey = host ? JSON.stringify([scope, host.hostId]) : '';
   const preference = useMemo(
     () => preferences[preferenceKey] || readComposerPreferences(preferenceKey),
     [preferences, preferenceKey],
   );
   const permission = preference.permission;
+  const modelPreferenceKey = host ? draftKey : '';
+  const modelPreference = useMemo(
+    () =>
+      modelPreferences[modelPreferenceKey] ||
+      readComposerModelPreferences(modelPreferenceKey, {
+        model: current?.model || '',
+        effort: current?.effort || '',
+      }),
+    [modelPreferences, modelPreferenceKey, current?.model, current?.effort],
+  );
   const storedDraft = drafts[draftKey];
   const draft = {
     ...(storedDraft || emptyDraft()),
-    model: preference.model,
-    effort: preference.effort,
+    model: modelPreference.model,
+    effort: modelPreference.effort,
   };
   function updatePreferences(change: Partial<ComposerPreferences>) {
     const next = { ...preference, ...change };
@@ -255,10 +402,12 @@ export function App() {
   }
   function updateDraft(change: Partial<Draft>) {
     if (change.model !== undefined || change.effort !== undefined) {
-      updatePreferences({
-        model: change.model ?? preference.model,
-        effort: change.effort ?? preference.effort,
-      });
+      const next = {
+        model: change.model ?? modelPreference.model,
+        effort: change.effort ?? modelPreference.effort,
+      };
+      saveComposerModelPreferences(modelPreferenceKey, next);
+      setModelPreferences((items) => ({ ...items, [modelPreferenceKey]: next }));
     }
     setDrafts((items) => ({
       ...items,
@@ -271,6 +420,32 @@ export function App() {
   const composerSupports = (key: string) =>
     (!chat || !['composerSkills', 'projectFileBrowser', 'plan', 'goal'].includes(key)) &&
     supports(key);
+  const [dismissedPlan, setDismissedPlan] = useState('');
+  const lastPlanMessage = [...renderedHistory]
+    .reverse()
+    .find((entry) =>
+      ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
+        String(entry.item?.type),
+      ),
+    );
+  const pendingPlan =
+    lastPlanMessage?.item?.type === 'plan' &&
+    !Array.isArray(lastPlanMessage.item.plan) &&
+    contentText(lastPlanMessage.item).trim() &&
+    !['failed', 'interrupted', 'declined', 'inProgress'].includes(
+      String(lastPlanMessage.item.status),
+    )
+      ? lastPlanMessage
+      : undefined;
+  const pendingPlanKey = pendingPlan ? JSON.stringify([draftKey, historyKey(pendingPlan)]) : '';
+  const showPlanConfirmation =
+    !!pendingPlan &&
+    pendingPlanKey !== dismissedPlan &&
+    !activeTurn &&
+    historyReady &&
+    !historyFailure &&
+    !chat &&
+    current?.archived !== 1;
   const bridge = useRef<Bridge | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
   const refreshTimer = useRef<number | undefined>(undefined);
@@ -305,7 +480,7 @@ export function App() {
     setActiveTurn(undefined);
     managedActiveTurn.current = undefined;
     setError('');
-    setPanel('');
+    setPanel((current) => (current === 'settings' ? current : ''));
     setMessageAction(undefined);
     setManageSession(undefined);
     setObservedUsage(undefined);
@@ -409,10 +584,6 @@ export function App() {
       scheduleRefresh(true);
     }
   }
-  const current = useMemo(
-    () => snapshot.sessions?.find((item) => item.sessionId === session),
-    [snapshot.sessions, session],
-  );
   const request = useMemo<Request>(() => {
     const connection = bridge.current,
       epoch = connectionEpoch.current;
@@ -570,10 +741,27 @@ export function App() {
       if (pending) return;
       pending = true;
       await api<{ hosts: Host[] }>('/api/v1/hosts')
-        .then((hostValue) => {
+        .then(async (hostValue) => {
+          if (cancelled || generation !== accountEpoch.current) return;
+          let migrationFailure = '';
+          try {
+            hostValue.hosts = await migrateHostNames(
+              hostValue.hosts || [],
+              scope,
+              localStorage,
+              (hostId, customName) =>
+                api<HostName>(`/api/v1/hosts/${encodeURIComponent(hostId)}/name`, {
+                  method: 'PUT',
+                  body: JSON.stringify({ customName, onlyIfUnset: true }),
+                }),
+              () => !cancelled && generation === accountEpoch.current,
+            );
+          } catch {
+            migrationFailure = '旧电脑名称尚未同步到服务器，正在重试；本地名称已保留。';
+          }
           if (cancelled || generation !== accountEpoch.current) return;
           setHosts(hostValue.hosts || []);
-          setDirectoryFailure('');
+          setDirectoryFailure(migrationFailure);
           if (
             hostRef.current &&
             !hostValue.hosts?.some((item) => item.hostId === hostRef.current?.hostId)
@@ -743,7 +931,6 @@ export function App() {
       const next = await value.request<Snapshot>('snapshot.get', {});
       if (epoch !== connectionEpoch.current || value !== bridge.current) return;
       setSnapshot(next);
-      setLastSynced(new Date().toISOString());
       const id = sessionRef.current;
       const running = next.turns?.find(
         (turn) =>
@@ -824,12 +1011,8 @@ export function App() {
     setConnectionFailure('');
     setUpstreamRetry('');
     if (!sameHost) {
-      setPanel('');
       setCapabilities({});
       setModels([]);
-      setHostLabel(localStorage.getItem('agentdeck.web.label.' + scope + '.' + next.hostId) || '');
-      setHostFingerprint('');
-      setLastSynced('');
       historyResourceCache.current.clear();
       selectSession(undefined, false);
       setSnapshot({});
@@ -898,6 +1081,7 @@ export function App() {
             setUpstreamRetry('');
           }
         }
+        if (selected && packet.action === 'queue.changed') setQueueRevision((value) => value + 1);
         if (selected && packet.action === 'session.tokenUsage')
           setObservedUsage(
             payload.tokenUsage as Parameters<typeof ComposerStatus>[0]['observedUsage'],
@@ -958,7 +1142,6 @@ export function App() {
         if (changesDirectory(packet)) scheduleRefresh(false);
       }
       setHistory(entries, true);
-      if (packets.length) setLastSynced(new Date().toISOString());
     }
 
     try {
@@ -979,7 +1162,6 @@ export function App() {
             !/^[A-Za-z0-9_-]{43}$/.test(grant.credential)
           )
             throw new Error('电脑授权信息无效，请更新 Host');
-          setHostFingerprint(grant.fingerprint);
           const value = new Bridge(scope);
           context.own(() => {
             if (flushTimer !== undefined) clearTimeout(flushTimer);
@@ -1033,16 +1215,16 @@ export function App() {
               .catch(() => value.close());
           }, 30000);
           const snap = await value.request<Snapshot>('snapshot.get', {});
-          if (!configuration) {
-            const [caps, modelList] = await Promise.all([
-              value.request<Capabilities>('system.capabilities', {}),
-              value.request<{ models?: Model[] }>('models.list', {}).catch(() => ({ models: [] })),
-            ]);
-            configuration = { caps, models: modelList.models || [] };
-          }
+          // Reconnecting may follow a Host upgrade; refresh its feature flags.
+          const [caps, modelList] = await Promise.all([
+            value.request<Capabilities>('system.capabilities', {}),
+            value.request<{ models?: Model[] }>('models.list', {}).catch(() => ({
+              models: configuration?.models || [],
+            })),
+          ]);
+          configuration = { caps, models: modelList.models || [] };
           if (!context.current() || epoch !== connectionEpoch.current) return;
           setSnapshot(snap);
-          setLastSynced(new Date().toISOString());
           setCapabilities(configuration.caps);
           setModels(configuration.models);
           setReceiptBlocked(value.awaitingReceipt);
@@ -1179,23 +1361,29 @@ export function App() {
     }
   }
 
-  async function send(kind?: 'queue' | 'steer', planText?: string) {
+  async function send(kind?: 'queue' | 'steer', planText?: string, revision?: string) {
     const connection = bridge.current;
-    const source =
+    let source =
       planText === undefined
         ? draft
         : {
             ...draft,
-            text: `请按照以下计划开始开发：\n\n${planText}`,
-            mode: 'default',
+            text: revision
+              ? `请继续调整以下计划：\n\n${planText}\n\n调整要求：${revision}`
+              : `请按照以下计划开始开发：\n\n${planText}`,
+            mode: revision ? 'plan' : 'default',
             attachments: [],
+            references: [],
             skills: [],
           };
     if (
       !connection ||
       !connected ||
       sending.current ||
-      (!source.text.trim() && !source.attachments.length && !source.skills.length) ||
+      (!source.text.trim() &&
+        !source.attachments.length &&
+        !source.skills.length &&
+        !source.references?.length) ||
       (planText !== undefined && !!activeTurn) ||
       busy ||
       receiptBlocked ||
@@ -1208,9 +1396,17 @@ export function App() {
     let targetKey = sourceKey;
     let createdSession: string | undefined;
     sending.current = true;
+    setSendFailure(undefined);
     setBusy(true);
     setError('');
     try {
+      if (
+        source.references?.length &&
+        (!supports('fileReferenceInputs') ||
+          source.references.some((ref) => ref.projectId !== selectedProject))
+      )
+        throw new Error('文件引用的项目已变化或 Host 需要升级，请重新引用');
+      source = { ...source, ...resolveComposerModelPreferences(source, models) };
       let id = session;
       if (!id) {
         const created = await connection.request<{ session?: Session }>('sessions.create', {
@@ -1223,6 +1419,9 @@ export function App() {
         createdSession = id;
         startingSession.current = id;
         targetKey = JSON.stringify([scope, host?.hostId, id]);
+        const selection = { model: source.model, effort: source.effort };
+        saveComposerModelPreferences(targetKey, selection);
+        setModelPreferences((items) => ({ ...items, [targetKey]: selection }));
         setDrafts((items) => ({ ...items, [targetKey]: source }));
         selectSession(id);
         // sessions.create confirms a new empty thread. Codex cannot paginate
@@ -1233,7 +1432,7 @@ export function App() {
       if (epoch !== connectionEpoch.current) return;
       if (activeTurn) {
         if (kind === 'steer') {
-          if (source.attachments.length || source.skills.length)
+          if (source.attachments.length || source.skills.length || source.references?.length)
             throw new Error('带资源的消息请加入待发送队列');
           const active = await connection.request<{ upstreamTurnId?: string }>('turn.active', {
             sessionId: id,
@@ -1249,7 +1448,8 @@ export function App() {
             throw new Error('当前电脑不支持待发送队列，请等待任务完成或选择立即补充');
           if (
             (source.attachments.length && !supports('nativeQueueAttachments')) ||
-            (source.skills.length && !supports('nativeQueueSkills'))
+            (source.skills.length && !supports('nativeQueueSkills')) ||
+            (source.references?.length && !supports('fileReferenceInputs'))
           )
             throw new Error('当前电脑不支持队列中的这些资源');
           await connection.request('queue.add', {
@@ -1257,14 +1457,12 @@ export function App() {
             text: source.text.trim(),
             ...resources(source),
           });
+          if (epoch === connectionEpoch.current) setQueueRevision((value) => value + 1);
         }
       } else {
         const result = await connection.request<{ turn?: Turn }>('turn.start', {
           sessionId: id,
-          ...turnOptions(
-            chat ? { ...source, mode: 'default', skills: [] } : source,
-            chat ? 'workspace' : permission,
-          ),
+          ...turnOptions(chat ? { ...source, mode: 'default', skills: [] } : source, permission),
         });
         if (epoch === connectionEpoch.current && sessionRef.current === id) {
           activityVersion.current++;
@@ -1280,74 +1478,16 @@ export function App() {
           if (next[key] === storedDraft || next[key] === source)
             next[key] =
               planText === undefined
-                ? { ...source, text: '', attachments: [], skills: [] }
-                : { ...draft, mode: 'default' };
+                ? { ...source, text: '', attachments: [], skills: [], references: [] }
+                : { ...draft, mode: revision ? 'plan' : 'default' };
         return next;
       });
       await refresh(!session && sessionRef.current === id);
     } catch (error) {
-      if (epoch === connectionEpoch.current) setError(String(error));
-    } finally {
-      if (startingSession.current === createdSession) startingSession.current = undefined;
-      sending.current = false;
       if (epoch === connectionEpoch.current) {
-        setBusy(false);
-        setReceiptBlocked(connection.awaitingReceipt);
+        setError(String(error));
+        setSendFailure({ key: targetKey, message: String(error) });
       }
-    }
-  }
-
-  async function sendHostUpdate(text: string, projectId: string) {
-    const connection = bridge.current;
-    if (
-      !connection ||
-      !connected ||
-      sending.current ||
-      busy ||
-      receiptBlocked ||
-      !(
-        (projectId === chatProject && supports('projectlessChat')) ||
-        projects.some((p) => p.projectId === projectId)
-      )
-    )
-      return;
-    const epoch = connectionEpoch.current;
-    sending.current = true;
-    setBusy(true);
-    setError('');
-    let createdSession: string | undefined;
-    try {
-      const created = await connection.request<{ session?: Session }>('sessions.create', {
-        projectId,
-        title: '更新 AgentDeck Host',
-      });
-      if (epoch !== connectionEpoch.current) return;
-      const id = created.session?.sessionId;
-      if (!id) throw new Error('电脑没有返回更新会话标识');
-      createdSession = id;
-      startingSession.current = id;
-      setSelectedProject(projectId);
-      selectSession(id);
-      setHistoryReady(true);
-      setPanel('');
-      const result = await connection.request<{ turn?: Turn }>('turn.start', {
-        sessionId: id,
-        ...turnOptions(
-          { ...emptyDraft(), text, model: draft.model, effort: draft.effort },
-          'workspace',
-        ),
-      });
-      if (epoch !== connectionEpoch.current) return;
-      if (sessionRef.current === id) {
-        activityVersion.current++;
-        managedActiveTurn.current = result.turn?.turnId;
-        setActiveTurn(result.turn?.turnId);
-      }
-      startingSession.current = undefined;
-      await refresh(sessionRef.current === id);
-    } catch (error) {
-      if (epoch === connectionEpoch.current)
-        setError(`更新提示词未确认发送成功，请先核对更新会话，勿重复发送。${String(error)}`);
     } finally {
       if (startingSession.current === createdSession) startingSession.current = undefined;
       sending.current = false;
@@ -1438,8 +1578,19 @@ export function App() {
       setError('该文件不在当前授权项目中，无法预览');
       return;
     }
-    setFilePath(relative);
-    setPanel('files');
+    showFiles(relative);
+  }
+  function showFiles(path?: string, view: 'files' | 'changes' = 'files') {
+    setFileTargetProject(selectedProject);
+    setFilePath(path);
+    setFileWorkspaceView(view);
+    setFileOpenToken((value) => value + 1);
+    setFileWorkspaceSeen(true);
+    setFileWorkspaceOpen(true);
+    setPanel('');
+    setMenu(false);
+    setWorkspaceMenu(false);
+    if (matchMedia('(max-width:1300px)').matches) setSidebarOpen(false);
   }
   function openAgent(id: string) {
     const item = snapshot.sessions?.find((s) => s.upstreamThreadId === id);
@@ -1451,10 +1602,19 @@ export function App() {
       setError('普通聊天不使用项目文件、技能或任务目标。请先切换到项目。');
       return;
     }
-    setFilePath(undefined);
+    if (name === 'files' || name === 'git') {
+      showFiles(undefined, name === 'git' ? 'changes' : 'files');
+      return;
+    }
     setMenu(false);
     setWorkspaceMenu(false);
+    setSettingsChild(name === 'drafts' && panel === 'settings');
     if (name === 'manage') setManageSession(current);
+    if (name === 'computers') {
+      setSettingsTab('computers');
+      setPanel('settings');
+      return;
+    }
     setPanel(name);
   }
   async function syncIndex() {
@@ -1517,8 +1677,11 @@ export function App() {
             text: editText.trim(),
             permissionMode: permission,
             mode: draft.mode,
-            ...(draft.model ? { model: draft.model } : {}),
-            ...(draft.effort ? { effort: draft.effort } : {}),
+            ...Object.fromEntries(
+              Object.entries(resolveComposerModelPreferences(draft, models)).filter(
+                ([, value]) => value,
+              ),
+            ),
           });
         if (epoch === connectionEpoch.current && sessionRef.current === id) {
           historyVersion.current++;
@@ -1558,9 +1721,24 @@ export function App() {
           ?.focus({ preventScroll: true }),
       );
   }
-  const [settingsTab, setSettingsTab] = useState('general');
+  const [settingsChild, setSettingsChild] = useState(false);
+  const [settingsTab, setSettingsTab] = usePreference(
+    'agentdeck.web.settingsTab',
+    'general',
+    (value): value is string =>
+      typeof value === 'string' &&
+      [
+        'general',
+        'configuration',
+        'conversations',
+        'shortcuts',
+        'computers',
+        'data',
+        'diagnostics',
+        'account',
+      ].includes(value),
+  );
   const titles: Record<string, string> = {
-    computers: '电脑',
     settings: '设置',
     manage: '管理会话',
     goal: '会话目标',
@@ -1584,6 +1762,17 @@ export function App() {
   const matches = renderedHistory.filter(
     (entry) => find.trim() && contentText(entry.item).toLowerCase().includes(find.toLowerCase()),
   );
+  const visibleDrafts =
+    panel === 'drafts'
+      ? Object.entries(drafts).filter(([key, d]) => {
+          const [account, id] = JSON.parse(key);
+          return (
+            account === scope &&
+            id === host?.hostId &&
+            (d.text || d.attachments.length || d.skills.length || d.references?.length)
+          );
+        })
+      : [];
   const matchingSessions = (snapshot.sessions || []).filter((s) =>
     `${s.title || ''} ${snapshot.projects?.find((p) => p.projectId === s.projectId)?.name || ''}`
       .toLowerCase()
@@ -1597,6 +1786,8 @@ export function App() {
       const node = Array.from(document.querySelectorAll<HTMLElement>('[data-history-key]')).find(
         (n) => n.dataset.historyKey === key,
       );
+      const stage = node?.closest<HTMLDetailsElement>('.activity-stage');
+      if (stage) stage.open = true;
       node?.scrollIntoView({ block: 'center', behavior: 'smooth' });
       node?.classList.add('search-highlight');
       setTimeout(() => node?.classList.remove('search-highlight'), 2000);
@@ -1606,10 +1797,16 @@ export function App() {
   if (signedIn === null) return <main className="center">加载中…</main>;
   if (!signedIn) return <Login onLogin={() => location.reload()} />;
   if (mustChangePassword) return <AccountPassword />;
+  const filesVisible = fileWorkspaceOpen && connected && !!selectedProject && !chat;
   return (
-    <div className={`shell ${sidebarOpen ? 'with-sidebar' : ''}`}>
+    <div
+      className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${filesVisible ? 'has-file-workspace' : ''}`}
+    >
       <Sidebar
+        key={JSON.stringify([scope, host?.hostId])}
+        brand={modeControl}
         sessions={snapshot.sessions || []}
+        connected={connected}
         projects={projects}
         chatAvailable={connected && supports('projectlessChat')}
         onChat={() => {
@@ -1622,7 +1819,7 @@ export function App() {
             );
           if (matchMedia('(max-width:760px)').matches) setSidebarOpen(false);
         }}
-        host={host ? { ...host, displayName: hostLabel || host.displayName } : undefined}
+        host={host ? { ...host, displayName: hostName(host) } : undefined}
         sessionId={session}
         projectId={selectedProject}
         open={sidebarOpen}
@@ -1632,6 +1829,25 @@ export function App() {
         onProject={(id) => {
           setSelectedProject(id);
           selectSession(undefined);
+          setPanel('');
+          if (matchMedia('(max-width:760px)').matches) setSidebarOpen(false);
+        }}
+        actionsBlocked={receiptBlocked || busy}
+        onSessionAction={async (action, item) => {
+          const latest = snapshot.sessions?.find((s) => s.sessionId === item.sessionId);
+          if (
+            !connected ||
+            receiptBlocked ||
+            busy ||
+            !canManage(latest) ||
+            (latest && isSessionWorking(latest))
+          )
+            throw new Error('请先等待任务结束或核对当前状态');
+          await request(`sessions.${action}`, {
+            sessionId: item.sessionId,
+            ...(action === 'pin' ? { pinned: latest?.pinned !== 1 } : {}),
+          });
+          await refresh(false);
         }}
         onRefresh={() => void syncIndex()}
         onSettings={() => openPanel('settings')}
@@ -1645,341 +1861,533 @@ export function App() {
         filter={filter}
         setFilter={setFilter}
       />
-      <section className="conversation" ref={conversationElement}>
-        <header className="topbar">
-          <IconButton
-            icon={Menu}
-            label="打开会话列表"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className={sidebarOpen ? 'rail-toggle' : ''}
-          />
-          <div className="workspace-anchor">
-            <button className="workspace-title" onClick={() => setWorkspaceMenu(!workspaceMenu)}>
-              <span>{current?.title || (chat ? '普通聊天' : 'AgentDeck')}</span>
-              <ChevronDown size={16} />
-            </button>
-            <MotionPresence>
-              {workspaceMenu && (
-                <>
-                  <button
-                    className="menu-scrim"
-                    aria-label="关闭项目菜单"
-                    onClick={() => setWorkspaceMenu(false)}
-                  />
-                  <div className="popover workspace-menu">
-                    <button onClick={() => openPanel('computers')}>
-                      <Computer size={18} />
-                      {host?.displayName || '连接电脑'}
-                    </button>
-                    <p className="menu-caption">{connected ? 'Connected' : 'Disconnected'}</p>
-                    <hr />
-                    {projects.map((p) => (
-                      <button
-                        key={p.projectId}
-                        onClick={() => {
-                          setSelectedProject(p.projectId);
-                          selectSession(undefined);
-                          setWorkspaceMenu(false);
-                        }}
-                      >
-                        <FolderOpen size={17} />
-                        {p.name}
-                      </button>
-                    ))}
-                    {connected && (
-                      <button onClick={() => openPanel('projects')}>
-                        <FolderOpen size={17} />
-                        管理项目
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </MotionPresence>
-          </div>
-          <span
-            className={`connection ${connected ? 'online-text' : ''}`}
-            data-connection-state={connectionState}
-          >
-            <span className={`dot ${connected || connectionState === 'syncing' ? 'online' : ''}`} />
-            {connectionLabels[connectionState]}
-          </span>
-          <IconButton icon={MessageSquarePlus} label="新建会话" onClick={newChat} />
-          <IconButton icon={Computer} label="切换电脑" onClick={() => openPanel('computers')} />
-          <div className="menu-anchor">
-            <IconButton icon={MoreHorizontal} label="更多操作" onClick={() => setMenu(!menu)} />
-            <MotionPresence>
-              {menu && (
-                <>
-                  <button
-                    className="menu-scrim"
-                    aria-label="关闭更多菜单"
-                    onClick={() => setMenu(false)}
-                  />
-                  <div className="popover top-menu" role="menu">
-                    <button role="menuitem" onClick={() => openPanel('drafts')}>
-                      <FileText size={18} />
-                      未发送草稿
-                    </button>
-                    {connected && (
-                      <>
-                        {supports('gitRead') && selectedProject && !chat && (
-                          <button role="menuitem" onClick={() => openPanel('git')}>
-                            <FileDiff size={18} />
-                            审查工作区改动
-                          </button>
-                        )}
-                        {supports('projectFileBrowser') && selectedProject && !chat && (
-                          <button role="menuitem" onClick={() => openPanel('files')}>
-                            <FolderOpen size={18} />
-                            浏览项目文件
-                          </button>
-                        )}
-                      </>
-                    )}
-                    {current && (
-                      <>
-                        <hr />
-                        <button role="menuitem" onClick={() => openPanel('find')}>
-                          <Search size={18} />
-                          在会话中查找
-                        </button>
-                        <button role="menuitem" onClick={() => openPanel('history')}>
-                          <History size={18} />
-                          会话历史
-                        </button>
-                        {supports('nativeQueue') && (
-                          <button role="menuitem" onClick={() => openPanel('queue')}>
-                            <Clock size={18} />
-                            待发送消息
-                          </button>
-                        )}
-                        {!chat && supports('sessionGoalView') && (
-                          <button role="menuitem" onClick={() => openPanel('goal')}>
-                            <Target size={18} />
-                            会话目标
-                          </button>
-                        )}
-                        {supports('sessionManagement') && (
-                          <button role="menuitem" onClick={() => openPanel('manage')}>
-                            <MoreHorizontal size={18} />
-                            管理当前会话
-                          </button>
-                        )}
-                      </>
-                    )}
-                    <hr />
-                    <button role="menuitem" onClick={() => openPanel('settings')}>
-                      <Settings size={18} />
-                      设置
-                    </button>
-                  </div>
-                </>
-              )}
-            </MotionPresence>
-          </div>
-        </header>
-        {host && connected && (
-          <HostUpdates
-            key={host.hostId}
-            request={request}
-            supported={supports('hostUpdateCheck')}
-            disabled={busy || receiptBlocked || !!activeTurn}
-            name={hostLabel || host.displayName}
-            projects={
-              supports('projectlessChat')
-                ? [{ projectId: chatProject, name: '普通聊天（更新会话）' }, ...projects]
-                : projects
-            }
-            selectedProject={selectedProject}
-            onUpdate={sendHostUpdate}
-          />
-        )}
-        <MotionPresence>
-          {connectionFailure && connectionState === 'blocked' && (
-            <div className="connection-error" role="alert">
-              {connectionFailure}
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {['connecting', 'retrying', 'syncing'].includes(connectionState) && host && (
-            <div className="connection-recovery" role="status">
-              {connectionState === 'syncing'
-                ? '连接已恢复，正在同步最新进度…'
-                : connectionFailure || '正在重新连接电脑；现有消息和草稿已保留。'}
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {upstreamRetry && (
-            <div className="connection-recovery" role="status">
-              Codex 正在重试 · {upstreamRetry}
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {error && (
-            <div className="connection-error" role="status">
-              <span>{error}</span>
-              <IconButton icon={X} label="关闭提示" onClick={() => setError('')} />
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {receiptBlocked && (
-            <div className="history-error" role="alert">
-              上次操作结果尚未确定。核对前不能继续变更。
-              <button
-                disabled={!connected}
-                onClick={async () => {
-                  try {
-                    await bridge.current?.reconcile();
-                    setReceiptBlocked(bridge.current?.awaitingReceipt || false);
-                    await refresh();
-                  } catch (e) {
-                    setError(String(e));
-                  }
-                }}
-              >
-                核对操作结果
-              </button>
-            </div>
-          )}
-        </MotionPresence>
-        <MotionPresence>
-          {historyFailure && (
-            <div className="history-error" role="alert">
-              {historyFailure}
-              <button onClick={() => void refresh()}>重试读取</button>
-            </div>
-          )}
-        </MotionPresence>
-        {(snapshot.approvals || [])
-          .filter((a) => a.sessionId === session)
-          .map((a) => (
-            <ApprovalCard
-              key={a.approvalId}
-              approval={a}
-              disabled={!connected || receiptBlocked}
-              uncertain={() => bridge.current?.awaitingReceipt === true}
-              onRefresh={() => void refresh()}
-              onDecide={decide}
+      <section
+        className={`conversation-layout ${filesVisible ? 'with-file-workspace' : ''} ${fileWorkspaceWide ? 'file-workspace-wide' : ''}`}
+        ref={conversationElement}
+        style={{ '--file-pane-width': `${filePaneWidth}%` } as React.CSSProperties}
+      >
+        <section className="conversation">
+          <header className="topbar">
+            <IconButton
+              icon={Menu}
+              label="打开会话列表"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className={sidebarOpen ? 'rail-toggle' : ''}
             />
-          ))}
-        <TaskProgress
-          entries={renderedHistory}
-          active={!!activeTurn}
-          turnId={
-            snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId || activeTurn
-          }
-          stale={!connected}
-        />
-        <Timeline
-          ref={timeline}
-          identity={JSON.stringify([host?.hostId, session])}
-          revision={viewRevision}
-          animateNewItems={historyReady}
-          hasOlder={!!historyCursor && connected && historyReady}
-          loadingOlder={historyLoading}
-          onOlder={() => void loadOlderHistory()}
-        >
-          <div className="timeline-content">
-            {historyCursor && (
+            <div className="workspace-anchor">
               <button
-                className="text-button history-more"
-                disabled={historyLoading}
-                onClick={() => void loadOlderHistory()}
+                className="workspace-title"
+                aria-label="切换项目"
+                aria-expanded={workspaceMenu}
+                onClick={() => setWorkspaceMenu(!workspaceMenu)}
               >
-                {historyLoading ? '加载中…' : '加载更早记录'}
+                <span>
+                  {current
+                    ? current.title || '未命名会话'
+                    : chat
+                      ? '普通聊天'
+                      : projects.find((p) => p.projectId === selectedProject)?.name || '选择项目'}
+                </span>
+                <ChevronDown size={16} />
               </button>
+              <MotionPresence>
+                {workspaceMenu && (
+                  <>
+                    <button
+                      className="menu-scrim"
+                      aria-label="关闭项目菜单"
+                      onClick={() => setWorkspaceMenu(false)}
+                    />
+                    <div className="popover workspace-menu">
+                      {projects.map((p) => (
+                        <button
+                          key={p.projectId}
+                          aria-current={p.projectId === selectedProject ? 'true' : undefined}
+                          onClick={() => {
+                            setSelectedProject(p.projectId);
+                            selectSession(undefined);
+                            setWorkspaceMenu(false);
+                          }}
+                        >
+                          <FolderOpen size={17} />
+                          <span>{p.name}</span>
+                          {p.projectId === selectedProject && <Check size={16} />}
+                        </button>
+                      ))}
+                      {connected && (
+                        <button onClick={() => openPanel('projects')}>
+                          <FolderOpen size={17} />
+                          管理项目
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </MotionPresence>
+            </div>
+            <span
+              className={`connection ${connected ? 'online-text' : ''}`}
+              data-connection-state={connectionState}
+            >
+              <span
+                className={`dot ${connected || connectionState === 'syncing' ? 'online' : ''}`}
+              />
+              {connectionLabels[connectionState]}
+            </span>
+            {connected &&
+              !chat &&
+              projects
+                .filter((project) => project.projectId === selectedProject)
+                .map((project) => (
+                  <ProjectOverview
+                    filesOpen={filesVisible}
+                    onOpen={() => setFileWorkspaceOpen(false)}
+                    key={JSON.stringify([host?.hostId, project.projectId])}
+                    request={request}
+                    project={project}
+                    computer={host ? hostName(host) : ''}
+                    gitRead={supports('gitRead')}
+                    fileBrowser={supports('projectFileBrowser')}
+                    activeTurn={activeTurn}
+                    onFiles={() => showFiles()}
+                    onChanges={() => showFiles(undefined, 'changes')}
+                    onFile={openFile}
+                  />
+                ))}
+            <IconButton icon={Computer} label="切换电脑" onClick={() => openPanel('computers')} />
+            <div className="menu-anchor">
+              <IconButton icon={MoreHorizontal} label="更多操作" onClick={() => setMenu(!menu)} />
+              <MotionPresence>
+                {menu && (
+                  <>
+                    <button
+                      className="menu-scrim"
+                      aria-label="关闭更多菜单"
+                      onClick={() => setMenu(false)}
+                    />
+                    <div className="popover top-menu" role="menu">
+                      <button role="menuitem" onClick={() => openPanel('drafts')}>
+                        <FileText size={18} />
+                        未发送草稿
+                      </button>
+                      {connected && (
+                        <>
+                          {supports('gitRead') && selectedProject && !chat && (
+                            <button role="menuitem" onClick={() => openPanel('git')}>
+                              <FileDiff size={18} />
+                              审查工作区改动
+                            </button>
+                          )}
+                          {supports('projectFileBrowser') && selectedProject && !chat && (
+                            <button role="menuitem" onClick={() => openPanel('files')}>
+                              <FolderOpen size={18} />
+                              浏览项目文件
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {current && (
+                        <>
+                          <hr />
+                          <button role="menuitem" onClick={() => openPanel('find')}>
+                            <Search size={18} />
+                            在会话中查找
+                          </button>
+                          <button role="menuitem" onClick={() => openPanel('history')}>
+                            <History size={18} />
+                            会话历史
+                          </button>
+                          {supports('nativeQueue') && (
+                            <button role="menuitem" onClick={() => openPanel('queue')}>
+                              <Clock size={18} />
+                              待发送消息
+                            </button>
+                          )}
+                          {!chat && supports('sessionGoalView') && (
+                            <button role="menuitem" onClick={() => openPanel('goal')}>
+                              <Target size={18} />
+                              会话目标
+                            </button>
+                          )}
+                          {supports('sessionManagement') && (
+                            <button role="menuitem" onClick={() => openPanel('manage')}>
+                              <MoreHorizontal size={18} />
+                              管理当前会话
+                            </button>
+                          )}
+                        </>
+                      )}
+                      <hr />
+                      <button role="menuitem" onClick={() => openPanel('settings')}>
+                        <Settings size={18} />
+                        设置
+                      </button>
+                    </div>
+                  </>
+                )}
+              </MotionPresence>
+            </div>
+          </header>
+          {host && connected && (
+            <HostUpdates
+              key={host.hostId}
+              request={request}
+              supported={supports('hostUpdateCheck')}
+              disabled={busy || receiptBlocked}
+              name={hostName(host)}
+              managed={supports('hostUpdateManage')}
+            />
+          )}
+          <MotionPresence>
+            {connectionFailure && connectionState === 'blocked' && (
+              <div className="connection-error" role="alert">
+                {connectionFailure}
+              </div>
             )}
-            {renderedHistory.map((entry, entryIndex) => {
-              const item = entry.item || {},
-                type = String(item.type || '');
-              if (type === 'reasoning' && !contentText(item)) return null;
-              const user = type === 'userMessage' || item.role === 'user',
-                assistant =
-                  ['agentMessage', 'assistantMessage'].includes(type) || item.role === 'assistant',
-                text = contentText(item),
-                actionText = assistant ? answers.get(entry) : text,
-                editing =
-                  messageAction?.kind === 'revise' &&
-                  historyKey(messageAction.entry) === historyKey(entry);
-              return (
-                <article
-                  className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
-                  key={historyKey(entry)}
-                  data-history-key={historyKey(entry)}
+          </MotionPresence>
+          <MotionPresence>
+            {['connecting', 'retrying', 'syncing'].includes(connectionState) && host && (
+              <div className="connection-recovery" role="status">
+                {connectionState === 'syncing'
+                  ? '连接已恢复，正在同步最新进度…'
+                  : connectionFailure || '正在重新连接电脑；现有消息和草稿已保留。'}
+              </div>
+            )}
+          </MotionPresence>
+          <MotionPresence>
+            {upstreamRetry && (
+              <div className="connection-recovery" role="status">
+                Codex 正在重试 · {upstreamRetry}
+              </div>
+            )}
+          </MotionPresence>
+          <MotionPresence>
+            {error && (
+              <div className="connection-error" role="status">
+                <span>{error}</span>
+                <IconButton icon={X} label="关闭提示" onClick={() => setError('')} />
+              </div>
+            )}
+          </MotionPresence>
+          <MotionPresence>
+            {receiptBlocked && (
+              <div className="history-error" role="alert">
+                上次操作结果尚未确定。核对前不能继续变更。
+                <button
+                  disabled={!connected}
+                  onClick={async () => {
+                    try {
+                      await bridge.current?.reconcile();
+                      setReceiptBlocked(bridge.current?.awaitingReceipt || false);
+                      await refresh();
+                    } catch (e) {
+                      setError(String(e));
+                    }
+                  }}
                 >
-                  <div className={`message-content${editing ? ' editing-message' : ''}`}>
-                    {editing ? (
-                      <MessageEditor
-                        text={editText}
-                        busy={busy}
-                        disabled={
-                          !connected ||
-                          busy ||
-                          receiptBlocked ||
-                          !!activeTurn ||
-                          !historyReady ||
-                          current?.archived === 1 ||
-                          !canManage(current)
-                        }
-                        error={editError}
-                        onChange={setEditText}
-                        onCancel={cancelMessageEdit}
-                        onSend={() => void runMessageAction()}
-                      />
-                    ) : (
-                      <RichContent
-                        entry={entry}
-                        connection={bridge.current}
-                        sessionId={session || ''}
-                        onFile={supports('projectTextPreview') ? openFile : undefined}
-                        onAgent={openAgent}
-                        onImplementPlan={
-                          type === 'plan' &&
-                          !Array.isArray(item.plan) &&
-                          text.trim() &&
-                          !activeTurn &&
-                          historyReady &&
-                          !historyFailure &&
-                          !chat &&
-                          !['failed', 'interrupted', 'declined', 'inProgress'].includes(
-                            String(item.status),
-                          ) &&
-                          !renderedHistory
-                            .slice(entryIndex + 1)
-                            .some((next) =>
-                              ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
-                                String(next.item?.type),
-                              ),
-                            )
-                            ? () => void send(undefined, text)
-                            : undefined
-                        }
-                        onRevisePlan={() => {
-                          updateDraft({ mode: 'plan' });
-                          document
-                            .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
-                            ?.focus();
+                  核对操作结果
+                </button>
+              </div>
+            )}
+          </MotionPresence>
+          <MotionPresence>
+            {historyFailure && (
+              <div className="history-error" role="alert">
+                {historyFailure}
+                <button onClick={() => void refresh()}>重试读取</button>
+              </div>
+            )}
+          </MotionPresence>
+          <TaskProgress
+            entries={renderedHistory}
+            active={!!activeTurn}
+            turnId={
+              snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
+              activeTurn
+            }
+            stale={!connected}
+          />
+          <SelectionQuote
+            key={draftKey}
+            container={conversationElement}
+            onQuote={(text) => {
+              updateDraft({ text: appendQuote(draft.text, text) });
+              requestAnimationFrame(() => {
+                const input = conversationElement.current?.querySelector<HTMLTextAreaElement>(
+                  'textarea[aria-label="消息"]',
+                );
+                input?.focus();
+                if (input) input.setSelectionRange(input.value.length, input.value.length);
+              });
+            }}
+          />
+          <Timeline
+            ref={timeline}
+            identity={JSON.stringify([host?.hostId, session])}
+            revision={viewRevision}
+            animateNewItems={historyReady}
+            hasOlder={!!historyCursor && connected && historyReady}
+            loadingOlder={historyLoading}
+            onOlder={() => void loadOlderHistory()}
+          >
+            <div className="timeline-content">
+              {historyCursor && (
+                <button
+                  className="text-button history-more"
+                  disabled={historyLoading}
+                  onClick={() => void loadOlderHistory()}
+                >
+                  {historyLoading ? '加载中…' : '加载更早记录'}
+                </button>
+              )}
+              <ActivityStages
+                key={JSON.stringify([host?.hostId, session])}
+                entries={renderedHistory}
+                activeTurn={
+                  snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
+                  activeTurn
+                }
+              >
+                {(entry, entryIndex) => {
+                  const item = entry.item || {},
+                    type = String(item.type || '');
+                  if (type === 'reasoning' && !contentText(item)) return null;
+                  const user = type === 'userMessage' || item.role === 'user',
+                    assistant =
+                      ['agentMessage', 'assistantMessage'].includes(type) ||
+                      item.role === 'assistant',
+                    text = contentText(item),
+                    actionText = assistant ? answers.get(entry) : text,
+                    editing =
+                      messageAction?.kind === 'revise' &&
+                      historyKey(messageAction.entry) === historyKey(entry);
+                  return (
+                    <article
+                      className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
+                      key={historyKey(entry)}
+                      data-history-key={historyKey(entry)}
+                    >
+                      <div className={`message-content${editing ? ' editing-message' : ''}`}>
+                        {editing ? (
+                          <MessageEditor
+                            text={editText}
+                            busy={busy}
+                            disabled={
+                              !connected ||
+                              busy ||
+                              receiptBlocked ||
+                              !!activeTurn ||
+                              !historyReady ||
+                              current?.archived === 1 ||
+                              !canManage(current)
+                            }
+                            error={editError}
+                            onChange={setEditText}
+                            onCancel={cancelMessageEdit}
+                            onSend={() => void runMessageAction()}
+                          />
+                        ) : (
+                          <RichContent
+                            entry={entry}
+                            images={
+                              connected &&
+                              supports('projectImagePreview') &&
+                              selectedProject &&
+                              !chat
+                                ? {
+                                    request,
+                                    projectId: selectedProject,
+                                    root:
+                                      projects.find(
+                                        (project) => project.projectId === selectedProject,
+                                      )?.canonicalPath || '',
+                                  }
+                                : undefined
+                            }
+                            sessionImages={connected && supports('sessionMessageImages')}
+                            connection={bridge.current}
+                            sessionId={session || ''}
+                            onFile={supports('projectTextPreview') ? openFile : undefined}
+                            onAgent={openAgent}
+                          />
+                        )}
+                      </div>
+                      {(user || assistant) && actionText && !editing && (
+                        <div className="message-actions">
+                          <IconButton
+                            icon={Copy}
+                            label="复制消息"
+                            onClick={() =>
+                              void navigator.clipboard
+                                .writeText(actionText)
+                                .catch((e) => setError(String(e)))
+                            }
+                          />
+                          <IconButton
+                            icon={Quote}
+                            label="引用消息"
+                            onClick={() =>
+                              updateDraft({
+                                text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
+                                  .split('\n')
+                                  .map((line) => '> ' + line)
+                                  .join('\n')}\n\n`,
+                              })
+                            }
+                          />
+                          <IconButton
+                            icon={Search}
+                            label="阅读完整消息"
+                            onClick={() => {
+                              setMessageAction({
+                                entry: assistant
+                                  ? { ...entry, item: { ...item, text: actionText } }
+                                  : entry,
+                                kind: 'read',
+                              });
+                            }}
+                          />
+                          {user && supports('sessionHistoryRevert') && (
+                            <IconButton
+                              icon={Pencil}
+                              label="编辑并重新发送"
+                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                              onClick={() => {
+                                editMessage(entry);
+                              }}
+                            />
+                          )}
+                          {assistant && supports('sessionHistoryRevert') && (
+                            <IconButton
+                              icon={RotateCcw}
+                              label="重试此回答"
+                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                              onClick={() => {
+                                const before = renderedHistory
+                                  .slice(0, renderedHistory.indexOf(entry) + 1)
+                                  .reverse()
+                                  .find(
+                                    (e) =>
+                                      e.turnId === entry.turnId &&
+                                      (e.item?.type === 'userMessage' || e.item?.role === 'user'),
+                                  );
+                                if (!before) {
+                                  setError('此轮用户消息尚未加载，请先加载更早记录');
+                                  return;
+                                }
+                                editMessage(before);
+                              }}
+                            />
+                          )}
+                          {supports('sessionForkAtTurn') && (
+                            <IconButton
+                              icon={GitFork}
+                              label="从此处分叉"
+                              disabled={busy || receiptBlocked || !!activeTurn}
+                              onClick={() => setMessageAction({ entry, kind: 'fork' })}
+                            />
+                          )}
+                          {supports('sessionHistoryRevert') && user && (
+                            <IconButton
+                              icon={History}
+                              label="回退到此消息之前"
+                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                              onClick={() => setMessageAction({ entry, kind: 'revert' })}
+                            />
+                          )}
+                        </div>
+                      )}
+                      {!activeTurn && renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
+                        <TurnChanges
+                          entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
+                          projectRoot={
+                            snapshot.projects?.find((p) => p.projectId === current?.projectId)
+                              ?.canonicalPath
+                          }
+                        />
+                      )}
+                    </article>
+                  );
+                }}
+              </ActivityStages>
+              {!renderedHistory.length && !historyFailure && (
+                <div className="empty">
+                  {session && !historyReady ? (
+                    <p>正在读取会话历史…</p>
+                  ) : (
+                    <>
+                      <div
+                        className="empty-symbol"
+                        aria-hidden="true"
+                        style={{
+                          maskImage: `url("${agentDeckMark}")`,
+                          WebkitMaskImage: `url("${agentDeckMark}")`,
                         }}
-                        planDisabled={
-                          !connected || busy || receiptBlocked || current?.archived === 1
-                        }
                       />
-                    )}
-                  </div>
-                  {assistant &&
-                    Array.isArray(item.questions) &&
-                    item.questions.length > 0 &&
-                    session && (
+                      <h1>{chat ? '聊点什么？' : 'What can we build?'}</h1>
+                      <p>
+                        {connected
+                          ? chat
+                            ? '无需选择项目，直接开始对话。'
+                            : '选择项目，开始一段 Codex 对话。'
+                          : '连接你的电脑，随时继续工作。'}
+                      </p>
+                      {!connected && (
+                        <button onClick={() => openPanel('computers')}>
+                          <Computer size={17} />
+                          连接电脑
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </Timeline>
+          <Composer
+            key={draftKey}
+            draft={draft}
+            planConfirmation={
+              showPlanConfirmation && pendingPlan ? (
+                <PlanConfirmation
+                  key={pendingPlanKey}
+                  disabled={!connected || busy || receiptBlocked}
+                  error={sendFailure?.key === draftKey ? sendFailure.message : undefined}
+                  onImplement={() => void send(undefined, contentText(pendingPlan.item))}
+                  onRevise={(text) => void send(undefined, contentText(pendingPlan.item), text)}
+                  onDismiss={() => setDismissedPlan(pendingPlanKey)}
+                />
+              ) : undefined
+            }
+            prompts={
+              <>
+                {(snapshot.approvals || [])
+                  .filter((a) => a.sessionId === session)
+                  .map((a) => (
+                    <ApprovalCard
+                      key={a.approvalId}
+                      approval={a}
+                      disabled={!connected || receiptBlocked}
+                      uncertain={() => bridge.current?.awaitingReceipt === true}
+                      onRefresh={() => void refresh()}
+                      onDecide={decide}
+                    />
+                  ))}
+                {session &&
+                  renderedHistory
+                    .filter(
+                      (entry) =>
+                        ['agentMessage', 'assistantMessage'].includes(String(entry.item?.type)) &&
+                        Array.isArray(entry.item?.questions) &&
+                        entry.item.questions.length > 0,
+                    )
+                    .map((entry) => (
                       <AsyncQuestions
+                        key={`${host?.hostId}.${session}.${historyKey(entry)}`}
                         entry={entry}
                         history={renderedHistory}
                         request={request}
-                        receiptKey={`agentdeck.web.question.${scope}.${host?.hostId}.${session}.${item.id}`}
+                        receiptKey={`agentdeck.web.question.${scope}.${host?.hostId}.${session}.${entry.item?.id}`}
                         disabled={
                           !connected ||
                           receiptBlocked ||
@@ -1997,182 +2405,165 @@ export function App() {
                         onRefresh={() => void refresh()}
                         uncertain={() => bridge.current?.awaitingReceipt === true}
                       />
-                    )}
-                  {(user || assistant) && actionText && !editing && (
-                    <div className="message-actions">
-                      <IconButton
-                        icon={Copy}
-                        label="复制消息"
-                        onClick={() =>
-                          void navigator.clipboard
-                            .writeText(actionText)
-                            .catch((e) => setError(String(e)))
-                        }
-                      />
-                      <IconButton
-                        icon={Quote}
-                        label="引用消息"
-                        onClick={() =>
-                          updateDraft({
-                            text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
-                              .split('\n')
-                              .map((line) => '> ' + line)
-                              .join('\n')}\n\n`,
-                          })
-                        }
-                      />
-                      <IconButton
-                        icon={Search}
-                        label="阅读完整消息"
-                        onClick={() => {
-                          setMessageAction({
-                            entry: assistant
-                              ? { ...entry, item: { ...item, text: actionText } }
-                              : entry,
-                            kind: 'read',
-                          });
-                        }}
-                      />
-                      {user && supports('sessionHistoryRevert') && (
-                        <IconButton
-                          icon={Pencil}
-                          label="编辑并重新发送"
-                          disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                          onClick={() => {
-                            editMessage(entry);
-                          }}
-                        />
-                      )}
-                      {assistant && supports('sessionHistoryRevert') && (
-                        <IconButton
-                          icon={RotateCcw}
-                          label="重试此回答"
-                          disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                          onClick={() => {
-                            const before = renderedHistory
-                              .slice(0, renderedHistory.indexOf(entry) + 1)
-                              .reverse()
-                              .find(
-                                (e) =>
-                                  e.turnId === entry.turnId &&
-                                  (e.item?.type === 'userMessage' || e.item?.role === 'user'),
-                              );
-                            if (!before) {
-                              setError('此轮用户消息尚未加载，请先加载更早记录');
-                              return;
-                            }
-                            editMessage(before);
-                          }}
-                        />
-                      )}
-                      {supports('sessionForkAtTurn') && (
-                        <IconButton
-                          icon={GitFork}
-                          label="从此处分叉"
-                          disabled={busy || receiptBlocked || !!activeTurn}
-                          onClick={() => setMessageAction({ entry, kind: 'fork' })}
-                        />
-                      )}
-                      {supports('sessionHistoryRevert') && user && (
-                        <IconButton
-                          icon={History}
-                          label="回退到此消息之前"
-                          disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                          onClick={() => setMessageAction({ entry, kind: 'revert' })}
-                        />
-                      )}
-                    </div>
-                  )}
-                  {!activeTurn && renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
-                    <TurnChanges
-                      entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
-                      projectRoot={
-                        snapshot.projects?.find((p) => p.projectId === current?.projectId)
-                          ?.canonicalPath
-                      }
-                    />
-                  )}
-                </article>
+                    ))}
+              </>
+            }
+            queued={
+              session && supports('nativeQueue') ? (
+                <QueuedMessages
+                  key={JSON.stringify([scope, host?.hostId, session])}
+                  request={request}
+                  sessionId={session}
+                  revision={queueRevision + statusRevision}
+                  enabled={connected}
+                  disabled={busy || receiptBlocked || !historyReady || current?.archived === 1}
+                  active={!!activeTurn}
+                  canStart={supports('nativeQueueStart')}
+                  canSteer={supports('nativeQueueSteer')}
+                  uncertain={() => bridge.current?.awaitingReceipt === true}
+                  onChanged={() => void refresh()}
+                />
+              ) : undefined
+            }
+            status={
+              session && host ? (
+                <ComposerStatus
+                  key={session}
+                  request={request}
+                  sessionId={session}
+                  goalSupported={!chat && supports('sessionGoalView')}
+                  usageSupported={supports('sessionTokenUsage')}
+                  revision={statusRevision}
+                  observedUsage={observedUsage}
+                  onGoal={() => openPanel('goal')}
+                  enabled={connected}
+                />
+              ) : undefined
+            }
+            onChange={updateDraft}
+            models={models}
+            supports={composerSupports}
+            attachmentTotalBytes={capabilities.limits?.attachmentTotalBytes}
+            chat={chat}
+            disabled={
+              !connected ||
+              !selectedProject ||
+              receiptBlocked ||
+              !!(session && !historyReady) ||
+              current?.archived === 1
+            }
+            feedback={
+              receiptBlocked
+                ? '发送结果尚未确认，请先核对任务状态，避免重复发送。'
+                : sendFailure?.key === draftKey
+                  ? sendFailure.message
+                  : undefined
+            }
+            busy={busy}
+            active={!!activeTurn}
+            permission={permission}
+            onPermission={(permission) => updatePreferences({ permission })}
+            onSend={(kind) => void send(kind)}
+            onStop={() => void interrupt()}
+            onPanel={openPanel}
+            onNew={newChat}
+          />
+        </section>
+        {filesVisible && (
+          <div
+            className="file-pane-resizer"
+            role="separator"
+            aria-label="调整对话与文件预览宽度"
+            aria-orientation="vertical"
+            aria-valuemin={35}
+            aria-valuemax={75}
+            aria-valuenow={Number(filePaneWidth)}
+            tabIndex={0}
+            onDoubleClick={() => {
+              setFileWorkspaceWide(false);
+              setFilePaneWidth('60');
+            }}
+            onKeyDown={(event) => {
+              if (['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                event.preventDefault();
+                setFileWorkspaceWide(false);
+                setFilePaneWidth(
+                  String(
+                    Math.max(
+                      35,
+                      Math.min(75, Number(filePaneWidth) + (event.key === 'ArrowLeft' ? 2 : -2)),
+                    ),
+                  ),
+                );
+              }
+            }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              setFileWorkspaceWide(false);
+              event.currentTarget.parentElement?.setAttribute('data-resizing', 'true');
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+              const box = conversationElement.current?.getBoundingClientRect();
+              if (box)
+                setFilePaneWidth(
+                  String(
+                    Math.max(35, Math.min(75, ((box.right - event.clientX) / box.width) * 100)),
+                  ),
+                );
+            }}
+            onLostPointerCapture={(event) => {
+              event.currentTarget.parentElement?.removeAttribute('data-resizing');
+            }}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+          />
+        )}
+        {fileWorkspaceSeen && connected && selectedProject && !chat && (
+          <FileWorkspace
+            key={JSON.stringify([connectionEpoch.current, host?.hostId, selectedProject])}
+            request={request}
+            projectId={selectedProject}
+            projectName={
+              projects.find((project) => project.projectId === selectedProject)?.name || '项目'
+            }
+            storageKey={`agentdeck.web.files.${JSON.stringify([scope, host?.hostId, selectedProject])}`}
+            visible={filesVisible}
+            initialPath={fileTargetProject === selectedProject ? filePath : undefined}
+            initialView={fileTargetProject === selectedProject ? fileWorkspaceView : 'files'}
+            openToken={fileOpenToken}
+            imagePreview={supports('projectImagePreview')}
+            gitRead={supports('gitRead')}
+            gitBranchCompare={supports('gitBranchCompare')}
+            referenceAllowed={supports('fileReferenceInputs')}
+            expanded={fileWorkspaceWide}
+            onExpand={() => setFileWorkspaceWide((value) => !value)}
+            onClose={() => setFileWorkspaceOpen(false)}
+            onReference={(reference) => {
+              const refs = draft.references || [];
+              if (reference.projectId !== selectedProject) return;
+              if (refs.length >= 32) {
+                setError('最多引用 32 个文件');
+                return;
+              }
+              if (!refs.some((ref) => ref.path === reference.path))
+                updateDraft({ references: [...refs, reference] });
+              requestAnimationFrame(() =>
+                document.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')?.focus(),
               );
-            })}
-            {!renderedHistory.length && !historyFailure && (
-              <div className="empty">
-                {session && !historyReady ? (
-                  <p>正在读取会话历史…</p>
-                ) : (
-                  <>
-                    <div
-                      className="empty-symbol"
-                      aria-hidden="true"
-                      style={{
-                        maskImage: `url("${agentDeckMark}")`,
-                        WebkitMaskImage: `url("${agentDeckMark}")`,
-                      }}
-                    />
-                    <h1>{chat ? '聊点什么？' : 'What can we build?'}</h1>
-                    <p>
-                      {connected
-                        ? chat
-                          ? '无需选择项目，直接开始对话。'
-                          : '选择项目，开始一段 Codex 对话。'
-                        : '连接你的电脑，随时继续工作。'}
-                    </p>
-                    {!connected && (
-                      <button onClick={() => openPanel('computers')}>
-                        <Computer size={17} />
-                        连接电脑
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </Timeline>
-        <Composer
-          key={draftKey}
-          draft={draft}
-          status={
-            session && host ? (
-              <ComposerStatus
-                key={session}
-                request={request}
-                sessionId={session}
-                goalSupported={!chat && supports('sessionGoalView')}
-                usageSupported={supports('sessionTokenUsage')}
-                revision={statusRevision}
-                observedUsage={observedUsage}
-                onGoal={() => openPanel('goal')}
-                enabled={connected}
-              />
-            ) : undefined
-          }
-          onChange={updateDraft}
-          models={models}
-          supports={composerSupports}
-          chat={chat}
-          disabled={
-            !connected ||
-            !selectedProject ||
-            receiptBlocked ||
-            !!(session && !historyReady) ||
-            current?.archived === 1
-          }
-          busy={busy}
-          active={!!activeTurn}
-          permission={permission}
-          onPermission={(permission) => updatePreferences({ permission })}
-          onSend={(kind) => void send(kind)}
-          onStop={() => void interrupt()}
-          onPanel={openPanel}
-          onNew={newChat}
-          onError={setError}
-        />
+              if (matchMedia('(max-width:760px)').matches) setFileWorkspaceOpen(false);
+            }}
+          />
+        )}
       </section>
       <MotionPresence>
         {messageAction && messageAction.kind !== 'revise' && (
           <Modal
-            wide
+            wide={messageAction.kind === 'read'}
+            compact={messageAction.kind !== 'read'}
             title={
               messageAction.kind === 'read'
                 ? '消息'
@@ -2188,6 +2579,18 @@ export function App() {
               <div className="message-reader">
                 <RichContent
                   entry={messageAction.entry}
+                  images={
+                    connected && supports('projectImagePreview') && selectedProject && !chat
+                      ? {
+                          request,
+                          projectId: selectedProject,
+                          root:
+                            projects.find((project) => project.projectId === selectedProject)
+                              ?.canonicalPath || '',
+                        }
+                      : undefined
+                  }
+                  sessionImages={connected && supports('sessionMessageImages')}
                   connection={bridge.current}
                   sessionId={session || ''}
                 />
@@ -2199,12 +2602,17 @@ export function App() {
                     ? '从该原生轮次创建独立会话？'
                     : '回退此消息和之后的轮次？此操作会改变电脑上的原会话。'}
                 </p>
-                <button
-                  disabled={busy || receiptBlocked || !canManage(current)}
-                  onClick={() => void runMessageAction()}
-                >
-                  确认
-                </button>
+                <div className="button-row">
+                  <button disabled={busy} onClick={() => setMessageAction(undefined)}>
+                    取消
+                  </button>
+                  <button
+                    disabled={busy || receiptBlocked || !canManage(current)}
+                    onClick={() => void runMessageAction()}
+                  >
+                    {busy ? '处理中…' : messageAction.kind === 'fork' ? '创建分叉' : '确认回退'}
+                  </button>
+                </div>
                 {error && <p className="error">{error}</p>}
               </div>
             )}
@@ -2216,7 +2624,24 @@ export function App() {
           <Modal
             wide={['git', 'files', 'history', 'settings'].includes(panel)}
             title={titles[panel] || panel}
-            className={panel === 'settings' ? 'settings-modal' : ''}
+            className={
+              panel === 'settings' || (panel === 'drafts' && settingsChild) ? 'settings-modal' : ''
+            }
+            header={
+              panel === 'drafts' && settingsChild ? (
+                <div className="modal-navigation">
+                  <IconButton
+                    icon={ChevronLeft}
+                    label="返回设置"
+                    onClick={() => {
+                      setSettingsChild(false);
+                      setPanel('settings');
+                    }}
+                  />
+                  <h2>未发送草稿</h2>
+                </div>
+              ) : undefined
+            }
             onClose={() => setPanel('')}
           >
             <div
@@ -2227,114 +2652,15 @@ export function App() {
                 panel,
                 manageSession?.sessionId,
               ])}
-              className="panel-content"
+              className={`panel-content ${panel === 'drafts' && settingsChild ? 'settings-subpage' : ''}`}
             >
-              {panel === 'computers' && (
-                <div className="panel-stack">
-                  <p className="muted">
-                    在线表示电脑已连到云端；浏览器仍需完成授权、安全连接与会话同步。
-                  </p>
-                  {directoryFailure && (
-                    <p className="error" role="status">
-                      {directoryFailure}
-                    </p>
-                  )}
-                  {host && <p role="status">浏览器连接：{connectionLabels[connectionState]}</p>}
-                  {connectionFailure && (
-                    <p className="error" role="status">
-                      {connectionFailure}
-                    </p>
-                  )}
-                  <MotionList className="computer-list">
-                    {hosts.map((item) => (
-                      <div className="computer-entry" data-motion-item key={item.hostId}>
-                        <button
-                          className="host"
-                          aria-current={item.hostId === host?.hostId ? 'true' : undefined}
-                          onClick={() => {
-                            setPanel('');
-                            void connect(item);
-                          }}
-                        >
-                          <span className={`dot ${item.online ? 'online' : ''}`} />
-                          <span>{item.displayName}</span>
-                          <small>
-                            {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
-                          </small>
-                        </button>
-                        <div className="computer-actions">
-                          {item.cloudDeviceId && (
-                            <DeleteDevice
-                              onDeleted={() =>
-                                setHosts((current) =>
-                                  current.filter((entry) => entry.hostId !== item.hostId),
-                                )
-                              }
-                              device={{
-                                deviceId: item.cloudDeviceId,
-                                displayName: item.displayName,
-                                kind: 'desktop',
-                              }}
-                            />
-                          )}
-                          {item.hostId === host?.hostId && (
-                            <IconButton
-                              icon={RefreshCw}
-                              label="重新连接"
-                              disabled={busy}
-                              onClick={() => void connect(item)}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </MotionList>
-                  {!hosts.length && <p>尚未绑定电脑。请先在电脑端登录同一账户。</p>}
-                  {host && (
-                    <details className="technical-details">
-                      <summary>连接详情</summary>
-                      <DataFields
-                        value={{
-                          hostId: host.hostId,
-                          fingerprint: hostFingerprint,
-                          lastSynced,
-                          codexVersion: capabilities.codexVersion,
-                          status: connectionLabels[connectionState],
-                        }}
-                      />
-                    </details>
-                  )}
-                  {host && (
-                    <>
-                      <label className="host-label">
-                        本机显示名称
-                        <input
-                          value={hostLabel}
-                          maxLength={80}
-                          placeholder={host.displayName}
-                          onChange={(e) => {
-                            setHostLabel(e.target.value);
-                            localStorage.setItem(
-                              `agentdeck.web.label.${scope}.${host.hostId}`,
-                              e.target.value,
-                            );
-                          }}
-                        />
-                      </label>
-                    </>
-                  )}
-                </div>
-              )}
               {panel === 'settings' && (
                 <SettingsLayout active={settingsTab} onChange={setSettingsTab}>
                   {settingsTab === 'general' && (
                     <div className="settings-general">
                       <section className="settings-section panel-stack">
-                        <h3>使用偏好</h3>
                         <label className="setting-row">
-                          <span>
-                            外观<small>选择适合你的界面主题。</small>
-                          </span>
+                          <span>外观</span>
                           <select
                             aria-label="外观"
                             value={theme}
@@ -2347,7 +2673,7 @@ export function App() {
                         </label>
                         <label className="setting-row">
                           <span>
-                            任务通知<small>仅显示状态；网页关闭后不能接收通知。</small>
+                            任务通知<small>仅在应用打开时接收</small>
                           </span>
                           <input
                             type="checkbox"
@@ -2355,17 +2681,30 @@ export function App() {
                             disabled={!('Notification' in window)}
                             onChange={async (e) => {
                               if (e.target.checked) {
-                                const result = await Notification.requestPermission();
-                                setNotification(result === 'granted');
+                                try {
+                                  const result = await Notification.requestPermission();
+                                  setNotification(result === 'granted');
+                                  if (result !== 'granted')
+                                    setError('浏览器尚未允许通知，请在系统或网站设置中开启。');
+                                } catch (error) {
+                                  setError(String(error));
+                                }
                               } else setNotification(false);
                             }}
                           />
                         </label>
+                        {notification &&
+                          (!('Notification' in window) ||
+                            Notification.permission !== 'granted') && (
+                            <p className="muted" role="status">
+                              通知偏好已保存，当前浏览器尚未允许通知；请在系统或网站设置中开启。
+                            </p>
+                          )}
                       </section>
                       <section className="settings-section panel-stack">
                         <h3>安装应用</h3>
                         <InstallApp />
-                        <p className="settings-installed">当前已在独立应用窗口中打开。</p>
+                        <p className="settings-installed">已安装</p>
                       </section>
                       <section className="settings-section">
                         <AppUpdates />
@@ -2373,7 +2712,6 @@ export function App() {
                       <section className="settings-section setting-row">
                         <div>
                           <h3>AgentDeck 账户</h3>
-                          <p className="muted">退出当前网页或 PWA 的登录。</p>
                         </div>
                         <button
                           className="settings-logout"
@@ -2387,7 +2725,6 @@ export function App() {
                           退出账户
                         </button>
                       </section>
-                      <AccountDevices />
                     </div>
                   )}
                   {settingsTab === 'configuration' &&
@@ -2442,13 +2779,11 @@ export function App() {
                       >
                         <span>
                           <strong>查看归档对话</strong>
-                          <small>重新找到暂时收起的历史对话。</small>
                         </span>
                       </button>
                       <button className="settings-action" onClick={() => openPanel('drafts')}>
                         <span>
                           <strong>未发送草稿</strong>
-                          <small>继续编辑尚未发送的内容。</small>
                         </span>
                       </button>
                       <button
@@ -2458,16 +2793,91 @@ export function App() {
                       >
                         <span>
                           <strong>同步电脑已有对话</strong>
-                          <small>从当前连接的电脑重新核对会话列表。</small>
                         </span>
                       </button>
+                      <ProjectSettings
+                        key={host?.hostId || 'disconnected'}
+                        request={request}
+                        projects={projects}
+                        connected={connected}
+                        hostName={host ? hostName(host) : undefined}
+                        currentProject={selectedProject}
+                        canSync={supports('codexWorkspaceDiscovery')}
+                        onChanged={() => refresh()}
+                        onProject={(id) => {
+                          setSelectedProject(id);
+                          selectSession(undefined);
+                          setPanel('');
+                        }}
+                      />
                     </div>
                   )}
                   {settingsTab === 'computers' && (
-                    <div className="settings-section panel-stack">
-                      <h3>电脑连接</h3>
-                      <p className="muted">管理已登录的电脑，查看在线状态并选择要使用的电脑。</p>
-                      <button onClick={() => openPanel('computers')}>管理电脑</button>
+                    <div className="panel-stack">
+                      {directoryFailure && (
+                        <p className="error" role="status">
+                          {directoryFailure}
+                        </p>
+                      )}
+                      {host && <p role="status">浏览器连接：{connectionLabels[connectionState]}</p>}
+                      {connectionFailure && (
+                        <p className="error" role="status">
+                          {connectionFailure}
+                        </p>
+                      )}
+                      <MotionList className="computer-list">
+                        {hosts.map((item) => (
+                          <div className="computer-entry" data-motion-item key={item.hostId}>
+                            <button
+                              className="host"
+                              aria-current={item.hostId === host?.hostId ? 'true' : undefined}
+                              onClick={() => {
+                                void connect(item);
+                              }}
+                            >
+                              <span className={`dot ${item.online ? 'online' : ''}`} />
+                              <span className="computer-name">
+                                <span>{hostName(item)}</span>
+                              </span>
+                              <small>
+                                {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
+                              </small>
+                            </button>
+                            <div className="computer-actions">
+                              {item.cloudDeviceId && (
+                                <DeleteDevice
+                                  onDeleted={() =>
+                                    setHosts((current) =>
+                                      current.filter((entry) => entry.hostId !== item.hostId),
+                                    )
+                                  }
+                                  device={{
+                                    deviceId: item.cloudDeviceId,
+                                    displayName: hostName(item),
+                                    kind: 'desktop',
+                                  }}
+                                />
+                              )}
+                              {item.hostId === host?.hostId && (
+                                <IconButton
+                                  icon={RefreshCw}
+                                  label="重新连接"
+                                  disabled={busy}
+                                  onClick={() => void connect(item)}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </MotionList>
+                      {!hosts.length && <p>尚未绑定电脑。请先在电脑端登录同一账户。</p>}
+                      {host && (
+                        <HostNameEditor
+                          key={JSON.stringify([scope, host.hostId])}
+                          host={hosts.find((item) => item.hostId === host.hostId) || host}
+                          onSaved={hostNameSaved}
+                        />
+                      )}
                     </div>
                   )}
                 </SettingsLayout>
@@ -2492,20 +2902,6 @@ export function App() {
                   onChanged={() => void refresh()}
                 />
               )}
-              {panel === 'files' && selectedProject && connected && (
-                <FilesPanel
-                  request={request}
-                  projectId={selectedProject}
-                  initialPath={filePath}
-                  onReference={(text) => {
-                    updateDraft({ text: `${draft.text}${draft.text ? '\n' : ''}${text}\n` });
-                    setPanel('');
-                  }}
-                />
-              )}
-              {panel === 'git' && selectedProject && connected && (
-                <GitPanel request={request} projectId={selectedProject} />
-              )}
               {panel === 'skills' && selectedProject && connected && (
                 <SkillsPanel
                   request={request}
@@ -2520,7 +2916,10 @@ export function App() {
                   request={request}
                   sessionId={session}
                   supports={supports}
-                  onChanged={() => void refresh()}
+                  onChanged={() => {
+                    setQueueRevision((value) => value + 1);
+                    void refresh();
+                  }}
                 />
               )}
               {panel === 'projects' && connected && (
@@ -2547,40 +2946,37 @@ export function App() {
               )}
               {panel === 'drafts' && (
                 <div className="panel-stack">
-                  <p className="muted">草稿按电脑和会话隔离，仅保留在当前标签页中。</p>
-                  {Object.entries(drafts)
-                    .filter(([key, d]) => {
-                      const [account, id] = JSON.parse(key);
-                      return (
-                        account === scope &&
-                        id === host?.hostId &&
-                        (d.text || d.attachments.length || d.skills.length)
-                      );
-                    })
-                    .map(([key, d]) => {
-                      const id = JSON.parse(key)[2] as string;
-                      return (
-                        <button
-                          className="draft-entry"
-                          key={key}
-                          onClick={() => {
-                            if (id.startsWith('new:')) {
-                              setSelectedProject(id.slice(4));
-                              selectSession(undefined);
-                            } else selectSession(id);
-                            setPanel('');
-                          }}
-                        >
-                          <strong>
-                            {snapshot.sessions?.find((s) => s.sessionId === id)?.title || '新对话'}
-                          </strong>
-                          <span>
-                            {d.text.slice(0, 180) ||
-                              `${d.attachments.length} 个附件 · ${d.skills.length} 个技能`}
-                          </span>
-                        </button>
-                      );
-                    })}
+                  {visibleDrafts.length ? (
+                    <p className="muted">仅保留在当前标签页，关闭后不会保存。</p>
+                  ) : (
+                    <div className="panel-empty" role="status">
+                      暂无未发送草稿
+                    </div>
+                  )}
+                  {visibleDrafts.map(([key, d]) => {
+                    const id = JSON.parse(key)[2] as string;
+                    return (
+                      <button
+                        className="draft-entry"
+                        key={key}
+                        onClick={() => {
+                          if (id.startsWith('new:')) {
+                            setSelectedProject(id.slice(4));
+                            selectSession(undefined);
+                          } else selectSession(id);
+                          setPanel('');
+                        }}
+                      >
+                        <strong>
+                          {snapshot.sessions?.find((s) => s.sessionId === id)?.title || '新对话'}
+                        </strong>
+                        <span>
+                          {d.text.slice(0, 180) ||
+                            `${d.attachments.length} 个附件 · ${d.skills.length} 个技能 · ${d.references?.length || 0} 个引用`}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               {panel === 'search' && (
@@ -2646,7 +3042,6 @@ export function App() {
               )}
               {panel === 'history' && (
                 <div className="panel-stack">
-                  <p className="muted">来自电脑原会话的已加载记录</p>
                   {historyCursor && (
                     <button disabled={historyLoading} onClick={() => void loadOlderHistory()}>
                       加载更早记录

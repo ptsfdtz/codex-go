@@ -1,15 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import {
-  ArrowLeft,
+  Folder,
   ArrowUp,
   ArrowDown,
-  FileText,
-  Folder,
   Play,
   Trash2,
   Copy,
   RefreshCw,
-  Plus,
   Pin,
   Archive,
   GitFork,
@@ -24,7 +21,6 @@ import { MotionList, MotionPresence } from '../motion';
 import type { Capabilities, Model, Project, Request, Session, Skill } from '../workspace';
 import { canManage, output, statusLabel } from '../workspace';
 import { contentText } from '../RichContent';
-import { DiffText } from './DiffText';
 
 function useRead<T>(
   request: Request,
@@ -94,17 +90,14 @@ function LoadState({
 function useAction() {
   const pending = useRef(false);
   const [busy, setBusy] = useState(false),
-    [error, setError] = useState(''),
-    [done, setDone] = useState('');
+    [error, setError] = useState('');
   const run = async (fn: () => Promise<unknown>) => {
     if (pending.current) return false;
     pending.current = true;
     setBusy(true);
     setError('');
-    setDone('');
     try {
       await fn();
-      setDone('已完成');
       return true;
     } catch (e) {
       setError(String(e));
@@ -119,18 +112,11 @@ function useAction() {
     run,
     feedback: (
       <MotionPresence>
-        {(error || done) && (
+        {error && (
           <div className="action-feedback" aria-live="polite">
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-            {done && (
-              <p className="muted" role="status">
-                {done}
-              </p>
-            )}
+            <p className="error" role="alert">
+              {error}
+            </p>
           </div>
         )}
       </MotionPresence>
@@ -300,13 +286,6 @@ export function SessionPanel({
       {!safe && <p className="muted">请先停止或核对正在进行的任务，再管理会话。</p>}
       {action.feedback}
       <LoadState {...{ error, loading, reload }} />
-      {value && (
-        <details className="technical-details">
-          <summary>会话信息与活动记录</summary>
-          <DataFields value={value.session} />
-          <pre>{output(value.events)}</pre>
-        </details>
-      )}
     </div>
   );
 }
@@ -515,198 +494,6 @@ export function GoalPanel({
   );
 }
 
-type FileEntry = { name: string; path: string; kind: string; size?: number };
-export function FilesPanel({
-  request,
-  projectId,
-  onReference,
-  initialPath,
-}: {
-  request: Request;
-  projectId: string;
-  onReference: (text: string) => void;
-  initialPath?: string;
-}) {
-  const [directory, setDirectory] = useState(''),
-    [selected, setSelected] = useState<FileEntry | undefined>(() =>
-      initialPath
-        ? { name: initialPath.split('/').pop() || initialPath, path: initialPath, kind: 'file' }
-        : undefined,
-    ),
-    [text, setText] = useState(''),
-    [fileError, setFileError] = useState(''),
-    [fileLoading, setFileLoading] = useState(false);
-  const { value, error, loading, reload } = useRead<{ entries: FileEntry[]; truncated?: boolean }>(
-    request,
-    'files.list',
-    { projectId, ...(directory ? { directory } : {}) },
-  );
-  const action = useAction();
-  useEffect(() => {
-    let active = true;
-    setText('');
-    setFileError('');
-    if (!selected) return;
-    setFileLoading(true);
-    void request<{ text: string }>('files.readText', { projectId, path: selected.path })
-      .then((v) => {
-        if (active) setText(v.text);
-      })
-      .catch((e) => {
-        if (active) setFileError(String(e));
-      })
-      .finally(() => {
-        if (active) setFileLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [selected, projectId, request]);
-  return (
-    <div className="panel-stack">
-      <div className="breadcrumb">
-        <IconButton
-          icon={ArrowLeft}
-          label="上一级"
-          disabled={!directory && !selected}
-          onClick={() => {
-            if (selected) setSelected(undefined);
-            else
-              setDirectory(
-                directory.replace(/[\\/][^\\/]+$/, '') === directory
-                  ? ''
-                  : directory.replace(/[\\/][^\\/]+$/, ''),
-              );
-          }}
-        />
-        <span>{selected?.path || directory || '项目根目录'}</span>
-        <IconButton icon={RefreshCw} label="刷新文件" onClick={reload} />
-      </div>
-      {selected ? (
-        <>
-          <p className="muted">当前授权文件 · UTF-8 · 最多 256 KiB</p>
-          {fileLoading && <p>读取中…</p>}
-          {fileError && <p className="error">{fileError}</p>}
-          <pre className="file-preview">{text}</pre>
-          <button
-            disabled={action.busy || fileLoading || !!fileError}
-            onClick={() =>
-              void action.run(async () => {
-                const v = await request<{ referenceText: string }>('files.reference', {
-                  projectId,
-                  path: selected.path,
-                });
-                onReference(v.referenceText);
-              })
-            }
-          >
-            <Plus size={16} />
-            引用到消息
-          </button>
-          {action.feedback}
-        </>
-      ) : (
-        <>
-          <LoadState {...{ error, loading, reload }} />
-          <div className="file-list">
-            {value?.entries.map((f) => (
-              <button
-                key={f.path}
-                onClick={() => {
-                  if (f.kind === 'directory') setDirectory(f.path);
-                  else setSelected(f);
-                }}
-              >
-                {f.kind === 'directory' ? <Folder size={18} /> : <FileText size={18} />}
-                <span>{f.name}</span>
-                <small>{f.kind === 'directory' ? '' : `${f.size || 0} B`}</small>
-              </button>
-            ))}
-          </div>
-          {value && !value.entries.length && <p className="muted">此目录为空。</p>}
-          {value?.truncated && <p className="muted">目录条目已达到读取上限。</p>}
-        </>
-      )}
-    </div>
-  );
-}
-
-type GitFile = {
-  fileId: string;
-  path: string;
-  oldPath?: string;
-  index?: string;
-  worktree?: string;
-  untracked?: boolean;
-};
-export function GitPanel({ request, projectId }: { request: Request; projectId: string }) {
-  const { value, error, loading, reload } = useRead<{
-    available: boolean;
-    files: GitFile[];
-    attribution?: unknown;
-    truncated?: boolean;
-  }>(request, 'git.status', { projectId });
-  const [selected, setSelected] = useState<GitFile>();
-  return (
-    <div className="panel-stack">
-      <p className="muted">当前工作区差异 · 只读</p>
-      <LoadState {...{ error, loading, reload }} />
-      <div className="file-list">
-        {value?.files?.map((f) => (
-          <button
-            key={f.fileId}
-            className={selected?.fileId === f.fileId ? 'selected' : ''}
-            onClick={() => setSelected(f)}
-          >
-            <FileText size={17} />
-            <span>{f.path}</span>
-            <small>{f.untracked ? 'U' : `${f.index || ''} ${f.worktree || ''}`}</small>
-          </button>
-        ))}
-      </div>
-      {value &&
-        (!value.available ? (
-          <p>此项目没有可用的 Git 工作区。</p>
-        ) : (
-          !value.files.length && <p>工作区没有改动。</p>
-        ))}
-      {value?.truncated && <p className="muted">文件列表达到读取上限。</p>}
-      {selected && (
-        <CurrentDiff
-          key={selected.fileId}
-          request={request}
-          projectId={projectId}
-          file={selected}
-        />
-      )}
-    </div>
-  );
-}
-function CurrentDiff({
-  request,
-  projectId,
-  file,
-}: {
-  request: Request;
-  projectId: string;
-  file: GitFile;
-}) {
-  const { value, error, loading, reload } = useRead<{
-    text: string;
-    binary: boolean;
-    truncated: boolean;
-  }>(request, 'git.diff', { projectId, fileId: file.fileId });
-  return (
-    <>
-      <h3>{file.path}</h3>
-      <LoadState {...{ error, loading, reload }} />
-      {value &&
-        (value.binary ? <p>二进制文件无法显示文本差异。</p> : <DiffText text={value.text} />)}
-      {value?.truncated && <p className="muted">差异过长，已截断。</p>}
-    </>
-  );
-}
-
 export function SkillsPanel({
   request,
   projectId,
@@ -799,7 +586,13 @@ export function SkillsPanel({
   );
 }
 
-type QueueEntry = { id: string; input: unknown[]; inputRevision?: string; status?: string };
+type QueueEntry = {
+  id: string;
+  input: unknown[];
+  inputRevision?: string;
+  status?: string;
+  deliveryState?: string;
+};
 export function QueuePanel({
   request,
   sessionId,
@@ -851,6 +644,7 @@ export function QueuePanel({
                   label="编辑队列消息"
                   disabled={
                     action.busy ||
+                    !!entry.deliveryState ||
                     (!supports('nativeQueueResourceEdit') &&
                       entry.input.some(
                         (p) =>
@@ -862,7 +656,7 @@ export function QueuePanel({
                     setText(contentText(entry.input));
                   }}
                 />
-                {supports('nativeQueueStart') && (
+                {supports('nativeQueueStart') && !entry.deliveryState && (
                   <IconButton
                     icon={Play}
                     label="立即发送队列消息"
@@ -873,7 +667,9 @@ export function QueuePanel({
                 <IconButton
                   icon={ArrowUp}
                   label="上移消息"
-                  disabled={action.busy || index === 0}
+                  disabled={
+                    action.busy || value.data.some((item) => !!item.deliveryState) || index === 0
+                  }
                   onClick={() => {
                     const ids = value.data.map((e) => e.id);
                     [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
@@ -883,7 +679,11 @@ export function QueuePanel({
                 <IconButton
                   icon={ArrowDown}
                   label="下移消息"
-                  disabled={action.busy || index === value.data.length - 1}
+                  disabled={
+                    action.busy ||
+                    value.data.some((item) => !!item.deliveryState) ||
+                    index === value.data.length - 1
+                  }
                   onClick={() => {
                     const ids = value.data.map((e) => e.id);
                     [ids[index], ids[index + 1]] = [ids[index + 1]!, ids[index]!];
@@ -965,7 +765,7 @@ export function ProjectsPanel({
       <div className="panel-heading">
         <p className="muted">
           {supports('codexWorkspaceDiscovery')
-            ? '自动显示 Codex 已有工作区。移除后不再自动添加，电脑上的文件和 Codex 会话不会删除。'
+            ? '已同步的工作区'
             : '此电脑需要更新 Host 才能自动同步 Codex 工作区；当前仍可在电脑上使用 agentdeck projects add PATH 添加。'}
         </p>
         <IconButton
@@ -1092,7 +892,7 @@ export function ConfigurationPanel({
   supports: (s: string) => boolean;
 }) {
   const { value, error, loading, reload } = useRead<{
-    values?: unknown;
+    values?: Record<string, unknown>;
     origins?: unknown;
     userRevision?: string;
     workspacePolicyCompatible?: boolean;
@@ -1102,16 +902,26 @@ export function ConfigurationPanel({
     [effort, setEffort] = useState(''),
     [verbosity, setVerbosity] = useState('default'),
     [summary, setSummary] = useState('default');
+  useEffect(() => {
+    if (!value) return;
+    const current = value.values || {};
+    setModel(typeof current.model === 'string' ? current.model : '');
+    setEffort(
+      typeof current.model_reasoning_effort === 'string' ? current.model_reasoning_effort : '',
+    );
+    setVerbosity(typeof current.model_verbosity === 'string' ? current.model_verbosity : 'default');
+    setSummary(
+      typeof current.model_reasoning_summary === 'string'
+        ? current.model_reasoning_summary
+        : 'default',
+    );
+  }, [value]);
   const action = useAction();
   return (
     <div className="panel-stack">
       <LoadState {...{ error, loading, reload }} />
       {value && (
         <>
-          <details>
-            <summary>当前模型、沙盒和配置来源</summary>
-            <DataFields value={value} />
-          </details>
           {supports('modelDefaultsWrite') && (
             <form
               className="panel-stack"
@@ -1137,6 +947,9 @@ export function ConfigurationPanel({
                 }}
               >
                 <option value="">选择模型</option>
+                {model && !models.some((m) => (m.id || m.model) === model) && (
+                  <option value={model}>{model}</option>
+                )}
                 {models.map((m) => {
                   const id = m.id || m.model;
                   return id ? (
@@ -1152,6 +965,12 @@ export function ConfigurationPanel({
                 onChange={(e) => setEffort(e.target.value)}
               >
                 <option value="">模型默认</option>
+                {effort &&
+                  !models
+                    .find((m) => (m.id || m.model) === model)
+                    ?.supportedReasoningEfforts?.some(
+                      (e) => (typeof e === 'string' ? e : e.reasoningEffort) === effort,
+                    ) && <option value={effort}>{effort}</option>}
                 {models
                   .find((m) => (m.id || m.model) === model)
                   ?.supportedReasoningEfforts?.map((e) => {
@@ -1184,7 +1003,20 @@ export function ConfigurationPanel({
                 详细程度
                 <select value={verbosity} onChange={(e) => setVerbosity(e.target.value)}>
                   {['default', 'low', 'medium', 'high'].map((v) => (
-                    <option key={v}>{v}</option>
+                    <option key={v} value={v}>
+                      {(
+                        {
+                          default: '默认',
+                          low: '精简',
+                          medium: '适中',
+                          high: '详细',
+                          auto: '自动',
+                          concise: '简短',
+                          detailed: '详细',
+                          none: '不显示',
+                        } as Record<string, string>
+                      )[v] || v}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -1192,7 +1024,20 @@ export function ConfigurationPanel({
                 思考摘要
                 <select value={summary} onChange={(e) => setSummary(e.target.value)}>
                   {['default', 'auto', 'concise', 'detailed', 'none'].map((v) => (
-                    <option key={v}>{v}</option>
+                    <option key={v} value={v}>
+                      {(
+                        {
+                          default: '默认',
+                          low: '精简',
+                          medium: '适中',
+                          high: '详细',
+                          auto: '自动',
+                          concise: '简短',
+                          detailed: '详细',
+                          none: '不显示',
+                        } as Record<string, string>
+                      )[v] || v}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -1206,19 +1051,21 @@ export function ConfigurationPanel({
   );
 }
 export function RetentionPanel({ request }: { request: Request }) {
-  const { value, error, loading, reload } = useRead<Record<string, unknown>>(
-    request,
-    'settings.get',
-    {},
-  );
+  const { value, error, loading, reload } = useRead<{
+    retention: { days: number; maxMiB: number };
+  }>(request, 'settings.get', {});
   const [days, setDays] = useState(''),
     [mib, setMib] = useState(''),
     [confirm, setConfirm] = useState(false);
+  useEffect(() => {
+    if (!value) return;
+    setDays(String(value.retention.days));
+    setMib(String(value.retention.maxMiB));
+  }, [value]);
   const action = useAction();
   return (
     <div className="panel-stack">
       <LoadState {...{ error, loading, reload }} />
-      {value && <DataFields value={value} />}
       <label>
         缓存保留天数
         <input

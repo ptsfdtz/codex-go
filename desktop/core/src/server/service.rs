@@ -19,6 +19,8 @@ use std::{
     time::Duration,
 };
 use tokio::sync::{mpsc, Notify, Semaphore};
+pub(crate) const MAX_CONCURRENT_TASKS: usize = 5;
+
 pub struct Core {
     pub(crate) lan_gateway: Mutex<Option<(std::net::SocketAddr, tokio::task::JoinHandle<()>)>>,
     pub cloud: crate::cloud::Cloud,
@@ -47,6 +49,8 @@ pub struct Core {
     pub port: u16,
     pub stop: Notify,
     pub stopping: AtomicBool,
+    pub(crate) update_gate: tokio::sync::RwLock<()>,
+    pub(crate) update_draining: AtomicBool,
     pub local: mpsc::Sender<Value>,
     pub network: tokio::sync::Mutex<
         Option<(
@@ -91,13 +95,15 @@ impl Core {
             thread_sync: tokio::sync::Mutex::new(()),
             thread_index_changed: Notify::new(),
             thread_index_pending: Mutex::new(HashMap::new()),
-            task_limit: Semaphore::new(2),
+            task_limit: Semaphore::new(MAX_CONCURRENT_TASKS),
             connected: Mutex::new(HashMap::new()),
             authorization_changed: Notify::new(),
             address: RwLock::new(address),
             port,
             stop: Notify::new(),
             stopping: AtomicBool::new(false),
+            update_gate: tokio::sync::RwLock::new(()),
+            update_draining: AtomicBool::new(false),
             local,
             network: tokio::sync::Mutex::new(None),
             rpc_slots: Arc::new(Semaphore::new(32)),
@@ -160,9 +166,24 @@ impl Core {
         let mut state = json!({"codexReady":self.ready.load(Ordering::SeqCst),"sandboxVerified":self.verified.load(Ordering::SeqCst),"endpoint":self.endpoint(),"listenAddress":*self.address.read().unwrap(),"lastWorkspaceSync":self.store.meta("lastWorkspaceSync")?.unwrap_or_default(),"projects":self.store.visible_projects()?,"devices":devices,"approvals":approvals,"pairings":self.pairing.pending_all(),"addresses":std::iter::once("127.0.0.1".to_string()).chain(security::addresses()).collect::<Vec<_>>() });
         state["cloud"] = json!(self.cloud.status());
         state["runtimeError"] = json!(*self.runtime_error.read().unwrap());
+        state["officialRuntime"] = if self.ready.load(Ordering::SeqCst) {
+            self.store
+                .meta("officialRuntime")?
+                .and_then(|v| serde_json::from_str::<Value>(&v).ok())
+                .unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        };
+        state["sharedRuntime"] = json!(
+            self.ready.load(Ordering::SeqCst) && self.attached_runtime.load(Ordering::SeqCst)
+        );
         state["hostId"] = json!(self.store.meta("hostId")?);
         state["activeTurns"] = json!(self.store.turns(None)?.len());
         state["servicePid"] = json!(std::process::id());
+        state["runningVersion"] = json!(std::env::current_exe()
+            .ok()
+            .and_then(|p| std::fs::read_to_string(p.parent()?.join("release.txt")).ok())
+            .map(|v| v.trim().to_owned()));
         state["codexVersion"] = json!(self
             .runtime_version
             .read()
@@ -240,7 +261,13 @@ impl Core {
         Ok(qr)
     }
     pub async fn local_action(self: &Arc<Self>, v: Value) -> Result<bool> {
+        let _update_guard = self.update_gate.read().await;
         let action = s(&v, "action");
+        ensure(
+            action == "stop" || !self.update_draining.load(Ordering::SeqCst),
+            "UPDATE_RESTARTING",
+            "Host is switching versions; reconnect before changing state",
+        )?;
         let allowed: &[&str] = match action {
             "workspaces.sync" | "stop" => &[],
             "project.add" => &["path"],
@@ -350,7 +377,7 @@ impl Core {
             .store(target.attached(), Ordering::SeqCst);
         *self.runtime_protocol.write().unwrap() = target.protocol();
         let mut failures = 0u32;
-        let mut args = codex::args();
+        let mut args = codex::args_for(&exe);
         let mut discovered = false;
         while !self.stopping.load(Ordering::SeqCst) {
             let result: Result<()> = async {
@@ -392,10 +419,9 @@ impl Core {
                     else { codex::initialize(&rpc).await?; }
                     *self.runtime_protocol.write().unwrap() = rpc.protocol();
                     *self.runtime_version.write().unwrap() = rpc.runtime_version();
-                    // Preserve the actual Windows boundary proof across every
+                    // Preserve the actual native boundary proof across every
                     // reconnect. Never relabel a probe of one installed binary
                     // as verification of a different attached server version.
-                    #[cfg(windows)]
                     if self.verified.load(Ordering::SeqCst) {
                         if let Some(probed) = self.store.meta("sandboxProbeVersion")? {
                             ensure(
@@ -461,7 +487,7 @@ impl Core {
                         .request("config/read", json!({"includeLayers":false}))
                         .await?;
                     rpc.validate("v2/ConfigReadResponse", &config)?;
-                    codex::check_policy(&config)?;
+                    codex::check_policy_for(&config, Some(&exe))?;
                     self.ready.store(true, Ordering::SeqCst);
                     *self.runtime_error.write().unwrap() = None;
                     self.reconcile(&rpc).await?;
@@ -547,6 +573,24 @@ impl Core {
                 })?;
                 Ok(status)
             }
+            "system.updateStatus" => {
+                let running = self.state()?["runningVersion"].clone();
+                crate::host::update_job::observe_ready(
+                    running.as_str().unwrap_or(""),
+                    self.ready.load(Ordering::SeqCst)
+                        && self.cloud.status().online
+                        && self.runtime_error.read().unwrap().is_none(),
+                )?;
+                let mut value = crate::host::update_job::status()?;
+                value["host"] = json!({"version":running,
+                    "cloudOnline":self.cloud.status().online,
+                    "codexReady":self.ready.load(Ordering::SeqCst),
+                    "runtimeError":*self.runtime_error.read().unwrap()});
+                Ok(value)
+            }
+            "system.updateInstall" => crate::host::update_job::install(s(p, "version")).await,
+            "system.updateApply" => crate::host::update_job::apply(s(p, "jobId")),
+            "system.updateCancel" => crate::host::update_job::cancel(s(p, "jobId")),
             "system.diagnostics" => {
                 let mut counts = json!({});
                 for table in ["projects", "sessions", "turns", "events", "devices"] {
@@ -571,6 +615,12 @@ impl Core {
             "skills.catalog" => self.skill_catalog(s(p, "projectId")).await,
             "skills.setEnabled" => self.set_skill_enabled(p).await,
             "files.list" => self.project_files(s(p, "projectId"), s(p, "directory")),
+            "files.readImage" => self.project_file_image(
+                s(p, "projectId"),
+                s(p, "path"),
+                p["offset"].as_u64().unwrap() as usize,
+                p["sha256"].as_str(),
+            ),
             "files.readText" => self.project_file_text(s(p, "projectId"), s(p, "path")),
             "files.reference" => self.project_file_reference(s(p, "projectId"), s(p, "path")),
             "account.status" => self.account_status().await,
@@ -641,7 +691,7 @@ impl Core {
                 Ok(json!({"status":"removed"}))
             }
             "queue.list" | "queue.add" | "queue.update" | "queue.delete" | "queue.reorder"
-            | "queue.start" => {
+            | "queue.start" | "queue.steer" => {
                 self.native_queue(&r.action, p, &crate::digest(format!("{device}:{}", r.id)))
                     .await
             }
@@ -660,13 +710,14 @@ impl Core {
             }
             "sessions.image" => tokio::time::timeout(
                 Duration::from_secs(30),
-                self.session_image(
+                self.session_image_source(
                     s(p, "sessionId"),
                     s(p, "turnId"),
                     s(p, "itemId"),
                     p["contentIndex"].as_u64().unwrap_or(0) as usize,
                     p["offset"].as_u64().unwrap() as usize,
                     p["sha256"].as_str(),
+                    p["sourcePath"].as_str(),
                 ),
             )
             .await
@@ -692,7 +743,7 @@ impl Core {
                 json!({"session":self.store.session(s(p,"sessionId"))?,"turns":self.store.turns(Some(s(p,"sessionId")))?,"events":self.store.history(s(p,"sessionId"),p["before"].as_str(),p["limit"].as_u64().unwrap_or(100) as usize)?}),
             ),
             "turn.start" => Ok(
-                json!({"turn":self.start_turn_with_skills(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str(),p["permissionMode"].as_str().unwrap_or("workspace"),p["mode"].as_str().unwrap_or("default"),p.get("attachments"),p.get("skills")).await?}),
+                json!({"turn":self.start_turn_with_references(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str(),p["permissionMode"].as_str().unwrap_or("workspace"),p["mode"].as_str().unwrap_or("default"),p.get("attachments"),p.get("skills"),p.get("references")).await?}),
             ),
             "turn.interrupt" => self.interrupt(s(p, "sessionId"), s(p, "turnId")).await,
             "turn.active" => self.active_upstream_turn(s(p, "sessionId")).await,
@@ -728,6 +779,29 @@ impl Core {
                 s(p, "decision"),
                 p.get("answers"),
             ),
+            "git.branches" => {
+                crate::git::comparison::branches(&self.store, s(p, "projectId")).await
+            }
+            "git.compare" => {
+                crate::git::comparison::compare(
+                    &self.store,
+                    s(p, "projectId"),
+                    s(p, "base"),
+                    s(p, "head"),
+                    s(p, "mode"),
+                )
+                .await
+            }
+            "git.compareDiff" => {
+                crate::git::comparison::diff(
+                    &self.store,
+                    s(p, "projectId"),
+                    s(p, "base"),
+                    s(p, "head"),
+                    s(p, "fileId"),
+                )
+                .await
+            }
             "git.status" => crate::git::status(&self.store, s(p, "projectId")).await,
             "git.diff" => crate::git::diff(&self.store, s(p, "projectId"), s(p, "fileId")).await,
             "events.replay" => self.store.replay(
@@ -826,6 +900,7 @@ pub async fn boundary(exe: &Path) -> Result<Value> {
     boundary_runtime(exe, &std::env::current_exe()?).await
 }
 pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
+    crate::host::runtime_compatibility::verify_official(exe)?;
     // Tests and diagnostics also call this directly, outside main's host gate.
     // A low-integrity parent cannot launch MXC even from a normal terminal.
     security::verify_host_integrity()?;
@@ -852,14 +927,27 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
     std::fs::write(inside.join("sentinel.txt"), "INSIDE")?;
     std::fs::write(outside.join("sentinel.txt"), "OUTSIDE")?;
     let executable = runtime.to_string_lossy().replace('\\', "/");
-    let profile=format!("permissions={{agentdeck={{extends=\":workspace\",filesystem={{\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\",{}=\"read\"}},network={{enabled=false}}}}}}",json!(executable));
+    let mut profile=format!("permissions={{agentdeck={{extends=\":workspace\",filesystem={{\":root\"=\"deny\",\":minimal\"=\"read\",\":tmpdir\"=\"deny\",\":slash_tmp\"=\"deny\",{}=\"read\"}},network={{enabled=false}}}}}}",json!(executable));
+    if cfg!(target_os = "linux") {
+        let package_root = exe.parent().and_then(Path::parent).ok_or_else(|| {
+            Error::new(
+                "RUNTIME_INTEGRITY_ERROR",
+                "Official runtime package root missing",
+            )
+        })?;
+        // Insert into the existing filesystem table before network policy.
+        profile = profile.replace(
+            "},network=",
+            &format!(",{}=\"read\"}},network=", json!(package_root)),
+        );
+    }
     let mut command = tokio::process::Command::new(exe);
+    #[cfg(windows)]
+    command.args(["-c", "windows.sandbox=\"mxc\""]);
     command
         .args([
             "-c",
-            "windows.sandbox=\"mxc\"",
-            "-c",
-            &profile,
+            profile.as_str(),
             "sandbox",
             "--include-managed-config",
             "--permission-profile",
@@ -921,7 +1009,10 @@ pub async fn boundary_runtime(exe: &Path, runtime: &Path) -> Result<Value> {
         && report["outsideReadDenied"] == true
         && report["outsideWriteDenied"] == true
         && !outside.join("written.txt").exists();
-    Ok(json!({"passed":passed,"at":now(),"details":report}))
+    if passed {
+        crate::upstream::instruction_probe::check(exe, base.path()).await?;
+    }
+    Ok(json!({"passed":passed,"at":now(),"details":report,"instructionLoading":passed}))
 }
 fn boundary_launch_error(stderr: &[u8]) -> Error {
     let message = String::from_utf8_lossy(stderr).to_lowercase();
@@ -933,7 +1024,7 @@ fn boundary_launch_error(stderr: &[u8]) -> Error {
     } else {
         Error::new(
             "SANDBOX_UNVERIFIED",
-            "Windows 隔离检查未返回有效结果；请检查 Codex 隔离组件和启动环境",
+            "隔离检查未返回有效结果；请检查官方 Codex 沙箱组件和系统支持",
         )
     }
 }

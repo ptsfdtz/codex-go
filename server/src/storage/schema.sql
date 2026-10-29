@@ -72,3 +72,14 @@ CREATE TABLE IF NOT EXISTS host_access(
 );
 CREATE INDEX IF NOT EXISTS host_access_expiry ON host_access(expires_at);
 INSERT INTO migrations(version) VALUES(3) ON CONFLICT DO NOTHING;
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS custom_name TEXT;
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS custom_name_configured BOOLEAN NOT NULL DEFAULT false;
+INSERT INTO migrations(version) VALUES(4) ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS chat_keys(
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    api_key TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_key_account ON chat_keys(account_id);
+INSERT INTO migrations(version) VALUES(7) ON CONFLICT DO NOTHING;

@@ -1,161 +1,283 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Project, Request } from '../workspace';
+import type { Request } from '../workspace';
 import { Modal } from '../ui';
 import { MotionPresence } from '../motion';
 
 export type HostRelease = {
+  notes?: string | null;
+  channel?: 'stable' | 'candidate';
   current: string | null;
   latest: string;
   platform: string;
   installation: 'release' | 'development';
   updateAvailable: boolean;
 };
-export function updatePrompt(release?: HostRelease): string {
-  return [
-    '请更新当前这台电脑上的 AgentDeck Host。',
-    release
-      ? `检查时运行版本：${release.current || '未知'}，官方稳定版本：${release.latest}。请重新核对实际版本，不要仅凭此消息认定更新完成。`
-      : '当前 Host 较旧，网页无法识别发布版本。请先检查实际安装位置和官方最新稳定版本。',
-    '仅使用官方 HTTPS 更新源 https://agent.ptsfdtz.top 。先定位当前运行服务对应的安装目录与数据目录，确认不是开发版或另一份安装；不能确定时停止并向我说明。',
-    '优先使用当前安装对应的 agentdeck update --check 和 agentdeck update。若旧版没有 update 命令，下载官方 install.ps1（Windows）或 install.sh（Linux）到临时文件，检查脚本后指定原安装目录运行；不要盲目向默认目录安装第二份 Host。校验 HTTPS 和 SHA-256，不关闭证书校验。',
-    '保留账户、电脑身份和证书、项目授权、自启动设置、会话与审批记录。不要修改 Codex 运行时、项目代码、应用身份或数据库，不卸载、不清除数据、不自动提权；权限不足时使用正常审批或向我说明。',
-    '只下载并安装更新，不执行 stop、restart、结束进程或重启电脑，因为这会中断本会话和其他任务。完成后报告下载版本、校验结果、安装位置，以及当前运行版本是否仍为旧版；提醒我在所有任务空闲后手动重启生效。失败或结果未知先核对，不自动重复安装，不宣称已生效。',
-  ].join('\n\n');
+type UpdateJob = {
+  id: string;
+  version: string;
+  previousVersion: string;
+  phase:
+    | 'installing'
+    | 'installed'
+    | 'waitingIdle'
+    | 'restarting'
+    | 'preparingRuntime'
+    | 'complete'
+    | 'failed';
+  installed: boolean;
+  error: string | null;
+};
+type UpdateStatus = {
+  job: UpdateJob | null;
+  host?: {
+    version: string | null;
+    cloudOnline: boolean;
+    codexReady: boolean;
+    runtimeError: unknown;
+  };
+};
+const phases: Record<UpdateJob['phase'], string> = {
+  installing: '正在下载、校验并安装，当前任务继续运行',
+  installed: '已安装，等待你确认空闲重启',
+  waitingIdle: '等待全部任务、审批及未知结果核对完成；空闲后重启',
+  restarting: '正在重启，连接将短暂中断',
+  preparingRuntime: '正在连接并准备 Codex 运行环境',
+  complete: '更新完成',
+  failed: '更新未完成',
+};
+function validVersion(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(value) &&
+    !value.includes('..')
+  );
 }
-
 export function HostUpdates({
   request,
   supported,
+  managed,
   disabled,
   name,
-  projects,
-  selectedProject,
-  onUpdate,
 }: {
   request: Request;
   supported: boolean;
+  managed: boolean;
   disabled: boolean;
   name: string;
-  projects: Project[];
-  selectedProject?: string;
-  onUpdate: (text: string, projectId: string) => Promise<void>;
 }) {
   const [release, setRelease] = useState<HostRelease>();
+  const [status, setStatus] = useState<UpdateStatus>();
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
+  const [working, setWorking] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState(false);
-  const [project, setProject] = useState(selectedProject || projects[0]?.projectId || '');
-  const alive = useRef(true);
+  const [legacyPlatform, setLegacyPlatform] = useState('windows');
+  const mounted = useRef(false);
+  const job = status?.job;
+  const active =
+    !!job && ['installing', 'waitingIdle', 'restarting', 'preparingRuntime'].includes(job.phase);
   useEffect(() => {
-    alive.current = true;
+    mounted.current = true;
     let cancelled = false;
     let inFlight = false;
+    let lastReleaseCheck = 0;
+    let lastRunningVersion: string | null | undefined;
     async function check() {
-      if (!supported || inFlight || document.visibilityState === 'hidden') return;
+      if (inFlight || document.visibilityState === 'hidden') return;
       inFlight = true;
       setChecking(true);
       try {
-        const value = await request<HostRelease>('system.updateCheck');
-        if (
-          !value ||
-          !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(value.latest) ||
-          value.latest.includes('..') ||
-          (value.current !== null &&
-            (typeof value.current !== 'string' ||
-              !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(value.current) ||
-              value.current.includes('..'))) ||
-          !['release', 'development'].includes(value.installation) ||
-          typeof value.updateAvailable !== 'boolean'
-        )
-          throw new Error('Invalid release');
-        if (!cancelled) {
-          setRelease(value);
-          setError('');
+        if (managed) {
+          const value = await request<UpdateStatus>('system.updateStatus');
+          if (
+            value.job &&
+            (!validVersion(value.job.version) ||
+              !phases[value.job.phase] ||
+              typeof value.job.id !== 'string')
+          )
+            throw new Error('Invalid update status');
+          if (!cancelled) setStatus(value);
+          if (value.host?.version !== lastRunningVersion) {
+            lastReleaseCheck = 0;
+            lastRunningVersion = value.host?.version;
+          }
         }
+        if (supported && Date.now() - lastReleaseCheck > 30 * 60 * 1000) {
+          const value = await request<HostRelease>('system.updateCheck');
+          if (
+            !value ||
+            !validVersion(value.latest) ||
+            (value.current !== null && !validVersion(value.current)) ||
+            !['release', 'development'].includes(value.installation) ||
+            typeof value.updateAvailable !== 'boolean'
+          )
+            throw new Error('Invalid release');
+          lastReleaseCheck = Date.now();
+          if (!cancelled) setRelease(value);
+        }
+        if (!cancelled) setError('');
       } catch {
-        if (!cancelled) {
-          setRelease(undefined);
-          setError('设备更新检查失败，请稍后重试');
-        }
+        if (!cancelled) setError('更新状态暂时无法读取，请重连后核对；不要重复安装');
       } finally {
         inFlight = false;
         if (!cancelled) setChecking(false);
       }
     }
     void check();
-    const timer = setInterval(() => void check(), 30 * 60 * 1000);
+    const timer = setInterval(() => void check(), managed ? 3000 : 30 * 60 * 1000);
     const visible = () => void check();
     document.addEventListener('visibilitychange', visible);
     return () => {
       cancelled = true;
-      alive.current = false;
+      mounted.current = false;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', visible);
     };
-  }, [request, supported, attempt]);
-  const outdated =
-    release?.installation === 'release' && !!release.current && release.current !== release.latest;
+  }, [request, supported, managed, attempt]);
+  async function act(action: string, payload: Record<string, string>) {
+    if (working) return;
+    setWorking(true);
+    setError('');
+    try {
+      const value = await request<UpdateStatus>(action, payload);
+      if (mounted.current) setStatus(value);
+    } catch (cause) {
+      if (mounted.current) setError(`操作未确认，请先刷新状态核对。${String(cause)}`);
+    } finally {
+      if (mounted.current) setWorking(false);
+    }
+  }
+  const outdated = release?.updateAvailable === true;
   const unknown = !supported || (release?.installation === 'release' && !release.current);
-  if (!outdated && !unknown && !error) return null;
+  const confirmedComplete =
+    job?.phase === 'complete' &&
+    status?.host?.version === job.version &&
+    status.host.cloudOnline &&
+    status.host.codexReady &&
+    !status.host.runtimeError;
+  if (!outdated && !unknown && !error && !job) return null;
+  const legacyCommand =
+    (release?.platform || legacyPlatform) === 'linux'
+      ? 'curl -fsSL https://agent.ptsfdtz.top/install.sh | sh'
+      : 'irm https://agent.ptsfdtz.top/install.ps1 | iex';
   return (
-    <aside className="host-update-notice" aria-label="设备更新">
+    <aside className="host-update-notice" aria-label="电脑更新">
       <span role="status">
+        {`${name}：`}
         {error ||
-          (outdated
-            ? `${name} 需要更新：${release.current} → ${release.latest}`
-            : `${name} 的版本待确认，旧版 Host 不支持自动检查`)}
+          (job
+            ? confirmedComplete
+              ? '更新完成'
+              : job.phase === 'complete'
+                ? '已更新，当前连接或 Codex 尚未就绪'
+                : phases[job.phase]
+            : outdated
+              ? `发现新版 ${release.latest}`
+              : '旧版 Host 需要在电脑上升级一次')}
       </span>
-      {error ? (
-        <button disabled={checking} onClick={() => setAttempt((value) => value + 1)}>
-          重新检查
-        </button>
-      ) : (
-        <button
-          disabled={disabled || !projects.length}
-          onClick={() => {
-            setProject(
-              projects.some((p) => p.projectId === selectedProject)
-                ? selectedProject!
-                : projects[0]?.projectId || '',
-            );
-            setOpen(true);
-          }}
-        >
-          {outdated ? '让本地 AI 更新' : '让本地 AI 检查并更新'}
-        </button>
-      )}
-      {!projects.length && <small>先在电脑端授权项目，或连接支持普通聊天的 Host。</small>}
+      <button onClick={() => setOpen(true)}>查看更新</button>
       <MotionPresence>
         {open && (
           <Modal title={`更新 ${name}`} onClose={() => setOpen(false)}>
             <div className="panel-stack">
-              <p>
-                将在这台电脑新建更新会话并发送以下提示词。沿用工作区权限和正常审批，不自动重启。
-              </p>
-              <label>
-                更新会话所在工作区
-                <select
-                  aria-label="更新工作区"
-                  value={project}
-                  onChange={(event) => setProject(event.target.value)}
-                >
-                  {projects.map((item) => (
-                    <option key={item.projectId} value={item.projectId}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <pre className="host-update-prompt">{updatePrompt(release)}</pre>
+              <p>这是当前选中的被控制电脑。更新保留账户、电脑身份、项目与会话。</p>
+              {release && (
+                <p>
+                  运行版本：{status?.host?.version || release.current || '未知'}
+                  <br />
+                  {release.channel === 'candidate' ? '候选测试版本' : '稳定版本'}：{release.latest}
+                </p>
+              )}
+              {job && (
+                <p role="status">
+                  目标版本：{job.version}
+                  <br />
+                  {confirmedComplete
+                    ? '更新完成，云端连接与 Codex 已就绪'
+                    : job.phase === 'complete'
+                      ? '已更新，当前连接或 Codex 尚未就绪'
+                      : phases[job.phase]}
+                </p>
+              )}
+              {release?.notes && <pre className="host-update-prompt">{release.notes}</pre>}
+              {job?.error && <p role="alert">{job.error}</p>}
+              {error && <p role="alert">{error}</p>}
+              {managed ? (
+                <>
+                  {outdated && !active && !(job?.installed && job.version === release.latest) && (
+                    <button
+                      disabled={working || disabled}
+                      onClick={() => void act('system.updateInstall', { version: release.latest })}
+                    >
+                      下载并安装更新
+                    </button>
+                  )}
+                  {job?.installed && ['installed', 'failed'].includes(job.phase) && (
+                    <>
+                      <p>
+                        确认后，Host
+                        会等待所有任务结束并核对审批与未知结果，再重启切换版本。请先保存其他客户端的工作。
+                      </p>
+                      <button
+                        disabled={working || disabled}
+                        onClick={() => void act('system.updateApply', { jobId: job.id })}
+                      >
+                        空闲后重启并完成更新
+                      </button>
+                    </>
+                  )}
+                  {job?.phase === 'waitingIdle' && (
+                    <button
+                      disabled={working || disabled}
+                      onClick={() => void act('system.updateCancel', { jobId: job.id })}
+                    >
+                      取消待重启
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p>
+                    此 Host 尚不支持网页直接更新。请在这台电脑的终端执行安装命令，任务空闲后再执行
+                    agentdeck restart。以后可直接在网页更新，无需 AI 会话。
+                  </p>
+                  {!release && (
+                    <label>
+                      被控制电脑的系统
+                      <select
+                        value={legacyPlatform}
+                        onChange={(event) => setLegacyPlatform(event.target.value)}
+                      >
+                        <option value="windows">Windows</option>
+                        <option value="linux">Linux</option>
+                      </select>
+                    </label>
+                  )}
+                  <pre className="host-update-prompt">
+                    {legacyCommand}
+                    {'\n'}agentdeck restart{'\n'}agentdeck status --json
+                  </pre>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(
+                          `${legacyCommand}\nagentdeck restart\nagentdeck status --json`,
+                        );
+                      } catch {
+                        setError('复制失败，请手动选择命令复制');
+                      }
+                    }}
+                  >
+                    复制命令
+                  </button>
+                </>
+              )}
               <button
-                disabled={disabled || !projects.some((p) => p.projectId === project)}
-                onClick={async () => {
-                  await onUpdate(updatePrompt(release), project);
-                  if (alive.current) setOpen(false);
-                }}
+                disabled={checking || working}
+                onClick={() => setAttempt((value) => value + 1)}
               >
-                发送更新提示词
+                刷新状态
               </button>
             </div>
           </Modal>

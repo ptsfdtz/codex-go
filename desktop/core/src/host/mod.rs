@@ -3,7 +3,9 @@ pub mod autostart;
 pub mod codex_client;
 pub mod desktop_client;
 mod process;
+pub mod runtime_compatibility;
 pub mod shared_runtime;
+pub mod update_job;
 pub mod updates;
 #[cfg(windows)]
 mod windows;
@@ -61,6 +63,13 @@ pub struct Config {
 impl Config {
     /// Match service configuration precedence for local terminal/diagnostic use.
     pub fn codex_executable(&self) -> Result<PathBuf> {
+        let requested = self.requested_codex_executable()?;
+        if let Some(compatible) = runtime_compatibility::remembered(&requested)? {
+            return Ok(compatible);
+        }
+        Ok(requested)
+    }
+    fn requested_codex_executable(&self) -> Result<PathBuf> {
         if std::env::var_os("AGENTDECK_CODEX_EXE").is_none() {
             if let Some(executable) = &self.codex_exe {
                 return crate::paths::canonical(executable);
@@ -69,7 +78,16 @@ impl Config {
                 return Ok(executable);
             }
         }
-        crate::codex::find()
+        let found = crate::codex::find();
+        if found
+            .as_ref()
+            .is_err_and(|e| e.code == "CODEX_CLI_NOT_FOUND")
+        {
+            if let Ok(compatible) = runtime_compatibility::available() {
+                return Ok(compatible);
+            }
+        }
+        found
     }
     /// The CLI client and service resolve the same explicit attachment. An absent
     /// attachment must never silently launch an independent conversation runtime.
