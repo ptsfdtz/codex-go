@@ -404,6 +404,38 @@ fn override_mismatch(actual: Option<&Value>, expected: &Value) -> Option<&'stati
         _ => Some("VALUE"),
     }
 }
+
+// config/read reports configured flags, not every effective native default.
+// Only the official feature catalog can establish an omitted boolean's state.
+// Preserve explicit config entries and all non-feature configuration checks.
+fn merge_effective_features(config: &mut Value, page: &Value) -> Result<()> {
+    let root = config["config"]
+        .as_object_mut()
+        .ok_or_else(|| failure("PROXY_CONFIG_UNAVAILABLE"))?;
+    let features = root.entry("features").or_insert_with(|| json!({}));
+    let features = features
+        .as_object_mut()
+        .ok_or_else(|| failure("PROXY_CONFIG_UNAVAILABLE"))?;
+    let rows = page["data"]
+        .as_array()
+        .ok_or_else(|| failure("PROXY_CONFIG_UNAVAILABLE"))?;
+    for row in rows {
+        let name = row["name"]
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| failure("PROXY_CONFIG_UNAVAILABLE"))?;
+        let enabled = row["enabled"]
+            .as_bool()
+            .ok_or_else(|| failure("PROXY_CONFIG_UNAVAILABLE"))?;
+        features.entry(name).or_insert_with(|| json!(enabled));
+    }
+    Ok(())
+}
+
+fn missing_startup_features(error: &Error) -> bool {
+    error.code == "PROXY_CONFIG_MISMATCH" && error.message == "PROXY_STARTUP_FEATURES_MISSING"
+}
+
 const STARTUP_DIAGNOSTICS: &[&str] = &[
     "PROXY_STARTUP_MCP_MISSING",
     "PROXY_STARTUP_MCP_TYPE",
@@ -491,6 +523,9 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         let mut buffered = Vec::new();
         let mut total = 0;
         let check_id = crate::uid("desktop-config-check");
+        let feature_id = crate::uid("desktop-feature-check");
+        let mut feature_config = None;
+        let mut feature_cursors = std::collections::HashSet::new();
         let mut initialized = false;
         loop {
             let message = socket
@@ -535,8 +570,42 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
             } else if initialized && value.get("method").is_none() && value["id"] == check_id {
                 crate::rpc::validate_for(protocol, "v2/ConfigReadResponse", &value["result"])
                     .map_err(|_| failure("PROXY_CONFIG_UNAVAILABLE"))?;
-                startup.check(&value["result"])?;
-                return Ok(buffered);
+                match startup.check(&value["result"]) {
+                    Ok(()) => return Ok(buffered),
+                    Err(error) if missing_startup_features(&error) => {
+                        feature_config = Some(value["result"].clone());
+                        socket.send(Message::Text(json!({"id":feature_id,"method":"experimentalFeature/list","params":{"limit":128}}).to_string().into())).await.map_err(|_|failure("PROXY_IO_ERROR"))?;
+                    }
+                    Err(error) => return Err(error),
+                }
+                continue;
+            } else if initialized && value.get("method").is_none() && value["id"] == feature_id {
+                crate::rpc::validate_for(
+                    protocol,
+                    "v2/ExperimentalFeatureListResponse",
+                    &value["result"],
+                )
+                .map_err(|_| failure("PROXY_CONFIG_UNAVAILABLE"))?;
+                let config = feature_config
+                    .as_mut()
+                    .ok_or_else(|| failure("PROXY_CONFIG_UNAVAILABLE"))?;
+                merge_effective_features(config, &value["result"])?;
+                match startup.check(config) {
+                    Ok(()) => return Ok(buffered),
+                    Err(error) if missing_startup_features(&error) => {
+                        let Some(cursor) = value["result"]["nextCursor"].as_str() else {
+                            return Err(error);
+                        };
+                        ensure(
+                            feature_cursors.len() < 32 && feature_cursors.insert(cursor.to_owned()),
+                            "PROXY_CONFIG_UNAVAILABLE",
+                            "Native feature pagination did not finish",
+                        )?;
+                        socket.send(Message::Text(json!({"id":feature_id,"method":"experimentalFeature/list","params":{"limit":128,"cursor":cursor}}).to_string().into())).await.map_err(|_|failure("PROXY_IO_ERROR"))?;
+                    }
+                    Err(error) => return Err(error),
+                }
+                continue;
             }
             total += text.len();
             ensure(
@@ -576,6 +645,97 @@ pub async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod effective_feature_tests {
+    use super::*;
+
+    fn startup(flag: &str) -> Startup {
+        Startup::parse(&["app-server".into(), "-c".into(), flag.into()]).unwrap()
+    }
+
+    #[test]
+    fn native_defaults_can_confirm_omitted_enabled_and_disabled_flags() {
+        let request = startup("features={shell_tool=true,code_mode=false}");
+        let mut config = json!({"config":{"features":{}}});
+        assert!(missing_startup_features(
+            &request.check(&config).unwrap_err()
+        ));
+        merge_effective_features(
+            &mut config,
+            &json!({"data":[{"name":"shell_tool","enabled":true},{"name":"code_mode","enabled":false}]}),
+        )
+        .unwrap();
+        request.check(&config).unwrap();
+    }
+
+    #[test]
+    fn a_native_default_with_the_wrong_value_still_rejects_startup() {
+        let request = startup("features.code_mode=true");
+        let mut config = json!({"config":{}});
+        merge_effective_features(
+            &mut config,
+            &json!({"data":[{"name":"code_mode","enabled":false}]}),
+        )
+        .unwrap();
+        assert_eq!(
+            request.check(&config).unwrap_err().message,
+            "PROXY_STARTUP_FEATURES_VALUE"
+        );
+    }
+
+    #[test]
+    fn unknown_flags_remain_unverified_after_all_native_pages() {
+        let request = startup("features.future_unknown_flag=true");
+        let mut config = json!({"config":{"features":{}}});
+        merge_effective_features(
+            &mut config,
+            &json!({"data":[{"name":"shell_tool","enabled":true}]}),
+        )
+        .unwrap();
+        assert!(missing_startup_features(
+            &request.check(&config).unwrap_err()
+        ));
+    }
+
+    #[test]
+    fn catalog_pages_preserve_explicit_config_and_other_startup_checks() {
+        let request = startup("features.shell_tool=true");
+        let mut config = json!({"config":{"features":{"shell_tool":false},"mcp_servers":{}}});
+        merge_effective_features(
+            &mut config,
+            &json!({"data":[{"name":"shell_tool","enabled":true}]}),
+        )
+        .unwrap();
+        assert_eq!(
+            request.check(&config).unwrap_err().message,
+            "PROXY_STARTUP_FEATURES_VALUE"
+        );
+        assert_eq!(
+            startup("mcp_servers.node_repl.enabled=true")
+                .check(&config)
+                .unwrap_err()
+                .message,
+            "PROXY_STARTUP_MCP_MISSING"
+        );
+    }
+
+    #[test]
+    fn later_native_pages_can_resolve_a_missing_flag() {
+        let request = startup("features.shell_tool=true");
+        let mut config = json!({"config":{"features":{}}});
+        merge_effective_features(&mut config, &json!({"data":[]})).unwrap();
+        assert!(missing_startup_features(
+            &request.check(&config).unwrap_err()
+        ));
+        merge_effective_features(
+            &mut config,
+            &json!({"data":[{"name":"shell_tool","enabled":true}]}),
+        )
+        .unwrap();
+        request.check(&config).unwrap();
     }
 }
 
