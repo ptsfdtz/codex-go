@@ -2,7 +2,7 @@
 
 [项目介绍](../README.md) · [开发入口](../AGENTS.md)
 
-以下面向当前安装版；未发布的自动运行时及三端共享候选见[运行时验收](runtime.md)。
+以下面向稳定版 0.4.2；官方运行时、共享入口及尚未完成的验收见[运行时验收](runtime.md)。
 
 ## 安装与使用
 
@@ -23,13 +23,13 @@ curl -fsSL https://agent.ptsfdtz.top/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 agentdeck login --username NAME
 agentdeck projects add /绝对路径/项目
-# 执行任务前还需配置本文的 Linux 本机运行时
+# 首次启动自动下载并校验官方运行时
 agentdeck start
 agentdeck autostart enable
 ```
 
 ```sh
-# macOS arm64（Apple Silicon）：需要包含 macOS 产物的发布
+# macOS arm64（Apple Silicon）：0.4.2 包已发布，完整实机验收待补
 curl -fsSL https://agent.ptsfdtz.top/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 agentdeck login --username NAME
@@ -38,21 +38,23 @@ agentdeck start
 agentdeck autostart enable
 ```
 
-Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，macOS 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。安装器和发布包覆盖 Windows x64、Linux x64/ARM64 和 macOS arm64；macOS 使用已安装的兼容 Codex CLI，用户登录后通过 launchd 自启，包未签名/公证，线上安装、升级和实际模型任务尚未验收。macOS Intel 暂不发布。Windows/Linux 三个平台包已发布；ARM64 尚未做实机运行验收。
+Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，macOS 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。安装器和发布包覆盖 Windows x64、Linux x64/ARM64 和 macOS arm64；各平台首次启动自动下载固定官方 Codex 包并校验来源和文件哈希；macOS 用户登录后通过 launchd 自启，包未签名/公证。macOS Intel 暂不发布。四个平台包均已发布；macOS 线上安装、升级和真实模型，以及 ARM64 完整实机链路尚未验收，本次发布按用户授权豁免。
 
 密码在终端隐藏输入，不支持明文 `--password` 参数。临时密码会在登录过程中引导修改并重新登录。登录、项目管理等命令会按需启动本机管理服务；Codex 缺失或配置错误时仍能登录、查看状态和诊断。
 
-Windows 可用下列脚本检查已有 Codex；存在达到最低版本的原生程序时直接复用，不下载副本，缺失时才安装经过校验的基线包（保留官方辅助程序布局）：
+首次启动会自动准备官方运行时；需要 Codex 认证时执行下列命令（已有有效认证可跳过登录）。不需要手工安装 Codex 或填写共享地址和令牌：
 
-```powershell
-irm https://agent.ptsfdtz.top/install-codex.ps1 | iex
-agentdeck doctor # 查看 Codex 路径；需要认证时，用显示的程序路径执行 login
-agentdeck restart
+```sh
+agentdeck codex-login                 # 无浏览器环境可加 --device-auth
+agentdeck status --json
+agentdeck codex                       # 共享 CLI；也可追加 THREAD_ID 续聊
 ```
+
+Windows 原版 Codex 桌面需预先安装，使用开始菜单“Codex shared”或 `agentdeck desktop` 打开共享实例；已有桌面先在任务空闲后退出再重开。普通原版图标独立启动不会自动切换到共享运行时。安装器创建快捷方式，直接解压或从源码构建的用户可用 `agentdeck desktop`。
 
 ## 后台运行与持久化
 
-共享运行时需先配置认证 WebSocket 地址及私有令牌文件，再执行 `agentdeck runtime-start`（后台）或 `runtime-serve`（前台）；`agentdeck codex [THREAD_ID]`、Windows `agentdeck desktop 原版程序绝对路径 [THREAD_ID]` 复用该服务。桌面已运行时拒绝切换；指定会话需确认目录可访问、索引就绪和恢复成功。令牌不进入命令行；Host 停止不终止独立共享服务。清除固定 Codex 路径可在 Host 停止后执行 `agentdeck configure --codex-exe auto`。
+0.4.2 自动生成回环地址和私有令牌，独立共享所有者由 Host、CLI 与桌面代理复用。可显式执行 `agentdeck runtime-start`（后台）或 `runtime-serve`（前台）；`agentdeck codex [THREAD_ID]`、Windows `agentdeck desktop [原版程序绝对路径] [THREAD_ID]` 复用该服务。桌面已运行时拒绝切换；指定会话需确认目录可访问、索引就绪和恢复成功。令牌不进入命令行；Host 停止不终止独立共享服务。清除固定 Codex 路径可在 Host 停止后执行 `agentdeck configure --codex-exe auto`。
 
 `agentdeck start` 在后台启动监督进程和 Rust 服务，关闭终端后继续运行；重复启动复用现有实例。服务异常退出时退避重启，连续失败达到限制后停止并留下诊断。网络暂时不可用时服务继续运行并重连。恢复未知发送结果时先核对，不自动重发。
 
@@ -95,13 +97,15 @@ agentdeck status --json
 
 “安装成功”只表示文件已安装；`restart` 返回也不表示 Codex 已就绪。首次启动可能正在下载和校验兼容运行时；待 `cloud.online`、`codexReady` 均为 `true` 且 `runtimeError` 为 `null`，再从 Web/PWA 打开会话核对历史和实际使用。持续未就绪时查看 `agentdeck logs`、`agentdeck doctor`；无需因初始化等待重新登录或添加项目。更新保留身份、账户、项目和会话状态。
 
-网页直接更新（已实现，未发布）：发现新版后点“查看更新”，阅读版本与更新说明，再点“下载并安装更新”；安装不打断任务，完成后可选择“空闲后重启并完成更新”，等待期间可取消待重启。专用接口沿用电脑授权及操作回执，不依赖 Codex 或 AI 会话，不接收任意命令或下载 URL。Host 持久化更新状态，刷新、断线或更新进程异常后可重新核对；切换前阻止新操作进入并核对全部任务、审批及未知任务结果，重连后确认实际运行版本、云端连接和 Codex 就绪才标为完成。Linux systemd Host 使用独立用户更新服务下载安装和切换，保留原 Host 的隔离配置。旧 Host 显示一次性安装命令，必须在被控制电脑执行；开发版不自动替换。网页/PWA 自身更新仍在“设置→常规”重新加载。
+网页直接更新（0.4.2 已发布，完整升级链路验收待补）：发现新版后点“查看更新”，阅读版本与更新说明，再点“下载并安装更新”；安装不打断任务，完成后可选择“空闲后重启并完成更新”，等待期间可取消待重启。专用接口沿用电脑授权及操作回执，不依赖 Codex 或 AI 会话，不接收任意命令或下载 URL。Host 持久化更新状态，刷新、断线或更新进程异常后可重新核对；切换前阻止新操作进入并核对全部任务、审批及未知任务结果，重连后确认实际运行版本、云端连接和 Codex 就绪才标为完成。Linux systemd Host 使用独立用户更新服务下载安装和切换，保留原 Host 的隔离配置。旧 Host 显示一次性安装命令，必须在被控制电脑执行；开发版不自动替换。网页/PWA 自身更新仍在“设置→常规”重新加载。
 
 旧桌面实例仍运行时，先在任务空闲后从旧托盘“停止并退出”，再启动 Host。不会强杀原实例或生成另一套身份。已有 MSIX 私有数据需要沿用该实际目录，可显式设置 `AGENTDECK_DATA_DIR`；不再通过 `.tmp/desktop-dev-data-dir.txt` 隐式切换，不能仅凭云端账户恢复电脑证书。
 
 ## Linux 运行时
 
-当前 Linux 执行仍使用**带认证的本机回环 app-server**，安装 Host 不会自动完成运行时和隔离配置。准备私有令牌文件和匹配版本的原生 Codex，再保存附着配置：
+0.4.2 默认自动下载、校验并启动官方共享运行时，保留 Linux systemd Host 的隔离限制；正常安装无需手工配置 WebSocket。就绪以 `codexReady`、`sandboxVerified`、`sharedRuntime` 为 true、`runtimeError` 为 null 为准。Linux 原生桌面共享尚未支持，CLI 使用 `agentdeck codex`。
+
+下面仅用于已有手动管理的外部运行时迁移或诊断。外部程序同样需要匹配官方包来源与哈希，版本号一致不足以通过；配置前核对任务状态。准备私有令牌文件和固定官方 Codex，再保存附着配置：
 
 ```sh
 agentdeck stop
