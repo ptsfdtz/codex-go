@@ -22,6 +22,8 @@
 
 桌面传入的 `--analytics-default-enabled` 是新进程的默认值提示；连接已有共享运行时时沿用所有者的默认值及显式 analytics 偏好。官方 `analytics.enabled` 为可选布尔值，省略或 null 不应阻止接入；代理不为接入开启统计或写入配置。显式 `-c analytics.enabled=...` 仍需与共享配置一致，错误类型仍拒绝。
 
+Windows 用户已验证 `692bba2` 源码编译版的原版桌面↔AgentDeck Web 交替续聊：桌面创建测试文件、Web 追加内容、桌面再次追加，两边显示相同历史和结果。该结论仅覆盖共享入口的功能链路；0.4.2 安装包升级、CLI 第三端、重连/重启、权限和其他平台仍按同批候选分别验收。
+
 ### Windows / macOS 自行验收方法
 
 使用本批候选 ZIP/tar.gz，先核对同批 SHA-256，解包到独立目录。**当前线上稳定安装命令不会获得本批未发布改动。** 以下以候选目录中的程序运行；Windows 使用 `./agentdeck.exe`，macOS 使用 `./agentdeck`（首次先 `chmod +x agentdeck agentdeck-service agentdeck-codex-proxy`）。原版 Codex 桌面须预先安装。可用临时的 `AGENTDECK_DATA_DIR` 隔离验收身份，避免碰日常 Host；首次运行不要启用自启或覆盖现有服务。Linux 自定义运行时不要放在 `/tmp`，严格临时目录拒绝策略会阻止它自执行；使用默认用户数据目录。

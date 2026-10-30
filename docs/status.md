@@ -2,7 +2,7 @@
 
 [开发入口](../AGENTS.md) · [发布流程](deployment.md) · [运行时验收](runtime.md)
 
-截至 2026-10-29。此处维护当前结论；早期部署和逐轮测试流水查阅 Git 历史。源码已实现、Web 已部署、Host 已安装与真实端到端验收分别记录，不能相互替代。
+截至 2026-10-30。此处维护当前结论；早期部署和逐轮测试流水查阅 Git 历史。源码已实现、Web 已部署、Host 已安装与真实端到端验收分别记录，不能相互替代。
 
 ## 当前交付
 
@@ -55,13 +55,11 @@
 
 官方包来源校验、共享所有者、独立认证连接和 Linux x64 本地云端加密转发下 CLI↔Web 同 UUID 续聊、真实文件读写及外部拒绝通过。完整细节和 Windows/macOS 自行验收步骤见[运行时专项验收](runtime.md)，不能据此晋升候选。
 
-日常原版桌面的最终共享切换尚未完成。此前日常桌面仍连原运行时，记录的诊断构建为 `0.164.0-dev.agentdeck.6905ece`；它不能作为当前官方包候选的来源证明，也不代表只保留一个原生进程的目标已完成。
+Windows 用户已在 `release` 源码 `692bba2` 编译并重启 Host 后，确认原版桌面通过共享入口启动，AgentDeck Web 能显示其新建对话；截图显示同一标题下依次完成桌面写入 `DESKTOP-1`、Web 续聊追加 `WEB-2`、桌面续聊追加 `DESKTOP-3`，两边均显示交替消息和结果。用户于 2026-10-30 确认该功能成功，并授权发布 `0.4.2`。这记录 Windows 桌面↔Web 的实测通过；尚未取得本批安装包升级、CLI 第三端、重启恢复及完整权限验收记录。
 
-Windows 现场：Host `0.4.1`、官方运行时 `0.166.0-alpha.1` 的 `codexReady`、`sharedRuntime`、`sandboxVerified` 为 true，但原图标启动的桌面会话在 Web 续聊时返回 `THREAD_IN_USE`；这些字段不能证明桌面已接入。改用共享入口后依次遇到功能标志和插件配置比较失败；用户编译 `dc4ed44` 后，错误转为 `PROXY_ANALYTICS_UNVERIFIED`，桌面仍未成功接入。源码已通过官方 `experimentalFeature/list` 核对省略的功能标志，识别固定版本中插件单 MCP 策略 `enabled=true` 的省略默认值，并提供脱敏启动报告和仅确认请求启动的提示；显式禁用、未知开关、插件整体启用及其他 MCP/审批配置差异仍拒绝。
+当前源码修复桌面接入的默认功能标志、单插件 MCP 策略默认值及 analytics 默认提示比较；显式禁用、未知开关、错误类型及其他 MCP/审批配置差异仍拒绝。Host 索引保留 `appServer`，仍执行非临时会话、授权项目和规范化工作目录校验，提供脱敏启动诊断。18 项启动检查单元测试、1 项索引测试、严格 Clippy、CLI/代理构建及 Linux x64 官方运行时隔离验证已通过；证据位于 `artifacts/plugin-startup-diagnosis/`。这些定向验证不能代替 0.4.2 同批安装包的全平台验收。
 
-本批源码修复 analytics 默认提示的误判：官方 `AnalyticsConfigToml.enabled` 为 `Option<bool>`，允许省略及 null；桌面的 `--analytics-default-enabled` 沿用已运行所有者的默认值和显式偏好，不改变统计设置。显式 `-c analytics.enabled` 仍严格比较，错误类型仍拒绝。此前真实代理测试显式设置了 `analytics.enabled=false`，未覆盖本次未配置场景，不构成本批验收。18 项相关单元测试、严格 Clippy、CLI/代理构建和 Linux x64 官方运行时的 12 项隔离代理检查通过，覆盖未配置、显式 false/true、桌面组合参数、显式覆盖冲突及配置保持不变；未调用模型，证据为 `artifacts/plugin-startup-diagnosis/native-analytics-{absent,false,true}.json`。改动仅处于源码与本地验证阶段；Windows 桌面启动和共享续聊仍未验收，未部署或更新稳定下载。
-
-Windows 实测在 `1c3f97f` 后桌面已能启动且不报错，但桌面新建的 `appServer` 对话未出现在 AgentDeck 侧栏。原因是 Host 索引同步请求了 `appServer`，入库过滤却只保留 `cli`/`vscode`。源码已补齐 `appServer`，仍保留非临时会话、授权项目和规范化工作目录校验；1 项定向索引测试、严格 Clippy 和 CLI/代理构建通过。待 Windows 拉取本批提交后确认新桌面对话可见及 Web 续聊。
+0.4.2 发布准备：用户已授权正式发布，当前准备绑定源码及文件哈希的全平台候选产物，尚未更新生产 Web/云端或稳定下载指针。按现行发布门槛，仍需同批 Windows x64、Linux x64/ARM64、macOS arm64 的完整验收；Windows 共享续聊通过不代表其余项目通过。本机 Linux 当前 Host `0.4.1` 与官方共享运行时 `0.166.0-alpha.1` 已就绪、云端在线，但未替换为 0.4.2 候选，不作为本批验收。Linux 原生桌面共享仍未支持或验收。
 
 Linux 本机曾使用 `local-root-policy-repair-20261027` 修复运行权限，真实终端的普通→完整访问→普通隔离恢复及重启身份保持通过；这是本机修复，未晋升公开下载。macOS 本地 Host、launchd、seatbelt 和本地 HTTPS 安装通过，线上安装/升级及真实模型仍未完成。历史 Linux/ARM64 隔离基线不代替本批候选实测。
 
