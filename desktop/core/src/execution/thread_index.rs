@@ -26,6 +26,15 @@ fn timestamp(value: &Value) -> Result<String> {
         .map(|v| v.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
         .ok_or_else(|| Error::new("UPSTREAM_PROTOCOL_ERROR", "Invalid thread timestamp"))
 }
+
+fn indexable_thread(thread: &Value) -> bool {
+    thread["ephemeral"] != true
+        && matches!(
+            thread["source"].as_str(),
+            Some("cli" | "vscode" | "appServer")
+        )
+}
+
 impl Core {
     pub(crate) fn note_thread_index_change(&self, thread: &str) -> Result<()> {
         let mut pending = self.thread_index_pending.lock().unwrap();
@@ -326,9 +335,12 @@ impl Core {
                     else {
                         continue;
                     };
-                    if thread["ephemeral"] == true
-                        || !matches!(thread["source"].as_str(), Some("cli" | "vscode"))
-                    {
+                    // The original desktop attaches through the shared
+                    // app-server and therefore creates `appServer` threads.
+                    // Keep those in the Host index alongside CLI/VS Code
+                    // sessions; project authorization and canonical cwd checks
+                    // above still apply before this filter.
+                    if !indexable_thread(thread) {
                         continue;
                     }
                     let title = thread["name"]
@@ -430,5 +442,28 @@ impl Core {
             .unwrap()
             .retain(|id, revision| pending.get(id) != Some(revision));
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::indexable_thread;
+    use serde_json::json;
+
+    #[test]
+    fn shared_desktop_app_server_threads_are_indexable() {
+        for source in ["cli", "vscode", "appServer"] {
+            assert!(indexable_thread(
+                &json!({"source":source,"ephemeral":false})
+            ));
+        }
+        for source in ["exec", "unknown"] {
+            assert!(!indexable_thread(
+                &json!({"source":source,"ephemeral":false})
+            ));
+        }
+        assert!(!indexable_thread(
+            &json!({"source":"appServer","ephemeral":true})
+        ));
     }
 }

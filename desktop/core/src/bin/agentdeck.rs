@@ -319,7 +319,13 @@ async fn run() -> AnyResult<()> {
                 None => host::desktop_client::discover()?,
             };
             host::desktop_client::launch(&executable, args.get(1).map(String::as_str)).await?;
-            println!("Original Codex desktop launched against the official shared runtime.");
+            println!("Requested original Codex desktop startup against the official shared runtime; confirm the desktop opens successfully.");
+            println!(
+                "If startup reports PROXY_CONFIG_MISMATCH, redacted diagnostics are saved to {}",
+                host::data_dir()?
+                    .join("desktop-startup-diagnostic.json")
+                    .display()
+            );
             Ok(())
         }
         "codex-login" => {
