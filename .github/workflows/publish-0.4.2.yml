@@ -14,10 +14,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify:
-    runs-on: ubuntu-latest
-    outputs:
-      commit: ${{ steps.verify.outputs.commit }}
+  publish:
+    runs-on: [self-hosted, agentdeck-release-042]
+    environment: production
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,26 +61,6 @@ jobs:
           fi
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           cp -R evidence candidate/evidence
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tested-candidate
-          path: candidate
-          if-no-files-found: error
-
-  deploy:
-    needs: verify
-    runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: write
-      pages: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: tested-candidate
-          path: candidate
       - name: Deploy exact authorized artifacts to VPS
         id: vps
         env:
@@ -118,7 +101,7 @@ jobs:
         id: official
         env:
           VERSION: 0.4.2
-          SOURCE_SHA: ${{ needs.verify.outputs.commit }}
+          SOURCE_SHA: ${{ steps.verify.outputs.commit }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -150,7 +133,7 @@ jobs:
         if: always()
         env:
           VERSION: 0.4.2
-          SOURCE_SHA: ${{ needs.verify.outputs.commit }}
+          SOURCE_SHA: ${{ steps.verify.outputs.commit }}
           VPS_RESULT: ${{ steps.vps.outcome }}
           PAGES_RESULT: ${{ steps.pages.outcome }}
           STABLE_RESULT: ${{ steps.stable.outcome }}
