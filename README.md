@@ -25,7 +25,7 @@ agentdeck projects add /绝对路径/项目
 agentdeck start
 ```
 
-执行任务还需要兼容的 Codex 运行时及其认证；AgentDeck 登录与 Codex/OpenAI 认证相互独立。当前稳定版 Linux 的运行时需单独配置，详见[安装与运行时配置](docs/usage.md)。自动下载官方运行时和三端共享的新候选尚未正式发布，稳定安装命令不会获得这些改动。macOS arm64 的线上安装、升级和真实模型任务，以及 ARM64 实机运行仍有待验收；macOS Intel 暂不发布。
+当前稳定版为 [0.4.2](https://github.com/ptsfdtz/codex-go/releases/tag/v0.4.2)。首次启动自动下载并校验固定的官方 Codex 运行时；需要认证时执行 `agentdeck codex-login`，AgentDeck 登录与 Codex/OpenAI 认证相互独立。Windows 可通过安装器创建的“Codex shared”入口或 `agentdeck desktop` 打开共享桌面，CLI 使用 `agentdeck codex`。Windows 桌面↔Web 续聊已有用户实测；本次其余完整验收经用户授权豁免，未测范围见[功能状态与验证](docs/status.md)。macOS Intel 暂不发布。
 
 安装包不依赖 Node、pnpm、Rust 或 WebView2。安装后在网页选择电脑和项目，打开或新建对话。电脑需保持在线；手机使用浏览器或将站点添加到主屏幕。
 
@@ -48,7 +48,7 @@ Web 更新与 Host 更新分别进行。重启 Host 前先核对任务、审批�
 - 断线重连和结果核对；发送结果未知时不自动重发。
 - AgentChat 支持浏览器直连兼容 API，聊天历史保存在本浏览器，API Key 在云端加密保存；不持有 OpenAI 账户认证凭据。
 
-具体部署版本、Host 能力缺口与未验收项见[功能状态与验证](docs/status.md)。共享会话候选与普通独立启动的 Codex 行为不同，参见[运行时与三端共享](docs/runtime.md)。
+具体部署版本、Host 能力缺口与未验收项见[功能状态与验证](docs/status.md)。共享入口与普通独立启动的 Codex 行为不同，参见[运行时与三端共享](docs/runtime.md)。
 
 ## 文档导航
 

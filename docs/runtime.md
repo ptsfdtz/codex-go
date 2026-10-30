@@ -2,15 +2,15 @@
 
 [开发入口](../AGENTS.md) · [发布流程](deployment.md) · [功能状态](status.md)
 
-## 官方运行时三端共享候选（未发布）
+## 官方运行时与共享入口（0.4.2 已发布）
 
-本批候选强制只执行官方预编译 Codex：当前固定官方 `0.166.0-alpha.1`（官方 alpha 包，并非稳定版），覆盖 Windows x64、Linux x64/ARM64、macOS arm64。启动前核对官方包 SHA-512 和全部文件 SHA-256，执行 `--version` 前也核对入口哈希；版本号相同的自编译程序也不能通过。未知程序不执行，缺失时自动下载官方包，损坏的托管包拒绝启动；旧源码编译脚本已禁用。更新基线须更新官方包清单并重新验收，不编译 Codex。
+0.4.2 强制只执行官方预编译 Codex：当前固定官方 `0.166.0-alpha.1`（官方 alpha 包，并非稳定版），覆盖 Windows x64、Linux x64/ARM64、macOS arm64。启动前核对官方包 SHA-512 和全部文件 SHA-256，执行 `--version` 前也核对入口哈希；版本号相同的自编译程序也不能通过。未知程序不执行，缺失时自动下载官方包，损坏的托管包拒绝启动；旧源码编译脚本已禁用。更新基线须更新官方包清单并重新验收，不编译 Codex。
 
-首次启动自动生成回环地址和私有令牌，启动独立共享所有者；Host、`agentdeck codex` 和原版桌面代理复用该服务。Windows 安装器增加“Codex shared”开始菜单入口，`agentdeck desktop` 自动发现原版应用；macOS 桌面代理为待实机验证的候选。Linux 提供独立 runtime/Host systemd 用户服务，Host 保留现有隔离设置；不把 Linux 原版桌面列为已支持。原版桌面已经运行时要求空闲退出后重开，不强杀或迁移进行中的任务。已有手动管理的外部运行时保留配置，但不能仅靠版本号通过官方来源证明，迁移验收需单独处理。
+首次启动自动生成回环地址和私有令牌，启动独立共享所有者；Host、`agentdeck codex` 和原版桌面代理复用该服务。Windows 安装器增加“Codex shared”开始菜单入口，`agentdeck desktop` 自动发现原版应用；macOS 桌面代理仍待实机验证。Linux 提供独立 runtime/Host systemd 用户服务，Host 保留现有隔离设置；不把 Linux 原版桌面列为已支持。原版桌面已经运行时要求空闲退出后重开，不强杀或迁移进行中的任务。已有手动管理的外部运行时保留配置，但不能仅靠版本号通过官方来源证明，迁移验收需单独处理。
 
 普通用户只需安装、登录 AgentDeck、授权项目和启动；需要 Codex 认证时执行 `agentdeck codex-login`（无浏览器环境可加 `--device-auth`）。不要求 Rust、Node、Python，也不要求用户填写端口、地址或令牌。`agentdeck runtime-check` 提供真实沙箱/指令检查及官方来源、完整性信息；实际就绪以 `status --json` 的 `codexReady`、`sandboxVerified`、`sharedRuntime` 为 true、`runtimeError` 为 null 为准。状态中的 `officialRuntime` 记录包来源与入口哈希，发布门槛核对它与候选清单一致，拒绝自编译或改哈希的运行时。
 
-本机验证：Linux x64 官方包的项目指令读取、内读写及外读写拒绝通过；两个独立认证连接共享同一 UUID、错误令牌拒绝、重复启动复用原生进程、真实模型文件写入和读回、断开后另一连接恢复会话通过。候选安装器已通过本机 HTTPS、隔离全新状态及无开发工具 PATH 的安装验证，首次自动下载、初始化、真实沙箱验证及 Host 重启保留原生 PID/身份/令牌通过；本机 HTTPS 安装不等于生产下载或云端转发验收。官方包损坏拒绝、同版本自定义程序不执行、三个并发启动复用同一所有者及普通 Linux 用户的真实指令/隔离与 Host 就绪检查通过；21 项 Rust 测试、严格 Clippy 和 13 项发布门槛测试通过。报告位于 `artifacts/official-runtime/`。Windows/macOS 用户自行实机验收，ARM64、生产云端、手机及系统重启仍未完成，本批不得晋升正式发布。历史“已发布”描述仅指之前版本。
+本机验证：Linux x64 官方包的项目指令读取、内读写及外读写拒绝通过；两个独立认证连接共享同一 UUID、错误令牌拒绝、重复启动复用原生进程、真实模型文件写入和读回、断开后另一连接恢复会话通过。候选安装器已通过本机 HTTPS、隔离全新状态及无开发工具 PATH 的安装验证，首次自动下载、初始化、真实沙箱验证及 Host 重启保留原生 PID/身份/令牌通过；本机 HTTPS 安装不等于生产下载或云端转发验收。官方包损坏拒绝、同版本自定义程序不执行、三个并发启动复用同一所有者及普通 Linux 用户的真实指令/隔离与 Host 就绪检查通过；21 项 Rust 测试、严格 Clippy 和 13 项发布门槛测试通过。报告位于 `artifacts/official-runtime/`。这些是历史隔离验证，不能代替同批安装包验收。0.4.2 于 2026-10-30 按用户明确的单次豁免正式发布；Windows 源码桌面↔Web 续聊已有用户实测，同批安装包升级、CLI 第三端、重启/权限及其他平台完整验收仍未完成。生产部署和全部资源哈希校验已完成，不能视作真实端到端验收；详见[当前状态](status.md)。
 
 本地全链路验收（Linux x64）：已启动隔离 PostgreSQL、真实云端、HTTPS Web、Host 与官方 CLI，禁用浏览器局域网连接后实走云端加密转发；CLI 新建 → Web 读取并续聊、Web 新建 → CLI 按同一 UUID 续聊及网页实时更新通过，实际文件结果一致，整个过程原生 PID 不变，Host 更换程序也保留同一运行时。CLI 必须使用 `agentdeck codex` 共享入口，普通独立启动的 `codex` 不会自动接入。补齐官方 `project/create` 登记与重试：CLI 首次打开项目、Host 本地授权待运行时就绪后登记、重复登记不增副本、撤销授权后不自动恢复均通过；原生目录的名称和顺序仍以 `project/list` 为准。共享会话恢复时容纳 CLI 返回的上一轮文件系统信息，新一轮显式发送已验证的 Host 权限配置，不沿用 CLI 的临时目录授权；续聊后真实模型执行的项目内读写及外部测试目录读写拒绝通过。完整结果与脱敏截图见 `artifacts/official-runtime/fullstack-linux.json` 及同目录截图；本地云端验收不代表生产部署或原版桌面验收。
 
@@ -22,11 +22,11 @@
 
 桌面传入的 `--analytics-default-enabled` 是新进程的默认值提示；连接已有共享运行时时沿用所有者的默认值及显式 analytics 偏好。官方 `analytics.enabled` 为可选布尔值，省略或 null 不应阻止接入；代理不为接入开启统计或写入配置。显式 `-c analytics.enabled=...` 仍需与共享配置一致，错误类型仍拒绝。
 
-Windows 用户已验证 `692bba2` 源码编译版的原版桌面↔AgentDeck Web 交替续聊：桌面创建测试文件、Web 追加内容、桌面再次追加，两边显示相同历史和结果。该结论仅覆盖共享入口的功能链路；0.4.2 安装包升级、CLI 第三端、重连/重启、权限和其他平台仍按同批候选分别验收。
+Windows 用户已验证 `692bba2` 源码编译版的原版桌面↔AgentDeck Web 交替续聊：桌面创建测试文件、Web 追加内容、桌面再次追加，两边显示相同历史和结果。该结论仅覆盖共享入口的功能链路；0.4.2 安装包升级、CLI 第三端、重连/重启、权限和其他平台完整验收已获用户本次豁免，仍需补测，后续发布不沿用豁免。
 
 ### Windows / macOS 自行验收方法
 
-使用本批候选 ZIP/tar.gz，先核对同批 SHA-256，解包到独立目录。**当前线上稳定安装命令不会获得本批未发布改动。** 以下以候选目录中的程序运行；Windows 使用 `./agentdeck.exe`，macOS 使用 `./agentdeck`（首次先 `chmod +x agentdeck agentdeck-service agentdeck-codex-proxy`）。原版 Codex 桌面须预先安装。可用临时的 `AGENTDECK_DATA_DIR` 隔离验收身份，避免碰日常 Host；首次运行不要启用自启或覆盖现有服务。Linux 自定义运行时不要放在 `/tmp`，严格临时目录拒绝策略会阻止它自执行；使用默认用户数据目录。
+使用本批候选 ZIP/tar.gz，先核对同批 SHA-256，解包到独立目录。**当前线上稳定安装命令已提供 0.4.2；补充验收仍须核对实际版本与同批哈希。** 以下以候选目录中的程序运行；Windows 使用 `./agentdeck.exe`，macOS 使用 `./agentdeck`（首次先 `chmod +x agentdeck agentdeck-service agentdeck-codex-proxy`）。原版 Codex 桌面须预先安装。可用临时的 `AGENTDECK_DATA_DIR` 隔离验收身份，避免碰日常 Host；首次运行不要启用自启或覆盖现有服务。Linux 自定义运行时不要放在 `/tmp`，严格临时目录拒绝策略会阻止它自执行；使用默认用户数据目录。
 
 候选验收隔离设置（同一终端后续命令沿用；新终端使用相同目录）：
 
