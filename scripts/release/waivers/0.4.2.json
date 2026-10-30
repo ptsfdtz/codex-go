@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "version": "0.4.2",
+  "commit": "c96f94d83b18b7e64cf2348ca35cf480cb5de45f",
+  "candidateSha256": "1f213fbbd222cea56aeba777e4cda06fac063adcfb7b7a70e697beaafc190b02",
+  "archiveSha256": "e2a4114ebcb8c6fb042d21f50ffc1079bb57d14d16b4c7a9d4fadfdfd2be1dcc",
+  "authorizedBy": "repository owner in the release conversation",
+  "authorizedOn": "2026-10-30",
+  "authorization": "本次豁免，正式发布 0.4.2",
+  "observed": "User verified Windows source build 692bba2 desktop to Web to desktop continuation (DESKTOP-1, WEB-2, DESKTOP-3). This is not an exact packaged-candidate E2E attestation.",
+  "waived": [
+    "same-candidate packaged installation and upgrade",
+    "CLI third-client continuation",
+    "restart and reconnect recovery",
+    "sandbox and approval regression",
+    "complete E2E on Linux x64, Linux ARM64 and macOS ARM64"
+  ],
+  "retained": [
+    "exact candidate source and all artifact hashes",
+    "no downgrade of stable release",
+    "production backup and deployment health checks",
+    "complete public Web and download hash verification"
+  ],
+  "scope": "Only this immutable 0.4.2 candidate. Future releases retain the normal full-platform E2E gate. Untested checks remain untested."
+}

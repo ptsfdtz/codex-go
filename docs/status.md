@@ -59,7 +59,9 @@ Windows 用户已在 `release` 源码 `692bba2` 编译并重启 Host 后，确�
 
 当前源码修复桌面接入的默认功能标志、单插件 MCP 策略默认值及 analytics 默认提示比较；显式禁用、未知开关、错误类型及其他 MCP/审批配置差异仍拒绝。Host 索引保留 `appServer`，仍执行非临时会话、授权项目和规范化工作目录校验，提供脱敏启动诊断。18 项启动检查单元测试、1 项索引测试、严格 Clippy、CLI/代理构建及 Linux x64 官方运行时隔离验证已通过；证据位于 `artifacts/plugin-startup-diagnosis/`。这些定向验证不能代替 0.4.2 同批安装包的全平台验收。
 
-0.4.2 发布准备：用户已授权正式发布，当前准备绑定源码及文件哈希的全平台候选产物，尚未更新生产 Web/云端或稳定下载指针。按现行发布门槛，仍需同批 Windows x64、Linux x64/ARM64、macOS arm64 的完整验收；Windows 共享续聊通过不代表其余项目通过。本机 Linux 当前 Host `0.4.1` 与官方共享运行时 `0.166.0-alpha.1` 已就绪、云端在线，但未替换为 0.4.2 候选，不作为本批验收。Linux 原生桌面共享仍未支持或验收。
+0.4.2 正式发布已获用户于 2026-10-30 明确授权：“本次豁免，正式发布 0.4.2”。用户豁免本批安装包升级、CLI 第三端、重启恢复、完整权限回归及其他平台完整验收，以 Windows 源码桌面↔Web 续聊实测为发布依据；未测项仍记录为未测，后续版本不沿用此豁免。
+
+本批候选已构建并核验：源码 `c96f94d83b18b7e64cf2348ca35cf480cb5de45f`，已由 PR #6 合并到 main `2291613`；候选清单 SHA-256 `1f213fbbd222cea56aeba777e4cda06fac063adcfb7b7a70e697beaafc190b02`，候选归档 SHA-256 `e2a4114ebcb8c6fb042d21f50ffc1079bb57d14d16b4c7a9d4fadfdfd2be1dcc`。[候选工作流](https://github.com/ptsfdtz/codex-go/actions/runs/41070263990)覆盖四个平台包、Web/Pages 和云端，VPS 已暂存并核对全部哈希，稳定指针仍为 0.4.1。使用 `Publish authorized 0.4.2` 工作流晋升原样产物；授权记录见 `scripts/release/waivers/0.4.2.json`，入口固定源码、清单、归档和原始校验器哈希，不放宽默认 `gate.py`。本机 Linux Host 仍为 0.4.1，不在发布过程中重启日常任务；Linux 原生桌面共享仍未支持或验收。
 
 Linux 本机曾使用 `local-root-policy-repair-20261027` 修复运行权限，真实终端的普通→完整访问→普通隔离恢复及重启身份保持通过；这是本机修复，未晋升公开下载。macOS 本地 Host、launchd、seatbelt 和本地 HTTPS 安装通过，线上安装/升级及真实模型仍未完成。历史 Linux/ARM64 隔离基线不代替本批候选实测。
 
