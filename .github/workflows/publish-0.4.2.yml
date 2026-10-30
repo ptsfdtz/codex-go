@@ -1,0 +1,152 @@
+name: Publish authorized 0.4.2
+
+on:
+  workflow_dispatch:
+
+env:
+  VERSION: '0.4.2'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: [self-hosted, agentdeck-release-042]
+    environment: production
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download immutable candidate and record owner waiver
+        env:
+          VERSION: 0.4.2
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/release
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release download "candidate-$VERSION" --pattern candidate.tar.gz
+          echo 'e2a4114ebcb8c6fb042d21f50ffc1079bb57d14d16b4c7a9d4fadfdfd2be1dcc  candidate.tar.gz' | sha256sum -c -
+          mkdir candidate evidence
+          python3 scripts/release/extract.py candidate.tar.gz candidate
+          cp scripts/release/waivers/0.4.2.json evidence/release-waiver-0.4.2.json
+      - name: Enforce exact 0.4.2 identity, integrity and waiver scope
+        id: verify
+        env:
+          VERSION: 0.4.2
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release/waiver_042.py verify candidate --evidence evidence
+          commit=$(python3 -c 'import json; print(json.load(open("candidate/candidate.json"))["commit"])')
+          version=$(python3 -c 'import json; print(json.load(open("candidate/candidate.json"))["version"])')
+          test "$version" = "$VERSION"
+          test "$(git rev-parse "refs/tags/candidate-$VERSION^{commit}")" = "$commit"
+          git merge-base --is-ancestor "$commit" origin/main
+          if git rev-parse --verify "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            test "$(git rev-parse "refs/tags/v$VERSION^{commit}")" = "$commit"
+            if gh release view "v$VERSION" >/dev/null 2>&1; then
+              mkdir previous-release
+              gh release download "v$VERSION" --pattern candidate.json --dir previous-release
+              cmp candidate/candidate.json previous-release/candidate.json
+            fi
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          cp -R evidence candidate/evidence
+      - name: Deploy exact authorized artifacts to VPS
+        id: vps
+        env:
+          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.AGENTDECK_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.AGENTDECK_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          tar -czf tested-candidate.tar.gz -C candidate .
+          remote_dir=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" 'mktemp -d /var/tmp/agentdeck-publish.XXXXXXXX')
+          [[ "$remote_dir" =~ ^/var/tmp/agentdeck-publish\.[a-zA-Z0-9]+$ ]]
+          mkdir publication-tools
+          cp scripts/release/waiver_042.py publication-tools/gate.py
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes tested-candidate.tar.gz scripts/release/deploy.sh scripts/release/finalize.sh scripts/release/extract.py publication-tools/gate.py scripts/release/verify-web.py scripts/host/publish-downloads.sh "$DEPLOY_HOST:$remote_dir/"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" "sh '$remote_dir/deploy.sh' '$remote_dir'"
+          echo "DEPLOY_UPLOAD=$remote_dir" >> "$GITHUB_ENV"
+      - name: Prepare previously built Pages files
+        run: |
+          mkdir pages
+          python3 scripts/release/extract.py candidate/pages.tar.gz pages
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+      - uses: actions/deploy-pages@v4
+        id: pages
+      - name: Open stable updates after both deployments
+        id: stable
+        env:
+          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+        run: ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" "sh '$DEPLOY_UPLOAD/finalize.sh' '$DEPLOY_UPLOAD'"
+      - name: Publish official GitHub release without rebuilding
+        id: official
+        env:
+          VERSION: 0.4.2
+          SOURCE_SHA: ${{ steps.verify.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tar -czf agentdeck-downloads.tar.gz -C candidate install.sh install.ps1 install-codex.ps1 release-gate.py candidate.json codex-runtime-manifests verify-shared-runtime.py evidence releases web.tar.gz pages.tar.gz agentdeck-cloud
+          cp "candidate/releases/$VERSION/"*.zip "candidate/releases/$VERSION/"*.tar.gz .
+          cp candidate/candidate.json candidate/evidence/release-waiver-0.4.2.json .
+          sha256sum agentdeck-downloads.tar.gz agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-macos-arm64.tar.gz candidate.json release-waiver-0.4.2.json > SHA256SUMS.txt
+          cat > release-notes.md <<'NOTES'
+          AgentDeck 0.4.2
+
+          原样晋升 candidate-0.4.2，全平台产物未重新构建。
+          源码：c96f94d83b18b7e64cf2348ca35cf480cb5de45f（已合并 main）。
+
+          修复 Windows 原版 Codex 桌面接入共享运行时的默认功能标志、插件 MCP 开关及 analytics 提示比较；Web 可索引原生桌面新建会话，并提供脱敏启动诊断。安装后使用“Codex shared”或 `agentdeck desktop` 接入共享运行时，CLI 使用 `agentdeck codex`。
+
+          发布依据：用户已验证 Windows 源码编译版桌面→Web→桌面交替续聊。本次用户明确授权豁免同批安装包升级、CLI 第三端、重启恢复、完整权限回归及其他平台完整端到端验收；这些项目没有被标记为通过。macOS ARM64 和 Linux ARM64 包已构建并校验，实机完整链路仍待验收。该豁免仅适用于这批精确哈希的 0.4.2，后续版本保留全平台验收门槛。
+
+          已保留产物完整性、备份、服务健康、全量公开 Web/下载文件校验与禁止降级门槛。完整授权范围见附带 release-waiver-0.4.2.json。
+
+          更新：`agentdeck update`，确认任务空闲后 `agentdeck restart`。Host 显示版本 0.4.2，core 版本维持 0.3.0。
+          NOTES
+          cat "candidate/releases/$VERSION/notes.txt" >> release-notes.md
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            test "$(gh release view "v$VERSION" --json targetCommitish --jq .targetCommitish)" = "$SOURCE_SHA"
+          else
+            gh release create "v$VERSION" --target "$SOURCE_SHA" --latest --title "AgentDeck $VERSION" --notes-file release-notes.md agentdeck-downloads.tar.gz candidate/candidate.json agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-macos-arm64.tar.gz candidate/evidence/release-waiver-0.4.2.json SHA256SUMS.txt
+          fi
+      - name: Report actual publication results
+        if: always()
+        env:
+          VERSION: 0.4.2
+          SOURCE_SHA: ${{ steps.verify.outputs.commit }}
+          VPS_RESULT: ${{ steps.vps.outcome }}
+          PAGES_RESULT: ${{ steps.pages.outcome }}
+          STABLE_RESULT: ${{ steps.stable.outcome }}
+          OFFICIAL_RESULT: ${{ steps.official.outcome }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          lines = [f"AgentDeck {os.environ['VERSION']}", f"Commit: {os.environ['SOURCE_SHA']}", "", "| Component | Result |", "| --- | --- |"]
+          for label, field in (("VPS", "VPS_RESULT"), ("Pages", "PAGES_RESULT"), ("Stable update pointer", "STABLE_RESULT"), ("GitHub Release", "OFFICIAL_RESULT")):
+              lines.append(f"| {label} | {os.environ[field]} |")
+          if any(os.environ[field] != "success" for field in ("VPS_RESULT", "PAGES_RESULT", "STABLE_RESULT", "OFFICIAL_RESULT")):
+              lines += ["", "Publication is incomplete. Inspect successful steps and VPS backups before retrying; do not assume production is unchanged."]
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as stream:
+              stream.write('\n'.join(lines) + '\n')
+          PY
