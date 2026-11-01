@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, requestAnimationFrame */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -217,7 +218,7 @@ try {
   });
   await page.mouse.move(700, 600);
   await settle();
-  await sidebar.screenshot({ path: new URL('desktop-dark.png', out).pathname });
+  await sidebar.screenshot({ path: fileURLToPath(new URL('desktop-dark.png', out)) });
   // Mouse and keyboard both use the same menu; Escape restores the source focus.
   await markedRow.locator('.session').click({ button: 'right' });
   await menu.waitFor();
@@ -229,7 +230,7 @@ try {
   await page.keyboard.press('Shift+F10');
   await menu.waitFor();
   await settle();
-  await page.screenshot({ path: new URL('context-menu.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('context-menu.png', out)) });
   await page.mouse.click(700, 600);
   await menu.waitFor({ state: 'hidden' });
   // Archive confirms in place, with cancel as the initial focus. Failure permits retry.
@@ -244,7 +245,7 @@ try {
       .getByRole('button', { name: '取消', exact: true })
       .evaluate((el) => el === document.activeElement),
   );
-  await page.screenshot({ path: new URL('archive-dark.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('archive-dark.png', out)) });
   await confirmation.getByRole('button', { name: '取消', exact: true }).click();
   await confirmation.waitFor({ state: 'hidden' });
   assert.equal(await markedRow.count(), 1);
@@ -285,7 +286,9 @@ try {
   });
   await confirmation.waitFor({ state: 'hidden' });
   assert.equal(await markedRow.count(), 0);
+  await settle();
   await page.getByRole('button', { name: '筛选和排序会话', exact: true }).click();
+  await settle();
   await page.getByRole('combobox', { name: '会话筛选', exact: true }).click();
   await page.getByRole('option', { name: '归档', exact: true }).click();
   const archived = recent.locator('[data-session-id="a1"]');
@@ -320,7 +323,7 @@ try {
   });
   await page.mouse.move(700, 600);
   await settle();
-  await sidebar.screenshot({ path: new URL('desktop-light.png', out).pathname });
+  await sidebar.screenshot({ path: fileURLToPath(new URL('desktop-light.png', out)) });
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
     assert.equal(
@@ -335,7 +338,7 @@ try {
     assert(
       card.x >= 0 && card.x + card.width <= width && card.y >= 0 && card.y + card.height <= 844,
     );
-    await page.screenshot({ path: new URL(`archive-mobile-${width}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`archive-mobile-${width}.png`, out)) });
     await page.keyboard.press('Escape');
     await confirmation.waitFor({ state: 'hidden' });
     // Bottom-edge menus open above their trigger, rather than leaving the screen.
@@ -349,7 +352,7 @@ try {
     assert(up.y + up.height <= anchor.y);
     await page.keyboard.press('Escape');
     await row.evaluate((el) => el.removeAttribute('style'));
-    await page.screenshot({ path: new URL(`mobile-${width}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`mobile-${width}.png`, out)) });
   }
   const touch = await browser.newPage({
     locale: 'zh-CN',
@@ -378,12 +381,12 @@ try {
   assert(
     (await touchCard.getByRole('button', { name: '归档', exact: true }).boundingBox()).height >= 44,
   );
-  await touch.screenshot({ path: new URL('archive-touch.png', out).pathname });
+  await touch.screenshot({ path: fileURLToPath(new URL('archive-touch.png', out)) });
   await touchCard.getByRole('button', { name: '取消', exact: true }).tap();
   await touch.getByRole('button', { name: '在 AgentHub 中新建对话', exact: true }).tap();
   assert.deepEqual(await touch.evaluate(() => window.sidebarCalls.at(-1)), ['project', 'b']);
   await settle(touch);
-  await touch.screenshot({ path: new URL('mobile-touch.png', out).pathname });
+  await touch.screenshot({ path: fileURLToPath(new URL('mobile-touch.png', out)) });
   await touch.close();
   assert.deepEqual(errors, []);
   await writeFile(

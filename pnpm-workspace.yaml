@@ -2,3 +2,6 @@ packages:
   - web
 allowBuilds:
   esbuild: true
+overrides:
+  # GHSA-238p-pmpm-9mq7 also affects the math parser and rehype's transitive copy.
+  katex: 0.18.2

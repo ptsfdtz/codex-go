@@ -1092,5 +1092,6 @@
   "TLS receive buffer exceeded": "TLS receive buffer exceeded",
   "TLS input buffer exceeded": "TLS input buffer exceeded",
   "选项": "options",
-  "移除": "Remove"
+  "移除": "Remove",
+  "当前浏览器无法安全协调多标签页，请使用支持 Web Locks 的浏览器发送消息。": "This browser cannot safely coordinate multiple tabs. Use a browser with Web Locks to send messages."
 }

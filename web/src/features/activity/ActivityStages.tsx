@@ -2,7 +2,7 @@ import { t, useLocale } from '../../i18n';
 import type { ReactNode } from 'react';
 import { ChevronRight, Layers } from 'lucide-react';
 import { historyKey, type HistoryEntry } from '../../history';
-import { contentText } from '../../RichContent';
+import { contentText } from '../../content-text';
 
 const activityTypes = new Set([
   'reasoning',

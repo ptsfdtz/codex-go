@@ -32,12 +32,15 @@ jobs:
           workspaces: desktop/core
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm test:web-unit
+      - run: node scripts/web/check-i18n.mjs
       - run: pnpm format:check
       - run: pnpm schema:verify
       - run: pnpm audit --prod
       - run: cargo fmt --manifest-path desktop/core/Cargo.toml -- --check
       - run: cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -D warnings
-      - run: 'cargo test --locked --manifest-path desktop/core/Cargo.toml --lib host::'
+      - run: cargo test --locked --manifest-path desktop/core/Cargo.toml --lib
+      - run: cargo test --locked --manifest-path desktop/core/Cargo.toml --test i18n_cli
       - run: pnpm --filter @agentdeck/web build
         env:
           VITE_CLOUD_ORIGIN: ${{ vars.AGENTDECK_CLOUD_ORIGIN }}

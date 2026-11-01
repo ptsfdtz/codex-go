@@ -22,7 +22,7 @@ import { DataFields, IconButton } from '../ui';
 import { MotionList, MotionPresence } from '../motion';
 import type { Capabilities, Model, Project, Request, Session, Skill } from '../workspace';
 import { canManage, output, statusLabel } from '../workspace';
-import { contentText } from '../RichContent';
+import { contentText } from '../content-text';
 
 function useRead<T>(
   request: Request,

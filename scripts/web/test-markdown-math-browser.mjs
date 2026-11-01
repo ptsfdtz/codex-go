@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, requestAnimationFrame, getComputedStyle */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -110,10 +111,10 @@ p=\frac{1}{1+10^{(R_B-R_A)/600}}
   }
   await page.evaluate(() => document.fonts.ready);
   assert(await page.evaluate(() => document.fonts.check('16px KaTeX_Main')));
-  await host.screenshot({ path: new URL('elo-desktop.png', out).pathname });
+  await host.screenshot({ path: fileURLToPath(new URL('elo-desktop.png', out)) });
   await page.setViewportSize({ width: 390, height: 900 });
   await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
-  await host.screenshot({ path: new URL('elo-mobile.png', out).pathname });
+  await host.screenshot({ path: fileURLToPath(new URL('elo-mobile.png', out)) });
 
   const syntaxes = String.raw`行内 $x^2$ 和 \(R_A\)。
 
@@ -241,7 +242,8 @@ $x$`,
       assert(dimensions.pageWidth <= dimensions.rootWidth, JSON.stringify(dimensions));
       assert(dimensions.scrollable && dimensions.scrolled && dimensions.overflow === 'auto');
       layout.push({ mode, width, ...dimensions });
-      if (width === 320) await host.screenshot({ path: new URL('long-mobile.png', out).pathname });
+      if (width === 320)
+        await host.screenshot({ path: fileURLToPath(new URL('long-mobile.png', out)) });
     }
   }
   checks.push('320/390/1100px long formulas scroll within message without page overflow');

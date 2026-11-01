@@ -395,3 +395,87 @@ impl Rpc {
         self.stop.notify_one();
     }
 }
+
+#[cfg(test)]
+mod revocation_tests {
+    use super::*;
+
+    #[test]
+    fn device_revocation_expires_local_callbacks_without_rejecting_shared_requests() {
+        for (shared, another_reviewer) in [(true, false), (false, false), (false, true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = Arc::new(crate::store::Store::open(&dir.path().join("state.db")).unwrap());
+            store
+                .exec(
+                    "INSERT INTO projects VALUES('p','p','/project','identity',1,'now')",
+                    [],
+                )
+                .unwrap();
+            store.exec("INSERT INTO sessions VALUES('s','p','native','test','waitingApproval','now','now')", []).unwrap();
+            store
+                .exec(
+                    "INSERT INTO turns VALUES('t','s',NULL,'waitingApproval','now',NULL,NULL)",
+                    [],
+                )
+                .unwrap();
+            store.add_device("revoked", "test", "credential-1").unwrap();
+            let (output, mut replies) = mpsc::channel(2);
+            let rpc = Arc::new(Rpc {
+                protocol: RwLock::new(ProtocolVersion::Managed),
+                runtime_version: RwLock::new(None),
+                output,
+                pending: Mutex::new(HashMap::new()),
+                next: AtomicU64::new(1),
+                alive: AtomicBool::new(true),
+                stop: tokio::sync::Notify::new(),
+                generation: "test-generation".into(),
+                project_revision: AtomicU64::new(0),
+                codex_home: Mutex::new(None),
+            });
+            store.exec("INSERT INTO approvals VALUES('a','s','t','item/commandExecution/requestApproval','pending','{}','42','test-generation','now','later',NULL)", []).unwrap();
+            let (local, _events) = mpsc::channel(8);
+            let core = crate::service::Core::new(
+                store.clone(),
+                crate::security::Certificate {
+                    cert: String::new(),
+                    key: String::new(),
+                    fingerprint: String::new(),
+                    ips: vec![],
+                },
+                "127.0.0.1".into(),
+                0,
+                local,
+            );
+            *core.rpc.write().unwrap() = Some(rpc);
+            core.attached_runtime.store(shared, Ordering::SeqCst);
+            core.connected.lock().unwrap().insert("revoked".into(), 1);
+            if another_reviewer {
+                store
+                    .add_device("reviewer", "test", "credential-2")
+                    .unwrap();
+                core.connected.lock().unwrap().insert("reviewer".into(), 1);
+            }
+            core.revoke_device("revoked").unwrap();
+            let approval = store
+                .one("SELECT status FROM approvals WHERE approvalId='a'", [])
+                .unwrap();
+            if another_reviewer {
+                assert_eq!(approval["status"], "pending");
+            } else {
+                assert_eq!(approval["status"], "expired");
+            }
+            if !shared && !another_reviewer {
+                assert_eq!(
+                    replies.try_recv().unwrap(),
+                    json!({"id":42,"result":{"decision":"decline"}})
+                );
+            } else {
+                assert!(replies.try_recv().is_err());
+            }
+            assert!(!store
+                .one("SELECT revokedAt FROM devices WHERE deviceId='revoked'", [])
+                .unwrap()["revokedAt"]
+                .is_null());
+        }
+    }
+}

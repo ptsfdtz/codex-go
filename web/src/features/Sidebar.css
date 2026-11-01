@@ -136,6 +136,7 @@
   gap: 6px;
   min-height: 30px;
   padding: 5px 8px;
+  padding-right: 62px;
   line-height: 20px;
   font-size: 13px;
   color: var(--muted);
@@ -162,7 +163,8 @@
   z-index: 1;
   inset: 0 3px 0 auto;
   opacity: 0;
-  pointer-events: none;
+  /* Keep a stable hit target while hover/focus feedback fades in. */
+  pointer-events: auto;
   background: var(--rail);
   border-radius: 7px;
 }
@@ -178,9 +180,6 @@
 .desktop-session-row:is(:hover, :focus-within, .selected, .has-open-menu) .sidebar-session-actions {
   opacity: 1;
   pointer-events: auto;
-}
-.desktop-session-row:is(:hover, :focus-within, .selected, .has-open-menu) > .session {
-  padding-right: 62px;
 }
 .sidebar-session-actions > .icon-button {
   width: 26px;

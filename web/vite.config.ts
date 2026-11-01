@@ -94,6 +94,20 @@ export default defineConfig(({ command, mode }) => {
     define: { __AGENTDECK_WEB_VERSION__: JSON.stringify(version) },
     base: process.env.VITE_BASE_PATH || '/',
     plugins: [
+      {
+        name: 'compact-source-language',
+        enforce: 'pre',
+        transform(source, id) {
+          if (!id.replace(/\\/g, '/').endsWith('/src/i18n/zh-CN.json')) return;
+          const catalog = JSON.parse(source) as Record<string, string>;
+          return {
+            code: JSON.stringify(
+              Object.fromEntries(Object.entries(catalog).filter(([key, value]) => key !== value)),
+            ),
+            map: null,
+          };
+        },
+      },
       react(),
       {
         name: 'web-update-manifest',
@@ -115,6 +129,19 @@ export default defineConfig(({ command, mode }) => {
         },
       ],
     },
-    build: { target: 'es2022' },
+    build: {
+      target: 'es2022',
+      rollupOptions: {
+        output: {
+          manualChunks: (id) => {
+            // Static certificate data is cached independently of TLS code;
+            // neither is fetched until a Host connection is requested.
+            if (/\/tls\/lib\/utils\/(mozilla|additional)-root-cas\.js$/.test(id))
+              return 'tls-trust-roots';
+            if (/\/src\/i18n\/(en|zh-CN)\.json$/.test(id)) return 'locale-catalogs';
+          },
+        },
+      },
+    },
   };
 });

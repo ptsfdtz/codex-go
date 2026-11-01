@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, TextEncoder */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -168,13 +169,14 @@ try {
   assert.deepEqual(await page.evaluate(() => window.checks), { hiddenPath: true, invalid: true });
   await page.locator('.file-references button').click();
   assert.equal(await page.evaluate(() => window.opened[0]), '/tmp/引用项目/中文 file[1].txt');
-  await page.screenshot({ path: new URL('desktop.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('desktop.png', out)) });
   await editor.fill('');
   assert(await page.getByRole('button', { name: '发送', exact: true }).isEnabled());
   await page.getByRole('button', { name: '发送', exact: true }).click();
   assert.equal(await page.evaluate(() => window.sent[1].text), '');
   await page.getByRole('button', { name: '移除引用 中文 file[1].txt', exact: true }).click();
-  assert(await page.getByRole('button', { name: '发送', exact: true }).isDisabled());
+  assert.equal(await page.getByRole('button', { name: '发送', exact: true }).count(), 0);
+  await page.getByRole('button', { name: '语音输入', exact: true }).waitFor();
   await page.evaluate(() => {
     window.allow = false;
     window.refresh();
@@ -198,7 +200,7 @@ try {
     document.body.lastElementChild.style.gridTemplateColumns = 'minmax(0,1fr)';
     document.querySelector('.file-workspace')?.remove();
   });
-  await page.screenshot({ path: new URL('mobile.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('mobile.png', out)) });
   const box = await page.locator('.composer-resources .file-reference-chip').boundingBox();
   assert(box.x >= 0 && box.x + box.width <= 390);
   assert.deepEqual(errors, []);

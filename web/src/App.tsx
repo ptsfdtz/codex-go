@@ -1,22 +1,36 @@
-import { LanguageSelect } from './i18n/LanguageSelect';
+const SettingsContents = deferred<
+  React.ComponentProps<typeof import('./features/SettingsContents').SettingsContents>
+>(() => import('./features/SettingsContents').then((m) => ({ default: m.SettingsContents })));
+const Login = deferred<React.ComponentProps<typeof import('./features/Login').Login>>(() =>
+  import('./features/Login').then((m) => ({ default: m.Login })),
+);
 import { errorText, t, useLocale } from './i18n';
-import { Select } from './components/Select';
-import { MotionPresence, MotionList, useSidebarMotion } from './motion';
+import { MotionPresence, useSidebarMotion } from './motion';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
 import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
-import { api, installationId, accountEvent } from './cloud';
-import { Bridge } from './transport/bridge';
-import { DeleteDevice } from './features/AccountDevices';
-import { SelectionQuote, appendQuote } from './features/SelectionQuote';
-import { HostNameEditor } from './features/HostNameEditor';
+import { api, accountEvent } from './cloud';
+import type { Bridge } from './transport/bridge';
+
+import { appendQuote } from './features/selection-quote';
+const SelectionQuote = deferred<
+  React.ComponentProps<typeof import('./features/SelectionQuote').SelectionQuote>
+>(() => import('./features/SelectionQuote').then((m) => ({ default: m.SelectionQuote })));
+
 import { hostName as cloudHostName, migrateHostNames, type HostName } from './features/host-names';
-import { AccountPassword } from './AccountPassword';
+const AccountPassword = deferred<Record<string, never>>(() =>
+  import('./AccountPassword').then((module) => ({ default: module.AccountPassword })),
+);
 import type { HostGrant } from './host-book';
-import { contentText, RichContent } from './RichContent';
+import { contentText } from './content-text';
+const RichContent = deferred<React.ComponentProps<typeof import('./RichContent').RichContent>>(() =>
+  import('./RichContent').then((m) => ({ default: m.RichContent })),
+);
 import { Timeline } from './Timeline';
 import { readHistoryPage } from './history-page';
-import { ActivityStages } from './features/activity/ActivityStages';
+const ActivityStages = deferred<
+  React.ComponentProps<typeof import('./features/activity/ActivityStages').ActivityStages>
+>(() => import('./features/activity/ActivityStages').then((m) => ({ default: m.ActivityStages })));
 import { historyKey, mergeHistory, type HistoryEntry } from './history';
 import { applyProgress, historyError, mergeHistorySnapshot, finalItem } from './conversation';
 
@@ -42,15 +56,40 @@ const ApiChat = deferred<
   React.ComponentProps<typeof import('./features/api-chat/ApiChat').ApiChat>
 >(() => import('./features/api-chat/ApiChat').then((module) => ({ default: module.ApiChat })));
 import './features/api-chat/api-chat.css';
-import { Composer } from './features/Composer';
-import { PlanConfirmation } from './features/plan/PlanConfirmation';
-import { ApprovalCard, AsyncQuestions } from './features/Questions';
-import { QueuedMessages } from './features/queue/QueuedMessages';
-import { ComposerStatus } from './features/ComposerStatus';
-import { TurnChanges } from './features/TurnChanges';
-import { ProjectOverview } from './features/project-overview/ProjectOverview';
+const Composer = deferred<React.ComponentProps<typeof import('./features/Composer').Composer>>(() =>
+  import('./features/Composer').then((m) => ({ default: m.Composer })),
+);
+const PlanConfirmation = deferred<
+  React.ComponentProps<typeof import('./features/plan/PlanConfirmation').PlanConfirmation>
+>(() =>
+  import('./features/plan/PlanConfirmation').then((module) => ({
+    default: module.PlanConfirmation,
+  })),
+);
+const ApprovalCard = deferred<
+  React.ComponentProps<typeof import('./features/Questions').ApprovalCard>
+>(() => import('./features/Questions').then((module) => ({ default: module.ApprovalCard })));
+const AsyncQuestions = deferred<
+  React.ComponentProps<typeof import('./features/Questions').AsyncQuestions>
+>(() => import('./features/Questions').then((module) => ({ default: module.AsyncQuestions })));
+const QueuedMessages = deferred<
+  React.ComponentProps<typeof import('./features/queue/QueuedMessages').QueuedMessages>
+>(() => import('./features/queue/QueuedMessages').then((m) => ({ default: m.QueuedMessages })));
+const ComposerStatus = deferred<
+  React.ComponentProps<typeof import('./features/ComposerStatus').ComposerStatus>
+>(() => import('./features/ComposerStatus').then((m) => ({ default: m.ComposerStatus })));
+const TurnChanges = deferred<
+  React.ComponentProps<typeof import('./features/TurnChanges').TurnChanges>
+>(() => import('./features/TurnChanges').then((m) => ({ default: m.TurnChanges })));
+const ProjectOverview = deferred<
+  React.ComponentProps<typeof import('./features/project-overview/ProjectOverview').ProjectOverview>
+>(() =>
+  import('./features/project-overview/ProjectOverview').then((module) => ({
+    default: module.ProjectOverview,
+  })),
+);
 import { projectRelativePath } from './features/turn-changes';
-import { turnOptions, resources } from './features/composer-input';
+import { turnOptions, resources } from './features/composer-options';
 const SessionPanel = deferred<
   React.ComponentProps<typeof import('./features/Panels').SessionPanel>
 >(() => import('./features/Panels').then((module) => ({ default: module.SessionPanel })));
@@ -66,26 +105,8 @@ const QueuePanel = deferred<React.ComponentProps<typeof import('./features/Panel
 const ProjectsPanel = deferred<
   React.ComponentProps<typeof import('./features/Panels').ProjectsPanel>
 >(() => import('./features/Panels').then((module) => ({ default: module.ProjectsPanel })));
-const ProjectSettings = deferred<
-  React.ComponentProps<typeof import('./features/project-settings/ProjectSettings').ProjectSettings>
->(() =>
-  import('./features/project-settings/ProjectSettings').then((module) => ({
-    default: module.ProjectSettings,
-  })),
-);
-const ConfigurationPanel = deferred<
-  React.ComponentProps<typeof import('./features/Panels').ConfigurationPanel>
->(() => import('./features/Panels').then((module) => ({ default: module.ConfigurationPanel })));
-const RetentionPanel = deferred<
-  React.ComponentProps<typeof import('./features/Panels').RetentionPanel>
->(() => import('./features/Panels').then((module) => ({ default: module.RetentionPanel })));
-const DiagnosticsPanel = deferred<
-  React.ComponentProps<typeof import('./features/Panels').DiagnosticsPanel>
->(() => import('./features/Panels').then((module) => ({ default: module.DiagnosticsPanel })));
-const AccountPanel = deferred<
-  React.ComponentProps<typeof import('./features/Panels').AccountPanel>
->(() => import('./features/Panels').then((module) => ({ default: module.AccountPanel })));
-import { IconButton, Modal, DataFields } from './ui';
+
+import { IconButton, Modal } from './ui';
 import {
   Menu,
   ChevronDown,
@@ -105,8 +126,6 @@ import {
   Pencil,
   RotateCcw,
   GitFork,
-  LogOut,
-  RefreshCw,
   X,
   FileText,
 } from 'lucide-react';
@@ -119,13 +138,17 @@ import {
   changesDirectory,
 } from './transport/resume';
 import type { Packet } from './transport/bridge';
-import { TaskProgress } from './features/TaskProgress';
-import { MessageEditor } from './features/MessageEditor';
+const TaskProgress = deferred<
+  React.ComponentProps<typeof import('./features/TaskProgress').TaskProgress>
+>(() => import('./features/TaskProgress').then((m) => ({ default: m.TaskProgress })));
+const MessageEditor = deferred<
+  React.ComponentProps<typeof import('./features/MessageEditor').MessageEditor>
+>(() => import('./features/MessageEditor').then((module) => ({ default: module.MessageEditor })));
 import { answerActions } from './features/answer-actions';
-import { InstallApp } from './features/InstallApp';
-import { AppUpdates } from './features/AppUpdates';
-import { SettingsLayout } from './features/SettingsLayout';
-import { HostUpdates } from './features/HostUpdates';
+
+const HostUpdates = deferred<
+  React.ComponentProps<typeof import('./features/HostUpdates').HostUpdates>
+>(() => import('./features/HostUpdates').then((module) => ({ default: module.HostUpdates })));
 const FileWorkspace = deferred<
   React.ComponentProps<typeof import('./features/files/FileWorkspace').FileWorkspace>
 >(
@@ -155,69 +178,6 @@ import {
   saveComposerModelPreferences,
   type ComposerModelPreferences,
 } from './features/composer-preferences';
-
-function Login({ onLogin }: { onLogin: () => void }) {
-  useLocale();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      await api(
-        '/api/v1/web/login',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            username,
-            password,
-            installationId: installationId(),
-            deviceName: `Web ${navigator.platform}`,
-            kind: 'web',
-          }),
-        },
-        false,
-      );
-      onLogin();
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <main className="center">
-      <form className="card login" onSubmit={submit}>
-        <div className="brand">
-          AGENT<span>DECK</span>
-        </div>
-        <h1>{t('登录')}</h1>
-        <input
-          aria-label={t('用户名')}
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          placeholder={t('用户名')}
-          autoComplete="username"
-        />
-        <input
-          aria-label={t('密码')}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder={t('密码')}
-          type="password"
-          autoComplete="current-password"
-        />
-        <button disabled={busy || !username || !password}>{busy ? t('登录中…') : t('登录')}</button>
-        {error && <p className="error">{errorText(error)}</p>}
-        <LanguageSelect />
-        <InstallApp />
-      </form>
-    </main>
-  );
-}
 
 export function App() {
   useLocale();
@@ -1131,6 +1091,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             !/^[A-Za-z0-9_-]{43}$/.test(grant.credential)
           )
             throw new Error(t('电脑授权信息无效，请更新 Host'));
+          const { Bridge } = await import('./transport/bridge');
+          if (!context.current() || epoch !== connectionEpoch.current) return;
           const value = new Bridge(scope);
           context.own(() => {
             if (flushTimer !== undefined) clearTimeout(flushTimer);
@@ -2149,30 +2111,34 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               </div>
             )}
           </MotionPresence>
-          <TaskProgress
-            entries={renderedHistory}
-            active={!!activeTurn}
-            turnId={
-              snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
-              activeTurn
-            }
-            stale={!connected}
-          />
-          <SelectionQuote
-            key={draftKey}
-            container={conversationElement}
-            onQuote={(text) => {
-              updateDraft({ text: appendQuote(draft.text, text) });
-              requestAnimationFrame(() => {
-                const input =
-                  conversationElement.current?.querySelector<HTMLTextAreaElement>(
-                    '.composer textarea',
-                  );
-                input?.focus();
-                if (input) input.setSelectionRange(input.value.length, input.value.length);
-              });
-            }}
-          />
+          {activeTurn && (
+            <TaskProgress
+              entries={renderedHistory}
+              active={!!activeTurn}
+              turnId={
+                snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
+                activeTurn
+              }
+              stale={!connected}
+            />
+          )}
+          {renderedHistory.length > 0 && (
+            <SelectionQuote
+              key={draftKey}
+              container={conversationElement}
+              onQuote={(text) => {
+                updateDraft({ text: appendQuote(draft.text, text) });
+                requestAnimationFrame(() => {
+                  const input =
+                    conversationElement.current?.querySelector<HTMLTextAreaElement>(
+                      '.composer textarea',
+                    );
+                  input?.focus();
+                  if (input) input.setSelectionRange(input.value.length, input.value.length);
+                });
+              }}
+            />
+          )}
           <Timeline
             ref={timeline}
             identity={JSON.stringify([host?.hostId, session])}
@@ -2192,177 +2158,180 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   {historyLoading ? t('加载中…') : t('加载更早记录')}
                 </button>
               )}
-              <ActivityStages
-                key={JSON.stringify([host?.hostId, session])}
-                entries={renderedHistory}
-                activeTurn={
-                  snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
-                  activeTurn
-                }
-              >
-                {(entry, entryIndex) => {
-                  const item = entry.item || {},
-                    type = String(item.type || '');
-                  if (type === 'reasoning' && !contentText(item)) return null;
-                  const user = type === 'userMessage' || item.role === 'user',
-                    assistant =
-                      ['agentMessage', 'assistantMessage'].includes(type) ||
-                      item.role === 'assistant',
-                    text = contentText(item),
-                    actionText = assistant ? answers.get(entry) : text,
-                    editing =
-                      messageAction?.kind === 'revise' &&
-                      historyKey(messageAction.entry) === historyKey(entry);
-                  return (
-                    <article
-                      className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
-                      key={historyKey(entry)}
-                      data-history-key={historyKey(entry)}
-                    >
-                      <div className={`message-content${editing ? ' editing-message' : ''}`}>
-                        {editing ? (
-                          <MessageEditor
-                            text={editText}
-                            busy={busy}
-                            disabled={
-                              !connected ||
-                              busy ||
-                              receiptBlocked ||
-                              !!activeTurn ||
-                              !historyReady ||
-                              current?.archived === 1 ||
-                              !canManage(current)
-                            }
-                            error={editError}
-                            onChange={setEditText}
-                            onCancel={cancelMessageEdit}
-                            onSend={() => void runMessageAction()}
-                          />
-                        ) : (
-                          <RichContent
-                            entry={entry}
-                            images={
-                              connected &&
-                              supports('projectImagePreview') &&
-                              selectedProject &&
-                              !chat
-                                ? {
-                                    request,
-                                    projectId: selectedProject,
-                                    root:
-                                      projects.find(
-                                        (project) => project.projectId === selectedProject,
-                                      )?.canonicalPath || '',
-                                  }
-                                : undefined
-                            }
-                            sessionImages={connected && supports('sessionMessageImages')}
-                            connection={bridge.current}
-                            sessionId={session || ''}
-                            onFile={supports('projectTextPreview') ? openFile : undefined}
-                            onAgent={openAgent}
-                          />
-                        )}
-                      </div>
-                      {(user || assistant) && actionText && !editing && (
-                        <div className="message-actions">
-                          <IconButton
-                            icon={Copy}
-                            label={t('复制消息')}
-                            onClick={() =>
-                              void navigator.clipboard
-                                .writeText(actionText)
-                                .catch((e) => setError(String(e)))
-                            }
-                          />
-                          <IconButton
-                            icon={Quote}
-                            label={t('引用消息')}
-                            onClick={() =>
-                              updateDraft({
-                                text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
-                                  .split('\n')
-                                  .map((line) => '> ' + line)
-                                  .join('\n')}\n\n`,
-                              })
-                            }
-                          />
-                          <IconButton
-                            icon={Search}
-                            label={t('阅读完整消息')}
-                            onClick={() => {
-                              setMessageAction({
-                                entry: assistant
-                                  ? { ...entry, item: { ...item, text: actionText } }
-                                  : entry,
-                                kind: 'read',
-                              });
-                            }}
-                          />
-                          {user && supports('sessionHistoryRevert') && (
-                            <IconButton
-                              icon={Pencil}
-                              className="message-edit-action"
-                              label={t('编辑并重新发送')}
-                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                              onClick={() => {
-                                editMessage(entry);
-                              }}
+              {renderedHistory.length > 0 && (
+                <ActivityStages
+                  key={JSON.stringify([host?.hostId, session])}
+                  entries={renderedHistory}
+                  activeTurn={
+                    snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
+                    activeTurn
+                  }
+                >
+                  {(entry, entryIndex) => {
+                    const item = entry.item || {},
+                      type = String(item.type || '');
+                    if (type === 'reasoning' && !contentText(item)) return null;
+                    const user = type === 'userMessage' || item.role === 'user',
+                      assistant =
+                        ['agentMessage', 'assistantMessage'].includes(type) ||
+                        item.role === 'assistant',
+                      text = contentText(item),
+                      actionText = assistant ? answers.get(entry) : text,
+                      editing =
+                        messageAction?.kind === 'revise' &&
+                        historyKey(messageAction.entry) === historyKey(entry);
+                    return (
+                      <article
+                        className={`turn ${user ? 'user-turn' : assistant ? 'assistant-turn' : 'activity-turn'}`}
+                        key={historyKey(entry)}
+                        data-history-key={historyKey(entry)}
+                      >
+                        <div className={`message-content${editing ? ' editing-message' : ''}`}>
+                          {editing ? (
+                            <MessageEditor
+                              text={editText}
+                              busy={busy}
+                              disabled={
+                                !connected ||
+                                busy ||
+                                receiptBlocked ||
+                                !!activeTurn ||
+                                !historyReady ||
+                                current?.archived === 1 ||
+                                !canManage(current)
+                              }
+                              error={editError}
+                              onChange={setEditText}
+                              onCancel={cancelMessageEdit}
+                              onSend={() => void runMessageAction()}
                             />
-                          )}
-                          {assistant && supports('sessionHistoryRevert') && (
-                            <IconButton
-                              icon={RotateCcw}
-                              label={t('重试此回答')}
-                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                              onClick={() => {
-                                const before = renderedHistory
-                                  .slice(0, renderedHistory.indexOf(entry) + 1)
-                                  .reverse()
-                                  .find(
-                                    (e) =>
-                                      e.turnId === entry.turnId &&
-                                      (e.item?.type === 'userMessage' || e.item?.role === 'user'),
-                                  );
-                                if (!before) {
-                                  setError(t('此轮用户消息尚未加载，请先加载更早记录'));
-                                  return;
-                                }
-                                editMessage(before);
-                              }}
-                            />
-                          )}
-                          {supports('sessionForkAtTurn') && (
-                            <IconButton
-                              icon={GitFork}
-                              label={t('从此处分叉')}
-                              disabled={busy || receiptBlocked || !!activeTurn}
-                              onClick={() => setMessageAction({ entry, kind: 'fork' })}
-                            />
-                          )}
-                          {supports('sessionHistoryRevert') && user && (
-                            <IconButton
-                              icon={History}
-                              label={t('回退到此消息之前')}
-                              disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                              onClick={() => setMessageAction({ entry, kind: 'revert' })}
+                          ) : (
+                            <RichContent
+                              entry={entry}
+                              images={
+                                connected &&
+                                supports('projectImagePreview') &&
+                                selectedProject &&
+                                !chat
+                                  ? {
+                                      request,
+                                      projectId: selectedProject,
+                                      root:
+                                        projects.find(
+                                          (project) => project.projectId === selectedProject,
+                                        )?.canonicalPath || '',
+                                    }
+                                  : undefined
+                              }
+                              sessionImages={connected && supports('sessionMessageImages')}
+                              connection={bridge.current}
+                              sessionId={session || ''}
+                              onFile={supports('projectTextPreview') ? openFile : undefined}
+                              onAgent={openAgent}
                             />
                           )}
                         </div>
-                      )}
-                      {!activeTurn && renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
-                        <TurnChanges
-                          entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
-                          projectRoot={
-                            snapshot.projects?.find((p) => p.projectId === current?.projectId)
-                              ?.canonicalPath
-                          }
-                        />
-                      )}
-                    </article>
-                  );
-                }}
-              </ActivityStages>
+                        {(user || assistant) && actionText && !editing && (
+                          <div className="message-actions">
+                            <IconButton
+                              icon={Copy}
+                              label={t('复制消息')}
+                              onClick={() =>
+                                void navigator.clipboard
+                                  .writeText(actionText)
+                                  .catch((e) => setError(String(e)))
+                              }
+                            />
+                            <IconButton
+                              icon={Quote}
+                              label={t('引用消息')}
+                              onClick={() =>
+                                updateDraft({
+                                  text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
+                                    .split('\n')
+                                    .map((line) => '> ' + line)
+                                    .join('\n')}\n\n`,
+                                })
+                              }
+                            />
+                            <IconButton
+                              icon={Search}
+                              label={t('阅读完整消息')}
+                              onClick={() => {
+                                setMessageAction({
+                                  entry: assistant
+                                    ? { ...entry, item: { ...item, text: actionText } }
+                                    : entry,
+                                  kind: 'read',
+                                });
+                              }}
+                            />
+                            {user && supports('sessionHistoryRevert') && (
+                              <IconButton
+                                icon={Pencil}
+                                className="message-edit-action"
+                                label={t('编辑并重新发送')}
+                                disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                                onClick={() => {
+                                  editMessage(entry);
+                                }}
+                              />
+                            )}
+                            {assistant && supports('sessionHistoryRevert') && (
+                              <IconButton
+                                icon={RotateCcw}
+                                label={t('重试此回答')}
+                                disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                                onClick={() => {
+                                  const before = renderedHistory
+                                    .slice(0, renderedHistory.indexOf(entry) + 1)
+                                    .reverse()
+                                    .find(
+                                      (e) =>
+                                        e.turnId === entry.turnId &&
+                                        (e.item?.type === 'userMessage' || e.item?.role === 'user'),
+                                    );
+                                  if (!before) {
+                                    setError(t('此轮用户消息尚未加载，请先加载更早记录'));
+                                    return;
+                                  }
+                                  editMessage(before);
+                                }}
+                              />
+                            )}
+                            {supports('sessionForkAtTurn') && (
+                              <IconButton
+                                icon={GitFork}
+                                label={t('从此处分叉')}
+                                disabled={busy || receiptBlocked || !!activeTurn}
+                                onClick={() => setMessageAction({ entry, kind: 'fork' })}
+                              />
+                            )}
+                            {supports('sessionHistoryRevert') && user && (
+                              <IconButton
+                                icon={History}
+                                label={t('回退到此消息之前')}
+                                disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
+                                onClick={() => setMessageAction({ entry, kind: 'revert' })}
+                              />
+                            )}
+                          </div>
+                        )}
+                        {!activeTurn &&
+                          renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
+                            <TurnChanges
+                              entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
+                              projectRoot={
+                                snapshot.projects?.find((p) => p.projectId === current?.projectId)
+                                  ?.canonicalPath
+                              }
+                            />
+                          )}
+                      </article>
+                    );
+                  }}
+                </ActivityStages>
+              )}
               {!renderedHistory.length && !historyFailure && (
                 <div className="empty">
                   {session && !historyReady ? (
@@ -2397,130 +2366,132 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               )}
             </div>
           </Timeline>
-          <Composer
-            key={draftKey}
-            draft={draft}
-            planConfirmation={
-              showPlanConfirmation && pendingPlan ? (
-                <PlanConfirmation
-                  key={pendingPlanKey}
-                  disabled={!connected || busy || receiptBlocked}
-                  error={sendFailure?.key === draftKey ? sendFailure.message : undefined}
-                  onImplement={() => void send(undefined, contentText(pendingPlan.item))}
-                  onRevise={(text) => void send(undefined, contentText(pendingPlan.item), text)}
-                  onDismiss={() => setDismissedPlan(pendingPlanKey)}
-                />
-              ) : undefined
-            }
-            prompts={
-              <>
-                {(snapshot.approvals || [])
-                  .filter((a) => a.sessionId === session)
-                  .map((a) => (
-                    <ApprovalCard
-                      key={a.approvalId}
-                      approval={a}
-                      disabled={!connected || receiptBlocked}
-                      uncertain={() => bridge.current?.awaitingReceipt === true}
-                      onRefresh={() => void refresh()}
-                      onDecide={decide}
-                    />
-                  ))}
-                {session &&
-                  renderedHistory
-                    .filter(
-                      (entry) =>
-                        ['agentMessage', 'assistantMessage'].includes(String(entry.item?.type)) &&
-                        Array.isArray(entry.item?.questions) &&
-                        entry.item.questions.length > 0,
-                    )
-                    .map((entry) => (
-                      <AsyncQuestions
-                        key={`${host?.hostId}.${session}.${historyKey(entry)}`}
-                        entry={entry}
-                        history={renderedHistory}
-                        request={request}
-                        receiptKey={`agentdeck.web.question.${scope}.${host?.hostId}.${session}.${entry.item?.id}`}
-                        disabled={
-                          !connected ||
-                          receiptBlocked ||
-                          !historyReady ||
-                          current?.archived === 1 ||
-                          !supports('activeTurnSteering')
-                        }
-                        options={{
-                          sessionId: session,
-                          permissionMode: permission,
-                          mode: draft.mode,
-                          ...(draft.model ? { model: draft.model } : {}),
-                          ...(draft.effort ? { effort: draft.effort } : {}),
-                        }}
-                        onRefresh={() => void refresh()}
+          {selectedProject && (
+            <Composer
+              key={draftKey}
+              draft={draft}
+              planConfirmation={
+                showPlanConfirmation && pendingPlan ? (
+                  <PlanConfirmation
+                    key={pendingPlanKey}
+                    disabled={!connected || busy || receiptBlocked}
+                    error={sendFailure?.key === draftKey ? sendFailure.message : undefined}
+                    onImplement={() => void send(undefined, contentText(pendingPlan.item))}
+                    onRevise={(text) => void send(undefined, contentText(pendingPlan.item), text)}
+                    onDismiss={() => setDismissedPlan(pendingPlanKey)}
+                  />
+                ) : undefined
+              }
+              prompts={
+                <>
+                  {(snapshot.approvals || [])
+                    .filter((a) => a.sessionId === session)
+                    .map((a) => (
+                      <ApprovalCard
+                        key={a.approvalId}
+                        approval={a}
+                        disabled={!connected || receiptBlocked}
                         uncertain={() => bridge.current?.awaitingReceipt === true}
+                        onRefresh={() => void refresh()}
+                        onDecide={decide}
                       />
                     ))}
-              </>
-            }
-            queued={
-              session && supports('nativeQueue') ? (
-                <QueuedMessages
-                  key={JSON.stringify([scope, host?.hostId, session])}
-                  request={request}
-                  sessionId={session}
-                  revision={queueRevision + statusRevision}
-                  enabled={connected}
-                  disabled={busy || receiptBlocked || !historyReady || current?.archived === 1}
-                  active={!!activeTurn}
-                  canStart={supports('nativeQueueStart')}
-                  canSteer={supports('nativeQueueSteer')}
-                  uncertain={() => bridge.current?.awaitingReceipt === true}
-                  onChanged={() => void refresh()}
-                />
-              ) : undefined
-            }
-            status={
-              session && host ? (
-                <ComposerStatus
-                  key={session}
-                  request={request}
-                  sessionId={session}
-                  goalSupported={!chat && supports('sessionGoalView')}
-                  usageSupported={supports('sessionTokenUsage')}
-                  revision={statusRevision}
-                  observedUsage={observedUsage}
-                  onGoal={() => openPanel('goal')}
-                  enabled={connected}
-                />
-              ) : undefined
-            }
-            onChange={updateDraft}
-            models={models}
-            supports={composerSupports}
-            attachmentTotalBytes={capabilities.limits?.attachmentTotalBytes}
-            chat={chat}
-            disabled={
-              !connected ||
-              !selectedProject ||
-              receiptBlocked ||
-              !!(session && !historyReady) ||
-              current?.archived === 1
-            }
-            feedback={
-              receiptBlocked
-                ? t('发送结果尚未确认，请先核对任务状态，避免重复发送。')
-                : sendFailure?.key === draftKey
-                  ? sendFailure.message
-                  : undefined
-            }
-            busy={busy}
-            active={!!activeTurn}
-            permission={permission}
-            onPermission={(permission) => updatePreferences({ permission })}
-            onSend={(kind) => void send(kind)}
-            onStop={() => void interrupt()}
-            onPanel={openPanel}
-            onNew={newChat}
-          />
+                  {session &&
+                    renderedHistory
+                      .filter(
+                        (entry) =>
+                          ['agentMessage', 'assistantMessage'].includes(String(entry.item?.type)) &&
+                          Array.isArray(entry.item?.questions) &&
+                          entry.item.questions.length > 0,
+                      )
+                      .map((entry) => (
+                        <AsyncQuestions
+                          key={`${host?.hostId}.${session}.${historyKey(entry)}`}
+                          entry={entry}
+                          history={renderedHistory}
+                          request={request}
+                          receiptKey={`agentdeck.web.question.${scope}.${host?.hostId}.${session}.${entry.item?.id}`}
+                          disabled={
+                            !connected ||
+                            receiptBlocked ||
+                            !historyReady ||
+                            current?.archived === 1 ||
+                            !supports('activeTurnSteering')
+                          }
+                          options={{
+                            sessionId: session,
+                            permissionMode: permission,
+                            mode: draft.mode,
+                            ...(draft.model ? { model: draft.model } : {}),
+                            ...(draft.effort ? { effort: draft.effort } : {}),
+                          }}
+                          onRefresh={() => void refresh()}
+                          uncertain={() => bridge.current?.awaitingReceipt === true}
+                        />
+                      ))}
+                </>
+              }
+              queued={
+                session && supports('nativeQueue') ? (
+                  <QueuedMessages
+                    key={JSON.stringify([scope, host?.hostId, session])}
+                    request={request}
+                    sessionId={session}
+                    revision={queueRevision + statusRevision}
+                    enabled={connected}
+                    disabled={busy || receiptBlocked || !historyReady || current?.archived === 1}
+                    active={!!activeTurn}
+                    canStart={supports('nativeQueueStart')}
+                    canSteer={supports('nativeQueueSteer')}
+                    uncertain={() => bridge.current?.awaitingReceipt === true}
+                    onChanged={() => void refresh()}
+                  />
+                ) : undefined
+              }
+              status={
+                session && host ? (
+                  <ComposerStatus
+                    key={session}
+                    request={request}
+                    sessionId={session}
+                    goalSupported={!chat && supports('sessionGoalView')}
+                    usageSupported={supports('sessionTokenUsage')}
+                    revision={statusRevision}
+                    observedUsage={observedUsage}
+                    onGoal={() => openPanel('goal')}
+                    enabled={connected}
+                  />
+                ) : undefined
+              }
+              onChange={updateDraft}
+              models={models}
+              supports={composerSupports}
+              attachmentTotalBytes={capabilities.limits?.attachmentTotalBytes}
+              chat={chat}
+              disabled={
+                !connected ||
+                !selectedProject ||
+                receiptBlocked ||
+                !!(session && !historyReady) ||
+                current?.archived === 1
+              }
+              feedback={
+                receiptBlocked
+                  ? t('发送结果尚未确认，请先核对任务状态，避免重复发送。')
+                  : sendFailure?.key === draftKey
+                    ? sendFailure.message
+                    : undefined
+              }
+              busy={busy}
+              active={!!activeTurn}
+              permission={permission}
+              onPermission={(permission) => updatePreferences({ permission })}
+              onSend={(kind) => void send(kind)}
+              onStop={() => void interrupt()}
+              onPanel={openPanel}
+              onNew={newChat}
+            />
+          )}
         </section>
         {toolsVisible && (
           <div
@@ -2789,245 +2760,40 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               className={`panel-content ${panel === 'drafts' && settingsChild ? 'settings-subpage' : ''}`}
             >
               {panel === 'settings' && (
-                <SettingsLayout active={settingsTab} onChange={setSettingsTab}>
-                  {settingsTab === 'general' && (
-                    <div className="settings-general">
-                      <LanguageSelect />
-                      <section className="settings-section panel-stack">
-                        <label className="setting-row">
-                          <span>{t('外观')}</span>
-                          <Select
-                            aria-label={t('外观')}
-                            value={theme}
-                            onValueChange={(value) => setTheme(value)}
-                          >
-                            <option value="system">{t('跟随系统')}</option>
-                            <option value="light">{t('浅色')}</option>
-                            <option value="dark">{t('深色')}</option>
-                          </Select>
-                        </label>
-                        <label className="setting-row">
-                          <span>
-                            {t('系统通知')}
-                            <small>{t('页面后台时提醒；应用内卡片和蓝点始终显示')}</small>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={notification}
-                            disabled={!('Notification' in window)}
-                            onChange={async (e) => {
-                              if (e.target.checked) {
-                                try {
-                                  const result = await Notification.requestPermission();
-                                  setNotification(result === 'granted');
-                                  if (result !== 'granted')
-                                    setError(t('浏览器尚未允许通知，请在系统或网站设置中开启。'));
-                                } catch (error) {
-                                  setError(String(error));
-                                }
-                              } else setNotification(false);
-                            }}
-                          />
-                        </label>
-                        {notification &&
-                          (!('Notification' in window) ||
-                            Notification.permission !== 'granted') && (
-                            <p className="muted" role="status">
-                              {t(
-                                '通知偏好已保存，当前浏览器尚未允许通知；请在系统或网站设置中开启。',
-                              )}
-                            </p>
-                          )}
-                      </section>
-                      <section className="settings-section panel-stack">
-                        <h3>{t('安装应用')}</h3>
-                        <InstallApp />
-                        <p className="settings-installed">{t('已安装')}</p>
-                      </section>
-                      <section className="settings-section">
-                        <AppUpdates />
-                      </section>
-                      <section className="settings-section setting-row">
-                        <div>
-                          <h3>{t('AgentDeck 账户')}</h3>
-                        </div>
-                        <button
-                          className="settings-logout"
-                          onClick={() =>
-                            void api('/api/v1/web/logout', { method: 'POST' })
-                              .then(() => location.reload())
-                              .catch((e) => setError(String(e)))
-                          }
-                        >
-                          <LogOut size={17} />
-                          {t('退出账户')}
-                        </button>
-                      </section>
-                    </div>
-                  )}
-                  {settingsTab === 'configuration' &&
-                    (connected ? (
-                      <ConfigurationPanel request={request} models={models} supports={supports} />
-                    ) : (
-                      <p>{t('连接电脑后查看模型与输出配置。')}</p>
-                    ))}
-                  {settingsTab === 'data' &&
-                    (connected ? (
-                      <RetentionPanel request={request} />
-                    ) : (
-                      <p>{t('连接电脑后管理缓存。')}</p>
-                    ))}
-                  {settingsTab === 'diagnostics' &&
-                    (connected ? (
-                      <DiagnosticsPanel request={request} />
-                    ) : (
-                      <p>{t('连接电脑后读取诊断。')}</p>
-                    ))}
-                  {settingsTab === 'account' &&
-                    (connected && supports('accountSummary') ? (
-                      <AccountPanel request={request} />
-                    ) : (
-                      <p>{t('连接支持账户摘要的电脑后查看。')}</p>
-                    ))}
-                  {settingsTab === 'shortcuts' && (
-                    <DataFields
-                      value={{
-                        'Ctrl + K': t('搜索会话'),
-                        'Ctrl + F': t('查找已加载消息'),
-                        'Alt + ← / →': t('切换上一条 / 下一条会话'),
-                        Enter: t('发送 / 加入队列'),
-                        'Shift + Enter': t('换行'),
-                        'Ctrl + Enter': t('发送'),
-                        Escape: t('关闭菜单或弹窗'),
-                        '/plan /goal /default': t('切换模式'),
-                        '/skills /mention': t('技能 / 项目文件'),
-                        '/queue /history /compact /new': t('队列 / 历史 / 整理 / 新对话'),
-                      }}
-                    />
-                  )}
-                  {settingsTab === 'conversations' && (
-                    <div className="panel-stack">
-                      <button
-                        className="settings-action"
-                        onClick={() => {
-                          setFilter('archived');
-                          setSidebarOpen(true);
-                          setPanel('');
-                        }}
-                      >
-                        <span>
-                          <strong>{t('查看归档对话')}</strong>
-                        </span>
-                      </button>
-                      <button className="settings-action" onClick={() => openPanel('drafts')}>
-                        <span>
-                          <strong>{t('未发送草稿')}</strong>
-                        </span>
-                      </button>
-                      <button
-                        className="settings-action"
-                        disabled={!connected}
-                        onClick={() => void syncIndex()}
-                      >
-                        <span>
-                          <strong>{t('同步电脑已有对话')}</strong>
-                        </span>
-                      </button>
-                      <ProjectSettings
-                        key={host?.hostId || 'disconnected'}
-                        request={request}
-                        projects={projects}
-                        connected={connected}
-                        hostName={host ? hostName(host) : undefined}
-                        currentProject={selectedProject}
-                        canSync={supports('codexWorkspaceDiscovery')}
-                        onChanged={() => refresh()}
-                        onProject={(id) => {
-                          setSelectedProject(id);
-                          selectSession(undefined);
-                          setPanel('');
-                        }}
-                      />
-                    </div>
-                  )}
-                  {settingsTab === 'computers' && (
-                    <div className="panel-stack">
-                      {directoryFailure && (
-                        <p className="error" role="status">
-                          {directoryFailure}
-                        </p>
-                      )}
-                      {host && (
-                        <p role="status">
-                          {t('浏览器连接：')}
-                          {connectionLabels[connectionState]}
-                        </p>
-                      )}
-                      {connectionFailure && (
-                        <p className="error" role="status">
-                          {connectionFailure}
-                        </p>
-                      )}
-                      <MotionList className="computer-list">
-                        {hosts.map((item) => (
-                          <div className="computer-entry" data-motion-item key={item.hostId}>
-                            <button
-                              className="host"
-                              aria-current={item.hostId === host?.hostId ? 'true' : undefined}
-                              onClick={() => {
-                                void connect(item);
-                              }}
-                            >
-                              <span className={`dot ${item.online ? 'online' : ''}`} />
-                              <span className="computer-name">
-                                <span>{hostName(item)}</span>
-                              </span>
-                              <small>
-                                {directoryFailure
-                                  ? t('状态待刷新')
-                                  : item.online
-                                    ? t('在线')
-                                    : t('离线')}
-                              </small>
-                            </button>
-                            <div className="computer-actions">
-                              {item.cloudDeviceId && (
-                                <DeleteDevice
-                                  onDeleted={() =>
-                                    setHosts((current) =>
-                                      current.filter((entry) => entry.hostId !== item.hostId),
-                                    )
-                                  }
-                                  device={{
-                                    deviceId: item.cloudDeviceId,
-                                    displayName: hostName(item),
-                                    kind: 'desktop',
-                                  }}
-                                />
-                              )}
-                              {item.hostId === host?.hostId && (
-                                <IconButton
-                                  icon={RefreshCw}
-                                  label={t('重新连接')}
-                                  disabled={busy}
-                                  onClick={() => void connect(item)}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </MotionList>
-                      {!hosts.length && <p>{t('尚未绑定电脑。请先在电脑端登录同一账户。')}</p>}
-                      {host && (
-                        <HostNameEditor
-                          key={JSON.stringify([scope, host.hostId])}
-                          host={hosts.find((item) => item.hostId === host.hostId) || host}
-                          onSaved={hostNameSaved}
-                        />
-                      )}
-                    </div>
-                  )}
-                </SettingsLayout>
+                <SettingsContents
+                  settingsTab={settingsTab}
+                  setSettingsTab={setSettingsTab}
+                  theme={theme}
+                  setTheme={setTheme}
+                  notification={notification}
+                  setNotification={setNotification}
+                  setError={setError}
+                  connected={connected}
+                  request={request}
+                  models={models}
+                  supports={supports}
+                  setFilter={setFilter}
+                  setSidebarOpen={setSidebarOpen}
+                  setPanel={setPanel}
+                  openPanel={openPanel}
+                  syncIndex={syncIndex}
+                  host={host}
+                  projects={projects}
+                  hostName={hostName}
+                  selectedProject={selectedProject}
+                  refresh={refresh}
+                  setSelectedProject={setSelectedProject}
+                  selectSession={selectSession}
+                  directoryFailure={directoryFailure}
+                  connectionState={connectionState}
+                  connectionFailure={connectionFailure}
+                  hosts={hosts}
+                  connect={connect}
+                  setHosts={setHosts}
+                  busy={busy}
+                  scope={scope}
+                  hostNameSaved={hostNameSaved}
+                />
               )}
               {panel === 'manage' && targetSession && connected && (
                 <SessionPanel

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, FormData, getComputedStyle */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -276,7 +277,9 @@ try {
       }));
       assert.equal(colors.radius, '14px');
       assert.equal(colors.bg, theme === 'dark' ? 'rgb(33, 33, 33)' : 'rgb(255, 255, 255)');
-      await page.screenshot({ path: new URL(`branches-${theme}-${width}.png`, out).pathname });
+      await page.screenshot({
+        path: fileURLToPath(new URL(`branches-${theme}-${width}.png`, out)),
+      });
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: '打开工具', exact: true }).click();
       const tools = page.getByRole('region', { name: '工具', exact: true });
@@ -318,7 +321,7 @@ try {
       const box = await popup.boundingBox();
       assert(Math.abs(box.y - anchor.y - anchor.height - 6) <= 1);
     }
-    await popup.screenshot({ path: new URL(`${popupSelector.slice(1)}.png`, out).pathname });
+    await popup.screenshot({ path: fileURLToPath(new URL(`${popupSelector.slice(1)}.png`, out)) });
     await page.keyboard.press('Escape');
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });

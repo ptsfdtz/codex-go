@@ -29,6 +29,7 @@ import './api-chat.css';
 import { Composer } from '../Composer';
 import type { Draft, Model } from '../../workspace';
 type Choice = { providerId: string; model: string; effort?: string };
+class DeletedChatError extends Error {}
 function saved<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) || 'null') || fallback;
@@ -62,6 +63,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     [deleting, setDeleting] = useState('');
   const store = useRef(new LocalStore(scope)).current;
   const memory = useRef(new Map<string, ChatDetail>());
+  const deletedIds = useRef(new Set<string>());
   const jobs = useRef(new Map<string, { controller: AbortController; stopped: boolean }>());
   const channel = useRef<BroadcastChannel | null>(null);
   const pending = useRef<string | null>(null);
@@ -119,6 +121,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       ? detail.messages.find((message) => message.status === 'running')
       : undefined;
   const publish = useCallback((chat: ChatDetail) => {
+    if (deletedIds.current.has(chat.id)) return;
     const value = structuredClone(chat);
     memory.current.set(chat.id, value);
     if (!mounted.current) return;
@@ -137,43 +140,45 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     );
     if (selectedRef.current === chat.id) setDetail(value);
   }, []);
+  const forgetChat = useCallback((id: string) => {
+    deletedIds.current.add(id);
+    const job = jobs.current.get(id);
+    if (job) {
+      job.stopped = true;
+      job.controller.abort();
+    }
+    memory.current.delete(id);
+    if (!mounted.current) return;
+    setChats((values) => values.filter((chat) => chat.id !== id));
+    if (selectedRef.current === id) {
+      selectedRef.current = '';
+      setSelected('');
+      setDetail(undefined);
+    }
+  }, []);
   const saveChat = useCallback(
     async (chat: ChatDetail) => {
       const value = structuredClone(chat);
-      const summary: ChatSummary = {
-        id: value.id,
-        title: value.title,
-        providerId: value.providerId,
-        model: value.model,
-        effort: value.effort,
-        updatedAt: value.updatedAt,
-      };
+      if (!(await store.saveChat(value))) {
+        forgetChat(chat.id);
+        throw new DeletedChatError();
+      }
       publish(value);
-      await store.write([
-        { kind: 'chat', id: chat.id, value },
-        { kind: 'summary', id: chat.id, value: summary },
-      ]);
       channel.current?.postMessage({ type: 'updated', id: chat.id });
     },
-    [publish, store],
+    [forgetChat, publish, store],
   );
   const readChat = useCallback(
     async (id: string) => {
-      let chat = memory.current.get(id) || (await store.read<ChatDetail>('chat', id));
+      let chat =
+        (jobs.current.has(id) && memory.current.get(id)) ||
+        (await store.read<ChatDetail>('chat', id));
       if (!chat) return undefined;
       if (!jobs.current.has(id) && chat.messages.some((message) => message.status === 'running')) {
         const recover = async () => {
-          chat = structuredClone(chat!);
-          chat.uncertain = true;
-          for (const message of chat.messages)
-            if (message.status === 'running') {
-              message.status = 'interrupted';
-              if (message.role === 'assistant')
-                message.error = t(
-                  '页面关闭或连接中断，已有内容已保留；请求结果未知，不会自动重发。',
-                );
-            }
-          await saveChat(chat);
+          chat = await store.recoverChat(id);
+          if (chat) publish(chat);
+          channel.current?.postMessage({ type: 'updated', id });
         };
         if (navigator.locks)
           await navigator.locks.request(
@@ -183,12 +188,14 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
               if (lock) await recover();
             },
           );
-        else await recover();
+        // Without Web Locks we cannot distinguish an orphan from another tab's
+        // live request. Leave persistent state intact rather than guessing.
       }
-      memory.current.set(id, chat);
+      if (chat) memory.current.set(id, chat);
+      else memory.current.delete(id);
       return chat;
     },
-    [saveChat, scope, store],
+    [publish, scope, store],
   );
   const refresh = useCallback(async () => {
     const [providers, summaries] = await Promise.all([
@@ -218,6 +225,10 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           }
           return;
         }
+        if (type === 'deleted') {
+          forgetChat(id);
+          return;
+        }
         if (type === 'updated' && !jobs.current.has(id)) {
           memory.current.delete(id);
           void refresh()
@@ -245,7 +256,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       bus?.close();
       channel.current = null;
     };
-  }, [refresh, scope, store]);
+  }, [forgetChat, refresh, scope, store]);
   useEffect(() => {
     let cancelled = false;
     stick.current = true;
@@ -279,10 +290,12 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
   }, [selected, active, readChat]);
   useEffect(() => {
     const viewport = window.visualViewport;
-    const resize = () =>
+    const resize = () => {
+      if (viewport && viewport.scale !== 1) return;
       document
         .querySelector<HTMLElement>('.api-chat')
         ?.style.setProperty('--app-height', `${viewport?.height || window.innerHeight}px`);
+    };
     viewport?.addEventListener('resize', resize);
     resize();
     document.documentElement.dataset.theme =
@@ -313,6 +326,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
   async function execute(confirmed = false) {
     if (
       sending.current ||
+      !navigator.locks ||
       busy ||
       loading ||
       active ||
@@ -476,6 +490,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       } catch (cause) {
         clearTimeout(flushTimer);
         await pendingWrite;
+        if (cause instanceof DeletedChatError) return;
         if (chat?.messages.at(-1)?.requestId === requestId) {
           const user = chat.messages.at(-2)!,
             assistant = chat.messages.at(-1)!;
@@ -491,6 +506,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           try {
             await saveChat(chat);
           } catch (storageError) {
+            if (storageError instanceof DeletedChatError) return;
             publish(chat);
             if (mounted.current) setError(String(storageError));
           }
@@ -520,7 +536,6 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             await run();
           },
         );
-      else await run();
     } catch (error) {
       if (mounted.current) {
         setError(String(error));
@@ -689,6 +704,11 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             )}
           </div>
           <div className="api-composer-area">
+            {!navigator.locks && (
+              <p className="api-feedback" role="alert">
+                {t('当前浏览器无法安全协调多标签页，请使用支持 Web Locks 的浏览器发送消息。')}
+              </p>
+            )}
             {error && (
               <div className="api-feedback" role="alert">
                 {errorText(error)}
@@ -716,7 +736,9 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             disabled={false}
             busy={busy && !active}
             active={!!active}
-            sendBlocked={loading || !enabled || !available || (!!selected && !detail)}
+            sendBlocked={
+              loading || !navigator.locks || !enabled || !available || (!!selected && !detail)
+            }
             permission="workspace"
             onPermission={() => {}}
             onChange={changeDraft}
@@ -759,12 +781,9 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                 onClick={() => {
                   setBusy(true);
                   void store
-                    .write([
-                      { kind: 'chat', id: deleting },
-                      { kind: 'summary', id: deleting },
-                    ])
+                    .deleteChat(deleting)
                     .then(async () => {
-                      memory.current.delete(deleting);
+                      forgetChat(deleting);
                       setDrafts((values) => {
                         const next = { ...values };
                         delete next[deleting];
@@ -776,7 +795,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                         return next;
                       });
                       if (selected === deleting) select('');
-                      channel.current?.postMessage({ type: 'updated', id: deleting });
+                      channel.current?.postMessage({ type: 'deleted', id: deleting });
                       setDeleting('');
                       await refresh();
                     })

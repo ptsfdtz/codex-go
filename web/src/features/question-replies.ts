@@ -1,6 +1,6 @@
 import { t } from '../i18n';
 import type { HistoryEntry } from '../history';
-import { contentText } from '../RichContent';
+import { contentText } from '../content-text';
 export type Question = {
   id: string;
   title: string;

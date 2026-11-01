@@ -1,22 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { beforeEach, test } from 'node:test';
-import ts from 'typescript';
-
-const source = await readFile(
-  new URL('../../web/src/features/composer-preferences.ts', import.meta.url),
-  'utf8',
-);
-const { outputText } = ts.transpileModule(source, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-});
+import { loadWebModule } from './load-web-module.mjs';
 const {
   readComposerPreferences,
   saveComposerPreferences,
   resolveComposerModelPreferences: resolve,
   readComposerModelPreferences: readModel,
   saveComposerModelPreferences: saveModel,
-} = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+} = await loadWebModule('features/composer-preferences');
 
 let storage;
 beforeEach(() => {

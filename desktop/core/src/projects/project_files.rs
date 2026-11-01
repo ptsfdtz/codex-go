@@ -335,6 +335,7 @@ mod reference_tests {
                 .unwrap()
                 .to_str()
                 .unwrap()
+                .replace('\\', "/")
         );
         assert_eq!(input[0]["text_elements"][0]["byteRange"]["end"], path.len());
         assert_ne!(path.len(), path.chars().count());

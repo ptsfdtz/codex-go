@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -103,14 +104,14 @@ try {
   assert.equal(await stage.getAttribute('open'), '');
   assert.equal(await stage.locator('.tool-record').count(), 8);
   await page.evaluate(() => document.fonts.ready);
-  await page.screenshot({ path: new URL('desktop-running.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('desktop-running.png', out)) });
   // A new assistant update ends a stage even while the task keeps running.
   await page.evaluate(() =>
     window.renderActivity([...window.activityEntries, window.nextActivity], 't1'),
   );
   await page.waitForFunction(() => !document.querySelector('.activity-stage').open);
   await stage.locator('.tool-record').first().waitFor({ state: 'hidden' });
-  await page.screenshot({ path: new URL('desktop-collapsed.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('desktop-collapsed.png', out)) });
   // Native disclosure supports keyboard and keeps manual expansion across updates.
   await stage.locator(':scope > summary').focus();
   await page.keyboard.press('Enter');
@@ -128,13 +129,13 @@ try {
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       true,
     );
-    await page.screenshot({ path: new URL(`mobile-${width}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`mobile-${width}.png`, out)) });
   }
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'dark';
   });
-  await page.screenshot({ path: new URL('mobile-dark.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('mobile-dark.png', out)) });
   assert.deepEqual(errors, []);
   console.log(
     'PASS: phase boundaries, turn isolation, empty reasoning, running/completed disclosure, keyboard, manual expansion, 320/390px; screenshots:',

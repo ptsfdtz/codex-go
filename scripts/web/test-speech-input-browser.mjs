@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, Event, getComputedStyle */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -152,11 +153,11 @@ try {
   await input.fill('');
   await mic.waitFor();
   assert.equal(await send.count(), 0, 'empty draft has only the voice action');
-  await page.screenshot({ path: new URL('desktop-empty.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('desktop-empty.png', out)) });
   await input.fill('普通文字');
   await send.waitFor();
   assert.equal(await mic.count(), 0);
-  await page.screenshot({ path: new URL('desktop-send.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('desktop-send.png', out)) });
   await input.fill('');
   checks.push(
     'one primary action: empty draft voice, typed text send arrow, clearing restores voice',
@@ -339,7 +340,7 @@ try {
       getComputedStyle(document.querySelector('#speech-main .speech-button')).color ===
       'rgb(207, 85, 85)',
   );
-  await page.screenshot({ path: new URL('mobile-listening.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('mobile-listening.png', out)) });
   const box = await mic.or(finish).boundingBox();
   assert.ok(box.x >= 0 && box.x + box.width <= 390);
   assert.equal(
@@ -349,7 +350,7 @@ try {
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'light';
   });
-  await page.screenshot({ path: new URL('mobile-light.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('mobile-light.png', out)) });
   await main.getByRole('button', { name: '取消听写' }).click();
   checks.push('390px light/dark layout keeps microphone, text preview and stop controls visible');
 

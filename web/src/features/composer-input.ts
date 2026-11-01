@@ -1,5 +1,6 @@
+export { resources, turnOptions } from './composer-options';
 import { t } from '../i18n';
-import type { Attachment, Draft } from '../workspace';
+import type { Attachment } from '../workspace';
 import { compressAttachment, MAX_ATTACHMENT_BYTES } from './attachment-compression';
 
 export async function readAttachments(
@@ -30,25 +31,4 @@ export async function readAttachments(
   if ([...existing, ...added].reduce((sum, file) => sum + file.bytes, 0) > totalLimit)
     throw new Error(t('当前 Host 仍限制附件合计大小，请升级 Host 后发送多个附件'));
   return [...existing, ...added];
-}
-export function resources(draft: Draft) {
-  return {
-    ...(draft.references?.length
-      ? { references: draft.references.map(({ projectId, path }) => ({ projectId, path })) }
-      : {}),
-    ...(draft.attachments.length
-      ? { attachments: draft.attachments.map(({ name, data }) => ({ name, data })) }
-      : {}),
-    ...(draft.skills.length ? { skills: draft.skills.map((skill) => skill.id) } : {}),
-  };
-}
-export function turnOptions(draft: Draft, permissionMode: string) {
-  return {
-    text: draft.text.trim(),
-    mode: draft.mode,
-    permissionMode,
-    ...(draft.model ? { model: draft.model } : {}),
-    ...(draft.effort ? { effort: draft.effort } : {}),
-    ...resources(draft),
-  };
 }

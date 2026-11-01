@@ -1092,5 +1092,6 @@
   "TLS receive buffer exceeded": "TLS 接收缓冲区超限",
   "TLS input buffer exceeded": "TLS 输入缓冲区超限",
   "选项": "选项",
-  "移除": "移除"
+  "移除": "移除",
+  "当前浏览器无法安全协调多标签页，请使用支持 Web Locks 的浏览器发送消息。": "当前浏览器无法安全协调多标签页，请使用支持 Web Locks 的浏览器发送消息。"
 }

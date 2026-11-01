@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -143,7 +144,7 @@ try {
     const composer = await page.locator('.composer').boundingBox();
     assert(queue.y + queue.height <= composer.y + 1);
     await page.waitForTimeout(200);
-    await page.screenshot({ path: new URL(`${name}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`${name}.png`, out)) });
   }
   await send('one').click();
   await send('one').waitFor({ state: 'detached' });

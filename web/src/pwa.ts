@@ -1,27 +1,5 @@
 import { t } from './i18n';
 export function initializePwa() {
-  // Safari can ignore user-scalable=no; cancel its native zoom gesture too.
-  document.addEventListener('gesturestart', (event) => event.preventDefault(), { passive: false });
-  document.addEventListener('gesturechange', (event) => event.preventDefault(), { passive: false });
-  document.addEventListener(
-    'touchmove',
-    (event) => {
-      if (event.touches.length > 1) event.preventDefault();
-    },
-    { passive: false },
-  );
-  window.addEventListener(
-    'wheel',
-    (event) => {
-      if (event.ctrlKey || event.metaKey) event.preventDefault();
-    },
-    { passive: false },
-  );
-  window.addEventListener('keydown', (event) => {
-    if ((event.ctrlKey || event.metaKey) && ['+', '=', '-', '0'].includes(event.key)) {
-      event.preventDefault();
-    }
-  });
   const root = document.documentElement;
   const viewport = window.visualViewport;
   const standalone = matchMedia('(display-mode: standalone)');
@@ -34,7 +12,7 @@ export function initializePwa() {
     'position:fixed;inset:0;visibility:hidden;pointer-events:none;contain:strict;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);';
   root.appendChild(bounds);
   const resize = () => {
-    // Ignore transient zoom metrics; browser zoom gestures are disabled above.
+    // Pinch zoom changes the visual viewport, not the keyboard/layout height.
     if (viewport && viewport.scale !== 1) return;
     const focused = document.activeElement;
     const editing =

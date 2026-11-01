@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, localStorage, Storage */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -241,7 +242,7 @@ try {
 
   await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
   await page.waitForTimeout(250);
-  await page.screenshot({ path: new URL('notifications-sidebar-dark.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('notifications-sidebar-dark.png', out)) });
   await page.getByRole('button', { name: '收起会话列表', exact: true }).click();
   await page.waitForTimeout(350);
   for (const theme of ['dark', 'light']) {
@@ -258,7 +259,9 @@ try {
         );
       }
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
-      await page.screenshot({ path: new URL(`notifications-${theme}-${width}.png`, out).pathname });
+      await page.screenshot({
+        path: fileURLToPath(new URL(`notifications-${theme}-${width}.png`, out)),
+      });
     }
   }
   await page.evaluate(() => window.remount());
@@ -389,7 +392,8 @@ try {
   );
   console.log(`PASS: ${checks.join('; ')}`);
 } catch (error) {
-  if (page) await page.screenshot({ path: new URL('failure.png', out).pathname }).catch(() => {});
+  if (page)
+    await page.screenshot({ path: fileURLToPath(new URL('failure.png', out)) }).catch(() => {});
   throw error;
 } finally {
   await browser.close();

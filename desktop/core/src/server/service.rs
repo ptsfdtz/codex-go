@@ -832,7 +832,8 @@ impl Core {
                 .any(|row| connected.get(s(row, "deviceId")).copied().unwrap_or(0) > 0)
         };
         if !any_connected {
-            self.invalidate_approvals(true)?;
+            // CLI/desktop reviewers still own requests on a shared runtime.
+            self.invalidate_approvals(!self.attached_runtime.load(Ordering::SeqCst))?;
         }
         self.publish();
         Ok(())

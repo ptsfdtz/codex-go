@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, localStorage, TextEncoder, btoa, StorageEvent */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -227,7 +228,7 @@ try {
   await mainInput.fill('PRIMARY-DRAFT');
   await host.getByRole('button', { name: '打开工具', exact: true }).click();
   await host.getByRole('region', { name: '工具', exact: true }).waitFor();
-  await page.screenshot({ path: new URL('launcher.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('launcher.png', out)) });
   await host
     .locator('.tools-grid')
     .getByRole('button', { name: /侧边对话/ })
@@ -282,11 +283,11 @@ try {
     (await side.locator('.side-chat-header').boundingBox()).y < 80,
     'side header must sit directly below tool tabs',
   );
-  await page.screenshot({ path: new URL('two-chats-desktop.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('two-chats-desktop.png', out)) });
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'dark';
   });
-  await page.screenshot({ path: new URL('two-chats-dark.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('two-chats-dark.png', out)) });
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'light';
   });
@@ -418,14 +419,14 @@ try {
   await page.waitForFunction(() =>
     window.calls.some((c) => c.action === 'ssh.resize' && c.payload.cols < 70),
   );
-  await page.screenshot({ path: new URL('ssh-mobile.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('ssh-mobile.png', out)) });
   assert.equal(await primary.isVisible(), false);
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
     false,
   );
   await nav.getByRole('button', { name: '侧边对话', exact: true }).click();
-  await page.screenshot({ path: new URL('side-chat-mobile.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('side-chat-mobile.png', out)) });
   assert.equal(await side.isVisible(), true);
   await host.getByRole('button', { name: '关闭工具栏' }).click();
   await page.waitForFunction(() => window.sshClosed > 0);
@@ -476,7 +477,7 @@ try {
         2,
       ),
     );
-    await activePage.screenshot({ path: new URL('failure.png', out).pathname });
+    await activePage.screenshot({ path: fileURLToPath(new URL('failure.png', out)) });
   }
   console.error(errors);
   throw error;

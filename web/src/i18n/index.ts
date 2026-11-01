@@ -3,6 +3,11 @@ import { useSyncExternalStore } from 'react';
 import en from './en.json';
 import zhCN from './zh-CN.json';
 
+// Source-language messages already use their text as keys. Reuse the English
+// catalog's complete key set instead of shipping the same Chinese strings twice.
+// The build retains only non-identity translations in the Chinese JSON module.
+const chinese = { ...Object.fromEntries(Object.keys(en).map((key) => [key, key])), ...zhCN };
+
 export type LanguagePreference = 'system' | 'zh-CN' | 'en';
 export type Locale = 'zh-CN' | 'en';
 export const languageStorageKey = 'agentdeck.language';
@@ -31,7 +36,7 @@ void instance.init({
   lng: locale,
   fallbackLng: 'en',
   supportedLngs: ['zh-CN', 'en'],
-  resources: { en: { translation: en }, 'zh-CN': { translation: zhCN } },
+  resources: { en: { translation: en }, 'zh-CN': { translation: chinese } },
   initAsync: false,
   keySeparator: false,
   nsSeparator: false,
@@ -95,7 +100,7 @@ apply();
 
 // Only apply to application error fields. Conversation text, filenames and API/model
 // identifiers are rendered verbatim. Retain upstream/OS diagnostics when unknown.
-const catalogs: Record<string, string>[] = [en, zhCN];
+const catalogs: Record<string, string>[] = [en, chinese];
 const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const patterns = catalogs.flatMap((catalog) =>
   Object.entries(catalog).map(([key, value]) => {

@@ -87,7 +87,13 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 任务提醒回归复用上述 Playwright 和本地 Vite 环境；挂载真实 App 并拦截账户/Host 请求，检查任务结束、同步/异步提问、待审批、未读蓝点、去重和持久化、状态补读与窄屏布局。系统通知使用测试替身，不请求操作系统权限；结果和截图输出到 `artifacts/task-notifications/`，不执行真实模型或审批操作。
 
-自动项目登记真实接口测试须设置 `AGENTDECK_TEST_OFFICIAL_CODEX` 为已验证的官方程序绝对路径，并追加 `-- --include-ignored`，不调用模型。性能测试须使用独立固定的生产构建目录，避免并行构建替换资源。浏览器脚本的环境变量及实际覆盖以对应脚本为准。
+自动项目登记真实接口测试须设置 `AGENTDECK_TEST_OFFICIAL_CODEX` 为已验证的官方程序绝对路径，并追加 `-- --include-ignored`，不调用模型。性能测试须使用独立固定的生产构建目录，避免并行构建替换资源。首屏预算恢复为全部已加载 JS 的 decodedBodySize 总和严格小于 450000 字节，包含字典及依赖，不按分块排除；中英文各运行三轮，并检查未使用的设置、编辑器、历史与连接分块未被首屏加载。浏览器脚本的环境变量及实际覆盖以对应脚本为准。
+
+AgentChat 跨标签存储回归为 `pnpm test:api-chat-storage-browser`，复用本地 Vite 与 Playwright；使用两个真实页面和 IndexedDB 检查最终回复恢复、孤立生成恢复、无广播删除/并发保存、重载及账户隔离，不调用供应商。发送和持久恢复要求浏览器支持 Web Locks；不支持时保留草稿及现有记录，显示提示并阻止发送，不能猜测另一标签页的请求已结束。
+
+缩放可访问性回归为 `pnpm test:pwa-accessibility-browser`，检查 viewport、touch-action、未取消的缩放快捷键/滚轮/多指事件，以及 CDP 页面放大时布局高度不变。当前浏览器组合的 CDP 合成双指手势未改变缩放，故不将该脚本视为真机双指缩放验收。原生手势、软键盘和安全区仍须在真实手机/PWA 上检查。
+
+`pnpm test:web-unit` 集中运行模型偏好、文件工作区、电脑名称、会话运行状态及 KaTeX 安全回归；`pnpm test:katex-security` 可单独运行后者。KaTeX 固定为 0.18.2，workspace override 同时覆盖数学解析器和 rehype 的间接依赖，以修复 `GHSA-238p-pmpm-9mq7`；不要通过忽略低危审计或降低审计等级绕过。Windows CI 运行上述单元、双语检查及完整 Host 库/CLI 测试，保留依赖审计。
 
 运行时权限配置兼容测试使用同一 `AGENTDECK_TEST_OFFICIAL_CODEX` 变量，追加 `-- --include-ignored` 可运行官方接口检查。它在临时 `CODEX_HOME` 中分别设置未指定、read-only、workspace-write、danger-full-access，并检查受信任项目局部配置；使用 Windows 启动参数，核对全局/项目配置、项目列表与临时会话权限，确认两份配置文件保持不变。不读取日常认证、不调用模型；Linux 上运行只证明官方配置覆盖和会话元数据行为，不能代替 Windows MXC 实际读写隔离、权限切换和共享运行时重启验收。
 
@@ -108,3 +114,5 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal -
 `node scripts/web/check-i18n.mjs` 校验中英文资源键、插值参数、复数与源码提取。启动本地 Vite 后运行 `PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs I18N_TEST_ORIGIN=http://127.0.0.1:1430 node scripts/web/test-i18n-browser.mjs`。脚本挂载真实 Web 组件并从仓库提供管理页及语言目录，拦截全部账户/Host 请求；不访问真实账户或执行模型任务。覆盖语言检测与切换、跨标签同步、草稿/表单保留、延迟组件、通知、安全插值和英文窄屏，结果与截图在 `artifacts/i18n/`。已有中文浏览器回归显式指定 `zh-CN`。
 
 Host 语言检查：`cargo test --locked --manifest-path desktop/core/Cargo.toml --lib i18n` 与 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test i18n_cli`。集成测试使用临时 `AGENTDECK_DATA_DIR`，不启动日常 Host。
+
+生产 TLS 分块回归为 `pnpm test:tls-bundle-browser`：先构建并在回环端口 1599 启动 Vite preview，复用 Playwright 和本机 OpenSSL。脚本仅在临时目录创建证书，通过回环 WebSocket 转接到本地 TLS 1.3 服务，验证正确 pin 的握手/数据交换、错误 pin 不释放应用数据、分块在连接前不加载且各小于 500 kB；不连接真实 Host。根证书与 TLS 代码分包仅改善独立缓存和单块大小，首次连接合计约 551 kB，未削减根证书或改变加密及 pin 校验。

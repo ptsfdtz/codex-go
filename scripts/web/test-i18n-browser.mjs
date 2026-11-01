@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, localStorage, navigator, Event, StorageEvent */
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -299,7 +300,7 @@ try {
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
       'No page overflow',
     );
-    await page.screenshot({ path: new URL(`settings-en-${width}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`settings-en-${width}.png`, out)) });
   }
   assert.equal(
     await page.evaluate(
@@ -381,7 +382,7 @@ try {
     .waitFor();
   assert.equal(await admin.locator('input[name="maxHosts"]').inputValue(), '7');
   await admin.getByRole('dialog').getByText('最多电脑数', { exact: true }).waitFor();
-  await admin.screenshot({ path: new URL('admin-zh.png', out).pathname });
+  await admin.screenshot({ path: fileURLToPath(new URL('admin-zh.png', out)) });
   await admin.close();
   checks.push(
     'Actual admin HTML/JS/shared catalogs; static/dynamic labels and open editor update without losing form values',
