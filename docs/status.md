@@ -4,13 +4,19 @@
 
 截至 2026-11-01。此处维护当前结论；早期部署和逐轮测试流水查阅 Git 历史。源码已实现、Web 已部署、Host 已安装与真实端到端验收分别记录，不能相互替代。
 
+## 0.4.3 候选准备（尚未正式发布）
+
+用户已授权完成验收后合并 main，并正式发布 0.4.3 更新全部线上环境。目前准备从 release 封存候选；源码 `373ecf3` 的 [CI 41312857339](https://github.com/ptsfdtz/codex-go/actions/runs/41312857339) Linux x64/ARM64 与 macOS 已通过，Windows 打包仍在执行。正式发布流程已补全 macOS ARM64 独立附件及 SHA-256，四平台真实验收门槛保持。
+
+当前尚无 0.4.3 候选哈希或同批真实端到端证据，Windows、Linux x64/ARM64、macOS ARM64 的安装升级、云端连接、真实模型、沙箱审批、重连恢复和本次功能均须按发布文档记录。尚未合并 main、部署或推进稳定下载指针，正式版本仍为 0.4.2。
+
 ## Windows 隔离审查修复（未部署）
 
 基于 release `a175edc2b25e12d3d37614f419de8a9dd4ebe8b5` 的本地修复，未改变下方生产版本记录。AgentChat 在 IndexedDB 事务内重新读取恢复记录，并以持久删除标记阻止跨标签晚到保存；无 Web Locks 时阻止发送及猜测恢复。撤销设备时保留共享运行时上游审批决定权；移除页面/手势/快捷键/CSS 的缩放拦截。另修复 Windows 测试路径、单元测试模块加载、侧栏命中及旧测试的语音/按需加载预期。
 
 Windows x64：Host 库 58 通过、2 个官方运行时集成测试跳过；CLI 2 通过；Host 严格 Clippy、Rust 格式、前端 31 项单元、类型/ESLint、格式、1095 条双语消息与 schema 校验通过。19 套受控 Chromium 功能脚本、生产 TLS 分块回归及中英文各三轮生产构建性能检查通过，使用 Playwright 1.58.2 与现有 Chromium 153.0.8010.12；未安装新浏览器、访问真实账户、调用模型或连接数据库。证据为 `artifacts/windows-audit/verification.json` 及同目录日志；截图在对应功能 artifacts 目录。
 
-历史 CI [41304040443](https://github.com/ptsfdtz/codex-go/actions/runs/41304040443) 的 Windows job 在 `pnpm audit --prod` 因 KaTeX 公告 `GHSA-238p-pmpm-9mq7` 失败，Rust 与构建步骤尚未执行；Linux job 只运行 `host::` 测试，不能作为前端安全证据。本地复现后将直接及两条间接 KaTeX 路径统一锁定为 0.18.2，`pnpm audit --prod` 无已知漏洞；新增原型污染下信任限制回归及依赖路径一致性检查通过，升级后数学/AgentChat/图片/工作区工具回归通过。CI 配置已补齐前端单元、双语及完整 Windows Host 库/CLI 测试，未推送或触发远端运行；历史 CI 不验证本地修改。
+历史 CI [41304040443](https://github.com/ptsfdtz/codex-go/actions/runs/41304040443) 的 Windows job 在 `pnpm audit --prod` 因 KaTeX 公告 `GHSA-238p-pmpm-9mq7` 失败，Rust 与构建步骤尚未执行；Linux job 只运行 `host::` 测试，不能作为前端安全证据。本地复现后将直接及两条间接 KaTeX 路径统一锁定为 0.18.2，`pnpm audit --prod` 无已知漏洞；新增原型污染下信任限制回归及依赖路径一致性检查通过，升级后数学/AgentChat/图片/工作区工具回归通过。CI 配置已补齐前端单元、双语及完整 Windows Host 库/CLI 测试，已推送至 release；最新运行见下方 0.4.3 候选准备，历史失败不能作为当前提交的结果。
 
 首屏总 JS 门槛恢复为严格 <450000 字节，完整计入字典和依赖。设置、登录、编辑器、历史渲染及 Host 连接按需加载，源语言重复文案去重但保留完整双语键及错误翻译；中英文六轮均为 449109 字节（入口 375552，字典 73557），优化前为 579893 字节。全部构建 JS 块均小于 500 kB；TLS 代码 279266、根证书 271862 字节，仅在连接时加载。生产分块对本地 TLS 1.3 的握手、ping/pong 和错误 pin 不释放应用数据回归通过，首次 TLS 冷加载总量仍为 551128 字节，未改变证书或加密实现。三轮中文本地 4 倍 CPU 降速 FCP 为 596/372/332 ms，英文为 384/320/344 ms；没有同环境修复前计时对照，不能据此声称真实网络或手机变快。
 
