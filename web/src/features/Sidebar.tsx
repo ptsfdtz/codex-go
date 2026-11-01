@@ -1,5 +1,13 @@
 import { Select } from '../components/Select';
-import { useRef, useState, type ReactNode, type MouseEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type MouseEvent,
+} from 'react';
 import {
   Archive,
   ArchiveRestore,
@@ -14,14 +22,14 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
-  Plus,
   RefreshCw,
   Search,
   Settings,
   SlidersHorizontal,
   SquarePen,
+  X,
 } from 'lucide-react';
-import { IconButton, Modal } from '../ui';
+import { IconButton } from '../ui';
 import { Collapse, MotionList } from '../motion';
 import type { Host, Project, Session } from '../workspace';
 import { canManage, isSessionWorking } from '../workspace';
@@ -80,12 +88,15 @@ export function Sidebar({
   const [sort, setSort] = useState('recent');
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [recentsOpen, setRecentsOpen] = useState(true);
+  const [markedOpen, setMarkedOpen] = useState(true);
   const [closedProjects, setClosedProjects] = useState(new Set<string>());
   const [fullProjects, setFullProjects] = useState(new Set<string>());
   const [recentLimit, setRecentLimit] = useState(20);
   const [filters, setFilters] = useState(false);
   const [menuSession, setMenuSession] = useState<Session>();
-  const [menuPosition, setMenuPosition] = useState({ left: 8, top: 8 });
+  const menuId = useId();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuAnchor = useRef({ left: 8, top: 8, bottom: 8, right: 8 });
   const menu = useRef<HTMLDivElement>(null);
   const menuTrigger = useRef<HTMLElement | null>(null);
   const [confirmation, setConfirmation] = useState<Session>();
@@ -117,6 +128,9 @@ export function Sidebar({
               : true),
     )
     .sort(byRecent);
+  const marked = visible.filter((s) => s.pinned === 1 && s.archived !== 1);
+  const unmarked = visible.filter((s) => s.pinned !== 1 || s.archived === 1);
+  const latestMenuSession = sessions.find((s) => s.sessionId === menuSession?.sessionId);
   const manageable = (s: Session) =>
     connected && !actionsBlocked && !pending && canManage(s) && !isSessionWorking(s);
   const act = async (action: SessionAction, s: Session) => {
@@ -126,7 +140,7 @@ export function Sidebar({
     setError('');
     try {
       await onSessionAction(action, s);
-      setConfirmation(undefined);
+      closeMenu();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -135,38 +149,91 @@ export function Sidebar({
     }
   };
   const closeMenu = () => menu.current?.hidePopover();
-  const showMenu = (s: Session, target: HTMLElement, x: number, y: number) => {
+  const positionMenu = () => {
+    const node = menu.current;
+    if (!node) return;
+    const viewport = window.visualViewport;
+    const left = (viewport?.offsetLeft || 0) + 12;
+    const top = (viewport?.offsetTop || 0) + 12;
+    const right = left + (viewport?.width || window.innerWidth) - 24;
+    const bottom = top + (viewport?.height || window.innerHeight) - 24;
+    const width = Math.min(confirmation ? 304 : 216, right - left);
+    node.style.width = `${width}px`;
+    node.style.maxHeight = `${bottom - top}px`;
+    const anchor = menuAnchor.current;
+    const height = node.offsetHeight;
+    const up = bottom - anchor.bottom - 6 < height && anchor.top - top > bottom - anchor.bottom;
+    node.style.left = `${Math.max(left, Math.min(anchor.right - width, right - width))}px`;
+    node.style.top = `${Math.max(top, Math.min(up ? anchor.top - height - 6 : anchor.bottom + 6, bottom - height))}px`;
+    node.style.transformOrigin = up ? 'bottom right' : 'top right';
+  };
+  useLayoutEffect(() => {
+    if (menuOpen) positionMenu();
+  });
+  useLayoutEffect(() => {
+    if (confirmation) menu.current?.querySelector<HTMLButtonElement>('[data-cancel]')?.focus();
+  }, [confirmation]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const update = () => positionMenu();
+    const dismiss = (event: Event) => {
+      if (event.target instanceof Node && menu.current?.contains(event.target)) return;
+      closeMenu();
+    };
+    const focus = (event: FocusEvent) => {
+      if (event.target !== menuTrigger.current) dismiss(event);
+    };
+    const observer = new ResizeObserver(update);
+    if (menu.current) observer.observe(menu.current);
+    window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    document.addEventListener('scroll', dismiss, true);
+    document.addEventListener('focusin', focus);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      document.removeEventListener('scroll', dismiss, true);
+      document.removeEventListener('focusin', focus);
+    };
+  });
+  useEffect(() => {
+    if (!open) closeMenu();
+  }, [open]);
+  const showMenu = (s: Session, target: HTMLElement, point?: { x: number; y: number }) => {
+    if (pendingRef.current) return;
+    const box = target.getBoundingClientRect();
+    menuAnchor.current = point
+      ? { left: point.x, right: point.x + 216, top: point.y, bottom: point.y }
+      : box;
+    setConfirmation(undefined);
+    setError('');
     setMenuSession(s);
-    setMenuPosition({
-      left: Math.max(8, Math.min(x, window.innerWidth - 212)),
-      top: Math.max(8, Math.min(y, window.innerHeight - 170)),
-    });
     menuTrigger.current = target;
     menu.current?.showPopover();
+    setMenuOpen(true);
     requestAnimationFrame(() =>
       menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus(),
     );
   };
   const contextMenu = (event: MouseEvent<HTMLElement>, s: Session) => {
     event.preventDefault();
-    showMenu(
-      s,
-      event.currentTarget.querySelector<HTMLElement>('.session') || event.currentTarget,
-      event.clientX,
-      event.clientY,
-    );
+    showMenu(s, event.currentTarget.querySelector<HTMLElement>('.session') || event.currentTarget, {
+      x: event.clientX,
+      y: event.clientY,
+    });
   };
-  const row = (s: Session) => (
+  const row = (s: Session, area: string) => (
     <div
       data-motion-item
-      className={`session-row desktop-session-row ${s.sessionId === sessionId ? 'selected' : ''}`}
+      className={`session-row desktop-session-row ${s.sessionId === sessionId ? 'selected' : ''} ${menuOpen && menuTrigger.current?.id === `${menuId}-${area}-${s.sessionId}` ? 'has-open-menu' : ''}`}
+      data-session-id={s.sessionId}
       key={s.sessionId}
       onContextMenu={(event) => contextMenu(event, s)}
       onKeyDown={(event) => {
         if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
           event.preventDefault();
-          const box = event.currentTarget.getBoundingClientRect();
-          showMenu(s, event.target as HTMLElement, box.left + 20, box.bottom);
+          showMenu(s, event.target as HTMLElement);
         }
       }}
     >
@@ -188,27 +255,26 @@ export function Sidebar({
         )}
       </button>
       <div className="sidebar-session-actions">
-        <IconButton
-          icon={s.pinned === 1 ? PinOff : Pin}
-          label={`${s.pinned === 1 ? '取消置顶' : '置顶'} ${s.title || '未命名会话'}`}
-          className={s.pinned === 1 ? 'is-pinned' : ''}
-          pressed={s.pinned === 1}
-          disabled={!manageable(s)}
-          onClick={() => void act('pin', s)}
-        />
-        <IconButton
-          icon={s.archived === 1 ? ArchiveRestore : Archive}
-          label={`${s.archived === 1 ? '恢复' : '归档'} ${s.title || '未命名会话'}`}
-          disabled={!manageable(s)}
-          onClick={() => {
-            setError('');
-            setConfirmation(s);
+        <button
+          type="button"
+          className="icon-button sidebar-more"
+          id={`${menuId}-${area}-${s.sessionId}`}
+          aria-label={`更多操作 ${s.title || '未命名会话'}`}
+          title="更多操作"
+          disabled={!!pending}
+          aria-haspopup="menu"
+          aria-controls={menuId}
+          aria-expanded={menuOpen && menuTrigger.current?.id === `${menuId}-${area}-${s.sessionId}`}
+          onClick={(event) => {
+            if (menuOpen && menuTrigger.current === event.currentTarget) closeMenu();
+            else showMenu(s, event.currentTarget);
           }}
-        />
+        >
+          <MoreHorizontal size={15} aria-hidden="true" />
+        </button>
         <IconButton
-          icon={MoreHorizontal}
-          label={`管理会话 ${s.title || '未命名会话'}`}
-          className="sidebar-touch-menu"
+          icon={SquarePen}
+          label={`编辑会话 ${s.title || '未命名会话'}`}
           onClick={() => onManage(s)}
         />
       </div>
@@ -228,7 +294,11 @@ export function Sidebar({
       >
         <div className="sidebar-brand">
           {brand || <strong>AgentDeck</strong>}
-          <IconButton icon={Menu} label="收起会话列表" onClick={onClose} />
+          <IconButton
+            icon={Menu}
+            label="收起会话列表"
+            onClick={onClose}
+          />
         </div>
         <div className="sidebar-primary">
           <button onClick={onNew}>
@@ -245,6 +315,24 @@ export function Sidebar({
           <IconButton icon={Search} label="搜索会话" onClick={onSearch} />
         </div>
         <div className="sidebar-scroll">
+          {marked.length > 0 && (
+            <section className="sidebar-marked" aria-label="已标记">
+              <button
+                className="desktop-rail-heading"
+                aria-expanded={markedOpen}
+                onClick={() => setMarkedOpen(!markedOpen)}
+              >
+                <Pin size={13} />
+                已标记
+                <ChevronDown size={13} className={markedOpen ? '' : 'is-collapsed'} />
+              </button>
+              <Collapse open={markedOpen}>
+                <MotionList as="nav" label="已标记对话列表">
+                  {marked.map((s) => row(s, 'marked'))}
+                </MotionList>
+              </Collapse>
+            </section>
+          )}
           <section className="sidebar-projects" aria-label="项目">
             <button
               className="desktop-rail-heading"
@@ -256,7 +344,7 @@ export function Sidebar({
             </button>
             <Collapse open={projectsOpen}>
               {projects.map((p) => {
-                const projectSessions = visible.filter((s) => s.projectId === p.projectId);
+                const projectSessions = unmarked.filter((s) => s.projectId === p.projectId);
                 const expanded = !closedProjects.has(p.projectId);
                 const selectedIndex = projectSessions.findIndex((s) => s.sessionId === sessionId);
                 const count = fullProjects.has(p.projectId)
@@ -278,7 +366,7 @@ export function Sidebar({
                         <span>{p.name}</span>
                       </button>
                       <IconButton
-                        icon={Plus}
+                        icon={SquarePen}
                         label={`在 ${p.name} 中新建对话`}
                         onClick={() => onProject(p.projectId)}
                       />
@@ -289,7 +377,9 @@ export function Sidebar({
                         label={`${p.name} 的对话`}
                         className="sidebar-project-sessions"
                       >
-                        {projectSessions.slice(0, count).map(row)}
+                        {projectSessions
+                          .slice(0, count)
+                          .map((s) => row(s, `project-${p.projectId}`))}
                         {!projectSessions.length && (
                           <button
                             className="sidebar-project-empty"
@@ -327,7 +417,7 @@ export function Sidebar({
                 {filter === 'archived'
                   ? '归档对话'
                   : filter === 'pinned'
-                    ? '置顶对话'
+                    ? '最近对话'
                     : filter === 'active'
                       ? '活动任务'
                       : '最近对话'}
@@ -353,7 +443,6 @@ export function Sidebar({
                   {[
                     ['all', '全部对话'],
                     ['active', '活动任务'],
-                    ['pinned', '置顶'],
                     ['archived', '归档'],
                   ].map(([id, name]) => (
                     <option key={id} value={id}>
@@ -373,9 +462,9 @@ export function Sidebar({
             </Collapse>
             <Collapse open={recentsOpen}>
               <MotionList as="nav" label="最近对话列表">
-                {visible.slice(0, recentLimit).map(row)}
-                {!visible.length && <p className="rail-empty">暂无会话</p>}
-                {visible.length > recentLimit && (
+                {unmarked.slice(0, recentLimit).map((s) => row(s, 'recent'))}
+                {!unmarked.length && <p className="rail-empty">暂无会话</p>}
+                {unmarked.length > recentLimit && (
                   <button
                     className="sidebar-show-more"
                     onClick={() => setRecentLimit((n) => n + 20)}
@@ -400,21 +489,41 @@ export function Sidebar({
           <IconButton icon={Settings} label="设置" onClick={onSettings} />
         </div>
         <div
+          id={menuId}
           ref={menu}
           popover="auto"
-          className="sidebar-context-menu"
-          role="menu"
-          aria-label="会话操作"
-          style={menuPosition}
+          className={`sidebar-context-menu ${confirmation ? 'is-confirming' : ''}`}
+          role={confirmation ? 'dialog' : 'menu'}
+          aria-label={
+            confirmation ? (confirmation.archived === 1 ? '恢复会话' : '归档会话') : '会话操作'
+          }
+          aria-describedby={confirmation ? `${menuId}-description` : undefined}
+          aria-busy={!!pending}
           onToggle={(event) => {
+            const isOpen = event.newState === 'open';
+            setMenuOpen(isOpen);
+            if (isOpen) return;
+            setConfirmation(undefined);
             if (
-              !event.currentTarget.matches(':popover-open') &&
-              (event.currentTarget.contains(document.activeElement) ||
-                document.activeElement === document.body)
-            )
-              menuTrigger.current?.focus();
+              event.currentTarget.contains(document.activeElement) ||
+              document.activeElement === document.body
+            ) {
+              const sidebar = event.currentTarget.closest('aside');
+              requestAnimationFrame(() => {
+                const replacement = [
+                  ...(sidebar?.querySelectorAll<HTMLElement>('.session-row') || []),
+                ]
+                  .find((el) => el.dataset.sessionId === menuSession?.sessionId)
+                  ?.querySelector<HTMLButtonElement>('.sidebar-more');
+                const target = menuTrigger.current?.isConnected ? menuTrigger.current : replacement;
+                (
+                  target || sidebar?.querySelector<HTMLButtonElement>('.desktop-rail-heading')
+                )?.focus({ preventScroll: true });
+              });
+            }
           }}
           onKeyDown={(event) => {
+            if (confirmation) return;
             const buttons = [
               ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
             ];
@@ -431,72 +540,82 @@ export function Sidebar({
             }
           }}
         >
-          <button
-            role="menuitem"
-            onClick={() => {
-              closeMenu();
-              if (menuSession) onManage(menuSession);
-            }}
-          >
-            <SquarePen size={15} />
-            重命名及更多操作
-          </button>
-          <button
-            role="menuitem"
-            disabled={!menuSession || !manageable(menuSession)}
-            onClick={() => {
-              closeMenu();
-              if (menuSession) void act('pin', menuSession);
-            }}
-          >
-            <Pin size={15} />
-            {menuSession?.pinned === 1 ? '取消置顶' : '置顶'}
-          </button>
-          <button
-            role="menuitem"
-            disabled={!menuSession || !manageable(menuSession)}
-            onClick={() => {
-              closeMenu();
-              setError('');
-              setConfirmation(menuSession);
-            }}
-          >
-            <Archive size={15} />
-            {menuSession?.archived === 1 ? '恢复会话' : '归档会话'}
-          </button>
-        </div>
-        {confirmation && (
-          <Modal
-            title={confirmation.archived === 1 ? '恢复会话' : '归档会话'}
-            onClose={() => {
-              if (!pending) setConfirmation(undefined);
-            }}
-            compact
-          >
-            <p>
-              {confirmation.archived === 1 ? '恢复' : '归档'}“{confirmation.title || '未命名会话'}
-              ”？
-            </p>
-            {error && (
-              <p className="error" role="alert">
-                {error}
+          {confirmation ? (
+            <div className="sidebar-archive-confirmation">
+              <div className="sidebar-confirmation-heading">
+                {confirmation.archived === 1 ? <ArchiveRestore size={17} /> : <Archive size={17} />}
+                <h3>{confirmation.archived === 1 ? '恢复会话' : '归档会话'}</h3>
+                <IconButton icon={X} label="关闭确认" onClick={closeMenu} disabled={!!pending} />
+              </div>
+              <p className="sidebar-confirmation-name">{confirmation.title || '未命名会话'}</p>
+              <p id={`${menuId}-description`} className="sidebar-confirmation-description">
+                {confirmation.archived === 1
+                  ? '恢复后会重新显示在对话列表中。'
+                  : '归档后将从列表收起，可在归档对话中恢复。'}
               </p>
-            )}
-            <div className="button-row">
-              <button disabled={!!pending} onClick={() => setConfirmation(undefined)}>
-                取消
+              {error && (
+                <p className="error" role="alert">
+                  {error}
+                </p>
+              )}
+              <div className="button-row">
+                <button data-cancel disabled={!!pending} onClick={closeMenu}>
+                  取消
+                </button>
+                <button
+                  disabled={!latestMenuSession || !manageable(latestMenuSession)}
+                  onClick={() => {
+                    if (latestMenuSession)
+                      void act(
+                        confirmation.archived === 1 ? 'restore' : 'archive',
+                        latestMenuSession,
+                      );
+                  }}
+                >
+                  {pending ? '处理中…' : confirmation.archived === 1 ? '恢复' : '归档'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  closeMenu();
+                  if (menuSession) onManage(menuSession);
+                }}
+              >
+                <SquarePen size={15} />
+                编辑会话
               </button>
               <button
-                disabled={!manageable(confirmation)}
-                onClick={() =>
-                  void act(confirmation.archived === 1 ? 'restore' : 'archive', confirmation)
-                }
+                role="menuitem"
+                disabled={!latestMenuSession || !manageable(latestMenuSession)}
+                onClick={() => {
+                  if (latestMenuSession) void act('pin', latestMenuSession);
+                }}
               >
-                {pending ? '处理中…' : '确认'}
+                {latestMenuSession?.pinned === 1 ? <PinOff size={15} /> : <Pin size={15} />}
+                {latestMenuSession?.pinned === 1 ? '取消标记' : '标记会话'}
               </button>
-            </div>
-          </Modal>
-        )}
+              <button
+                role="menuitem"
+                disabled={!latestMenuSession || !manageable(latestMenuSession)}
+                onClick={() => {
+                  setError('');
+                  setConfirmation(latestMenuSession);
+                }}
+              >
+                {latestMenuSession?.archived === 1 ? (
+                  <ArchiveRestore size={15} />
+                ) : (
+                  <Archive size={15} />
+                )}
+                {latestMenuSession?.archived === 1 ? '恢复会话' : '归档会话'}
+              </button>
+            </>
+          )}
+        </div>
       </aside>
     </>
   );

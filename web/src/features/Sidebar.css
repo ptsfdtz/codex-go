@@ -159,6 +159,7 @@
   display: flex;
   align-items: center;
   position: absolute;
+  z-index: 1;
   inset: 0 3px 0 auto;
   opacity: 0;
   pointer-events: none;
@@ -174,11 +175,11 @@
 .desktop-session-row.selected:hover .sidebar-session-actions {
   background: var(--hover);
 }
-.desktop-session-row:is(:hover, :focus-within, .selected) .sidebar-session-actions {
+.desktop-session-row:is(:hover, :focus-within, .selected, .has-open-menu) .sidebar-session-actions {
   opacity: 1;
   pointer-events: auto;
 }
-.desktop-session-row:is(:hover, :focus-within, .selected) > .session {
+.desktop-session-row:is(:hover, :focus-within, .selected, .has-open-menu) > .session {
   padding-right: 62px;
 }
 .sidebar-session-actions > .icon-button {
@@ -191,11 +192,11 @@
   width: 14px;
   height: 14px;
 }
-.sidebar-session-actions > .sidebar-touch-menu {
-  display: none;
+.sidebar-marked {
+  margin-bottom: 22px;
 }
-.sidebar-session-actions .is-pinned {
-  color: var(--text);
+.sidebar-marked > .desktop-rail-heading {
+  margin-bottom: 4px;
 }
 .sidebar-recents {
   margin-top: 28px;
@@ -255,6 +256,7 @@
 }
 .sidebar-context-menu {
   position: fixed;
+  inset: auto;
   margin: 0;
   width: 204px;
   padding: 5px;
@@ -263,6 +265,7 @@
   background: var(--rail);
   color: var(--text);
   box-shadow: var(--shadow);
+  overflow-y: auto;
 }
 .sidebar-context-menu:popover-open {
   display: grid;
@@ -276,6 +279,75 @@
   border: 0;
   font-size: 13px;
 }
+.sidebar-context-menu.is-confirming[popover] {
+  padding: 0;
+}
+.sidebar-archive-confirmation {
+  padding: 14px;
+}
+.sidebar-confirmation-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar-confirmation-heading > svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.sidebar-confirmation-heading h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sidebar-confirmation-heading .icon-button {
+  width: 28px;
+  height: 28px;
+  margin: -4px -4px -4px 0;
+  color: var(--muted);
+}
+.sidebar-confirmation-heading .icon-button svg {
+  width: 15px;
+  height: 15px;
+}
+.sidebar-confirmation-name {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sidebar-confirmation-description,
+.sidebar-archive-confirmation .error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.sidebar-confirmation-description {
+  color: var(--muted);
+}
+.sidebar-archive-confirmation .error {
+  margin-top: 10px;
+}
+.sidebar-archive-confirmation .button-row {
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.sidebar-archive-confirmation .button-row button {
+  min-height: 34px;
+  padding: 6px 14px;
+  font-size: 12px;
+}
+.sidebar-archive-confirmation .button-row button:last-child {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
 @media (hover: none), (pointer: coarse) {
   .sidebar-project-heading > .icon-button,
   .sidebar-heading-actions {
@@ -286,13 +358,17 @@
     pointer-events: auto;
   }
   .sidebar-session-actions > .icon-button {
-    display: none;
-  }
-  .sidebar-session-actions > .sidebar-touch-menu {
-    display: flex;
+    width: 44px;
+    height: 44px;
   }
   .desktop-sidebar .desktop-session-row > .session {
-    padding-right: 34px;
+    min-height: 44px;
+    padding-right: 94px;
+  }
+  .sidebar-archive-confirmation .button-row button,
+  .sidebar-confirmation-heading .icon-button {
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

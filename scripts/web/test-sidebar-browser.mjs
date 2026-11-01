@@ -1,12 +1,13 @@
 /* global window, document, requestAnimationFrame */
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = new URL('../../artifacts/sidebar-desktop/', import.meta.url);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1200, height: 850 } });
+  page.setDefaultTimeout(7000);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/api/**', (route) => route.abort());
@@ -114,6 +115,10 @@ try {
         setFilter,
         onSessionAction: async (action, s) => {
           window.sidebarCalls.push([action, s.sessionId]);
+          if (window.sidebarHold)
+            await new Promise((resolve) => {
+              window.sidebarRelease = resolve;
+            });
           if (window.sidebarFail) throw new Error('测试：请求失败，原有会话已保留');
           setSessions((items) =>
             items.map((item) =>
@@ -153,10 +158,31 @@ try {
   assert.equal(await project.locator('.session-row').count(), 3);
   await page.getByRole('button', { name: '显示更多（1）', exact: true }).click();
   await project.getByText('正在检查项目', { exact: true }).waitFor();
-  assert.equal(
-    await project.getByRole('button', { name: '置顶 正在检查项目', exact: true }).isDisabled(),
-    true,
-  );
+  const menu = page.getByRole('menu', { name: '会话操作', exact: true });
+  const more = (row) => row.getByRole('button', { name: /^更多操作 / });
+  const openMore = async (row) => {
+    await settle();
+    await row.hover();
+    await more(row).click();
+    await menu.waitFor();
+  };
+  const startArchive = async (row, restore = false) => {
+    await openMore(row);
+    await menu
+      .getByRole('menuitem', { name: restore ? '恢复会话' : '归档会话', exact: true })
+      .click();
+    const confirmation = page.getByRole('dialog', {
+      name: restore ? '恢复会话' : '归档会话',
+      exact: true,
+    });
+    await confirmation.waitFor();
+    return confirmation;
+  };
+  const working = project.locator('.session-row').filter({ hasText: '正在检查项目' });
+  await openMore(working);
+  assert(await menu.getByRole('menuitem', { name: '标记会话', exact: true }).isDisabled());
+  assert(await menu.getByRole('menuitem', { name: '归档会话', exact: true }).isDisabled());
+  await page.keyboard.press('Escape');
   await project.getByRole('button', { name: '收起', exact: true }).click();
   await page.getByRole('button', { name: 'outsourced-projects', exact: true }).click();
   await project.waitFor({ state: 'hidden' });
@@ -164,71 +190,125 @@ try {
   await page.getByRole('button', { name: 'outsourced-projects', exact: true }).click();
   await project.waitFor({ state: 'visible' });
   const row = recent.locator('.session-row').filter({ hasText: '制定计划并询问是否开发' });
-  await row.getByRole('button', { name: '置顶 制定计划并询问是否开发', exact: true }).click();
-  await row.getByRole('button', { name: '取消置顶 制定计划并询问是否开发', exact: true }).waitFor();
+  assert.equal(await row.locator('.sidebar-session-actions button').count(), 2);
+  assert.equal(await row.getByRole('button', { name: /^(置顶|归档) / }).count(), 0);
+  await row.getByRole('button', { name: '编辑会话 制定计划并询问是否开发', exact: true }).click();
+  assert.deepEqual(await page.evaluate(() => window.sidebarCalls.at(-1)), ['manage', 'a1']);
+  await openMore(row);
+  assert.equal(await more(row).getAttribute('aria-expanded'), 'true');
   assert.equal(
-    await project
-      .getByRole('button', { name: '取消置顶 制定计划并询问是否开发', exact: true })
-      .count(),
-    1,
+    await more(project.locator('[data-session-id="a1"]')).getAttribute('aria-expanded'),
+    'false',
   );
+  await menu.getByRole('menuitem', { name: '标记会话', exact: true }).click();
+  await menu.waitFor({ state: 'hidden' });
+  const marked = page.getByRole('navigation', { name: '已标记对话列表', exact: true });
+  const markedRow = marked.locator('[data-session-id="a1"]');
+  await markedRow.waitFor();
+  assert.equal(await row.count(), 0);
+  assert.equal(await project.locator('[data-session-id="a1"]').count(), 0);
+  assert.equal(await sidebar.locator('[data-session-id="a1"]').count(), 1);
+  await page.getByRole('button', { name: '已标记', exact: true }).click();
+  await marked.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '已标记', exact: true }).click();
+  await marked.waitFor();
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'dark';
   });
   await page.mouse.move(700, 600);
   await settle();
   await sidebar.screenshot({ path: new URL('desktop-dark.png', out).pathname });
-  // Context menu keyboard navigation, native Escape and focus restoration.
-  await row.locator('.session').click({ button: 'right' });
-  const menu = page.getByRole('menu', { name: '会话操作', exact: true });
+  // Mouse and keyboard both use the same menu; Escape restores the source focus.
+  await markedRow.locator('.session').click({ button: 'right' });
   await menu.waitFor();
   await page.keyboard.press('ArrowDown');
-  assert.equal(await page.evaluate(() => document.activeElement.textContent), '取消置顶');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), '取消标记');
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'hidden' });
-  assert.equal(await row.locator('.session').evaluate((el) => el === document.activeElement), true);
+  await page.waitForFunction(() => document.activeElement.classList.contains('session'));
   await page.keyboard.press('Shift+F10');
   await menu.waitFor();
+  await settle();
   await page.screenshot({ path: new URL('context-menu.png', out).pathname });
   await page.mouse.click(700, 600);
   await menu.waitFor({ state: 'hidden' });
-  // Archive requires confirmation; failures preserve the row and allow retry.
-  await row.getByRole('button', { name: '归档 制定计划并询问是否开发', exact: true }).click();
-  const modal = page.getByRole('dialog');
-  await modal.getByRole('button', { name: '取消', exact: true }).click();
-  assert.equal(await row.count(), 1);
-  await row.getByRole('button', { name: '归档 制定计划并询问是否开发', exact: true }).click();
+  // Archive confirms in place, with cancel as the initial focus. Failure permits retry.
+  let confirmation = await startArchive(markedRow);
+  await settle();
+  const box = await confirmation.boundingBox();
+  const source = await more(markedRow).boundingBox();
+  assert(box.x < 100 && box.width <= 305 && Math.abs(box.y - source.y - source.height - 6) <= 2);
+  assert.equal(await page.locator('dialog[open]').count(), 0);
+  assert(
+    await confirmation
+      .getByRole('button', { name: '取消', exact: true })
+      .evaluate((el) => el === document.activeElement),
+  );
+  await page.screenshot({ path: new URL('archive-dark.png', out).pathname });
+  await confirmation.getByRole('button', { name: '取消', exact: true }).click();
+  await confirmation.waitFor({ state: 'hidden' });
+  assert.equal(await markedRow.count(), 1);
+  confirmation = await startArchive(markedRow);
+  await page.evaluate(() => window.sidebarConnection(false));
+  assert(await confirmation.getByRole('button', { name: '归档', exact: true }).isDisabled());
+  await page.evaluate(() => window.sidebarConnection(true));
+  await page.mouse.click(700, 600);
+  await confirmation.waitFor({ state: 'hidden' });
+  assert.equal(await markedRow.count(), 1);
+  confirmation = await startArchive(markedRow);
   await page.evaluate(() => {
     window.sidebarFail = true;
   });
-  await modal.getByRole('button', { name: '确认', exact: true }).click();
-  await modal.getByRole('alert').waitFor();
-  assert.equal(await row.count(), 1);
+  await confirmation.getByRole('button', { name: '归档', exact: true }).click();
+  await confirmation.getByRole('alert').waitFor();
+  assert.equal(await markedRow.count(), 1);
   await page.evaluate(() => {
     window.sidebarFail = false;
+    window.sidebarHold = true;
   });
-  await modal.getByRole('button', { name: '确认', exact: true }).click();
-  await modal.waitFor({ state: 'hidden' });
-  assert.equal(await row.count(), 0);
+  const countBefore = await page.evaluate(
+    () => window.sidebarCalls.filter(([action]) => action === 'archive').length,
+  );
+  await confirmation.getByRole('button', { name: '归档', exact: true }).click();
+  await confirmation.getByRole('button', { name: '处理中…', exact: true }).waitFor();
+  assert(await confirmation.getByRole('button', { name: '取消', exact: true }).isDisabled());
+  assert(await confirmation.getByRole('button', { name: '处理中…', exact: true }).isDisabled());
+  assert.equal(
+    await page.evaluate(
+      () => window.sidebarCalls.filter(([action]) => action === 'archive').length,
+    ),
+    countBefore + 1,
+  );
+  await page.evaluate(() => {
+    window.sidebarHold = false;
+    window.sidebarRelease();
+  });
+  await confirmation.waitFor({ state: 'hidden' });
+  assert.equal(await markedRow.count(), 0);
   await page.getByRole('button', { name: '筛选和排序会话', exact: true }).click();
   await page.getByRole('combobox', { name: '会话筛选', exact: true }).click();
   await page.getByRole('option', { name: '归档', exact: true }).click();
-  const archived = recent.locator('.session-row').filter({ hasText: '制定计划并询问是否开发' });
-  await archived.locator('.session').hover();
-  await archived.getByRole('button', { name: '恢复 制定计划并询问是否开发', exact: true }).click();
-  await modal.getByRole('button', { name: '确认', exact: true }).click();
-  await modal.waitFor({ state: 'hidden' });
+  const archived = recent.locator('[data-session-id="a1"]');
+  confirmation = await startArchive(archived, true);
+  await confirmation.getByRole('button', { name: '恢复', exact: true }).click();
+  await confirmation.waitFor({ state: 'hidden' });
   await page.getByRole('combobox', { name: '会话筛选', exact: true }).click();
   await page.getByRole('option', { name: '全部对话', exact: true }).click();
   await page.getByRole('button', { name: '筛选和排序会话', exact: true }).click();
+  await markedRow.waitFor();
   await page.evaluate(() => window.sidebarConnection(false));
-  assert.equal(
-    await row
-      .getByRole('button', { name: '归档 制定计划并询问是否开发', exact: true })
-      .isDisabled(),
-    true,
-  );
+  await openMore(markedRow);
+  assert(await menu.getByRole('menuitem', { name: '归档会话', exact: true }).isDisabled());
+  assert(await menu.getByRole('menuitem', { name: '取消标记', exact: true }).isDisabled());
+  await page.keyboard.press('Escape');
   await page.evaluate(() => window.sidebarConnection(true));
+  // Removing a mark restores project/recent membership.
+  await openMore(markedRow);
+  await menu.getByRole('menuitem', { name: '取消标记', exact: true }).click();
+  await menu.waitFor({ state: 'hidden' });
+  await row.waitFor();
+  assert.equal(await project.locator('[data-session-id="a1"]').count(), 1);
+  assert.equal(await sidebar.getByRole('region', { name: '已标记', exact: true }).count(), 0);
   await page.getByRole('button', { name: '在 AgentHub 中新建对话', exact: true }).focus();
   await page.keyboard.press('Enter');
   assert.deepEqual(await page.evaluate(() => window.sidebarCalls.at(-1)), ['project', 'b']);
@@ -247,8 +327,28 @@ try {
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
       true,
     );
-    const box = await sidebar.boundingBox();
-    assert.ok(box.width <= width * 0.85 + 1);
+    const sidebarBox = await sidebar.boundingBox();
+    assert.ok(sidebarBox.width <= width * 0.85 + 1);
+    confirmation = await startArchive(row);
+    await settle();
+    const card = await confirmation.boundingBox();
+    assert(
+      card.x >= 0 && card.x + card.width <= width && card.y >= 0 && card.y + card.height <= 844,
+    );
+    await page.screenshot({ path: new URL(`archive-mobile-${width}.png`, out).pathname });
+    await page.keyboard.press('Escape');
+    await confirmation.waitFor({ state: 'hidden' });
+    // Bottom-edge menus open above their trigger, rather than leaving the screen.
+    await row.evaluate((el) => {
+      el.style.cssText = 'position:fixed;bottom:8px;left:8px;width:240px;z-index:5';
+    });
+    confirmation = await startArchive(row);
+    await settle();
+    const up = await confirmation.boundingBox();
+    const anchor = await more(row).boundingBox();
+    assert(up.y + up.height <= anchor.y);
+    await page.keyboard.press('Escape');
+    await row.evaluate((el) => el.removeAttribute('style'));
     await page.screenshot({ path: new URL(`mobile-${width}.png`, out).pathname });
   }
   const touch = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
@@ -260,17 +360,50 @@ try {
     .locator('.session-row')
     .filter({ hasText: '制定计划并询问是否开发' });
   await touchRow
-    .getByRole('button', { name: '管理会话 制定计划并询问是否开发', exact: true })
+    .getByRole('button', { name: '编辑会话 制定计划并询问是否开发', exact: true })
     .tap();
   assert.deepEqual(await touch.evaluate(() => window.sidebarCalls.at(-1)), ['manage', 'a1']);
+  await touchRow
+    .getByRole('button', { name: '更多操作 制定计划并询问是否开发', exact: true })
+    .tap();
+  await touch.getByRole('menuitem', { name: '归档会话', exact: true }).tap();
+  const touchCard = touch.getByRole('dialog', { name: '归档会话', exact: true });
+  await settle(touch);
+  const touchBox = await touchCard.boundingBox();
+  assert(touchBox.x >= 0 && touchBox.x + touchBox.width <= 390);
+  assert(
+    (await touchCard.getByRole('button', { name: '归档', exact: true }).boundingBox()).height >= 44,
+  );
+  await touch.screenshot({ path: new URL('archive-touch.png', out).pathname });
+  await touchCard.getByRole('button', { name: '取消', exact: true }).tap();
   await touch.getByRole('button', { name: '在 AgentHub 中新建对话', exact: true }).tap();
   assert.deepEqual(await touch.evaluate(() => window.sidebarCalls.at(-1)), ['project', 'b']);
   await settle(touch);
   await touch.screenshot({ path: new URL('mobile-touch.png', out).pathname });
   await touch.close();
   assert.deepEqual(errors, []);
+  await writeFile(
+    new URL('verification.json', out),
+    JSON.stringify(
+      {
+        checkedAt: new Date().toISOString(),
+        checks: [
+          'project/recents, two action buttons and editor',
+          'exclusive marked section, collapse/unmark/restore',
+          'menu click/right-click/keyboard/Escape/focus/outside',
+          'anchored archive confirmation: cancel/failure/retry/pending/restore',
+          'disconnected/running guards',
+          '320/390px bounds, bottom-edge upward placement, touch actions',
+        ],
+        errors,
+        scope: 'Controlled real Sidebar; no production deployment or real Host actions.',
+      },
+      null,
+      2,
+    ) + '\n',
+  );
   console.log(
-    'PASS: project grouping, global Recents, expand/collapse, more, selection, pin, archive/cancel/failure/retry/restore, disconnected/running guards, context menu keyboard/Escape/outside click, 320/390px. Screenshots:',
+    'PASS: project/recents, more/edit buttons, exclusive marks, anchored archive cancel/failure/retry/pending/restore, guards, keyboard/focus, 320/390px and touch. Screenshots:',
     out.pathname,
   );
 } finally {
