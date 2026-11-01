@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import type { Bridge } from './transport/bridge';
 import type { HistoryEntry, HistoryPage } from './history';
 
@@ -25,7 +26,7 @@ export async function readHistoryPage(
       resource.cursor !== undefined &&
       typeof resource.cursor !== 'string')
   )
-    throw new Error('电脑返回了无效的历史资源描述');
+    throw new Error(t('电脑返回了无效的历史资源描述'));
   const cacheKey = `${sessionId}:${resource.sha256!.toLowerCase()}`;
   const cached = cache.get(cacheKey);
   if (cached) return { ...page, data: [...data, cached] };
@@ -45,20 +46,22 @@ export async function readHistoryPage(
       sortDirection: 'desc',
     });
     if (chunk.offset !== offset || chunk.totalBytes !== total || typeof chunk.data !== 'string')
-      throw new Error('历史资源分块无效');
+      throw new Error(t('历史资源分块无效'));
     const binary = atob(chunk.data);
     if (!binary.length || binary.length > 64 * 1024 || offset + binary.length > total)
-      throw new Error('历史资源分块超出限制');
+      throw new Error(t('历史资源分块超出限制'));
     for (let index = 0; index < binary.length; index++)
       bytes[offset + index] = binary.charCodeAt(index);
     const next = chunk.nextOffset ?? total;
-    if (next !== offset + binary.length || next <= offset) throw new Error('历史资源 offset 无效');
+    if (next !== offset + binary.length || next <= offset)
+      throw new Error(t('历史资源 offset 无效'));
     offset = next;
   }
   const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
     .map((value) => value.toString(16).padStart(2, '0'))
     .join('');
-  if (digest.toLowerCase() !== resource.sha256!.toLowerCase()) throw new Error('历史资源校验失败');
+  if (digest.toLowerCase() !== resource.sha256!.toLowerCase())
+    throw new Error(t('历史资源校验失败'));
   const parsed = JSON.parse(new TextDecoder().decode(bytes)) as HistoryEntry;
   if (
     !parsed ||
@@ -67,7 +70,7 @@ export async function readHistoryPage(
     (resource.turnId && parsed.turnId !== resource.turnId) ||
     (resource.itemId && parsed.item.id !== resource.itemId)
   )
-    throw new Error('历史资源内容无效');
+    throw new Error(t('历史资源内容无效'));
   if (cache.size >= 4) {
     const oldest = cache.keys().next().value;
     if (oldest) cache.delete(oldest);

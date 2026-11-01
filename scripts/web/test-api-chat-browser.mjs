@@ -118,6 +118,7 @@ const base = `https://127.0.0.1:${upstream.address().port}/v1`;
 const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext({
+    locale: 'zh-CN',
     viewport: { width: 1280, height: 850 },
     ignoreHTTPSErrors: true,
   });

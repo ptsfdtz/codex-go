@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { cloudOrigin } from './cloud';
 
 export type Invitation = {
@@ -14,7 +15,7 @@ export function parseInvitation(text: string, hostId: string, scope: string): In
   try {
     qr = JSON.parse(text);
   } catch {
-    throw new Error('请导入完整的公网配对信息');
+    throw new Error(t('请导入完整的公网配对信息'));
   }
   if (
     !qr ||
@@ -28,13 +29,13 @@ export function parseInvitation(text: string, hostId: string, scope: string): In
     !Number.isFinite(Date.parse(qr.expiresAt)) ||
     Date.parse(qr.expiresAt) <= Date.now()
   )
-    throw new Error('配对信息已过期，或与当前账户、电脑不匹配');
+    throw new Error(t('配对信息已过期，或与当前账户、电脑不匹配'));
   return qr;
 }
 
 export async function invitationFromImage(file: File): Promise<string> {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024)
-    throw new Error('请选择不超过 8 MiB 的 PNG、JPEG 或 WebP 二维码图片');
+    throw new Error(t('请选择不超过 8 MiB 的 PNG、JPEG 或 WebP 二维码图片'));
   const bitmap = await createImageBitmap(file);
   try {
     const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
@@ -42,12 +43,12 @@ export async function invitationFromImage(file: File): Promise<string> {
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     const context = canvas.getContext('2d', { willReadFrequently: true });
-    if (!context) throw new Error('浏览器无法读取二维码图片，请粘贴配对信息');
+    if (!context) throw new Error(t('浏览器无法读取二维码图片，请粘贴配对信息'));
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
     const { default: jsQR } = await import('jsqr');
     const result = jsQR(pixels.data, pixels.width, pixels.height);
-    if (!result?.data) throw new Error('未识别到二维码，请选择清晰的完整配对码图片');
+    if (!result?.data) throw new Error(t('未识别到二维码，请选择清晰的完整配对码图片'));
     return result.data;
   } finally {
     bitmap.close();

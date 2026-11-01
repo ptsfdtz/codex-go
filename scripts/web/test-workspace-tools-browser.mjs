@@ -9,7 +9,7 @@ const checks = [],
   errors = [];
 let activePage;
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1440, height: 960 } });
   activePage = page;
   page.setDefaultTimeout(12000);
   page.on('pageerror', (e) => errors.push(e.message));

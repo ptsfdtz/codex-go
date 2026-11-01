@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import { useId } from 'react';
 import { usePopoverMotion } from '../motion';
 import { Check, ChevronDown, Code2, MessageCircle } from 'lucide-react';
@@ -9,6 +10,7 @@ export function ModeSwitcher({
   mode: WorkMode;
   onChange: (mode: WorkMode) => void;
 }) {
+  useLocale();
   const id = useId();
   const menu = usePopoverMotion();
   return (
@@ -16,7 +18,7 @@ export function ModeSwitcher({
       <button
         className="mode-trigger"
         popoverTarget={id}
-        aria-label="切换工作模式"
+        aria-label={t('切换工作模式')}
         onClick={(event) => {
           const node = menu.current;
           if (!node) return;
@@ -35,7 +37,7 @@ export function ModeSwitcher({
         {mode === 'codex' ? 'Codex' : 'AgentChat'}
         <ChevronDown size={14} />
       </button>
-      <div id={id} ref={menu} popover="auto" className="mode-menu" aria-label="工作模式">
+      <div id={id} ref={menu} popover="auto" className="mode-menu" aria-label={t('工作模式')}>
         {(
           [
             ['api', 'AgentChat', MessageCircle],

@@ -1,3 +1,4 @@
+import { t } from './i18n';
 export function initializePwa() {
   // Safari can ignore user-scalable=no; cancel its native zoom gesture too.
   document.addEventListener('gesturestart', (event) => event.preventDefault(), { passive: false });
@@ -102,6 +103,6 @@ export function initializePwa() {
         scope: import.meta.env.BASE_URL,
         updateViaCache: 'none',
       })
-      .catch(() => console.warn('AgentDeck 离线提示未能启用，可继续在线使用。'));
+      .catch(() => console.warn(t('AgentDeck 离线提示未能启用，可继续在线使用。')));
   }
 }

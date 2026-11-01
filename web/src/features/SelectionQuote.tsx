@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import { MotionPresence } from '../motion';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
@@ -10,6 +11,7 @@ export function SelectionQuote({
   container: RefObject<HTMLElement | null>;
   onQuote: (text: string) => void;
 }) {
+  useLocale();
   const [quote, setQuote] = useState<{ text: string; x: number; y: number }>();
   const button = useRef<HTMLButtonElement>(null);
   const callback = useRef(onQuote);
@@ -91,7 +93,7 @@ export function SelectionQuote({
           }}
         >
           <MessageSquarePlus size={15} />
-          添加到对话
+          {t('添加到对话')}
         </button>
       )}
     </MotionPresence>,

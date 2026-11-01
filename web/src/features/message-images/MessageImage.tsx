@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { Request } from '../../workspace';
 import type { Bridge } from '../../transport/bridge';
@@ -22,6 +23,7 @@ export function MessageImage({
   alt?: string;
   source?: MessageImageSource;
 }) {
+  useLocale();
   const element = useRef<HTMLSpanElement>(null);
   const [visible, setVisible] = useState(false),
     [attempt, setAttempt] = useState(0);
@@ -87,7 +89,7 @@ export function MessageImage({
     turnId,
     itemId,
   ]);
-  const label = alt || '回复图片';
+  const label = alt || t('回复图片');
   return (
     <span ref={element} className="message-image">
       {url ? (
@@ -96,31 +98,35 @@ export function MessageImage({
           src={url}
           alt={label}
           onError={() => {
-            setError('图片解码失败');
+            setError(t('图片解码失败'));
             setUrl('');
           }}
         />
       ) : remote ? (
         <a href={src} target="_blank" rel="noreferrer noopener">
-          打开图片：{label}
+          {t('打开图片：')}
+          {label}
         </a>
       ) : (
         <span className="message-image-placeholder" role="status">
           <span>{label}</span>
           {error ? (
             <>
-              <span className="muted">图片读取失败：{error}</span>
+              <span className="muted">
+                {t('图片读取失败：')}
+                {errorText(error)}
+              </span>
               <button className="text-button" onClick={() => setAttempt((value) => value + 1)}>
-                重试读取图片
+                {t('重试读取图片')}
               </button>
             </>
           ) : (
             <span className="muted">
               {!source
-                ? '连接电脑后查看图片'
+                ? t('连接电脑后查看图片')
                 : !path && !source.session
-                  ? '升级 Host 后可查看此会话图片'
-                  : '读取图片中…'}
+                  ? t('升级 Host 后可查看此会话图片')
+                  : t('读取图片中…')}
             </span>
           )}
         </span>

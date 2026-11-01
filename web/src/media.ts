@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import type { Bridge } from './transport/bridge';
 import { compressAttachment, MAX_ATTACHMENT_BYTES } from './features/attachment-compression';
 
@@ -15,15 +16,15 @@ export async function attachmentsFromFiles(
   files: File[],
   current: Attachment[],
 ): Promise<Attachment[]> {
-  if (files.length + current.length > 4) throw new Error('最多选择 4 张图片');
+  if (files.length + current.length > 4) throw new Error(t('最多选择 4 张图片'));
   if (current.some((file) => file.bytes > MAX_ATTACHMENT_BYTES))
-    throw new Error('单文件最大 512 KiB，请重新添加超限图片');
+    throw new Error(t('单文件最大 512 KiB，请重新添加超限图片'));
   const additions: Attachment[] = [];
   for (const original of files) {
     const file = await compressAttachment(original);
     const bytes = new Uint8Array(await file.arrayBuffer());
     const mime = imageMime(bytes);
-    if (!mime) throw new Error('仅支持 PNG、JPEG、GIF 和 WebP 图片');
+    if (!mime) throw new Error(t('仅支持 PNG、JPEG、GIF 和 WebP 图片'));
     let binary = '';
     for (const byte of bytes) binary += String.fromCharCode(byte);
     additions.push({
@@ -62,7 +63,7 @@ export async function readHistoryImage(
     mime = '',
     bytes: Uint8Array<ArrayBuffer> | undefined;
   do {
-    if (!current()) throw new Error('图片读取已取消');
+    if (!current()) throw new Error(t('图片读取已取消'));
     const chunk = await connection.request<ImageChunk>('sessions.image', {
       sessionId,
       turnId,
@@ -72,7 +73,7 @@ export async function readHistoryImage(
       offset,
       ...(hash ? { sha256: hash } : {}),
     });
-    if (!current()) throw new Error('图片读取已取消');
+    if (!current()) throw new Error(t('图片读取已取消'));
     if (
       chunk.sessionId !== sessionId ||
       chunk.turnId !== turnId ||
@@ -86,7 +87,7 @@ export async function readHistoryImage(
       !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(chunk.mime) ||
       (hash && (chunk.sha256 !== hash || chunk.mime !== mime || chunk.totalBytes !== bytes?.length))
     )
-      throw new Error('历史图片资源描述无效');
+      throw new Error(t('历史图片资源描述无效'));
     if (!bytes) {
       bytes = new Uint8Array(chunk.totalBytes);
       hash = chunk.sha256;
@@ -100,13 +101,13 @@ export async function readHistoryImage(
       next > bytes.length ||
       chunk.nextOffset !== (next === bytes.length ? null : next)
     )
-      throw new Error('历史图片分块无效');
+      throw new Error(t('历史图片分块无效'));
     bytes.set(data, offset);
     offset = next;
   } while (offset < bytes.length);
   const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (n) =>
     n.toString(16).padStart(2, '0'),
   ).join('');
-  if (digest !== hash || imageMime(bytes) !== mime) throw new Error('历史图片校验失败');
+  if (digest !== hash || imageMime(bytes) !== mime) throw new Error(t('历史图片校验失败'));
   return new Blob([bytes], { type: mime });
 }

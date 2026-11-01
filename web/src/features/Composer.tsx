@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../i18n';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowUp,
@@ -35,6 +36,7 @@ function AttachmentCard({
   onRemove: () => void;
   onPreview: (url: string) => void;
 }) {
+  useLocale();
   const [url, setUrl] = useState('');
   useEffect(() => {
     if (!/^image\/(png|jpeg|webp|gif|bmp)$/i.test(attachment.mime)) return;
@@ -48,7 +50,7 @@ function AttachmentCard({
       {url ? (
         <button
           className="attachment-thumbnail"
-          aria-label={`预览图片 ${attachment.name}`}
+          aria-label={t('预览图片 {{p0}}', { p0: attachment.name })}
           onClick={() => onPreview(url)}
         >
           <img src={url} alt={attachment.name} />
@@ -59,12 +61,13 @@ function AttachmentCard({
       <span className="attachment-caption">
         <strong title={attachment.name}>{attachment.name}</strong>
         <small>
-          {Math.ceil(attachment.bytes / 1024)} KiB{attachment.originalBytes ? ' · 已压缩' : ''}
+          {Math.ceil(attachment.bytes / 1024)} {t(' KiB')}
+          {attachment.originalBytes ? t(' · 已压缩') : ''}
         </small>
       </span>
       <IconButton
         icon={X}
-        label={`移除附件 ${attachment.name}`}
+        label={t('移除附件 {{p0}}', { p0: attachment.name })}
         disabled={disabled}
         onClick={onRemove}
       />
@@ -121,6 +124,7 @@ export function Composer({
   sendBlocked?: boolean;
   attachmentTotalBytes?: number;
 }) {
+  useLocale();
   const menuId = useId();
   const feedbackId = useId();
   const [expanded, setExpanded] = useState(false),
@@ -196,13 +200,13 @@ export function Composer({
     execution &&
     active &&
     (!supports('nativeQueue')
-      ? '当前电脑不支持队列，请等待任务完成或立即补充。'
+      ? t('当前电脑不支持队列，请等待任务完成或立即补充。')
       : draft.attachments.length && !supports('nativeQueueAttachments')
-        ? '当前电脑不支持附件排队，请等待任务完成。'
+        ? t('当前电脑不支持附件排队，请等待任务完成。')
         : draft.skills.length && !supports('nativeQueueSkills')
-          ? '当前电脑不支持技能排队，请等待任务完成。'
+          ? t('当前电脑不支持技能排队，请等待任务完成。')
           : draft.references?.length && !supports('fileReferenceInputs')
-            ? '升级 Host 后可发送文件引用。'
+            ? t('升级 Host 后可发送文件引用。')
             : '');
   const ready =
     !disabled &&
@@ -219,7 +223,9 @@ export function Composer({
   async function addAttachments(files: File[]) {
     if (!files.length || disabled || busy || reading.current) return;
     if (!supports('attachments')) {
-      setAttachmentError(execution ? '当前电脑不支持附件，请升级 Host' : '当前模式仅支持文字对话');
+      setAttachmentError(
+        execution ? t('当前电脑不支持附件，请升级 Host') : t('当前模式仅支持文字对话'),
+      );
       return;
     }
     reading.current = true;
@@ -269,7 +275,7 @@ export function Composer({
   return (
     <div className="composer-wrap">
       {prompts && (
-        <div className="composer-prompts" aria-label="待处理请求">
+        <div className="composer-prompts" aria-label={t('待处理请求')}>
           {prompts}
         </div>
       )}
@@ -324,11 +330,13 @@ export function Composer({
                 <button
                   className="resource-chip mode-chip"
                   disabled={busy}
-                  aria-label={`移除 ${draft.mode === 'goal' ? 'Goal' : 'Plan'} 模式`}
+                  aria-label={t('移除 {{p0}} 模式', {
+                    p0: draft.mode === 'goal' ? t('目标') : t('计划'),
+                  })}
                   onClick={() => onChange({ mode: 'default' })}
                 >
                   {draft.mode === 'goal' ? <Target size={14} /> : <ListChecks size={14} />}
-                  <span>{draft.mode === 'goal' ? 'Goal' : 'Plan'}</span>
+                  <span>{draft.mode === 'goal' ? t('目标') : t('计划')}</span>
                   <X size={12} />
                 </button>
               )}
@@ -353,7 +361,7 @@ export function Composer({
                   <span>{reference.name}</span>
                   <IconButton
                     icon={X}
-                    label={`移除引用 ${reference.name}`}
+                    label={t('移除引用 {{p0}}', { p0: reference.name })}
                     disabled={busy}
                     onClick={() =>
                       onChange({
@@ -369,7 +377,7 @@ export function Composer({
                   {skill.displayName || skill.name}
                   <IconButton
                     icon={X}
-                    label={`移除技能 ${skill.name}`}
+                    label={t('移除技能 {{p0}}', { p0: skill.name })}
                     disabled={busy}
                     onClick={() =>
                       onChange({ skills: draft.skills.filter((s) => s.id !== skill.id) })
@@ -381,7 +389,7 @@ export function Composer({
           )}
           <textarea
             ref={textarea}
-            aria-label="消息"
+            aria-label={t('消息')}
             aria-describedby={
               addingAttachments ||
               attachmentError ||
@@ -421,11 +429,11 @@ export function Composer({
             placeholder={
               disabled
                 ? execution
-                  ? '连接电脑后开始'
-                  : '暂时无法发送'
+                  ? t('连接电脑后开始')
+                  : t('暂时无法发送')
                 : chat
-                  ? '聊点什么…'
-                  : '向 Codex 提问或描述任务…'
+                  ? t('聊点什么…')
+                  : t('向 Codex 提问或描述任务…')
             }
             disabled={disabled || busy}
           />
@@ -433,7 +441,7 @@ export function Composer({
             <button
               ref={trigger}
               className="icon-button composer-add"
-              aria-label="添加附件和操作"
+              aria-label={t('添加附件和操作')}
               popoverTarget={menuId}
               disabled={disabled || busy}
               onClick={(event) => {
@@ -459,7 +467,7 @@ export function Composer({
                 if (event.newState === 'open')
                   menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
               }}
-              aria-label="添加附件和操作"
+              aria-label={t('添加附件和操作')}
               onKeyDown={(event) => {
                 const items = Array.from(
                   event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
@@ -493,7 +501,7 @@ export function Composer({
                   }}
                 >
                   <Paperclip size={17} />
-                  添加文件或图片
+                  {t('添加文件或图片')}
                 </button>
               )}
               {supports('composerSkills') && (
@@ -505,7 +513,7 @@ export function Composer({
                   }}
                 >
                   <Sparkles size={17} />
-                  技能
+                  {t('技能')}
                 </button>
               )}
               {supports('projectFileBrowser') && (
@@ -517,7 +525,7 @@ export function Composer({
                   }}
                 >
                   <FolderOpen size={17} />
-                  浏览项目文件
+                  {t('浏览项目文件')}
                 </button>
               )}
               {execution && <hr />}
@@ -535,7 +543,9 @@ export function Composer({
                       }}
                     >
                       <ListChecks size={17} />
-                      <span>{{ default: '默认模式', plan: 'Plan', goal: 'Goal' }[id]}</span>
+                      <span>
+                        {{ default: t('默认模式'), plan: t('计划'), goal: t('目标') }[id]}
+                      </span>
                       {draft.mode === id && <span>✓</span>}
                     </button>
                   ))}
@@ -549,7 +559,7 @@ export function Composer({
                 }}
               >
                 {expanded ? <Minimize2 size={17} /> : <Expand size={17} />}
-                {expanded ? '收起编辑器' : '展开编辑器'}
+                {expanded ? t('收起编辑器') : t('展开编辑器')}
               </button>
               {active && supports('activeTurnSteering') && (
                 <button
@@ -561,7 +571,7 @@ export function Composer({
                   }}
                 >
                   <CornerDownLeft size={17} />
-                  立即补充到当前任务
+                  {t('立即补充到当前任务')}
                 </button>
               )}
             </div>
@@ -572,7 +582,7 @@ export function Composer({
               onChange={onChange}
               allowDefault={execution}
             />
-            <div className="composer-actions" role="group" aria-label="发送与执行控制">
+            <div className="composer-actions" role="group" aria-label={t('发送与执行控制')}>
               {execution && (
                 <PermissionPicker
                   permission={permission}
@@ -583,7 +593,7 @@ export function Composer({
               {expanded && (
                 <IconButton
                   icon={Minimize2}
-                  label="收起编辑器"
+                  label={t('收起编辑器')}
                   onClick={() => {
                     setExpanded(false);
                     textarea.current?.focus();
@@ -594,7 +604,7 @@ export function Composer({
                 <IconButton
                   className="composer-stop"
                   icon={Square}
-                  label="停止"
+                  label={t('停止')}
                   disabled={busy || disabled}
                   onClick={onStop}
                 />
@@ -603,10 +613,10 @@ export function Composer({
                 <button
                   type="button"
                   className="icon-button send-button speech-button"
-                  aria-label={speech.active ? '结束语音输入' : '语音输入'}
+                  aria-label={speech.active ? t('结束语音输入') : t('语音输入')}
                   title={
                     speech.active
-                      ? '结束语音输入，等待最后的识别文字'
+                      ? t('结束语音输入，等待最后的识别文字')
                       : speech.unavailable || speech.description
                   }
                   aria-description={speech.unavailable || speech.description}
@@ -631,8 +641,8 @@ export function Composer({
                 <button
                   type="button"
                   className="icon-button send-button composer-queue"
-                  aria-label="加入队列"
-                  title={queueReason || '加入队列'}
+                  aria-label={t('加入队列')}
+                  title={queueReason || t('加入队列')}
                   disabled={!ready || !!queueReason}
                   onClick={send}
                 >
@@ -642,7 +652,9 @@ export function Composer({
                 <IconButton
                   className="send-button"
                   icon={ArrowUp}
-                  label={addingAttachments ? '正在读取或压缩附件…' : busy ? '处理中…' : '发送'}
+                  label={
+                    addingAttachments ? t('正在读取或压缩附件…') : busy ? t('处理中…') : t('发送')
+                  }
                   disabled={!ready}
                   onClick={send}
                 />
@@ -655,14 +667,14 @@ export function Composer({
                 <span>
                   {speech.active
                     ? speech.phase === 'starting'
-                      ? '正在启动语音输入，请允许麦克风…'
+                      ? t('正在启动语音输入，请允许麦克风…')
                       : speech.phase === 'stopping'
-                        ? '正在完成识别…'
-                        : '正在听，请说话…'
-                    : speech.message}
+                        ? t('正在完成识别…')
+                        : t('正在听，请说话…')
+                    : errorText(speech.message)}
                 </span>
                 <button type="button" onClick={speech.active ? speech.cancel : speech.dismiss}>
-                  {speech.active ? '取消听写' : '关闭语音提示'}
+                  {speech.active ? t('取消听写') : t('关闭语音提示')}
                 </button>
               </div>
               {speech.interim && <p className="speech-interim">{speech.interim}</p>}
@@ -680,12 +692,12 @@ export function Composer({
             >
               {attachmentError ||
                 feedback ||
-                (addingAttachments ? '正在读取或压缩附件，可继续输入…' : queueReason)}
+                (addingAttachments ? t('正在读取或压缩附件，可继续输入…') : queueReason)}
             </div>
           )}
           {dragging && (
             <div className="composer-drop-hint" aria-hidden="true">
-              松开以添加文件或图片
+              {t('松开以添加文件或图片')}
             </div>
           )}
           <input

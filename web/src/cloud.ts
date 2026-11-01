@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { exclusive } from './coordination';
 
 export const cloudOrigin = (
@@ -91,7 +92,7 @@ export async function api<T = Record<string, unknown>>(
   const generation = accountGeneration();
   return exclusive('cloud-auth.' + cloudOrigin, async () => {
     if (generation !== accountGeneration())
-      throw new CloudError('账户已变化，请重新加载页面', 401, 'ACCOUNT_CHANGED');
+      throw new CloudError(t('账户已变化，请重新加载页面'), 401, 'ACCOUNT_CHANGED');
     // Serialize cookie-dependent requests with login/logout/rotation so a queued
     // write cannot acquire another account's cookie between CSRF and dispatch.
     csrf = '';

@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Computer, FileDiff, FileText, FolderOpen, RefreshCw, X } from 'lucide-react';
 import type { Project, Request } from '../../workspace';
@@ -30,6 +31,7 @@ export function ProjectOverview({
   onChanges: () => void;
   onFile: (path: string) => void;
 }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{ value?: GitStatus; error?: string }>({});
@@ -93,8 +95,8 @@ export function ProjectOverview({
       <button
         ref={trigger}
         className="icon-button"
-        title="项目概览"
-        aria-label="项目概览"
+        title={t('项目概览')}
+        aria-label={t('项目概览')}
         aria-expanded={open}
         onClick={() => {
           if (!open) onOpen();
@@ -104,20 +106,20 @@ export function ProjectOverview({
         <FileDiff size={19} strokeWidth={1.6} aria-hidden="true" />
       </button>
       {open && (
-        <section className="popover project-overview" aria-label="项目概览">
+        <section className="popover project-overview" aria-label={t('项目概览')}>
           <div className="project-overview-heading">
             <span title={project.canonicalPath || project.name}>{project.name}</span>
             {gitRead && (
               <IconButton
                 icon={RefreshCw}
-                label="刷新项目概览"
+                label={t('刷新项目概览')}
                 disabled={loading}
                 onClick={() => setRevision((value) => value + 1)}
               />
             )}
             <IconButton
               icon={X}
-              label="关闭项目概览"
+              label={t('关闭项目概览')}
               onClick={() => {
                 setOpen(false);
                 trigger.current?.focus();
@@ -132,29 +134,31 @@ export function ProjectOverview({
                 onClick={() => navigate(onChanges)}
               >
                 <FileDiff size={17} />
-                <span>工作区改动</span>
+                <span>{t('工作区改动')}</span>
                 {value?.available && (
                   <strong>
                     {value.files.length}
                     {value.truncated ? '+' : ''}
-                    <small> 个文件</small>
+                    <small> {t(' 个文件')}</small>
                   </strong>
                 )}
               </button>
               <div className="project-overview-state" role="status">
-                {loading && '正在读取工作区…'}
+                {loading && t('正在读取工作区…')}
                 {result.error && (
                   <>
-                    <span className="error">{result.error}</span>
-                    <button onClick={() => setRevision((value) => value + 1)}>重试读取</button>
+                    <span className="error">{errorText(result.error)}</span>
+                    <button onClick={() => setRevision((value) => value + 1)}>
+                      {t('重试读取')}
+                    </button>
                   </>
                 )}
-                {value && !value.available && '此项目没有可用的 Git 工作区。'}
-                {value?.available && !value.files.length && '工作区干净，暂无未提交改动。'}
+                {value && !value.available && t('此项目没有可用的 Git 工作区。')}
+                {value?.available && !value.files.length && t('工作区干净，暂无未提交改动。')}
               </div>
               {!!files.length && (
                 <>
-                  <p className="project-overview-caption">变更文件</p>
+                  <p className="project-overview-caption">{t('变更文件')}</p>
                   {files.slice(0, 3).map((file) => (
                     <button
                       className="project-overview-file"
@@ -170,22 +174,22 @@ export function ProjectOverview({
                   ))}
                   <button className="project-overview-all" onClick={() => navigate(onChanges)}>
                     <ArrowUpRight size={15} />
-                    <span>查看全部改动</span>
+                    <span>{t('查看全部改动')}</span>
                   </button>
                 </>
               )}
               {value?.truncated && (
-                <p className="project-overview-caption">变更数量已达到读取上限</p>
+                <p className="project-overview-caption">{t('变更数量已达到读取上限')}</p>
               )}
             </>
           ) : (
-            <p className="project-overview-caption">当前电脑尚不支持读取 Git 改动</p>
+            <p className="project-overview-caption">{t('当前电脑尚不支持读取 Git 改动')}</p>
           )}
           <div className="project-overview-footer">
             {fileBrowser && (
               <button onClick={() => navigate(onFiles)}>
                 <FolderOpen size={16} />
-                <span>浏览项目文件</span>
+                <span>{t('浏览项目文件')}</span>
                 <ArrowUpRight size={14} />
               </button>
             )}

@@ -1,3 +1,5 @@
+import { LanguageSelect } from '../../i18n/LanguageSelect';
+import { errorText, t, useLocale } from '../../i18n';
 import { Select } from '../../components/Select';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, KeyRound, ChevronLeft, RefreshCw } from 'lucide-react';
@@ -17,6 +19,7 @@ export function ApiSettings({
   onClose: () => void;
   onChanged: () => Promise<void>;
 }) {
+  useLocale();
   const [providerId, setProviderId] = useState<string>(() => crypto.randomUUID());
   const [editing, setEditing] = useState<Provider>(),
     [creating, setCreating] = useState(!providers.length);
@@ -132,10 +135,11 @@ export function ApiSettings({
     }
   }
   return (
-    <Modal title="设置" onClose={onClose} className="api-settings">
+    <Modal title={t('设置')} onClose={onClose} className="api-settings">
+      <LanguageSelect />
       {!enabled && (
         <p className="api-feedback" role="status">
-          AgentChat 尚未启用，请联系管理员完成服务端配置。
+          {t('AgentChat 尚未启用，请联系管理员完成服务端配置。')}
         </p>
       )}
       {creating ? (
@@ -157,11 +161,11 @@ export function ApiSettings({
               }}
             >
               <ChevronLeft size={15} />
-              所有接口
+              {t('所有接口')}
             </button>
           )}
           <label>
-            Base URL
+            {t('Base URL')}
             <input
               value={base}
               onChange={(event) => setBase(event.target.value)}
@@ -172,11 +176,11 @@ export function ApiSettings({
             />
           </label>
           <label>
-            API Key
+            {t('API Key')}
             <input
               value={key}
               onChange={(event) => setKey(event.target.value)}
-              placeholder={editing ? '已保存，留空保持原密钥' : '输入 API Key'}
+              placeholder={editing ? t('已保存，留空保持原密钥') : t('输入 API Key')}
               type="password"
               autoComplete="new-password"
               spellCheck={false}
@@ -188,7 +192,8 @@ export function ApiSettings({
           <div className="api-model-field">
             <div className="api-model-label">
               <label htmlFor="provider-models">
-                模型{modelNames.length ? ` · ${modelNames.length}` : ''}
+                {t('模型')}
+                {modelNames.length ? ` · ${modelNames.length}` : ''}
               </label>
               <button
                 type="button"
@@ -197,12 +202,12 @@ export function ApiSettings({
                 onClick={() => void fetchModels()}
               >
                 <RefreshCw size={13} className={fetching ? 'spinning' : ''} />
-                {fetching ? '获取中…' : '获取模型'}
+                {fetching ? t('获取中…') : t('获取模型')}
               </button>
             </div>
             <textarea
               id="provider-models"
-              aria-label="模型"
+              aria-label={t('模型')}
               value={models}
               onChange={(event) => {
                 clearTimeout(fetchTimer.current);
@@ -210,21 +215,21 @@ export function ApiSettings({
                 setFetching(false);
                 setModels(event.target.value);
               }}
-              placeholder="自动获取，也可手动填写"
+              placeholder={t('自动获取，也可手动填写')}
               rows={2}
               required
               disabled={busy}
             />
           </div>
           <details className="api-effort-settings">
-            <summary>高级设置</summary>
+            <summary>{t('高级设置')}</summary>
             <div className="api-effort-fields">
               <label>
-                名称
+                {t('名称')}
                 <input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder="例如：我的 API"
+                  placeholder={t('例如：我的 API')}
                   maxLength={80}
                   disabled={busy}
                 />
@@ -232,9 +237,9 @@ export function ApiSettings({
               {!!modelNames.length && (
                 <>
                   <label>
-                    思考强度
+                    {t('思考强度')}
                     <Select
-                      aria-label="配置思考强度的模型"
+                      aria-label={t('配置思考强度的模型')}
                       value={selectedEffortModel}
                       onValueChange={(value) => setEffortModel(value)}
                       disabled={busy}
@@ -247,7 +252,7 @@ export function ApiSettings({
                     </Select>
                   </label>
                   <input
-                    aria-label={`${selectedEffortModel} 的思考强度`}
+                    aria-label={t('{{p0}} 的思考强度', { p0: selectedEffortModel })}
                     value={modelEfforts[selectedEffortModel] || ''}
                     onChange={(event) =>
                       setModelEfforts((values) => ({
@@ -255,7 +260,7 @@ export function ApiSettings({
                         [selectedEffortModel]: event.target.value,
                       }))
                     }
-                    placeholder="默认；或填写 low, medium, high"
+                    placeholder={t('默认；或填写 low, medium, high')}
                     disabled={busy}
                     autoCapitalize="none"
                     spellCheck={false}
@@ -266,11 +271,11 @@ export function ApiSettings({
           </details>
           <div className="api-settings-save">
             <button type="button" disabled={busy} onClick={onClose}>
-              取消
+              {t('取消')}
             </button>
             <button className="primary" disabled={!enabled || busy || fetching || !models.trim()}>
               {' '}
-              {busy ? '保存中…' : '保存'}
+              {busy ? t('保存中…') : t('保存')}
             </button>
           </div>
         </form>
@@ -283,19 +288,20 @@ export function ApiSettings({
                 <span>
                   {provider.name}
                   <small>
-                    {provider.models.length} 个模型 · {new URL(provider.baseUrl).host}
+                    {t('models.count', { count: provider.models.length })} ·{' '}
+                    {new URL(provider.baseUrl).host}
                   </small>
                 </span>
               </button>
               <IconButton
                 icon={Trash2}
-                label={`删除接口 ${provider.name}`}
+                label={t('删除接口 {{p0}}', { p0: provider.name })}
                 disabled={busy}
                 onClick={() => setRemoving(provider.id)}
               />
               {removing === provider.id && (
                 <div className="confirmation">
-                  <p>删除此接口？已有聊天记录会保留。</p>
+                  <p>{t('删除此接口？已有聊天记录会保留。')}</p>
                   <button
                     disabled={busy}
                     onClick={() => {
@@ -307,16 +313,16 @@ export function ApiSettings({
                         .finally(() => setBusy(false));
                     }}
                   >
-                    确认删除
+                    {t('确认删除')}
                   </button>
-                  <button onClick={() => setRemoving('')}>取消</button>
+                  <button onClick={() => setRemoving('')}>{t('取消')}</button>
                 </div>
               )}
             </div>
           ))}
           <button className="api-add-provider" disabled={!enabled} onClick={() => edit()}>
             <Plus size={17} />
-            添加接口
+            {t('添加接口')}
           </button>
         </div>
       )}
@@ -330,12 +336,12 @@ export function ApiSettings({
             );
           }}
         >
-          退出登录
+          {t('退出登录')}
         </button>
       )}
       {error && (
         <p className="api-feedback" role="alert">
-          {error}
+          {errorText(error)}
         </p>
       )}
     </Modal>

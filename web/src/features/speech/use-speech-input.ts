@@ -1,3 +1,4 @@
+import { t, getLocale } from '../../i18n';
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 
 // Keep the prefixed Web Speech API local: TypeScript's DOM library does not
@@ -37,25 +38,27 @@ type Session = {
 
 // One microphone per page, including main chat, side chat and AgentChat.
 let cancelCurrent: (() => void) | undefined;
-const description = () => '使用浏览器语音服务，可能需要联网；识别文字加入草稿，核对后手动发送。';
+const description = () => t('使用浏览器语音服务，可能需要联网；识别文字加入草稿，核对后手动发送。');
 const errors: Record<string, string> = {
   get 'not-allowed'() {
-    return '麦克风或语音识别权限未获允许，请在浏览器的网站设置中检查权限。也可使用系统键盘听写。';
+    return t(
+      '麦克风或语音识别权限未获允许，请在浏览器的网站设置中检查权限。也可使用系统键盘听写。',
+    );
   },
   get 'service-not-allowed'() {
-    return '浏览器未允许语音识别服务，请使用系统键盘听写或更换支持语音识别的浏览器。';
+    return t('浏览器未允许语音识别服务，请使用系统键盘听写或更换支持语音识别的浏览器。');
   },
   get 'audio-capture'() {
-    return '无法使用麦克风，请检查设备是否可用、是否被其他应用占用。';
+    return t('无法使用麦克风，请检查设备是否可用、是否被其他应用占用。');
   },
   get network() {
-    return '语音识别服务连接失败，请检查网络，或使用系统键盘听写。';
+    return t('语音识别服务连接失败，请检查网络，或使用系统键盘听写。');
   },
   get 'no-speech'() {
-    return '未识别到语音，请靠近麦克风后重试。';
+    return t('未识别到语音，请靠近麦克风后重试。');
   },
   get 'language-not-supported'() {
-    return '浏览器的语音服务暂不支持普通话，请使用系统键盘听写。';
+    return t('浏览器的语音服务暂不支持普通话，请使用系统键盘听写。');
   },
 };
 
@@ -79,9 +82,9 @@ export function useSpeechInput({
   const Constructor =
     (window as SpeechWindow).SpeechRecognition || (window as SpeechWindow).webkitSpeechRecognition;
   const unavailable = !window.isSecureContext
-    ? '语音输入需要 HTTPS 或本机开发页面。也可使用系统键盘听写。'
+    ? t('语音输入需要 HTTPS 或本机开发页面。也可使用系统键盘听写。')
     : !Constructor
-      ? '当前浏览器未提供网页语音识别，请使用系统键盘的麦克风听写，或更换支持语音识别的浏览器。'
+      ? t('当前浏览器未提供网页语音识别，请使用系统键盘的麦克风听写，或更换支持语音识别的浏览器。')
       : '';
   function visible() {
     const node = input.current;
@@ -127,14 +130,14 @@ export function useSpeechInput({
     session.finishing = setTimeout(() => {
       if (current.current === session) {
         release(session);
-        setMessage('语音识别已结束，未确认的片段已舍弃；请核对草稿。');
+        setMessage(t('语音识别已结束，未确认的片段已舍弃；请核对草稿。'));
       }
     }, 5000);
     try {
       session.recognition.stop();
     } catch {
       release(session);
-      setMessage('语音输入已停止，请核对草稿。');
+      setMessage(t('语音输入已停止，请核对草稿。'));
     }
   }
   function start() {
@@ -150,7 +153,7 @@ export function useSpeechInput({
     try {
       recognition = new Constructor();
     } catch {
-      setMessage('浏览器无法启动语音识别，请使用系统键盘听写。');
+      setMessage(t('浏览器无法启动语音识别，请使用系统键盘听写。'));
       return;
     }
     const node = input.current!;
@@ -176,7 +179,7 @@ export function useSpeechInput({
       }
       return true;
     };
-    recognition.lang = 'zh-CN';
+    recognition.lang = getLocale() === 'en' ? 'en-US' : 'zh-CN';
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
@@ -217,12 +220,14 @@ export function useSpeechInput({
       if (!allowed()) return;
       release(session);
       if (event.error !== 'aborted')
-        setMessage(errors[event.error] || '语音识别未完成，请核对草稿后重试或使用系统键盘听写。');
+        setMessage(
+          errors[event.error] || t('语音识别未完成，请核对草稿后重试或使用系统键盘听写。'),
+        );
     };
     recognition.onend = () => {
       if (current.current !== session) return;
       release(session);
-      if (!session.received) setMessage('未得到确认的识别文字，请重试或使用系统键盘听写。');
+      if (!session.received) setMessage(t('未得到确认的识别文字，请重试或使用系统键盘听写。'));
     };
     const hidden = () => {
       if (!visible()) session.cancel();
@@ -259,7 +264,7 @@ export function useSpeechInput({
       recognition.start();
     } catch {
       release(session);
-      setMessage('语音识别启动失败，请检查麦克风权限或使用系统键盘听写。');
+      setMessage(t('语音识别启动失败，请检查麦克风权限或使用系统键盘听写。'));
     }
   }
   // Typing, another draft edit, disconnect or a send state invalidates the

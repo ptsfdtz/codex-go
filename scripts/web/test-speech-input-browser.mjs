@@ -10,6 +10,7 @@ const checks = [],
   errors = [];
 try {
   const page = await browser.newPage({
+    locale: 'zh-CN',
     viewport: { width: 1100, height: 820 },
     reducedMotion: 'reduce',
   });

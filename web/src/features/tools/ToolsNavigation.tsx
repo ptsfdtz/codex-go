@@ -1,3 +1,4 @@
+import { t, useLocale } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import {
   FileDiff,
@@ -14,10 +15,38 @@ import './tools.css';
 
 export type Tool = 'files' | 'changes' | 'terminal' | 'chat';
 const tools = [
-  { id: 'changes', name: '改动', icon: FileDiff, shortcut: 'Ctrl+Shift+G' },
-  { id: 'terminal', name: 'SSH 终端', icon: TerminalSquare, shortcut: 'Ctrl+`' },
-  { id: 'chat', name: '侧边对话', icon: MessageSquarePlus, shortcut: 'Ctrl+Alt+S' },
-  { id: 'files', name: '文件', icon: FolderOpen, shortcut: 'Ctrl+P' },
+  {
+    id: 'changes',
+    get name() {
+      return t('改动');
+    },
+    icon: FileDiff,
+    shortcut: 'Ctrl+Shift+G',
+  },
+  {
+    id: 'terminal',
+    get name() {
+      return t('SSH 终端');
+    },
+    icon: TerminalSquare,
+    shortcut: 'Ctrl+`',
+  },
+  {
+    id: 'chat',
+    get name() {
+      return t('侧边对话');
+    },
+    icon: MessageSquarePlus,
+    shortcut: 'Ctrl+Alt+S',
+  },
+  {
+    id: 'files',
+    get name() {
+      return t('文件');
+    },
+    icon: FolderOpen,
+    shortcut: 'Ctrl+P',
+  },
 ] as const;
 export function ToolsButton({
   onOpen,
@@ -26,6 +55,7 @@ export function ToolsButton({
   onOpen: (tool: Tool) => void;
   fileAvailable: boolean;
 }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -50,16 +80,16 @@ export function ToolsButton({
     <div className="menu-anchor tools-anchor" ref={anchor}>
       <button
         className="icon-button"
-        aria-label="打开工具"
-        title="工具"
+        aria-label={t('打开工具')}
+        title={t('工具')}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
         <PanelRight size={19} aria-hidden="true" />
       </button>
       {open && (
-        <section className="popover tools-menu" aria-label="工具">
-          <h3>工具</h3>
+        <section className="popover tools-menu" aria-label={t('工具')}>
+          <h3>{t('工具')}</h3>
           <div className="tools-grid">
             {tools.map(({ id, name, icon: Icon, shortcut }) => (
               <button
@@ -96,9 +126,10 @@ export function ToolHeader({
   onExpand: () => void;
   onClose: () => void;
 }) {
+  useLocale();
   return (
     <header className="tools-header">
-      <nav aria-label="工作区工具">
+      <nav aria-label={t('工作区工具')}>
         {tools.map(({ id, name, icon: Icon }) => (
           <button
             key={id}
@@ -114,10 +145,10 @@ export function ToolHeader({
       </nav>
       <IconButton
         icon={expanded ? Minimize2 : Maximize2}
-        label={expanded ? '恢复并排工具' : '扩大工具栏'}
+        label={expanded ? t('恢复并排工具') : t('扩大工具栏')}
         onClick={onExpand}
       />
-      <IconButton icon={X} label="关闭工具栏" onClick={onClose} />
+      <IconButton icon={X} label={t('关闭工具栏')} onClick={onClose} />
     </header>
   );
 }

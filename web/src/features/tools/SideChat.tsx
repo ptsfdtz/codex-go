@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../../i18n';
 import { Select } from '../../components/Select';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
@@ -56,6 +57,7 @@ export function SideChat({
   onChanged: () => void;
   onFile: (projectId: string, path: string) => void;
 }) {
+  useLocale();
   const [project, setProject] = useState(initialProject);
   const [sessionId, setSessionId] = useState('');
   const [permission, setPermission] = useState('workspace');
@@ -328,7 +330,7 @@ export function SideChat({
         submitted = true;
         const created = await request<{ session: Session }>('sessions.create', {
           projectId: actualProject,
-          title: source.text.trim().slice(0, 80) || '新对话',
+          title: source.text.trim().slice(0, 80) || t('新对话'),
         });
         if (transport !== liveConnection.current) return;
         target = created.session.sessionId;
@@ -342,18 +344,18 @@ export function SideChat({
       if (activeTurn) {
         if (kind === 'steer') {
           if (source.attachments.length || source.references?.length)
-            throw new Error('带资源的消息请加入待发送队列');
+            throw new Error(t('带资源的消息请加入待发送队列'));
           const active = await request<{ upstreamTurnId?: string }>('turn.active', {
             sessionId: target,
           });
-          if (!active.upstreamTurnId) throw new Error('任务状态已变化，请刷新核对');
+          if (!active.upstreamTurnId) throw new Error(t('任务状态已变化，请刷新核对'));
           await request('turn.steer', {
             sessionId: target,
             expectedTurnId: active.upstreamTurnId,
             text: source.text.trim(),
           });
         } else {
-          if (!supports('nativeQueue')) throw new Error('当前电脑不支持队列，请等待任务完成');
+          if (!supports('nativeQueue')) throw new Error(t('当前电脑不支持队列，请等待任务完成'));
           await request('queue.add', {
             sessionId: target,
             text: source.text.trim(),
@@ -422,45 +424,45 @@ export function SideChat({
     [snapshot.sessions, actualProject],
   );
   return (
-    <section className="side-chat conversation" aria-label="侧边对话">
+    <section className="side-chat conversation" aria-label={t('侧边对话')}>
       <header className="side-chat-header">
         <Select
-          aria-label="侧边对话项目"
+          aria-label={t('侧边对话项目')}
           value={actualProject}
           disabled={busy}
           onValueChange={(value) => select('', value)}
         >
           <option value="" disabled>
-            选择项目
+            {t('选择项目')}
           </option>
           {(snapshot.projects || []).map((p) => (
             <option key={p.projectId} value={p.projectId}>
-              {p.projectId === chatProject ? '普通聊天' : p.name}
+              {p.projectId === chatProject ? t('普通聊天') : p.name}
             </option>
           ))}
         </Select>
         <Select
-          aria-label="侧边会话"
+          aria-label={t('侧边会话')}
           value={sessionId}
           disabled={busy}
           onValueChange={(value) => select(value, actualProject)}
         >
-          <option value="">新对话</option>
+          <option value="">{t('新对话')}</option>
           {sessionChoices.map((item) => (
             <option key={item.sessionId} value={item.sessionId}>
-              {item.title || '未命名会话'}
+              {item.title || t('未命名会话')}
             </option>
           ))}
         </Select>
         <IconButton
           icon={Plus}
-          label="新建侧边对话"
+          label={t('新建侧边对话')}
           disabled={busy}
           onClick={() => select('', actualProject)}
         />
         <IconButton
           icon={RefreshCw}
-          label="刷新侧边对话"
+          label={t('刷新侧边对话')}
           disabled={!connected || loading || busy}
           onClick={() => {
             setRevision((value) => value + 1);
@@ -470,23 +472,23 @@ export function SideChat({
       </header>
       {error && (
         <p className="error side-chat-feedback" role="alert">
-          {error}
+          {errorText(error)}
         </p>
       )}
       {draft.outcomeUnknown && (
         <div className="side-chat-feedback" role="alert">
-          <p>上一条发送结果曾不确定，请先核对会话中的实际结果。草稿已保留，不会自动重发。</p>
+          <p>{t('上一条发送结果曾不确定，请先核对会话中的实际结果。草稿已保留，不会自动重发。')}</p>
           <button
             disabled={!connected || blocked}
             onClick={() => updateDraft({ outcomeUnknown: false })}
           >
-            已核对，继续编辑草稿
+            {t('已核对，继续编辑草稿')}
           </button>
         </div>
       )}
       {!connected && (
         <p className="side-chat-feedback" role="status">
-          电脑连接已断开；草稿已保留，恢复后先核对发送结果。
+          {t('电脑连接已断开；草稿已保留，恢复后先核对发送结果。')}
         </p>
       )}
       <Timeline
@@ -504,16 +506,16 @@ export function SideChat({
               disabled={loading}
               onClick={() => void older()}
             >
-              加载更早记录
+              {t('加载更早记录')}
             </button>
           )}
           {!sessionId && (
             <div className="side-chat-empty">
-              <h3>侧边对话</h3>
-              <p>选择已有会话，或发送消息开始新的对话。</p>
+              <h3>{t('侧边对话')}</h3>
+              <p>{t('选择已有会话，或发送消息开始新的对话。')}</p>
             </div>
           )}
-          {loading && !entries.length && <p role="status">正在读取会话…</p>}
+          {loading && !entries.length && <p role="status">{t('正在读取会话…')}</p>}
           <ActivityStages entries={entries} activeTurn={active?.upstreamTurnId || activeTurn}>
             {(entry) => {
               const user = entry.item?.type === 'userMessage' || entry.item?.role === 'user';
@@ -574,7 +576,7 @@ export function SideChat({
         permission={permission}
         onPermission={setPermission}
         attachmentTotalBytes={capabilities.limits?.attachmentTotalBytes}
-        feedback={blocked ? '发送结果尚未确认，请先核对任务状态。' : undefined}
+        feedback={blocked ? t('发送结果尚未确认，请先核对任务状态。') : undefined}
         onSend={(kind) => void send(kind)}
         onNew={() => select('', actualProject)}
         panels={[]}
@@ -583,7 +585,7 @@ export function SideChat({
           if (!sessionId || disabled || !activeTurn) return;
           void request<{ upstreamTurnId?: string }>('turn.active', { sessionId })
             .then((active) => {
-              if (!active.upstreamTurnId) throw new Error('任务状态已变化，请刷新核对');
+              if (!active.upstreamTurnId) throw new Error(t('任务状态已变化，请刷新核对'));
               return request('turn.interruptActive', {
                 sessionId,
                 expectedTurnId: active.upstreamTurnId,

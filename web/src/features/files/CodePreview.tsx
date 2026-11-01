@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '../../i18n';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { IconButton } from '../../ui';
@@ -12,7 +13,7 @@ export function CodePreview({
   text,
   path,
   diff = false,
-  diffLabel = '工作区差异',
+  diffLabel = t('工作区差异'),
   untracked = false,
   position,
   onScroll,
@@ -27,6 +28,7 @@ export function CodePreview({
   position?: ScrollPosition;
   onScroll: (position: ScrollPosition) => void;
 }) {
+  useLocale();
   const viewport = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [height, setHeight] = useState(500),
@@ -117,8 +119,10 @@ export function CodePreview({
     >
       {findToken === undefined && (
         <div className="file-code-toolbar">
-          <span>{diff ? diffLabel : `${raw.length.toLocaleString()} 行`}</span>
-          <IconButton icon={Search} label="文件内查找" onClick={showFind} />
+          <span>
+            {diff ? diffLabel : t('{{p0}} 行', { p0: raw.length.toLocaleString(getLocale()) })}
+          </span>
+          <IconButton icon={Search} label={t('文件内查找')} onClick={showFind} />
         </div>
       )}
       {find && (
@@ -131,8 +135,8 @@ export function CodePreview({
         >
           <input
             ref={search}
-            aria-label="文件内查找"
-            placeholder="查找文本"
+            aria-label={t('文件内查找')}
+            placeholder={t('查找文本')}
             value={query}
             onChange={(event) => {
               const value = event.target.value;
@@ -159,24 +163,24 @@ export function CodePreview({
           </span>
           <IconButton
             icon={ChevronUp}
-            label="上一个匹配"
+            label={t('上一个匹配')}
             disabled={!matches.length}
             onClick={() => goTo(match - 1)}
           />
           <IconButton
             icon={ChevronDown}
-            label="下一个匹配"
+            label={t('下一个匹配')}
             disabled={!matches.length}
             onClick={() => goTo(match + 1)}
           />
-          <IconButton icon={X} label="关闭文件查找" onClick={() => setFind(false)} />
+          <IconButton icon={X} label={t('关闭文件查找')} onClick={() => setFind(false)} />
         </form>
       )}
       <div
         className="file-code-scroll"
         ref={viewport}
         tabIndex={0}
-        aria-label={diff ? `${path} 的差异` : `${path} 的内容`}
+        aria-label={diff ? t('{{p0}} 的差异', { p0: path }) : t('{{p0}} 的内容', { p0: path })}
         onScroll={(event) => {
           const node = event.currentTarget;
           setTop(node.scrollTop);

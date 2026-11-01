@@ -1,3 +1,4 @@
+import { t, useLocale } from './i18n';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { LoaderCircle, X, type LucideIcon } from 'lucide-react';
 import { useMotionPresence } from './motion';
@@ -20,6 +21,7 @@ export function IconButton({
   pending?: boolean;
   badge?: string;
 }) {
+  useLocale();
   return (
     <button
       type="button"
@@ -58,6 +60,7 @@ export function Modal({
   header?: ReactNode;
   className?: string;
 }) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const present = useMotionPresence();
   const backdropPress = useRef(false);
@@ -100,13 +103,14 @@ export function Modal({
     >
       <div className="modal-title">
         {header || <h2>{title}</h2>}
-        <IconButton icon={X} label="关闭" onClick={onClose} />
+        <IconButton icon={X} label={t('关闭')} onClick={onClose} />
       </div>
       <div className="modal-body">{children}</div>
     </dialog>
   );
 }
 export function DataFields({ value }: { value: unknown }) {
+  useLocale();
   if (!value || typeof value !== 'object') return <p>{String(value ?? '—')}</p>;
   return (
     <dl className="data-fields">

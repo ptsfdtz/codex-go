@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import { useId } from 'react';
 import { usePopoverMotion } from '../motion';
 import { Check, Shield, ShieldAlert } from 'lucide-react';
@@ -11,6 +12,7 @@ export function PermissionPicker({
   onConfirm: (permission: string) => void;
   disabled: boolean;
 }) {
+  useLocale();
   const id = useId();
   const popup = usePopoverMotion();
   const close = () => popup.current?.hidePopover();
@@ -20,8 +22,10 @@ export function PermissionPicker({
         className="permission"
         disabled={disabled}
         popoverTarget={id}
-        title="选择执行权限"
-        aria-label={`执行权限：${permission === 'full' ? '完整访问' : '工作区权限'}`}
+        title={t('选择执行权限')}
+        aria-label={t('执行权限：{{p0}}', {
+          p0: permission === 'full' ? t('完整访问') : t('工作区权限'),
+        })}
         data-permission={permission}
         onClick={(event) => {
           const box = event.currentTarget.getBoundingClientRect();
@@ -34,19 +38,19 @@ export function PermissionPicker({
         }}
       >
         {permission === 'full' ? <ShieldAlert size={16} /> : <Shield size={16} />}
-        <span>{permission === 'full' ? '完整访问' : '工作区'}</span>
+        <span>{permission === 'full' ? t('完整访问') : t('工作区')}</span>
       </button>
       <div
         id={id}
         ref={popup}
         popover="auto"
         role="group"
-        aria-label="执行权限"
+        aria-label={t('执行权限')}
         className="permission-popup"
       >
         {[
-          { value: 'workspace', title: '工作区权限', icon: Shield },
-          { value: 'full', title: '完整访问', icon: ShieldAlert },
+          { value: 'workspace', title: t('工作区权限'), icon: Shield },
+          { value: 'full', title: t('完整访问'), icon: ShieldAlert },
         ].map(({ value, title, icon: Icon }) => (
           <button
             key={value}

@@ -7,7 +7,10 @@ const out = new URL('../../artifacts/project-settings/', import.meta.url);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 850 } });
+  const context = await browser.newContext({
+    locale: 'zh-CN',
+    viewport: { width: 1100, height: 850 },
+  });
   await context.addInitScript(() => {
     localStorage.setItem('agentdeck.web.work-mode', '"codex"');
     localStorage.setItem('agentdeck.web.theme', 'dark');

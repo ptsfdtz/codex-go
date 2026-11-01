@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import type { Packet } from '../../transport/bridge';
 import type { Turn } from '../../workspace';
 
@@ -6,19 +7,19 @@ export type TaskNotice = { id: string; sessionId: string; kind: AttentionKind };
 export type AttentionState = { unread: Record<string, AttentionKind>; notices: TaskNotice[] };
 export const attentionLabels: Record<AttentionKind, string> = {
   get completed() {
-    return '任务已完成';
+    return t('任务已完成');
   },
   get failed() {
-    return '任务执行失败';
+    return t('任务执行失败');
   },
   get interrupted() {
-    return '任务已停止';
+    return t('任务已停止');
   },
   get question() {
-    return '需要你的回答';
+    return t('需要你的回答');
   },
   get approval() {
-    return '需要你的审批';
+    return t('需要你的审批');
   },
 };
 const record = (value: unknown): Record<string, unknown> =>

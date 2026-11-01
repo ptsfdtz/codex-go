@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Download } from 'lucide-react';
 
@@ -13,6 +14,7 @@ const InstallContext = createContext<{
 }>({ standalone: false, added: false, install: async () => {} });
 
 export function InstallProvider({ children }: { children: ReactNode }) {
+  useLocale();
   const [standalone, setStandalone] = useState(false);
   const [added, setAdded] = useState(false);
   const [prompt, setPrompt] = useState<InstallPrompt>();
@@ -58,27 +60,29 @@ export function InstallProvider({ children }: { children: ReactNode }) {
 }
 
 export function InstallApp() {
+  useLocale();
   const { standalone, added, prompt, install } = useContext(InstallContext);
   if (standalone) return null;
   return (
     <div className="pwa-install">
       {added ? (
-        <p role="status">已添加到主屏幕，请从 AgentDeck 图标打开。</p>
+        <p role="status">{t('已添加到主屏幕，请从 AgentDeck 图标打开。')}</p>
       ) : (
         <>
           {prompt && (
             <button type="button" onClick={() => void install()}>
               <Download size={17} />
-              安装 AgentDeck
+              {t('安装 AgentDeck')}
             </button>
           )}
           <details>
-            <summary>添加到主屏幕</summary>
+            <summary>{t('添加到主屏幕')}</summary>
             <ul>
-              <li>Android：在浏览器菜单中选择“安装应用”或“添加到主屏幕”。</li>
+              <li>{t('Android：在浏览器菜单中选择“安装应用”或“添加到主屏幕”。')}</li>
               <li>
-                iPhone / iPad：在 Safari 中点“分享”→“添加到主屏幕”；若有“作为网页 App
-                打开”，请开启。
+                {t(
+                  'iPhone / iPad：在 Safari 中点“分享”→“添加到主屏幕”；若有“作为网页 App 打开”，请开启。',
+                )}
               </li>
             </ul>
           </details>

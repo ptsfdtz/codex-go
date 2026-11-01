@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import {
   Component,
   Suspense,
@@ -19,8 +20,8 @@ class LoadFailure extends Component<
   render() {
     return this.state.failed ? (
       <div className="module-status" role="alert">
-        <span>此区域未能加载</span>
-        <button onClick={this.props.retry}>重试</button>
+        <span>{t('此区域未能加载')}</span>
+        <button onClick={this.props.retry}>{t('重试')}</button>
       </div>
     ) : (
       this.props.children
@@ -46,7 +47,7 @@ export function deferred<P extends object>(
               fallback(props)
             ) : (
               <div className="module-status" role="status">
-                加载中…
+                {t('加载中…')}
               </div>
             )
           }

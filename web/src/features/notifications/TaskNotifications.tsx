@@ -1,3 +1,4 @@
+import { t, useLocale } from '../../i18n';
 import { CheckCircle2, CircleAlert, ShieldCheck, X } from 'lucide-react';
 import type { Session } from '../../workspace';
 import { attentionLabels, type TaskNotice } from './task-attention';
@@ -14,11 +15,12 @@ export function TaskNotifications({
   onOpen: (session: Session) => void;
   onDismiss: (id: string) => void;
 }) {
+  useLocale();
   return (
     <div
       className="task-notifications"
       role="region"
-      aria-label="任务提醒"
+      aria-label={t('任务提醒')}
       aria-live="polite"
       aria-relevant="additions text"
     >
@@ -41,20 +43,20 @@ export function TaskNotifications({
               <Icon size={21} aria-hidden="true" />
               <div className="task-notification-content">
                 <strong>{attentionLabels[notice.kind]}</strong>
-                <p>{session?.title || '未命名会话'}</p>
+                <p>{session?.title || t('未命名会话')}</p>
                 <button
                   disabled={!session}
                   onClick={() => {
                     if (session) onOpen(session);
                   }}
                 >
-                  {notice.kind === 'approval' ? '查看请求' : '查看会话'}
+                  {notice.kind === 'approval' ? t('查看请求') : t('查看会话')}
                 </button>
               </div>
               <button
                 className="icon-button"
-                aria-label="关闭提醒"
-                title="关闭提醒"
+                aria-label={t('关闭提醒')}
+                title={t('关闭提醒')}
                 onClick={() => onDismiss(notice.id)}
               >
                 <X size={16} aria-hidden="true" />

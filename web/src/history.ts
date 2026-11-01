@@ -1,3 +1,4 @@
+import { t } from './i18n';
 export type HistoryEntry = {
   turnId?: string;
   item?: { id?: string; [key: string]: unknown };
@@ -17,7 +18,7 @@ export type HistoryPage = {
 };
 
 export function historyKey(entry: HistoryEntry): string {
-  if (!entry.turnId || !entry.item?.id) throw new Error('历史条目缺少原生身份');
+  if (!entry.turnId || !entry.item?.id) throw new Error(t('历史条目缺少原生身份'));
   return JSON.stringify([entry.turnId, entry.item.id]);
 }
 

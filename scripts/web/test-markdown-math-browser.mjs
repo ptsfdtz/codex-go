@@ -8,7 +8,7 @@ await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const checks = [];
 try {
-  const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1100, height: 900 } });
   page.setDefaultTimeout(10000);
   const errors = [];
   const remote = [];

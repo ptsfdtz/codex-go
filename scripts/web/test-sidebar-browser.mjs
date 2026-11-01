@@ -6,7 +6,7 @@ const out = new URL('../../artifacts/sidebar-desktop/', import.meta.url);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 850 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1200, height: 850 } });
   page.setDefaultTimeout(7000);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -351,7 +351,11 @@ try {
     await row.evaluate((el) => el.removeAttribute('style'));
     await page.screenshot({ path: new URL(`mobile-${width}.png`, out).pathname });
   }
-  const touch = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  const touch = await browser.newPage({
+    locale: 'zh-CN',
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+  });
   await touch.route('**/api/**', (route) => route.abort());
   await touch.goto(process.env.SIDEBAR_TEST_ORIGIN || 'http://127.0.0.1:1430');
   await touch.evaluate(mount, false);

@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import {
   Children,
   Fragment,
@@ -68,6 +69,7 @@ export function Select({
   'aria-label'?: string;
   'aria-labelledby'?: string;
 }) {
+  useLocale();
   const uid = useId();
   const popupId = `${uid}-popup`,
     listId = `${uid}-list`;
@@ -260,7 +262,7 @@ export function Select({
         onKeyDown={keydown}
         onClick={() => (open ? close(true) : show())}
       >
-        <span>{current?.label || value || '请选择'}</span>
+        <span>{current?.label || value || t('请选择')}</span>
         <ChevronDown size={15} aria-hidden="true" />
       </button>
       <div
@@ -281,8 +283,8 @@ export function Select({
             <input
               ref={search}
               type="search"
-              placeholder="搜索选项…"
-              aria-label={`搜索${label || '选项'}`}
+              placeholder={t('搜索选项…')}
+              aria-label={t('搜索{{p0}}', { p0: label || t('选项') })}
               aria-controls={listId}
               aria-activedescendant={open && activeOption ? optionId(activeOption) : undefined}
               autoComplete="off"
@@ -332,7 +334,7 @@ export function Select({
           ))}
           {!visible.length && (
             <p className="select-empty" role="status">
-              没有匹配的选项
+              {t('没有匹配的选项')}
             </p>
           )}
         </div>

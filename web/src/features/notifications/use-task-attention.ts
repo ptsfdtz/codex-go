@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { Packet } from '../../transport/bridge';
 import type { Snapshot } from '../../workspace';
@@ -46,7 +47,7 @@ export function useTaskAttention(
       ) {
         try {
           new Notification(attentionLabels[added.kind], {
-            body: '打开 AgentDeck 查看会话。',
+            body: t('打开 AgentDeck 查看会话。'),
             tag: `agentdeck:${hostId}:${added.sessionId}`,
           });
         } catch {

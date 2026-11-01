@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { exclusive } from '../coordination';
 import { HostSocket } from './host';
 import type { HostGrant } from '../host-book';
@@ -173,12 +174,12 @@ export class Bridge {
       try {
         const pending = this.receipts();
         if (pending.length)
-          return Promise.reject(new Error('上一条操作结果尚未确定，请重连核对后再操作'));
+          return Promise.reject(new Error(t('上一条操作结果尚未确定，请重连核对后再操作')));
         pending.push(id);
         this.saveReceipts(pending);
         this.mutations.add(id);
       } catch {
-        return Promise.reject(new Error('无法保存操作回执；请允许浏览器存储后重试'));
+        return Promise.reject(new Error(t('无法保存操作回执；请允许浏览器存储后重试')));
       }
     }
     return new Promise<T>((resolve, reject) => {
@@ -201,7 +202,7 @@ export class Bridge {
   private receipts(): string[] {
     const value: unknown = JSON.parse(localStorage.getItem(this.receiptKey()) || '[]');
     if (!Array.isArray(value) || !value.every((id) => typeof id === 'string'))
-      throw new Error('无法读取操作回执，请先核对电脑上的操作状态');
+      throw new Error(t('无法读取操作回执，请先核对电脑上的操作状态'));
     return value;
   }
   private saveReceipts(value: string[]) {

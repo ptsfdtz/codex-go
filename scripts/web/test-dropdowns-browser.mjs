@@ -7,7 +7,7 @@ await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const checks = [];
 try {
-  const page = await browser.newPage({ viewport: { width: 1100, height: 850 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1100, height: 850 } });
   page.setDefaultTimeout(7000);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -329,7 +329,11 @@ try {
   checks.push(
     'model/effort, permission and work-mode surfaces share menu styling; reduced-motion dismissal; no page errors',
   );
-  const touch = await browser.newPage({ viewport: { width: 390, height: 700 }, hasTouch: true });
+  const touch = await browser.newPage({
+    locale: 'zh-CN',
+    viewport: { width: 390, height: 700 },
+    hasTouch: true,
+  });
   await touch.route('**/api/**', (route) => route.abort());
   await touch.goto(process.env.DROPDOWN_TEST_ORIGIN || 'http://127.0.0.1:1434/');
   await touch.evaluate(async () => {

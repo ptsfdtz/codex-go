@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import { useId, useState } from 'react';
 import { Check, ChevronDown, RotateCcw } from 'lucide-react';
 import type { Draft, Model } from '../workspace';
@@ -6,17 +7,17 @@ import { Collapse, usePopoverMotion } from '../motion';
 
 const effortLabel = (value: string) =>
   ({
-    none: 'None',
-    minimal: 'Minimal',
-    low: 'Low',
-    medium: 'Medium',
-    high: 'High',
-    xhigh: 'Extra high',
-    max: 'Max',
-    ultra: 'Ultra',
+    none: t('None'),
+    minimal: t('Minimal'),
+    low: t('Low'),
+    medium: t('Medium'),
+    high: t('High'),
+    xhigh: t('Extra high'),
+    max: t('Max'),
+    ultra: t('Ultra'),
   })[value] || value;
 const modelLabel = (model?: Model) =>
-  (model?.displayName || model?.name || model?.id || model?.model || 'Default').replace(
+  (model?.displayName || model?.name || model?.id || model?.model || t('Default')).replace(
     /^GPT-/i,
     '',
   );
@@ -34,6 +35,7 @@ export function ModelPicker({
   onChange: (change: Partial<Draft>) => void;
   allowDefault?: boolean;
 }) {
+  useLocale();
   const id = useId();
   const popup = usePopoverMotion();
   const [modelExpanded, setModelExpanded] = useState(false);
@@ -64,12 +66,12 @@ export function ModelPicker({
         className="model-picker-trigger model-name-trigger"
         disabled={disabled}
         popoverTarget={id}
-        aria-label="切换模型"
-        title={modelLabel(model) === 'Default' && draft.model ? draft.model : modelLabel(model)}
+        aria-label={t('切换模型')}
+        title={modelLabel(model) === t('Default') && draft.model ? draft.model : modelLabel(model)}
         onClick={(event) => openPicker(event.currentTarget)}
       >
         <span>
-          {model ? modelLabel(model) : draft.model || '默认模型'}
+          {model ? modelLabel(model) : draft.model || t('默认模型')}
           {effort ? ` · ${effortLabel(effort)}` : ''}
         </span>
         <ChevronDown size={13} />
@@ -79,7 +81,7 @@ export function ModelPicker({
         ref={popup}
         popover="auto"
         className={`model-picker-popup${effort === 'ultra' ? ' is-ultra' : ''}`}
-        aria-label="模型与思维强度"
+        aria-label={t('模型与思维强度')}
       >
         <div className="model-picker-view">
           <button
@@ -87,18 +89,21 @@ export function ModelPicker({
             aria-expanded={modelExpanded}
             onClick={() => setModelExpanded((value) => !value)}
           >
-            <span>模型 · {model ? modelLabel(model) : '默认'}</span>
+            <span>
+              {t('模型 · ')}
+              {model ? modelLabel(model) : t('默认')}
+            </span>
             <ChevronDown size={14} />
           </button>
           <Collapse open={modelExpanded}>
-            <div role="group" aria-label="模型">
+            <div role="group" aria-label={t('模型')}>
               {allowDefault && (
                 <button
                   className={`model-picker-option ${!draft.model ? 'selected' : ''}`}
                   disabled={disabled}
                   onClick={() => choose('')}
                 >
-                  <span>跟随电脑默认模型</span>
+                  <span>{t('跟随电脑默认模型')}</span>
                   {!draft.model && <Check size={18} />}
                 </button>
               )}
@@ -121,12 +126,13 @@ export function ModelPicker({
 
           <div className="effort-picker-heading">
             <strong>
-              思维强度 · <span>{effort ? effortLabel(effort) : '默认'}</span>
+              {t('思维强度 · ')}
+              <span>{effort ? effortLabel(effort) : t('默认')}</span>
             </strong>
             <button
               className="icon-button"
-              title="重置思维强度"
-              aria-label="重置思维强度"
+              title={t('重置思维强度')}
+              aria-label={t('重置思维强度')}
               disabled={disabled || !draft.effort}
               onClick={() => onChange({ effort: '' })}
             >
@@ -157,7 +163,7 @@ export function ModelPicker({
               </div>
               <input
                 type="range"
-                aria-label="推理强度"
+                aria-label={t('推理强度')}
                 aria-valuetext={effortLabel(efforts[index]!)}
                 min={0}
                 max={efforts.length - 1}
@@ -176,7 +182,7 @@ export function ModelPicker({
             </div>
           ) : (
             <p className="effort-unavailable">
-              {efforts.length === 1 ? effortLabel(efforts[0]!) : '此模型使用默认思维强度'}
+              {efforts.length === 1 ? effortLabel(efforts[0]!) : t('此模型使用默认思维强度')}
             </p>
           )}
         </div>

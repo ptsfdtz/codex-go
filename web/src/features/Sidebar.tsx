@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../i18n';
 import { Select } from '../components/Select';
 import {
   useEffect,
@@ -88,6 +89,7 @@ export function Sidebar({
   actionsBlocked?: boolean;
   unread?: Record<string, AttentionKind>;
 }) {
+  useLocale();
   const [sort, setSort] = useState('recent');
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [recentsOpen, setRecentsOpen] = useState(true);
@@ -243,13 +245,15 @@ export function Sidebar({
       <button
         className="session"
         onClick={() => onSelect(s)}
-        title={s.title || '未命名会话'}
+        title={s.title || t('未命名会话')}
         aria-current={s.sessionId === sessionId ? 'page' : undefined}
         aria-description={
-          unread[s.sessionId] ? `${attentionLabels[unread[s.sessionId]!]}，有未读提醒` : undefined
+          unread[s.sessionId]
+            ? t('{{p0}}，有未读提醒', { p0: attentionLabels[unread[s.sessionId]!] })
+            : undefined
         }
       >
-        <span className="session-title">{s.title || '未命名会话'}</span>
+        <span className="session-title">{s.title || t('未命名会话')}</span>
         {unread[s.sessionId] && (
           <span className="notification-dot session-unread-dot" aria-hidden="true" />
         )}
@@ -257,7 +261,7 @@ export function Sidebar({
           <span
             className={`session-working ${connected ? '' : 'is-stale'}`}
             role="img"
-            aria-label={connected ? '正在工作' : '连接中断，上次状态为正在工作'}
+            aria-label={connected ? t('正在工作') : t('连接中断，上次状态为正在工作')}
           >
             <LoaderCircle size={14} strokeWidth={1.6} aria-hidden="true" />
           </span>
@@ -268,8 +272,8 @@ export function Sidebar({
           type="button"
           className="icon-button sidebar-more"
           id={`${menuId}-${area}-${s.sessionId}`}
-          aria-label={`更多操作 ${s.title || '未命名会话'}`}
-          title="更多操作"
+          aria-label={t('更多操作 {{p0}}', { p0: s.title || t('未命名会话') })}
+          title={t('更多操作')}
           disabled={!!pending}
           aria-haspopup="menu"
           aria-controls={menuId}
@@ -283,7 +287,7 @@ export function Sidebar({
         </button>
         <IconButton
           icon={SquarePen}
-          label={`编辑会话 ${s.title || '未命名会话'}`}
+          label={t('编辑会话 {{p0}}', { p0: s.title || t('未命名会话') })}
           onClick={() => onManage(s)}
         />
       </div>
@@ -293,7 +297,7 @@ export function Sidebar({
     <>
       <button
         className={`sidebar-scrim ${open ? 'visible' : ''}`}
-        aria-label="关闭侧栏"
+        aria-label={t('关闭侧栏')}
         onClick={onClose}
       />
       <aside
@@ -305,51 +309,51 @@ export function Sidebar({
           {brand || <strong>AgentDeck</strong>}
           <IconButton
             icon={Menu}
-            label="收起会话列表"
+            label={t('收起会话列表')}
             onClick={onClose}
-            badge={Object.keys(unread).length ? '有未读任务提醒' : undefined}
+            badge={Object.keys(unread).length ? t('有未读任务提醒') : undefined}
           />
         </div>
         <div className="sidebar-primary">
           <button onClick={onNew}>
             <SquarePen size={16} />
-            新对话
+            {t('新对话')}
           </button>
           <IconButton
             icon={MessageCircle}
-            label="普通聊天"
+            label={t('普通聊天')}
             className={`chat-entry ${projectId === 'agentdeck-chat' ? 'active' : ''}`}
             onClick={onChat}
             disabled={!chatAvailable}
           />
-          <IconButton icon={Search} label="搜索会话" onClick={onSearch} />
+          <IconButton icon={Search} label={t('搜索会话')} onClick={onSearch} />
         </div>
         <div className="sidebar-scroll">
           {marked.length > 0 && (
-            <section className="sidebar-marked" aria-label="已标记">
+            <section className="sidebar-marked" aria-label={t('已标记')}>
               <button
                 className="desktop-rail-heading"
                 aria-expanded={markedOpen}
                 onClick={() => setMarkedOpen(!markedOpen)}
               >
                 <Pin size={13} />
-                已标记
+                {t('已标记')}
                 <ChevronDown size={13} className={markedOpen ? '' : 'is-collapsed'} />
               </button>
               <Collapse open={markedOpen}>
-                <MotionList as="nav" label="已标记对话列表">
+                <MotionList as="nav" label={t('已标记对话列表')}>
                   {marked.map((s) => row(s, 'marked'))}
                 </MotionList>
               </Collapse>
             </section>
           )}
-          <section className="sidebar-projects" aria-label="项目">
+          <section className="sidebar-projects" aria-label={t('项目')}>
             <button
               className="desktop-rail-heading"
               aria-expanded={projectsOpen}
               onClick={() => setProjectsOpen(!projectsOpen)}
             >
-              项目
+              {t('项目')}
               <ChevronDown size={13} className={projectsOpen ? '' : 'is-collapsed'} />
             </button>
             <Collapse open={projectsOpen}>
@@ -377,14 +381,14 @@ export function Sidebar({
                       </button>
                       <IconButton
                         icon={SquarePen}
-                        label={`在 ${p.name} 中新建对话`}
+                        label={t('在 {{p0}} 中新建对话', { p0: p.name })}
                         onClick={() => onProject(p.projectId)}
                       />
                     </div>
                     <Collapse open={expanded}>
                       <MotionList
                         as="nav"
-                        label={`${p.name} 的对话`}
+                        label={t('{{p0}} 的对话', { p0: p.name })}
                         className="sidebar-project-sessions"
                       >
                         {projectSessions
@@ -395,7 +399,7 @@ export function Sidebar({
                             className="sidebar-project-empty"
                             onClick={() => onProject(p.projectId)}
                           >
-                            新建对话
+                            {t('新建对话')}
                           </button>
                         )}
                         {projectSessions.length > 3 &&
@@ -405,8 +409,10 @@ export function Sidebar({
                               onClick={() => toggle(setFullProjects, p.projectId)}
                             >
                               {fullProjects.has(p.projectId)
-                                ? '收起'
-                                : `显示更多（${Math.max(0, projectSessions.length - count)}）`}
+                                ? t('收起')
+                                : t('显示更多（{{p0}}）', {
+                                    p0: Math.max(0, projectSessions.length - count),
+                                  })}
                             </button>
                           )}
                       </MotionList>
@@ -414,10 +420,10 @@ export function Sidebar({
                   </div>
                 );
               })}
-              {!projects.length && <p className="rail-empty">暂无项目</p>}
+              {!projects.length && <p className="rail-empty">{t('暂无项目')}</p>}
             </Collapse>
           </section>
-          <section className="sidebar-recents" aria-label="最近对话">
+          <section className="sidebar-recents" aria-label={t('最近对话')}>
             <div className="sidebar-recents-heading">
               <button
                 className="desktop-rail-heading"
@@ -425,19 +431,19 @@ export function Sidebar({
                 onClick={() => setRecentsOpen(!recentsOpen)}
               >
                 {filter === 'archived'
-                  ? '归档对话'
+                  ? t('归档对话')
                   : filter === 'pinned'
-                    ? '最近对话'
+                    ? t('最近对话')
                     : filter === 'active'
-                      ? '活动任务'
-                      : '最近对话'}
+                      ? t('活动任务')
+                      : t('最近对话')}
                 <ChevronDown size={13} className={recentsOpen ? '' : 'is-collapsed'} />
               </button>
               <div className="sidebar-heading-actions">
-                <IconButton icon={RefreshCw} label="同步电脑已有对话" onClick={onRefresh} />
+                <IconButton icon={RefreshCw} label={t('同步电脑已有对话')} onClick={onRefresh} />
                 <IconButton
                   icon={SlidersHorizontal}
-                  label="筛选和排序会话"
+                  label={t('筛选和排序会话')}
                   pressed={filters}
                   onClick={() => setFilters(!filters)}
                 />
@@ -446,14 +452,14 @@ export function Sidebar({
             <Collapse open={filters}>
               <div className="rail-filters">
                 <Select
-                  aria-label="会话筛选"
+                  aria-label={t('会话筛选')}
                   value={filter}
                   onValueChange={(value) => setFilter(value)}
                 >
                   {[
-                    ['all', '全部对话'],
-                    ['active', '活动任务'],
-                    ['archived', '归档'],
+                    ['all', t('全部对话')],
+                    ['active', t('活动任务')],
+                    ['archived', t('归档')],
                   ].map(([id, name]) => (
                     <option key={id} value={id}>
                       {name}
@@ -461,25 +467,25 @@ export function Sidebar({
                   ))}
                 </Select>
                 <Select
-                  aria-label="会话排序"
+                  aria-label={t('会话排序')}
                   value={sort}
                   onValueChange={(value) => setSort(value)}
                 >
-                  <option value="recent">最近更新</option>
-                  <option value="title">按名称</option>
+                  <option value="recent">{t('最近更新')}</option>
+                  <option value="title">{t('按名称')}</option>
                 </Select>
               </div>
             </Collapse>
             <Collapse open={recentsOpen}>
-              <MotionList as="nav" label="最近对话列表">
+              <MotionList as="nav" label={t('最近对话列表')}>
                 {unmarked.slice(0, recentLimit).map((s) => row(s, 'recent'))}
-                {!unmarked.length && <p className="rail-empty">暂无会话</p>}
+                {!unmarked.length && <p className="rail-empty">{t('暂无会话')}</p>}
                 {unmarked.length > recentLimit && (
                   <button
                     className="sidebar-show-more"
                     onClick={() => setRecentLimit((n) => n + 20)}
                   >
-                    显示更多
+                    {t('显示更多')}
                   </button>
                 )}
               </MotionList>
@@ -488,15 +494,15 @@ export function Sidebar({
         </div>
         {error && !confirmation && (
           <p className="sidebar-action-error error" role="alert">
-            {error}
+            {errorText(error)}
           </p>
         )}
         <div className="sidebar-footer">
           <button onClick={onComputers}>
             <Computer size={17} />
-            <span>{host?.displayName || '连接电脑'}</span>
+            <span>{host?.displayName || t('连接电脑')}</span>
           </button>
-          <IconButton icon={Settings} label="设置" onClick={onSettings} />
+          <IconButton icon={Settings} label={t('设置')} onClick={onSettings} />
         </div>
         <div
           id={menuId}
@@ -505,7 +511,11 @@ export function Sidebar({
           className={`sidebar-context-menu ${confirmation ? 'is-confirming' : ''}`}
           role={confirmation ? 'dialog' : 'menu'}
           aria-label={
-            confirmation ? (confirmation.archived === 1 ? '恢复会话' : '归档会话') : '会话操作'
+            confirmation
+              ? confirmation.archived === 1
+                ? t('恢复会话')
+                : t('归档会话')
+              : t('会话操作')
           }
           aria-describedby={confirmation ? `${menuId}-description` : undefined}
           aria-busy={!!pending}
@@ -554,23 +564,28 @@ export function Sidebar({
             <div className="sidebar-archive-confirmation">
               <div className="sidebar-confirmation-heading">
                 {confirmation.archived === 1 ? <ArchiveRestore size={17} /> : <Archive size={17} />}
-                <h3>{confirmation.archived === 1 ? '恢复会话' : '归档会话'}</h3>
-                <IconButton icon={X} label="关闭确认" onClick={closeMenu} disabled={!!pending} />
+                <h3>{confirmation.archived === 1 ? t('恢复会话') : t('归档会话')}</h3>
+                <IconButton
+                  icon={X}
+                  label={t('关闭确认')}
+                  onClick={closeMenu}
+                  disabled={!!pending}
+                />
               </div>
-              <p className="sidebar-confirmation-name">{confirmation.title || '未命名会话'}</p>
+              <p className="sidebar-confirmation-name">{confirmation.title || t('未命名会话')}</p>
               <p id={`${menuId}-description`} className="sidebar-confirmation-description">
                 {confirmation.archived === 1
-                  ? '恢复后会重新显示在对话列表中。'
-                  : '归档后将从列表收起，可在归档对话中恢复。'}
+                  ? t('恢复后会重新显示在对话列表中。')
+                  : t('归档后将从列表收起，可在归档对话中恢复。')}
               </p>
               {error && (
                 <p className="error" role="alert">
-                  {error}
+                  {errorText(error)}
                 </p>
               )}
               <div className="button-row">
                 <button data-cancel disabled={!!pending} onClick={closeMenu}>
-                  取消
+                  {t('取消')}
                 </button>
                 <button
                   disabled={!latestMenuSession || !manageable(latestMenuSession)}
@@ -582,7 +597,7 @@ export function Sidebar({
                       );
                   }}
                 >
-                  {pending ? '处理中…' : confirmation.archived === 1 ? '恢复' : '归档'}
+                  {pending ? t('处理中…') : confirmation.archived === 1 ? t('恢复') : t('归档')}
                 </button>
               </div>
             </div>
@@ -596,7 +611,7 @@ export function Sidebar({
                 }}
               >
                 <SquarePen size={15} />
-                编辑会话
+                {t('编辑会话')}
               </button>
               <button
                 role="menuitem"
@@ -606,7 +621,7 @@ export function Sidebar({
                 }}
               >
                 {latestMenuSession?.pinned === 1 ? <PinOff size={15} /> : <Pin size={15} />}
-                {latestMenuSession?.pinned === 1 ? '取消标记' : '标记会话'}
+                {latestMenuSession?.pinned === 1 ? t('取消标记') : t('标记会话')}
               </button>
               <button
                 role="menuitem"
@@ -621,7 +636,7 @@ export function Sidebar({
                 ) : (
                   <Archive size={15} />
                 )}
-                {latestMenuSession?.archived === 1 ? '恢复会话' : '归档会话'}
+                {latestMenuSession?.archived === 1 ? t('恢复会话') : t('归档会话')}
               </button>
             </>
           )}

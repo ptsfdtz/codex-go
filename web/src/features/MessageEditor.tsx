@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../i18n';
 import { useId, useLayoutEffect, useRef } from 'react';
 import { ArrowUp, LoaderCircle } from 'lucide-react';
 
@@ -18,6 +19,7 @@ export function MessageEditor({
   onCancel: () => void;
   onSend: () => void;
 }) {
+  useLocale();
   const errorId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
@@ -58,7 +60,7 @@ export function MessageEditor({
   return (
     <form
       className="message-editor"
-      aria-label="编辑消息"
+      aria-label={t('编辑消息')}
       onSubmit={(event) => {
         event.preventDefault();
         if (!disabled && !busy && text.trim()) onSend();
@@ -66,7 +68,7 @@ export function MessageEditor({
     >
       <textarea
         ref={textarea}
-        aria-label="修改消息"
+        aria-label={t('修改消息')}
         aria-describedby={error ? errorId : undefined}
         rows={1}
         value={text}
@@ -86,13 +88,13 @@ export function MessageEditor({
       />
       {error && (
         <p id={errorId} className="message-edit-error" role="alert">
-          {error}
+          {errorText(error)}
         </p>
       )}
       <div className="message-edit-footer">
         <div className="message-edit-actions">
           <button type="button" disabled={busy} onClick={onCancel}>
-            取消
+            {t('取消')}
           </button>
           <button
             type="submit"
@@ -104,7 +106,7 @@ export function MessageEditor({
             ) : (
               <ArrowUp size={15} aria-hidden="true" />
             )}
-            {busy ? '发送中…' : '保存并发送'}
+            {busy ? t('发送中…') : t('保存并发送')}
           </button>
         </div>
       </div>

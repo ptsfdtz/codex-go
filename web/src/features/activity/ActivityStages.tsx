@@ -1,3 +1,4 @@
+import { t, useLocale } from '../../i18n';
 import type { ReactNode } from 'react';
 import { ChevronRight, Layers } from 'lucide-react';
 import { historyKey, type HistoryEntry } from '../../history';
@@ -42,16 +43,16 @@ function stageLabel(entries: HistoryEntry[]) {
     const type = String(entry.item?.type);
     labels.add(
       type === 'reasoning'
-        ? '思考'
+        ? t('思考')
         : type === 'commandExecution'
-          ? '运行命令'
+          ? t('运行命令')
           : type === 'fileChange'
-            ? '修改文件'
+            ? t('修改文件')
             : type === 'webSearch'
-              ? '搜索'
+              ? t('搜索')
               : ['imageView', 'imageGeneration'].includes(type)
-                ? '处理图片'
-                : '工具调用',
+                ? t('处理图片')
+                : t('工具调用'),
     );
   }
   return [...labels].join('、');
@@ -66,6 +67,7 @@ export function ActivityStages({
   activeTurn?: string;
   children: (entry: HistoryEntry, index: number) => ReactNode;
 }) {
+  useLocale();
   return activityStages(entries, activeTurn).map((stage) => {
     if (!stage.activity) {
       const index = stage.indices[0]!;
@@ -81,11 +83,11 @@ export function ActivityStages({
         <summary>
           <Layers size={15} aria-hidden="true" />
           <span>
-            {stage.active ? '正在' : ''}
+            {stage.active ? t('正在') : ''}
             {stageLabel(stage.indices.map((i) => entries[i]!))}
           </span>
           <span className="activity-stage-count">{stage.indices.length}</span>
-          {stage.active && <span className="activity-dot" aria-label="执行中" />}
+          {stage.active && <span className="activity-dot" aria-label={t('执行中')} />}
           <ChevronRight className="activity-stage-chevron" size={14} aria-hidden="true" />
         </summary>
         <div className="activity-stage-items">

@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -6,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 
 type Output = { data: string; offset: number; truncated: boolean; eof: boolean };
 export function SshTerminal({ request, visible }: { request: Request; visible: boolean }) {
+  useLocale();
   const [host, setHost] = useState('');
   const [user, setUser] = useState('');
   const [port, setPort] = useState('');
@@ -46,7 +48,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
       if (!live) return;
       open = false;
       setPhase('closed');
-      setError(`${String(e)}。连接已停止；命令结果请核对后再操作。`);
+      setError(t('{{p0}}。连接已停止；命令结果请核对后再操作。', { p0: String(e) }));
       pending = '';
       void close();
     };
@@ -64,7 +66,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
           sequence,
           data,
         });
-        if (result.sequence !== sequence + 1) throw new Error('终端输入确认顺序异常');
+        if (result.sequence !== sequence + 1) throw new Error(t('终端输入确认顺序异常'));
         sequence = result.sequence;
       } catch (e) {
         fail(e);
@@ -76,7 +78,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
     send.current = (data) => {
       if (!open || !live) return;
       if (pending.length + data.length > 64 * 1024) {
-        fail('输入过长，请减少粘贴内容');
+        fail(t('输入过长，请减少粘贴内容'));
         return;
       }
       pending += data;
@@ -88,7 +90,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
       try {
         const value = await request<Output>('ssh.read', { terminalId, offset });
         if (!live || !open) return;
-        if (value.truncated) term.write('\r\n[较早的终端输出已超出缓冲区]\r\n');
+        if (value.truncated) term.write(t('\r\n[较早的终端输出已超出缓冲区]\r\n'));
         if (value.data) {
           const bytes = Uint8Array.from(atob(value.data), (c) => c.charCodeAt(0));
           await new Promise<void>((resolve) => term.write(bytes, resolve));
@@ -97,7 +99,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
         if (value.eof) {
           open = false;
           setPhase('closed');
-          term.write('\r\n[SSH 连接已结束]\r\n');
+          term.write(t('\r\n[SSH 连接已结束]\r\n'));
           void close();
         } else poll = setTimeout(() => void read(), 200);
       } catch (e) {
@@ -164,7 +166,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
       });
   }, [visible, phase]);
   return (
-    <section className="ssh-tool" aria-label="SSH 终端">
+    <section className="ssh-tool" aria-label={t('SSH 终端')}>
       {!target ? (
         <form
           className="ssh-connect"
@@ -179,12 +181,14 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
             });
           }}
         >
-          <h3>连接 SSH 服务器</h3>
+          <h3>{t('连接 SSH 服务器')}</h3>
           <p className="muted">
-            由当前电脑发起连接，使用该电脑的 SSH 配置和密钥。密码与主机指纹确认会显示在终端中。
+            {t(
+              '由当前电脑发起连接，使用该电脑的 SSH 配置和密钥。密码与主机指纹确认会显示在终端中。',
+            )}
           </p>
           <label>
-            主机 / SSH 别名
+            {t('主机 / SSH 别名')}
             <input
               required
               autoComplete="off"
@@ -196,40 +200,40 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
           </label>
           <div className="ssh-connect-row">
             <label>
-              用户名
+              {t('用户名')}
               <input
                 autoComplete="off"
                 value={user}
                 onChange={(e) => setUser(e.target.value)}
-                placeholder="使用 SSH 配置"
+                placeholder={t('使用 SSH 配置')}
                 maxLength={128}
               />
             </label>
             <label>
-              端口
+              {t('端口')}
               <input
                 type="number"
                 min={1}
                 max={65535}
                 value={port}
                 onChange={(e) => setPort(e.target.value)}
-                placeholder="使用 SSH 配置"
+                placeholder={t('使用 SSH 配置')}
               />
             </label>
           </div>
           <label>
-            私钥路径（可选）
+            {t('私钥路径（可选）')}
             <input
               autoComplete="off"
               value={identity}
               onChange={(e) => setIdentity(e.target.value)}
-              placeholder="电脑上的绝对路径，留空使用默认密钥"
+              placeholder={t('电脑上的绝对路径，留空使用默认密钥')}
             />
           </label>
           <p className="muted">
-            命令使用 SSH 账户的权限执行。关闭工具栏、刷新网页或断开电脑连接会结束终端。
+            {t('命令使用 SSH 账户的权限执行。关闭工具栏、刷新网页或断开电脑连接会结束终端。')}
           </p>
-          <button type="submit">连接</button>
+          <button type="submit">{t('连接')}</button>
         </form>
       ) : (
         <>
@@ -237,10 +241,10 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
             <span>
               {String(target.host)} ·{' '}
               {phase === 'connecting'
-                ? '正在启动…'
+                ? t('正在启动…')
                 : phase === 'open'
-                  ? '终端已启动'
-                  : '连接已结束'}
+                  ? t('终端已启动')
+                  : t('连接已结束')}
             </span>
             <button
               onClick={() => {
@@ -249,16 +253,16 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
                 setError('');
               }}
             >
-              {phase === 'closed' ? '返回连接' : '断开连接'}
+              {phase === 'closed' ? t('返回连接') : t('断开连接')}
             </button>
           </div>
           {error && (
             <p className="error ssh-error" role="alert">
-              {error}
+              {errorText(error)}
             </p>
           )}
           <div className="ssh-screen" ref={container} />
-          <div className="ssh-keys" aria-label="终端快捷键">
+          <div className="ssh-keys" aria-label={t('终端快捷键')}>
             {[
               ['Esc', '\x1b'],
               ['Tab', '\t'],

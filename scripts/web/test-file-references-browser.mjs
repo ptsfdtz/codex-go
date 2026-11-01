@@ -6,7 +6,7 @@ const out = new URL('../../artifacts/file-references/', import.meta.url);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 820 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1200, height: 820 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/api/**', (route) => route.abort());

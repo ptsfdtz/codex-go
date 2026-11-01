@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 // This database contains local configuration and conversations, never API keys.
 let database: Promise<IDBDatabase> | undefined;
 function open(): Promise<IDBDatabase> {
@@ -15,11 +16,11 @@ function open(): Promise<IDBDatabase> {
       };
       request.onerror = () => {
         database = undefined;
-        reject(new Error('无法打开本地聊天存储'));
+        reject(new Error(t('无法打开本地聊天存储')));
       };
       request.onblocked = () => {
         database = undefined;
-        reject(new Error('本地聊天存储被其他页面占用，请关闭旧页面后重试'));
+        reject(new Error(t('本地聊天存储被其他页面占用，请关闭旧页面后重试')));
       };
     });
   return database;
@@ -32,7 +33,7 @@ export class LocalStore {
       const tx = db.transaction('records');
       const request = tx.objectStore('records').get([this.scope, kind, id]);
       tx.oncomplete = () => resolve(request.result as T | undefined);
-      tx.onabort = tx.onerror = () => reject(new Error('读取本地聊天失败'));
+      tx.onabort = tx.onerror = () => reject(new Error(t('读取本地聊天失败')));
     });
   }
   async list<T>(kind: string): Promise<T[]> {
@@ -43,7 +44,7 @@ export class LocalStore {
         .objectStore('records')
         .getAll(IDBKeyRange.bound([this.scope, kind, ''], [this.scope, kind, '\uffff']));
       tx.oncomplete = () => resolve(request.result as T[]);
-      tx.onabort = tx.onerror = () => reject(new Error('读取本地聊天失败'));
+      tx.onabort = tx.onerror = () => reject(new Error(t('读取本地聊天失败')));
     });
   }
   async write(entries: { kind: string; id: string; value?: unknown }[]) {
@@ -57,7 +58,7 @@ export class LocalStore {
       }
       tx.oncomplete = () => resolve();
       tx.onabort = tx.onerror = () =>
-        reject(new Error('本地存储失败，请检查浏览器空间；当前内容已保留，请勿关闭页面'));
+        reject(new Error(t('本地存储失败，请检查浏览器空间；当前内容已保留，请勿关闭页面')));
     });
   }
 }

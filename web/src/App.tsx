@@ -1,3 +1,5 @@
+import { LanguageSelect } from './i18n/LanguageSelect';
+import { errorText, t, useLocale } from './i18n';
 import { Select } from './components/Select';
 import { MotionPresence, MotionList, useSidebarMotion } from './motion';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -131,7 +133,7 @@ const FileWorkspace = deferred<
     import('./features/files/FileWorkspace').then((module) => ({ default: module.FileWorkspace })),
   () => (
     <aside className="file-workspace module-status" role="status">
-      加载文件工作区…
+      {t('加载文件工作区…')}
     </aside>
   ),
 );
@@ -155,6 +157,7 @@ import {
 } from './features/composer-preferences';
 
 function Login({ onLogin }: { onLogin: () => void }) {
+  useLocale();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -191,24 +194,25 @@ function Login({ onLogin }: { onLogin: () => void }) {
         <div className="brand">
           AGENT<span>DECK</span>
         </div>
-        <h1>登录</h1>
+        <h1>{t('登录')}</h1>
         <input
-          aria-label="用户名"
+          aria-label={t('用户名')}
           value={username}
           onChange={(event) => setUsername(event.target.value)}
-          placeholder="用户名"
+          placeholder={t('用户名')}
           autoComplete="username"
         />
         <input
-          aria-label="密码"
+          aria-label={t('密码')}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          placeholder="密码"
+          placeholder={t('密码')}
           type="password"
           autoComplete="current-password"
         />
-        <button disabled={busy || !username || !password}>{busy ? '登录中…' : '登录'}</button>
-        {error && <p className="error">{error}</p>}
+        <button disabled={busy || !username || !password}>{busy ? t('登录中…') : t('登录')}</button>
+        {error && <p className="error">{errorText(error)}</p>}
+        <LanguageSelect />
         <InstallApp />
       </form>
     </main>
@@ -216,6 +220,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
 }
 
 export function App() {
+  useLocale();
   const [mode] = usePreference<WorkMode>(
     'agentdeck.web.work-mode',
     'codex',
@@ -229,6 +234,7 @@ export function App() {
   );
 }
 function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
+  useLocale();
   const [identity, setIdentity] = useState<{
     accountId: string;
     mustChangePassword: boolean;
@@ -253,7 +259,7 @@ function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
       window.removeEventListener(accountEvent, changed);
     };
   }, [generation]);
-  if (identity === undefined) return <main className="center">加载中…</main>;
+  if (identity === undefined) return <main className="center">{t('加载中…')}</main>;
   if (identity === null) return <Login onLogin={() => setGeneration((value) => value + 1)} />;
   if (identity.mustChangePassword) return <AccountPassword />;
   return (
@@ -265,6 +271,7 @@ function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
   );
 }
 function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
+  useLocale();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [scope, setScope] = useState('');
   const [mustChangePassword, setMustChangePassword] = useState(false);
@@ -541,10 +548,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         epoch !== connectionEpoch.current ||
         connection !== bridge.current
       )
-        throw new Error('电脑连接已变化，请重新打开');
+        throw new Error(t('电脑连接已变化，请重新打开'));
       try {
         const result = await connection.request<T>(action, payload);
-        if (epoch !== connectionEpoch.current) throw new Error('电脑已经切换');
+        if (epoch !== connectionEpoch.current) throw new Error(t('电脑已经切换'));
         return result;
       } finally {
         if (epoch === connectionEpoch.current) setReceiptBlocked(connection.awaitingReceipt);
@@ -727,7 +734,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               () => !cancelled && generation === accountEpoch.current,
             );
           } catch {
-            migrationFailure = '旧电脑名称尚未同步到服务器，正在重试；本地名称已保留。';
+            migrationFailure = t('旧电脑名称尚未同步到服务器，正在重试；本地名称已保留。');
           }
           if (cancelled || generation !== accountEpoch.current) return;
           setHosts(hostValue.hosts || []);
@@ -769,8 +776,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           if (!cancelled && generation === accountEpoch.current)
             setDirectoryFailure(
               /TimeoutError|timed out/i.test(String(error))
-                ? '云端电脑列表刷新超时，显示的是上次状态；正在重试。'
-                : '云端电脑列表暂时无法刷新，显示的是上次状态；正在重试。',
+                ? t('云端电脑列表刷新超时，显示的是上次状态；正在重试。')
+                : t('云端电脑列表暂时无法刷新，显示的是上次状态；正在重试。'),
             );
         })
         .finally(() => {
@@ -941,7 +948,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         if (readingHistory) {
           setHistoryFailure(historyError(error));
           setHistoryReady(false);
-        } else setError(`状态同步失败：${String(error)}`);
+        } else setError(t('状态同步失败：{{p0}}', { p0: String(error) }));
       }
     } finally {
       refreshRunning.current = false;
@@ -1036,7 +1043,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             const detail = payload.error as { message?: string } | undefined;
             if (payload.willRetry === true) {
               upstreamRetryTurn = String(turnId || '');
-              setUpstreamRetry(String(detail?.message || payload.message || 'Codex 正在重试'));
+              setUpstreamRetry(String(detail?.message || payload.message || t('Codex 正在重试')));
             } else {
               upstreamRetryTurn = '';
               setUpstreamRetry('');
@@ -1075,7 +1082,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             uncertainBaseline.current.clear();
             scheduleRefresh(true);
           }
-
         }
         if (selected && packet.action === 'session.deleted') {
           selectSession(undefined, false);
@@ -1124,7 +1130,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             !/^[a-f0-9]{64}$/i.test(grant.fingerprint) ||
             !/^[A-Za-z0-9_-]{43}$/.test(grant.credential)
           )
-            throw new Error('电脑授权信息无效，请更新 Host');
+            throw new Error(t('电脑授权信息无效，请更新 Host'));
           const value = new Bridge(scope);
           context.own(() => {
             if (flushTimer !== undefined) clearTimeout(flushTimer);
@@ -1135,7 +1141,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           value.onEvent((packet) => {
             if (!context.current() || epoch !== connectionEpoch.current) return;
             if (packet.type === 'closed') {
-              context.closed(new Error(packet.message || '电脑连接已断开'));
+              context.closed(new Error(packet.message || t('电脑连接已断开')));
               return;
             }
             if (packet.type === 'receipt') {
@@ -1147,7 +1153,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             buffered.push(packet);
             bufferedBytes += JSON.stringify(packet).length;
             if (buffered.length > 4096 || bufferedBytes > 8 * 1024 * 1024) {
-              context.closed(new Error('同步积压过大，正在重新建立连接'));
+              context.closed(new Error(t('同步积压过大，正在重新建立连接')));
               return;
             }
             if (!recovering && flushTimer === undefined)
@@ -1161,7 +1167,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   checkpoint.live(batch, consume);
                 } catch (error) {
                   context.closed(
-                    error instanceof Error ? error : new Error('Event stream interrupted'),
+                    error instanceof Error ? error : new Error(t('Event stream interrupted')),
                   );
                 }
               }, 40);
@@ -1281,7 +1287,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           setBusy(state === 'connecting');
           if (state === 'connected' || state === 'syncing') setConnectionFailure('');
           else if (state === 'retrying') setConnectionFailure(connectionError(error));
-          else if (state === 'blocked') setConnectionFailure(String(error || '连接需要重新授权'));
+          else if (state === 'blocked')
+            setConnectionFailure(String(error || t('连接需要重新授权')));
         },
       );
       reconnect.current = loop;
@@ -1332,8 +1339,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         : {
             ...draft,
             text: revision
-              ? `请继续调整以下计划：\n\n${planText}\n\n调整要求：${revision}`
-              : `请按照以下计划开始开发：\n\n${planText}`,
+              ? t('请继续调整以下计划：\n\n{{p0}}\n\n调整要求：{{p1}}', {
+                  p0: planText,
+                  p1: revision,
+                })
+              : t('请按照以下计划开始开发：\n\n{{p0}}', { p0: planText }),
             mode: revision ? 'plan' : 'default',
             attachments: [],
             references: [],
@@ -1368,17 +1378,17 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         (!supports('fileReferenceInputs') ||
           source.references.some((ref) => ref.projectId !== selectedProject))
       )
-        throw new Error('文件引用的项目已变化或 Host 需要升级，请重新引用');
+        throw new Error(t('文件引用的项目已变化或 Host 需要升级，请重新引用'));
       source = { ...source, ...resolveComposerModelPreferences(source, models) };
       let id = session;
       if (!id) {
         const created = await connection.request<{ session?: Session }>('sessions.create', {
           projectId: selectedProject,
-          title: source.text.trim().slice(0, 80) || 'New conversation',
+          title: source.text.trim().slice(0, 80) || t('New conversation'),
         });
         if (epoch !== connectionEpoch.current) return;
         id = created.session?.sessionId;
-        if (!id) throw new Error('电脑没有返回会话标识');
+        if (!id) throw new Error(t('电脑没有返回会话标识'));
         createdSession = id;
         startingSession.current = id;
         targetKey = JSON.stringify([scope, host?.hostId, id]);
@@ -1396,11 +1406,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       if (activeTurn) {
         if (kind === 'steer') {
           if (source.attachments.length || source.skills.length || source.references?.length)
-            throw new Error('带资源的消息请加入待发送队列');
+            throw new Error(t('带资源的消息请加入待发送队列'));
           const active = await connection.request<{ upstreamTurnId?: string }>('turn.active', {
             sessionId: id,
           });
-          if (!active.upstreamTurnId) throw new Error('当前任务已变化，请刷新核对');
+          if (!active.upstreamTurnId) throw new Error(t('当前任务已变化，请刷新核对'));
           await connection.request('turn.steer', {
             sessionId: id,
             expectedTurnId: active.upstreamTurnId,
@@ -1408,13 +1418,13 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           });
         } else {
           if (!supports('nativeQueue'))
-            throw new Error('当前电脑不支持待发送队列，请等待任务完成或选择立即补充');
+            throw new Error(t('当前电脑不支持待发送队列，请等待任务完成或选择立即补充'));
           if (
             (source.attachments.length && !supports('nativeQueueAttachments')) ||
             (source.skills.length && !supports('nativeQueueSkills')) ||
             (source.references?.length && !supports('fileReferenceInputs'))
           )
-            throw new Error('当前电脑不支持队列中的这些资源');
+            throw new Error(t('当前电脑不支持队列中的这些资源'));
           await connection.request('queue.add', {
             sessionId: id,
             text: source.text.trim(),
@@ -1472,7 +1482,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         const active = await connection.request<{ upstreamTurnId?: string }>('turn.active', {
           sessionId: id,
         });
-        if (!active.upstreamTurnId) throw new Error('任务已变化，请刷新核对');
+        if (!active.upstreamTurnId) throw new Error(t('任务已变化，请刷新核对'));
         await connection.request('turn.interruptActive', {
           sessionId: id,
           expectedTurnId: active.upstreamTurnId,
@@ -1494,7 +1504,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     decision: string,
     answers?: Record<string, { answers: string[] }>,
   ) {
-    if (!bridge.current) throw new Error('电脑连接已断开，请重新连接后核对审批');
+    if (!bridge.current) throw new Error(t('电脑连接已断开，请重新连接后核对审批'));
     try {
       await bridge.current.request('approvals.decide', {
         sessionId: approval.sessionId,
@@ -1539,7 +1549,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       snapshot.projects?.find((p) => p.projectId === selectedProject)?.canonicalPath,
     );
     if (!relative) {
-      setError('该文件不在当前授权项目中，无法预览');
+      setError(t('该文件不在当前授权项目中，无法预览'));
       return;
     }
     showFiles(relative);
@@ -1579,11 +1589,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   function openAgent(id: string) {
     const item = snapshot.sessions?.find((s) => s.upstreamThreadId === id);
     if (item) chooseSession(item);
-    else setError('此代理会话尚未同步或不在授权项目中');
+    else setError(t('此代理会话尚未同步或不在授权项目中'));
   }
   function openPanel(name: string) {
     if (chat && ['files', 'git', 'skills', 'goal'].includes(name)) {
-      setError('普通聊天不使用项目文件、技能或任务目标。请先切换到项目。');
+      setError(t('普通聊天不使用项目文件、技能或任务目标。请先切换到项目。'));
       return;
     }
     if (name === 'files' || name === 'git') {
@@ -1645,7 +1655,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           { sessionId: id, contractVersion: 1 },
         );
         if (latest.threadStatus !== 'idle' || !latest.turn?.upstreamTurnId)
-          throw new Error('请先停止或核对当前任务');
+          throw new Error(t('请先停止或核对当前任务'));
         if (kind === 'revert')
           await request('sessions.revert', {
             sessionId: id,
@@ -1700,7 +1710,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       requestAnimationFrame(() =>
         document
           .querySelector<HTMLButtonElement>(
-            `[data-history-key="${CSS.escape(historyKey(entry))}"] button[aria-label="编辑并重新发送"]`,
+            `[data-history-key="${CSS.escape(historyKey(entry))}"] button.message-edit-action`,
           )
           ?.focus({ preventScroll: true }),
       );
@@ -1723,18 +1733,18 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       ].includes(value),
   );
   const titles: Record<string, string> = {
-    settings: '设置',
-    manage: '管理会话',
-    goal: '会话目标',
-    files: '项目文件',
-    git: '工作区改动',
-    skills: '技能',
-    queue: '待发送消息',
-    projects: '项目',
-    drafts: '未发送草稿',
-    find: '在会话中查找',
-    search: '搜索会话',
-    history: '会话历史',
+    settings: t('设置'),
+    manage: t('管理会话'),
+    goal: t('会话目标'),
+    files: t('项目文件'),
+    git: t('工作区改动'),
+    skills: t('技能'),
+    queue: t('待发送消息'),
+    projects: t('项目'),
+    drafts: t('未发送草稿'),
+    find: t('在会话中查找'),
+    search: t('搜索会话'),
+    history: t('会话历史'),
   };
   const targetSession =
     snapshot.sessions?.find((s) => s.sessionId === manageSession?.sessionId) || current;
@@ -1778,7 +1788,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     });
   }
 
-  if (signedIn === null) return <main className="center">加载中…</main>;
+  if (signedIn === null) return <main className="center">{t('加载中…')}</main>;
   if (!signedIn) return <Login onLogin={() => location.reload()} />;
   if (mustChangePassword) return <AccountPassword />;
   const toolsVisible = fileWorkspaceOpen && !!host;
@@ -1831,7 +1841,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             !canManage(latest) ||
             (latest && isSessionWorking(latest))
           )
-            throw new Error('请先等待任务结束或核对当前状态');
+            throw new Error(t('请先等待任务结束或核对当前状态'));
           await request(`sessions.${action}`, {
             sessionId: item.sessionId,
             ...(action === 'pin' ? { pinned: latest?.pinned !== 1 } : {}),
@@ -1890,24 +1900,25 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           <header className="topbar">
             <IconButton
               icon={Menu}
-              label="打开会话列表"
+              label={t('打开会话列表')}
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className={sidebarOpen ? 'rail-toggle' : ''}
-              badge={Object.keys(attention.unread).length ? '有未读任务提醒' : undefined}
+              badge={Object.keys(attention.unread).length ? t('有未读任务提醒') : undefined}
             />
             <div className="workspace-anchor">
               <button
                 className="workspace-title"
-                aria-label="切换项目"
+                aria-label={t('切换项目')}
                 aria-expanded={workspaceMenu}
                 onClick={() => setWorkspaceMenu(!workspaceMenu)}
               >
                 <span>
                   {current
-                    ? current.title || '未命名会话'
+                    ? current.title || t('未命名会话')
                     : chat
-                      ? '普通聊天'
-                      : projects.find((p) => p.projectId === selectedProject)?.name || '选择项目'}
+                      ? t('普通聊天')
+                      : projects.find((p) => p.projectId === selectedProject)?.name ||
+                        t('选择项目')}
                 </span>
                 <ChevronDown size={16} />
               </button>
@@ -1916,7 +1927,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   <>
                     <button
                       className="menu-scrim"
-                      aria-label="关闭项目菜单"
+                      aria-label={t('关闭项目菜单')}
                       onClick={() => setWorkspaceMenu(false)}
                     />
                     <div className="popover workspace-menu">
@@ -1938,7 +1949,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       {connected && (
                         <button onClick={() => openPanel('projects')}>
                           <FolderOpen size={17} />
-                          管理项目
+                          {t('管理项目')}
                         </button>
                       )}
                     </div>
@@ -1984,34 +1995,42 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 fileAvailable={connected && !!selectedProject && !chat}
               />
             )}
-            <IconButton icon={Computer} label="切换电脑" onClick={() => openPanel('computers')} />
+            <IconButton
+              icon={Computer}
+              label={t('切换电脑')}
+              onClick={() => openPanel('computers')}
+            />
             <div className="menu-anchor">
-              <IconButton icon={MoreHorizontal} label="更多操作" onClick={() => setMenu(!menu)} />
+              <IconButton
+                icon={MoreHorizontal}
+                label={t('更多操作')}
+                onClick={() => setMenu(!menu)}
+              />
               <MotionPresence>
                 {menu && (
                   <>
                     <button
                       className="menu-scrim"
-                      aria-label="关闭更多菜单"
+                      aria-label={t('关闭更多菜单')}
                       onClick={() => setMenu(false)}
                     />
                     <div className="popover top-menu" role="menu">
                       <button role="menuitem" onClick={() => openPanel('drafts')}>
                         <FileText size={18} />
-                        未发送草稿
+                        {t('未发送草稿')}
                       </button>
                       {connected && (
                         <>
                           {supports('gitRead') && selectedProject && !chat && (
                             <button role="menuitem" onClick={() => openPanel('git')}>
                               <FileDiff size={18} />
-                              审查工作区改动
+                              {t('审查工作区改动')}
                             </button>
                           )}
                           {supports('projectFileBrowser') && selectedProject && !chat && (
                             <button role="menuitem" onClick={() => openPanel('files')}>
                               <FolderOpen size={18} />
-                              浏览项目文件
+                              {t('浏览项目文件')}
                             </button>
                           )}
                         </>
@@ -2021,28 +2040,28 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           <hr />
                           <button role="menuitem" onClick={() => openPanel('find')}>
                             <Search size={18} />
-                            在会话中查找
+                            {t('在会话中查找')}
                           </button>
                           <button role="menuitem" onClick={() => openPanel('history')}>
                             <History size={18} />
-                            会话历史
+                            {t('会话历史')}
                           </button>
                           {supports('nativeQueue') && (
                             <button role="menuitem" onClick={() => openPanel('queue')}>
                               <Clock size={18} />
-                              待发送消息
+                              {t('待发送消息')}
                             </button>
                           )}
                           {!chat && supports('sessionGoalView') && (
                             <button role="menuitem" onClick={() => openPanel('goal')}>
                               <Target size={18} />
-                              会话目标
+                              {t('会话目标')}
                             </button>
                           )}
                           {supports('sessionManagement') && (
                             <button role="menuitem" onClick={() => openPanel('manage')}>
                               <MoreHorizontal size={18} />
-                              管理当前会话
+                              {t('管理当前会话')}
                             </button>
                           )}
                         </>
@@ -2050,7 +2069,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       <hr />
                       <button role="menuitem" onClick={() => openPanel('settings')}>
                         <Settings size={18} />
-                        设置
+                        {t('设置')}
                       </button>
                     </div>
                   </>
@@ -2080,30 +2099,31 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             {['connecting', 'retrying', 'syncing'].includes(connectionState) && host && (
               <div className="connection-recovery" role="status">
                 {connectionState === 'syncing'
-                  ? '连接已恢复，正在同步最新进度…'
-                  : connectionFailure || '正在重新连接电脑；现有消息和草稿已保留。'}
+                  ? t('连接已恢复，正在同步最新进度…')
+                  : connectionFailure || t('正在重新连接电脑；现有消息和草稿已保留。')}
               </div>
             )}
           </MotionPresence>
           <MotionPresence>
             {upstreamRetry && (
               <div className="connection-recovery" role="status">
-                Codex 正在重试 · {upstreamRetry}
+                {t('Codex 正在重试 · ')}
+                {upstreamRetry}
               </div>
             )}
           </MotionPresence>
           <MotionPresence>
             {error && (
               <div className="connection-error" role="status">
-                <span>{error}</span>
-                <IconButton icon={X} label="关闭提示" onClick={() => setError('')} />
+                <span>{errorText(error)}</span>
+                <IconButton icon={X} label={t('关闭提示')} onClick={() => setError('')} />
               </div>
             )}
           </MotionPresence>
           <MotionPresence>
             {receiptBlocked && (
               <div className="history-error" role="alert">
-                上次操作结果尚未确定。核对前不能继续变更。
+                {t('上次操作结果尚未确定。核对前不能继续变更。')}
                 <button
                   disabled={!connected}
                   onClick={async () => {
@@ -2116,7 +2136,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     }
                   }}
                 >
-                  核对操作结果
+                  {t('核对操作结果')}
                 </button>
               </div>
             )}
@@ -2125,7 +2145,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             {historyFailure && (
               <div className="history-error" role="alert">
                 {historyFailure}
-                <button onClick={() => void refresh()}>重试读取</button>
+                <button onClick={() => void refresh()}>{t('重试读取')}</button>
               </div>
             )}
           </MotionPresence>
@@ -2144,9 +2164,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             onQuote={(text) => {
               updateDraft({ text: appendQuote(draft.text, text) });
               requestAnimationFrame(() => {
-                const input = conversationElement.current?.querySelector<HTMLTextAreaElement>(
-                  'textarea[aria-label="消息"]',
-                );
+                const input =
+                  conversationElement.current?.querySelector<HTMLTextAreaElement>(
+                    '.composer textarea',
+                  );
                 input?.focus();
                 if (input) input.setSelectionRange(input.value.length, input.value.length);
               });
@@ -2168,7 +2189,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   disabled={historyLoading}
                   onClick={() => void loadOlderHistory()}
                 >
-                  {historyLoading ? '加载中…' : '加载更早记录'}
+                  {historyLoading ? t('加载中…') : t('加载更早记录')}
                 </button>
               )}
               <ActivityStages
@@ -2247,7 +2268,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         <div className="message-actions">
                           <IconButton
                             icon={Copy}
-                            label="复制消息"
+                            label={t('复制消息')}
                             onClick={() =>
                               void navigator.clipboard
                                 .writeText(actionText)
@@ -2256,7 +2277,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           />
                           <IconButton
                             icon={Quote}
-                            label="引用消息"
+                            label={t('引用消息')}
                             onClick={() =>
                               updateDraft({
                                 text: `${draft.text}${draft.text ? '\n\n' : ''}${actionText
@@ -2268,7 +2289,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           />
                           <IconButton
                             icon={Search}
-                            label="阅读完整消息"
+                            label={t('阅读完整消息')}
                             onClick={() => {
                               setMessageAction({
                                 entry: assistant
@@ -2281,7 +2302,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           {user && supports('sessionHistoryRevert') && (
                             <IconButton
                               icon={Pencil}
-                              label="编辑并重新发送"
+                              className="message-edit-action"
+                              label={t('编辑并重新发送')}
                               disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
                               onClick={() => {
                                 editMessage(entry);
@@ -2291,7 +2313,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           {assistant && supports('sessionHistoryRevert') && (
                             <IconButton
                               icon={RotateCcw}
-                              label="重试此回答"
+                              label={t('重试此回答')}
                               disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
                               onClick={() => {
                                 const before = renderedHistory
@@ -2303,7 +2325,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                                       (e.item?.type === 'userMessage' || e.item?.role === 'user'),
                                   );
                                 if (!before) {
-                                  setError('此轮用户消息尚未加载，请先加载更早记录');
+                                  setError(t('此轮用户消息尚未加载，请先加载更早记录'));
                                   return;
                                 }
                                 editMessage(before);
@@ -2313,7 +2335,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           {supports('sessionForkAtTurn') && (
                             <IconButton
                               icon={GitFork}
-                              label="从此处分叉"
+                              label={t('从此处分叉')}
                               disabled={busy || receiptBlocked || !!activeTurn}
                               onClick={() => setMessageAction({ entry, kind: 'fork' })}
                             />
@@ -2321,7 +2343,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           {supports('sessionHistoryRevert') && user && (
                             <IconButton
                               icon={History}
-                              label="回退到此消息之前"
+                              label={t('回退到此消息之前')}
                               disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
                               onClick={() => setMessageAction({ entry, kind: 'revert' })}
                             />
@@ -2344,7 +2366,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               {!renderedHistory.length && !historyFailure && (
                 <div className="empty">
                   {session && !historyReady ? (
-                    <p>正在读取会话历史…</p>
+                    <p>{t('正在读取会话历史…')}</p>
                   ) : (
                     <>
                       <div
@@ -2355,18 +2377,18 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           WebkitMaskImage: `url("${agentDeckMark}")`,
                         }}
                       />
-                      <h1>{chat ? '聊点什么？' : 'What can we build?'}</h1>
+                      <h1>{chat ? t('聊点什么？') : t('What can we build?')}</h1>
                       <p>
                         {connected
                           ? chat
-                            ? '无需选择项目，直接开始对话。'
-                            : '选择项目，开始一段 Codex 对话。'
-                          : '连接你的电脑，随时继续工作。'}
+                            ? t('无需选择项目，直接开始对话。')
+                            : t('选择项目，开始一段 Codex 对话。')
+                          : t('连接你的电脑，随时继续工作。')}
                       </p>
                       {!connected && (
                         <button onClick={() => openPanel('computers')}>
                           <Computer size={17} />
-                          连接电脑
+                          {t('连接电脑')}
                         </button>
                       )}
                     </>
@@ -2485,7 +2507,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             }
             feedback={
               receiptBlocked
-                ? '发送结果尚未确认，请先核对任务状态，避免重复发送。'
+                ? t('发送结果尚未确认，请先核对任务状态，避免重复发送。')
                 : sendFailure?.key === draftKey
                   ? sendFailure.message
                   : undefined
@@ -2504,7 +2526,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           <div
             className="file-pane-resizer"
             role="separator"
-            aria-label="调整对话与工具栏宽度"
+            aria-label={t('调整对话与工具栏宽度')}
             aria-orientation="vertical"
             aria-valuemin={35}
             aria-valuemax={75}
@@ -2559,7 +2581,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             className="file-workspace tools-workspace"
             hidden={!toolsVisible}
             inert={!toolsVisible}
-            aria-label="工作区工具栏"
+            aria-label={t('工作区工具栏')}
           >
             <ToolHeader
               active={activeTool}
@@ -2576,7 +2598,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 request={request}
                 projectId={fileProject}
                 projectName={
-                  projects.find((project) => project.projectId === fileProject)?.name || '项目'
+                  projects.find((project) => project.projectId === fileProject)?.name || t('项目')
                 }
                 storageKey={`agentdeck.web.files.${JSON.stringify([scope, host?.hostId, fileProject])}`}
                 visible={filesVisible}
@@ -2596,15 +2618,13 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   const refs = draft.references || [];
                   if (reference.projectId !== selectedProject) return;
                   if (refs.length >= 32) {
-                    setError('最多引用 32 个文件');
+                    setError(t('最多引用 32 个文件'));
                     return;
                   }
                   if (!refs.some((ref) => ref.path === reference.path))
                     updateDraft({ references: [...refs, reference] });
                   requestAnimationFrame(() =>
-                    document
-                      .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
-                      ?.focus(),
+                    document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus(),
                   );
                   if (matchMedia('(max-width:760px)').matches) setFileWorkspaceOpen(false);
                 }}
@@ -2613,8 +2633,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             {(activeTool === 'files' || activeTool === 'changes') && !filesAvailable && (
               <p className="tool-unavailable">
                 {connected
-                  ? '请先选择一个项目以浏览文件和改动。'
-                  : '电脑连接已断开，恢复后可继续浏览文件。'}
+                  ? t('请先选择一个项目以浏览文件和改动。')
+                  : t('电脑连接已断开，恢复后可继续浏览文件。')}
               </p>
             )}
             {sideChatSeen && (
@@ -2642,7 +2662,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       snapshot.projects?.find((p) => p.projectId === projectId)?.canonicalPath,
                     );
                     if (!relative) {
-                      setError('该文件不在当前授权项目中，无法预览');
+                      setError(t('该文件不在当前授权项目中，无法预览'));
                       return;
                     }
                     showFiles(relative, 'files', projectId);
@@ -2662,8 +2682,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             {activeTool === 'terminal' && (!connected || !supports('sshTerminal')) && (
               <p className="tool-unavailable">
                 {connected
-                  ? '当前 Host 尚不支持 SSH 终端，请升级 Host 后使用。'
-                  : '请先连接电脑，再启动 SSH 终端。'}
+                  ? t('当前 Host 尚不支持 SSH 终端，请升级 Host 后使用。')
+                  : t('请先连接电脑，再启动 SSH 终端。')}
               </p>
             )}
           </aside>
@@ -2676,10 +2696,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             compact={messageAction.kind !== 'read'}
             title={
               messageAction.kind === 'read'
-                ? '消息'
+                ? t('消息')
                 : messageAction.kind === 'fork'
-                  ? '从此处分叉'
-                  : '回退会话'
+                  ? t('从此处分叉')
+                  : t('回退会话')
             }
             onClose={() => {
               if (!busy) setMessageAction(undefined);
@@ -2709,21 +2729,25 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               <div className="panel-stack">
                 <p>
                   {messageAction.kind === 'fork'
-                    ? '从该原生轮次创建独立会话？'
-                    : '回退此消息和之后的轮次？此操作会改变电脑上的原会话。'}
+                    ? t('从该原生轮次创建独立会话？')
+                    : t('回退此消息和之后的轮次？此操作会改变电脑上的原会话。')}
                 </p>
                 <div className="button-row">
                   <button disabled={busy} onClick={() => setMessageAction(undefined)}>
-                    取消
+                    {t('取消')}
                   </button>
                   <button
                     disabled={busy || receiptBlocked || !canManage(current)}
                     onClick={() => void runMessageAction()}
                   >
-                    {busy ? '处理中…' : messageAction.kind === 'fork' ? '创建分叉' : '确认回退'}
+                    {busy
+                      ? t('处理中…')
+                      : messageAction.kind === 'fork'
+                        ? t('创建分叉')
+                        : t('确认回退')}
                   </button>
                 </div>
-                {error && <p className="error">{error}</p>}
+                {error && <p className="error">{errorText(error)}</p>}
               </div>
             )}
           </Modal>
@@ -2742,13 +2766,13 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 <div className="modal-navigation">
                   <IconButton
                     icon={ChevronLeft}
-                    label="返回设置"
+                    label={t('返回设置')}
                     onClick={() => {
                       setSettingsChild(false);
                       setPanel('settings');
                     }}
                   />
-                  <h2>未发送草稿</h2>
+                  <h2>{t('未发送草稿')}</h2>
                 </div>
               ) : undefined
             }
@@ -2768,22 +2792,24 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 <SettingsLayout active={settingsTab} onChange={setSettingsTab}>
                   {settingsTab === 'general' && (
                     <div className="settings-general">
+                      <LanguageSelect />
                       <section className="settings-section panel-stack">
                         <label className="setting-row">
-                          <span>外观</span>
+                          <span>{t('外观')}</span>
                           <Select
-                            aria-label="外观"
+                            aria-label={t('外观')}
                             value={theme}
                             onValueChange={(value) => setTheme(value)}
                           >
-                            <option value="system">跟随系统</option>
-                            <option value="light">浅色</option>
-                            <option value="dark">深色</option>
+                            <option value="system">{t('跟随系统')}</option>
+                            <option value="light">{t('浅色')}</option>
+                            <option value="dark">{t('深色')}</option>
                           </Select>
                         </label>
                         <label className="setting-row">
                           <span>
-                            系统通知<small>页面后台时提醒；应用内卡片和蓝点始终显示</small>
+                            {t('系统通知')}
+                            <small>{t('页面后台时提醒；应用内卡片和蓝点始终显示')}</small>
                           </span>
                           <input
                             type="checkbox"
@@ -2795,7 +2821,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                                   const result = await Notification.requestPermission();
                                   setNotification(result === 'granted');
                                   if (result !== 'granted')
-                                    setError('浏览器尚未允许通知，请在系统或网站设置中开启。');
+                                    setError(t('浏览器尚未允许通知，请在系统或网站设置中开启。'));
                                 } catch (error) {
                                   setError(String(error));
                                 }
@@ -2807,21 +2833,23 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           (!('Notification' in window) ||
                             Notification.permission !== 'granted') && (
                             <p className="muted" role="status">
-                              通知偏好已保存，当前浏览器尚未允许通知；请在系统或网站设置中开启。
+                              {t(
+                                '通知偏好已保存，当前浏览器尚未允许通知；请在系统或网站设置中开启。',
+                              )}
                             </p>
                           )}
                       </section>
                       <section className="settings-section panel-stack">
-                        <h3>安装应用</h3>
+                        <h3>{t('安装应用')}</h3>
                         <InstallApp />
-                        <p className="settings-installed">已安装</p>
+                        <p className="settings-installed">{t('已安装')}</p>
                       </section>
                       <section className="settings-section">
                         <AppUpdates />
                       </section>
                       <section className="settings-section setting-row">
                         <div>
-                          <h3>AgentDeck 账户</h3>
+                          <h3>{t('AgentDeck 账户')}</h3>
                         </div>
                         <button
                           className="settings-logout"
@@ -2832,7 +2860,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           }
                         >
                           <LogOut size={17} />
-                          退出账户
+                          {t('退出账户')}
                         </button>
                       </section>
                     </div>
@@ -2841,39 +2869,39 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     (connected ? (
                       <ConfigurationPanel request={request} models={models} supports={supports} />
                     ) : (
-                      <p>连接电脑后查看模型与输出配置。</p>
+                      <p>{t('连接电脑后查看模型与输出配置。')}</p>
                     ))}
                   {settingsTab === 'data' &&
                     (connected ? (
                       <RetentionPanel request={request} />
                     ) : (
-                      <p>连接电脑后管理缓存。</p>
+                      <p>{t('连接电脑后管理缓存。')}</p>
                     ))}
                   {settingsTab === 'diagnostics' &&
                     (connected ? (
                       <DiagnosticsPanel request={request} />
                     ) : (
-                      <p>连接电脑后读取诊断。</p>
+                      <p>{t('连接电脑后读取诊断。')}</p>
                     ))}
                   {settingsTab === 'account' &&
                     (connected && supports('accountSummary') ? (
                       <AccountPanel request={request} />
                     ) : (
-                      <p>连接支持账户摘要的电脑后查看。</p>
+                      <p>{t('连接支持账户摘要的电脑后查看。')}</p>
                     ))}
                   {settingsTab === 'shortcuts' && (
                     <DataFields
                       value={{
-                        'Ctrl + K': '搜索会话',
-                        'Ctrl + F': '查找已加载消息',
-                        'Alt + ← / →': '切换上一条 / 下一条会话',
-                        Enter: '发送 / 加入队列',
-                        'Shift + Enter': '换行',
-                        'Ctrl + Enter': '发送',
-                        Escape: '关闭菜单或弹窗',
-                        '/plan /goal /default': '切换模式',
-                        '/skills /mention': '技能 / 项目文件',
-                        '/queue /history /compact /new': '队列 / 历史 / 整理 / 新对话',
+                        'Ctrl + K': t('搜索会话'),
+                        'Ctrl + F': t('查找已加载消息'),
+                        'Alt + ← / →': t('切换上一条 / 下一条会话'),
+                        Enter: t('发送 / 加入队列'),
+                        'Shift + Enter': t('换行'),
+                        'Ctrl + Enter': t('发送'),
+                        Escape: t('关闭菜单或弹窗'),
+                        '/plan /goal /default': t('切换模式'),
+                        '/skills /mention': t('技能 / 项目文件'),
+                        '/queue /history /compact /new': t('队列 / 历史 / 整理 / 新对话'),
                       }}
                     />
                   )}
@@ -2888,12 +2916,12 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         }}
                       >
                         <span>
-                          <strong>查看归档对话</strong>
+                          <strong>{t('查看归档对话')}</strong>
                         </span>
                       </button>
                       <button className="settings-action" onClick={() => openPanel('drafts')}>
                         <span>
-                          <strong>未发送草稿</strong>
+                          <strong>{t('未发送草稿')}</strong>
                         </span>
                       </button>
                       <button
@@ -2902,7 +2930,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         onClick={() => void syncIndex()}
                       >
                         <span>
-                          <strong>同步电脑已有对话</strong>
+                          <strong>{t('同步电脑已有对话')}</strong>
                         </span>
                       </button>
                       <ProjectSettings
@@ -2929,7 +2957,12 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           {directoryFailure}
                         </p>
                       )}
-                      {host && <p role="status">浏览器连接：{connectionLabels[connectionState]}</p>}
+                      {host && (
+                        <p role="status">
+                          {t('浏览器连接：')}
+                          {connectionLabels[connectionState]}
+                        </p>
+                      )}
                       {connectionFailure && (
                         <p className="error" role="status">
                           {connectionFailure}
@@ -2950,7 +2983,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                                 <span>{hostName(item)}</span>
                               </span>
                               <small>
-                                {directoryFailure ? '状态待刷新' : item.online ? '在线' : '离线'}
+                                {directoryFailure
+                                  ? t('状态待刷新')
+                                  : item.online
+                                    ? t('在线')
+                                    : t('离线')}
                               </small>
                             </button>
                             <div className="computer-actions">
@@ -2971,7 +3008,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                               {item.hostId === host?.hostId && (
                                 <IconButton
                                   icon={RefreshCw}
-                                  label="重新连接"
+                                  label={t('重新连接')}
                                   disabled={busy}
                                   onClick={() => void connect(item)}
                                 />
@@ -2980,7 +3017,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                           </div>
                         ))}
                       </MotionList>
-                      {!hosts.length && <p>尚未绑定电脑。请先在电脑端登录同一账户。</p>}
+                      {!hosts.length && <p>{t('尚未绑定电脑。请先在电脑端登录同一账户。')}</p>}
                       {host && (
                         <HostNameEditor
                           key={JSON.stringify([scope, host.hostId])}
@@ -3046,21 +3083,21 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 />
               )}
               {['files', 'git', 'skills'].includes(panel) && (!selectedProject || !connected) && (
-                <p className="muted">请先连接电脑并选择项目。</p>
+                <p className="muted">{t('请先连接电脑并选择项目。')}</p>
               )}
               {['manage', 'goal', 'queue', 'projects'].includes(panel) && !connected && (
-                <p className="muted">请先连接电脑。</p>
+                <p className="muted">{t('请先连接电脑。')}</p>
               )}
               {['goal', 'queue', 'manage'].includes(panel) && connected && !session && (
-                <p className="muted">请先选择会话。</p>
+                <p className="muted">{t('请先选择会话。')}</p>
               )}
               {panel === 'drafts' && (
                 <div className="panel-stack">
                   {visibleDrafts.length ? (
-                    <p className="muted">仅保留在当前标签页，关闭后不会保存。</p>
+                    <p className="muted">{t('仅保留在当前标签页，关闭后不会保存。')}</p>
                   ) : (
                     <div className="panel-empty" role="status">
-                      暂无未发送草稿
+                      {t('暂无未发送草稿')}
                     </div>
                   )}
                   {visibleDrafts.map(([key, d]) => {
@@ -3078,11 +3115,15 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         }}
                       >
                         <strong>
-                          {snapshot.sessions?.find((s) => s.sessionId === id)?.title || '新对话'}
+                          {snapshot.sessions?.find((s) => s.sessionId === id)?.title || t('新对话')}
                         </strong>
                         <span>
                           {d.text.slice(0, 180) ||
-                            `${d.attachments.length} 个附件 · ${d.skills.length} 个技能 · ${d.references?.length || 0} 个引用`}
+                            t('{{p0}} 个附件 · {{p1}} 个技能 · {{p2}} 个引用', {
+                              p0: d.attachments.length,
+                              p1: d.skills.length,
+                              p2: d.references?.length || 0,
+                            })}
                         </span>
                       </button>
                     );
@@ -3094,8 +3135,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   <input
                     autoFocus
                     id="session-search"
-                    aria-label="搜索会话"
-                    placeholder="搜索会话名称或项目"
+                    aria-label={t('搜索会话')}
+                    placeholder={t('搜索会话名称或项目')}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
@@ -3108,21 +3149,21 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         setPanel('');
                       }}
                     >
-                      <strong>{s.title || '未命名会话'}</strong>
+                      <strong>{s.title || t('未命名会话')}</strong>
                       <span>
                         {snapshot.projects?.find((p) => p.projectId === s.projectId)?.name}
-                        {s.archived === 1 ? ' · 已归档' : ''}
+                        {s.archived === 1 ? t(' · 已归档') : ''}
                       </span>
                     </button>
                   ))}
-                  {!matchingSessions.length && <p className="muted">没有匹配的会话</p>}
+                  {!matchingSessions.length && <p className="muted">{t('没有匹配的会话')}</p>}
                 </div>
               )}
               {panel === 'find' && (
                 <div className="panel-stack">
                   <input
                     autoFocus
-                    aria-label="查找消息"
+                    aria-label={t('查找消息')}
                     value={find}
                     onChange={(e) => {
                       setFind(e.target.value);
@@ -3136,9 +3177,9 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         jumpTo(matches[next]!);
                       }
                     }}
-                    placeholder="查找已加载的消息"
+                    placeholder={t('查找已加载的消息')}
                   />
-                  <p className="muted">{matches.length} 条匹配 · 仅查找当前已加载历史</p>
+                  <p className="muted">{t('search.matches', { count: matches.length })}</p>
                   {matches.map((entry) => (
                     <button
                       className="search-result"
@@ -3154,7 +3195,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 <div className="panel-stack">
                   {historyCursor && (
                     <button disabled={historyLoading} onClick={() => void loadOlderHistory()}>
-                      加载更早记录
+                      {t('加载更早记录')}
                     </button>
                   )}
                   {renderedHistory

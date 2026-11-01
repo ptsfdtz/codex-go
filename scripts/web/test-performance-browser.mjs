@@ -13,6 +13,7 @@ try {
   ].filter(([, origin]) => origin)) {
     for (let run = 0; run < 3; run++) {
       const context = await browser.newContext({
+        locale: 'zh-CN',
         viewport: { width: 1280, height: 850 },
         serviceWorkers: 'block',
       });
