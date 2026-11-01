@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "version": "0.4.3",
+  "commit": "b7ebd99445a3450f096247388420d041fb2dbbda",
+  "candidateSha256": "0400e29fe7a6b70d47c1470793020e47304bceeb6725b7e6dc02ffc41e669c6f",
+  "archiveSha256": "3c385a474f168ada9ece4eb960188d6c75fb1424d9fae9836bdc8529737f89c4",
+  "authorizedBy": "repository owner in the release conversation",
+  "authorizedOn": "2026-11-01",
+  "authorization": "windows和macos目前无法验证 你先豁免",
+  "waived": ["complete real-device E2E on Windows x64", "complete real-device E2E on macOS ARM64"],
+  "requiredPlatforms": ["linux-x64", "linux-arm64"],
+  "retained": [
+    "all six real candidate-bound E2E checks on Linux x64 and ARM64",
+    "exact candidate source and all artifact hashes",
+    "no downgrade of stable release",
+    "production backup and deployment health checks",
+    "complete public Web and download hash verification"
+  ],
+  "scope": "Only this immutable 0.4.3 candidate. Windows/macOS remain untested, not passed. Default full-platform admission remains unchanged for future releases."
+}

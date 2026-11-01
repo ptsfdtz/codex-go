@@ -1,0 +1,168 @@
+name: Publish authorized 0.4.3
+
+on:
+  workflow_dispatch:
+
+env:
+  VERSION: '0.4.3'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download immutable candidate, real Linux evidence and owner waiver
+        env:
+          VERSION: 0.4.3
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/release
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release download "candidate-$VERSION" --pattern candidate.tar.gz
+          echo '3c385a474f168ada9ece4eb960188d6c75fb1424d9fae9836bdc8529737f89c4  candidate.tar.gz' | sha256sum -c -
+          gh release download "candidate-$VERSION" --pattern e2e-evidence.tar.gz
+          echo '69296f7a1087dc7fc7af4ff6f34e140aca438f48c14821848f1c9205f32a2cff  e2e-evidence.tar.gz' | sha256sum -c -
+          mkdir candidate evidence
+          python3 scripts/release/extract.py e2e-evidence.tar.gz evidence
+          python3 scripts/release/extract.py candidate.tar.gz candidate
+          cp scripts/release/waivers/0.4.3.json evidence/release-waiver-0.4.3.json
+      - name: Enforce pinned 0.4.3 identity, Linux E2E and Windows/macOS waiver
+        id: verify
+        env:
+          VERSION: 0.4.3
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release/waiver_043.py verify candidate --evidence evidence
+          commit=$(python3 -c 'import json; print(json.load(open("candidate/candidate.json"))["commit"])')
+          version=$(python3 -c 'import json; print(json.load(open("candidate/candidate.json"))["version"])')
+          test "$version" = "$VERSION"
+          test "$(git rev-parse "refs/tags/candidate-$VERSION^{commit}")" = "$commit"
+          git merge-base --is-ancestor "$commit" origin/main
+          if git rev-parse --verify "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            test "$(git rev-parse "refs/tags/v$VERSION^{commit}")" = "$commit"
+            if gh release view "v$VERSION" >/dev/null 2>&1; then
+              mkdir previous-release
+              gh release download "v$VERSION" --pattern candidate.json --dir previous-release
+              cmp candidate/candidate.json previous-release/candidate.json
+            fi
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          cp -R evidence candidate/evidence
+      - name: Deploy exact authorized artifacts to VPS
+        id: vps
+        env:
+          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.AGENTDECK_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.AGENTDECK_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          tar -czf tested-candidate.tar.gz -C candidate .
+          remote_dir=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" 'mktemp -d /var/tmp/agentdeck-publish.XXXXXXXX')
+          [[ "$remote_dir" =~ ^/var/tmp/agentdeck-publish\.[a-zA-Z0-9]+$ ]]
+          mkdir publication-tools
+          cp scripts/release/waiver_043.py publication-tools/gate.py
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes tested-candidate.tar.gz scripts/release/deploy.sh scripts/release/finalize.sh scripts/release/extract.py publication-tools/gate.py scripts/release/verify-web.py scripts/host/publish-downloads.sh "$DEPLOY_HOST:$remote_dir/"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" "sh '$remote_dir/deploy.sh' '$remote_dir'"
+          echo "DEPLOY_UPLOAD=$remote_dir" >> "$GITHUB_ENV"
+      - name: Prepare previously built Pages files
+        run: |
+          mkdir pages
+          python3 scripts/release/extract.py candidate/pages.tar.gz pages
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+      - uses: actions/deploy-pages@v4
+        id: pages
+      - name: Verify every public Pages asset before opening updates
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if python3 scripts/release/verify-web.py pages https://ptsfdtz.github.io/codex-go --static; then
+              exit 0
+            fi
+            test "$attempt" -lt 5 || exit 1
+            sleep 10
+          done
+      - name: Open stable updates after both deployments
+        id: stable
+        env:
+          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+        run: ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" "sh '$DEPLOY_UPLOAD/finalize.sh' '$DEPLOY_UPLOAD'"
+      - name: Publish official GitHub release without rebuilding
+        id: official
+        env:
+          VERSION: 0.4.3
+          SOURCE_SHA: ${{ steps.verify.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tar -czf agentdeck-downloads.tar.gz -C candidate install.sh install.ps1 install-codex.ps1 release-gate.py candidate.json codex-runtime-manifests verify-shared-runtime.py evidence releases web.tar.gz pages.tar.gz agentdeck-cloud
+          cp "candidate/releases/$VERSION/"*.zip "candidate/releases/$VERSION/"*.tar.gz .
+          cp candidate/candidate.json candidate/evidence/release-waiver-0.4.3.json .
+          sha256sum agentdeck-downloads.tar.gz agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-macos-arm64.tar.gz candidate.json release-waiver-0.4.3.json e2e-evidence.tar.gz > SHA256SUMS.txt
+          cat > release-notes.md <<'NOTES'
+          AgentDeck 0.4.3
+
+          原样晋升 candidate-0.4.3，未重新构建产物。
+          源码：b7ebd99445a3450f096247388420d041fb2dbbda（已合并 main）。
+
+          更新中英文界面与安装提示，完善工作区文件、Git 分支比较及消息引用，修复 AgentChat 并发恢复、设备撤销审批、移动端缩放和前端依赖安全问题；优化首屏加载，排队入口改用图标，移除右上角任务提示卡片。补全操作回执核对和人工恢复，读取超时通过独立存活探测判断连接，保持未知结果不自动重发。修复 Git Bash 构建备用 Pages 的资源路径。
+
+          Linux x64 与 ARM64 使用本批候选完成真实安装升级、云端转发、模型任务与原生历史续聊、沙箱边界与审批、重启重连及变更功能验收。Windows x64、macOS ARM64 已构建和校验，用户本次明确豁免实机端到端验收；这些平台仍记为未测。详见附带 release-waiver-0.4.3.json 和验收证据。该豁免仅适用于本批精确候选，后续发布保留默认四平台门槛。
+
+          保留完整性、禁止降级、生产备份、健康及公开文件校验。ARM64 验收机需为官方 bwrap 配置路径限定的 AppArmor userns 许可；Host 沙箱及真实项目边界检查保持启用。
+
+          更新：`agentdeck update`，确认任务空闲后 `agentdeck restart`。发布版本 0.4.3，core 版本维持 0.3.0。
+          NOTES
+          cat "candidate/releases/$VERSION/notes.txt" >> release-notes.md
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            test "$(gh release view "v$VERSION" --json targetCommitish --jq .targetCommitish)" = "$SOURCE_SHA"
+          else
+            gh release create "v$VERSION" --target "$SOURCE_SHA" --latest --title "AgentDeck $VERSION" --notes-file release-notes.md agentdeck-downloads.tar.gz candidate/candidate.json agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-macos-arm64.tar.gz candidate/evidence/release-waiver-0.4.3.json e2e-evidence.tar.gz SHA256SUMS.txt
+          fi
+      - name: Report actual publication results
+        if: always()
+        env:
+          VERSION: 0.4.3
+          SOURCE_SHA: ${{ steps.verify.outputs.commit }}
+          VPS_RESULT: ${{ steps.vps.outcome }}
+          PAGES_RESULT: ${{ steps.pages.outcome }}
+          STABLE_RESULT: ${{ steps.stable.outcome }}
+          OFFICIAL_RESULT: ${{ steps.official.outcome }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          lines = [f"AgentDeck {os.environ['VERSION']}", f"Commit: {os.environ['SOURCE_SHA']}", "", "| Component | Result |", "| --- | --- |"]
+          for label, field in (("VPS", "VPS_RESULT"), ("Pages", "PAGES_RESULT"), ("Stable update pointer", "STABLE_RESULT"), ("GitHub Release", "OFFICIAL_RESULT")):
+              lines.append(f"| {label} | {os.environ[field]} |")
+          if any(os.environ[field] != "success" for field in ("VPS_RESULT", "PAGES_RESULT", "STABLE_RESULT", "OFFICIAL_RESULT")):
+              lines += ["", "Publication is incomplete. Inspect successful steps and VPS backups before retrying; do not assume production is unchanged."]
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as stream:
+              stream.write('\n'.join(lines) + '\n')
+          PY
+      - name: Remove temporary deployment credentials
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
