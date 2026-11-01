@@ -3193,22 +3193,16 @@ small,
   stroke-width: 0;
 }
 .composer-toolbar .composer-queue {
-  width: auto;
-  height: 32px;
-  min-width: 62px;
   margin-left: 0;
-  padding: 0 9px;
-  gap: 4px;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  font-size: 12px;
-  font-weight: 400;
+  border-radius: 50%;
   color: var(--text);
   background: transparent;
 }
 .composer-toolbar .composer-queue svg {
-  width: 14px;
-  height: 14px;
+  width: 19px;
+  height: 19px;
 }
 .composer-toolbar .composer-queue:hover:not(:disabled) {
   background: var(--hover);

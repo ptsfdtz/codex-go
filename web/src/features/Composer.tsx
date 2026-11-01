@@ -10,6 +10,7 @@ import {
   Expand,
   Minimize2,
   ListChecks,
+  ListPlus,
   Target,
   CornerDownLeft,
   FileText,
@@ -588,14 +589,14 @@ export function Composer({
               )}
               {active && execution ? (
                 <button
-                  className="send-button composer-queue"
+                  type="button"
+                  className="icon-button send-button composer-queue"
                   aria-label="加入队列"
                   title={queueReason || '加入队列'}
                   disabled={!ready || !!queueReason}
                   onClick={send}
                 >
-                  <ArrowUp size={15} />
-                  <span>排队</span>
+                  <ListPlus size={19} strokeWidth={1.6} aria-hidden="true" />
                 </button>
               ) : !active ? (
                 <IconButton
