@@ -16,6 +16,25 @@ export type Packet = {
   message?: string;
   requestId?: string;
 };
+export type ReceiptCheck = {
+  requestId: string;
+  status: 'done' | 'pending' | 'unknown' | 'notFound' | 'unavailable';
+  response?: Packet;
+  message?: string;
+};
+// Older Hosts can return these failures without OUTCOME_UNKNOWN even after
+// delivering a mutation upstream. Never mistake them for definite rejection.
+function ambiguousError(code = '') {
+  return (
+    code === 'OUTCOME_UNKNOWN' ||
+    /_(TIMEOUT|UNAVAILABLE|PROTOCOL_ERROR)$/.test(code) ||
+    code === 'DATABASE_ERROR' ||
+    code === 'IO_ERROR'
+  );
+}
+function settled(packet: Packet) {
+  return packet.type === 'response' || (packet.type === 'error' && !ambiguousError(packet.code));
+}
 export class Bridge {
   private socket?: HostSocket;
   private pending = new Map<
@@ -98,10 +117,7 @@ export class Bridge {
         if (request) {
           clearTimeout(request.timer);
           this.pending.delete(packet.id!);
-          if (
-            packet.type === 'response' ||
-            (packet.type === 'error' && packet.code !== 'OUTCOME_UNKNOWN')
-          ) {
+          if (settled(packet)) {
             try {
               if (this.mutations.has(packet.id!)) this.clearReceipt(packet.id!);
             } catch {
@@ -118,8 +134,24 @@ export class Bridge {
             this.close();
           }
         } else {
-          if (packet.id && this.mutations.has(packet.id))
-            void this.reconcile().catch(() => undefined);
+          if (packet.id && this.mutations.has(packet.id)) {
+            // A response may arrive after its request deadline. Settle the
+            // original reservation without resending or changing its draft.
+            if (settled(packet)) {
+              try {
+                this.clearReceipt(packet.id);
+              } catch {
+                /* Preserve the reservation if storage cannot be updated. */
+              }
+            }
+            this.events.forEach((handler) =>
+              handler({
+                type: 'receipt',
+                requestId: packet.id,
+                payload: { status: settled(packet) ? 'done' : 'unknown', response: packet },
+              }),
+            );
+          }
           this.events.forEach((handler) => handler(packet));
         }
       },
@@ -167,7 +199,13 @@ export class Bridge {
       });
     return this.probing;
   }
-  private sendRequest<T>(action: string, payload: unknown, timeout = 30000): Promise<T> {
+  private sendRequest<T>(
+    action: string,
+    payload: unknown,
+    timeout = action.startsWith('sessions.history') || this.mutationActions.has(action)
+      ? 90000
+      : 30000,
+  ): Promise<T> {
     if (!this.socket || this.closed) return Promise.reject(new Error('Host disconnected'));
     const id = `web-${crypto.randomUUID()}`;
     if (this.mutationActions.has(action)) {
@@ -186,9 +224,16 @@ export class Bridge {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(
-          new Error('Host request timed out; outcome may be unknown. Reconcile before retrying.'),
+          new Error(
+            this.mutationActions.has(action)
+              ? 'Host request timed out; outcome may be unknown. Reconcile before retrying.'
+              : 'Host read timed out; retry this read when the computer is ready.',
+          ),
         );
-        this.fail(new Error('Host request timed out'));
+        // A slow history/model read is not evidence of a dead connection.
+        // Only the independent, bounded hello probe can close a stale route.
+        if (action === 'system.hello') this.fail(new Error('Host liveness check timed out'));
+        else void this.probe().catch(() => this.close());
       }, timeout);
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
       void this.socket!.send(JSON.stringify({ v: 1, type: 'request', id, action, payload })).catch(
@@ -216,27 +261,57 @@ export class Bridge {
   async reconcile() {
     return exclusive(this.receiptKey(), () => this.reconcileReceipts());
   }
-  private async reconcileReceipts() {
+  private async reconcileReceipts(): Promise<ReceiptCheck[]> {
+    const checks: ReceiptCheck[] = [];
     for (const id of this.receipts()) {
       try {
         const status = await this.request<{ status?: string; response?: Packet }>(
           'requests.status',
           { requestId: id },
         );
-        if (
-          status.status === 'done' &&
-          status.response?.id === id &&
-          (status.response?.type === 'response' ||
-            (status.response?.type === 'error' && status.response.code !== 'OUTCOME_UNKNOWN'))
-        )
+        if (status.status === 'done' && status.response?.id === id && settled(status.response))
           this.clearReceipt(id);
+        const result: ReceiptCheck = {
+          requestId: id,
+          status:
+            status.status === 'done' && status.response?.id === id && settled(status.response)
+              ? 'done'
+              : status.status === 'pending' ||
+                  status.status === 'unknown' ||
+                  status.status === 'notFound'
+                ? status.status
+                : 'unavailable',
+          response: status.response,
+        };
+        checks.push(result);
         const packet = { type: 'receipt', requestId: id, payload: status } satisfies Packet;
         if (this.events.length) this.events.forEach((handler) => handler(packet));
         else this.receiptsFound.push(packet);
-      } catch {
-        /* keep the receipt for the next reconnect */
+      } catch (error) {
+        checks.push({ requestId: id, status: 'unavailable', message: String(error) });
       }
     }
+    return checks;
+  }
+  async acknowledgeReceipts(reviewedIds: string[]): Promise<void> {
+    return exclusive(this.receiptKey(), async () => {
+      const reviewed = new Set(reviewedIds);
+      if (this.closed || this.receipts().some((id) => !reviewed.has(id)))
+        throw new Error(t('操作回执或连接已变化，请重新核对。'));
+      const checks = await this.reconcileReceipts();
+      if (checks.some((check) => !['done', 'unknown', 'notFound'].includes(check.status)))
+        throw new Error(t('操作仍在处理或核对失败，暂时不能恢复编辑。'));
+      // Prove the authenticated Host is readable now. A user acknowledgement
+      // releases only the browser reservation, never the Host idempotency row.
+      await this.request('snapshot.get');
+      if (this.closed) throw new Error(t('操作回执或连接已变化，请重新核对。'));
+      for (const check of checks)
+        if (check.status === 'unknown' || check.status === 'notFound')
+          this.clearReceipt(check.requestId);
+      this.events.forEach((handler) =>
+        handler({ type: 'receipt', payload: { status: 'reviewed' } }),
+      );
+    });
   }
   private fail(error: Error) {
     if (this.closed) return;

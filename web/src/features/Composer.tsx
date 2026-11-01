@@ -97,6 +97,7 @@ export function Composer({
   chat = false,
   execution = true,
   sendBlocked = false,
+  disabledReason,
   attachmentTotalBytes = 512 * 1024,
   panels,
 }: {
@@ -122,6 +123,7 @@ export function Composer({
   chat?: boolean;
   execution?: boolean;
   sendBlocked?: boolean;
+  disabledReason?: string;
   attachmentTotalBytes?: number;
 }) {
   useLocale();
@@ -428,9 +430,7 @@ export function Composer({
             }}
             placeholder={
               disabled
-                ? execution
-                  ? t('连接电脑后开始')
-                  : t('暂时无法发送')
+                ? disabledReason || (execution ? t('连接电脑后开始') : t('暂时无法发送'))
                 : chat
                   ? t('聊点什么…')
                   : t('向 Codex 提问或描述任务…')

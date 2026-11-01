@@ -67,6 +67,7 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 原生运行状态       | `node --test scripts/web/test-session-working.mjs`                                                       |
 | 排队交互           | `node scripts/web/test-queued-messages-browser.mjs`                                                      |
 | Web 语音输入       | `pnpm test:speech-input-browser`，`SPEECH_TEST_ORIGIN` 默认 `http://127.0.0.1:1498/`                     |
+| 断线及回执恢复     | `pnpm test:recovery-browser`，`RECOVERY_TEST_ORIGIN` 默认 `http://127.0.0.1:1500/`                       |
 | 文件引用           | `pnpm test:file-references-browser`，默认端口 1492，可用 `FILE_REFERENCE_TEST_ORIGIN` 指定               |
 | Markdown 数学公式  | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                      |
 | 文字选中引用       | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定              |
@@ -80,6 +81,8 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 首屏性能           | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站     |
 
 数学公式回归复用上述 Playwright 环境，可用 `COMPOSER_TEST_FONT` 指定中文字体，证据输出到 `artifacts/markdown-math/`。
+
+回执恢复回归复用上述 Playwright 与本地 Vite，在隔离 App 中使用真实 Bridge、Web Locks 和虚拟时钟，替换 HostSocket 并拦截账户/Host 外部请求；核对查询反馈、pending/unknown/notFound/拒绝/查询失败、显式人工确认、草稿保留、迟到响应、慢历史与发送并发、失活连接及真实双标签锁竞争。不会连接生产 Host 或调用模型。结果和 320/390/1100px 深浅主题截图在 `artifacts/recovery/`。Host 回执持久化与防重定向测试：`cargo test --locked --manifest-path desktop/core/Cargo.toml --lib request_outcome_tests`。
 
 语音输入回归复用上述 Playwright 环境，先启动指定端口的本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1498 --strictPort`）。脚本挂载真实 Composer，以浏览器识别接口替身检查临时预览、光标插入、确认结果去重、手动发送、跨输入框独占、切换/隐藏/退出清理、错误和超时，以及窄屏深浅主题；拦截外部/API 请求，不请求真实麦克风或识别服务。可用 `COMPOSER_TEST_FONT` 指定中文字体，结果及截图输出到 `artifacts/speech-input/`；受控通过不能替代真实语音识别、浏览器供应商网络和手机/PWA 验收。
 

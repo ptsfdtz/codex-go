@@ -1,0 +1,59 @@
+.receipt-recovery {
+  flex-shrink: 0;
+  margin: 0 18px 8px;
+  padding: 10px 13px;
+  border-radius: 10px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  max-height: min(45dvh, 360px);
+  overflow-y: auto;
+}
+.receipt-recovery-heading,
+.receipt-resolved {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.receipt-recovery p {
+  margin: 8px 0 0;
+}
+.receipt-recovery ul {
+  padding-left: 18px;
+  margin: 8px 0 0;
+}
+.receipt-recovery li + li {
+  margin-top: 8px;
+}
+.receipt-recovery small {
+  display: block;
+  color: var(--muted);
+}
+.receipt-recovery button {
+  font-size: 12px;
+  min-height: 36px;
+}
+.receipt-review label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0;
+  cursor: pointer;
+}
+.receipt-review input {
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+.receipt-resolved {
+  background: var(--soft);
+  color: var(--text);
+}
+@media (pointer: coarse) {
+  .receipt-recovery button {
+    min-height: 44px;
+  }
+}

@@ -22,6 +22,7 @@
     "host:dev": "node scripts/host/dev.mjs",
     "host:package": "node scripts/host/package.mjs",
     "test:composer-browser": "node scripts/web/test-composer-browser.mjs",
+    "test:recovery-browser": "node scripts/web/test-recovery-browser.mjs",
     "test:speech-input-browser": "node scripts/web/test-speech-input-browser.mjs",
     "test:message-images-browser": "node scripts/web/test-message-images-browser.mjs",
     "test:markdown-math-browser": "node scripts/web/test-markdown-math-browser.mjs",

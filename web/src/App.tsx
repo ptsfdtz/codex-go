@@ -11,6 +11,13 @@ import './styles.css';
 import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
 import { api, accountEvent } from './cloud';
 import type { Bridge } from './transport/bridge';
+const ReceiptRecovery = deferred<
+  React.ComponentProps<typeof import('./features/recovery/ReceiptRecovery').ReceiptRecovery>
+>(() =>
+  import('./features/recovery/ReceiptRecovery').then((module) => ({
+    default: module.ReceiptRecovery,
+  })),
+);
 
 import { appendQuote } from './features/selection-quote';
 const SelectionQuote = deferred<
@@ -288,6 +295,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     Record<string, ComposerModelPreferences>
   >({});
   const [receiptBlocked, setReceiptBlocked] = useState(false);
+  const [receiptNotice, setReceiptNotice] = useState('');
   const [messageAction, setMessageAction] = useState<{ entry: HistoryEntry; kind: string }>();
   const [editText, setEditText] = useState('');
   const [editError, setEditError] = useState('');
@@ -934,6 +942,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
 
   async function connect(next: Host) {
     const sameHost = hostRef.current?.hostId === next.hostId;
+    setReceiptNotice('');
     reconnect.current?.stop();
     const epoch = ++connectionEpoch.current;
     bridge.current?.close();
@@ -1108,6 +1117,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             }
             if (packet.type === 'receipt') {
               setReceiptBlocked(value.awaitingReceipt);
+              if (!value.awaitingReceipt)
+                setReceiptNotice(t('核对完成，草稿已保留。请确认结果后再发送。'));
               if (!recovering) scheduleRefresh(false);
               return;
             }
@@ -2069,24 +2080,20 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             )}
           </MotionPresence>
           <MotionPresence>
-            {receiptBlocked && (
-              <div className="history-error" role="alert">
-                {t('上次操作结果尚未确定。核对前不能继续变更。')}
-                <button
-                  disabled={!connected}
-                  onClick={async () => {
-                    try {
-                      await bridge.current?.reconcile();
-                      setReceiptBlocked(bridge.current?.awaitingReceipt || false);
-                      await refresh();
-                    } catch (e) {
-                      setError(String(e));
-                    }
-                  }}
-                >
-                  {t('核对操作结果')}
-                </button>
-              </div>
+            {(receiptBlocked || receiptNotice) && (
+              <ReceiptRecovery
+                key={`${scope}:${host?.hostId}`}
+                connection={bridge.current}
+                connected={connected}
+                blocked={receiptBlocked}
+                notice={receiptNotice}
+                onChecked={(message) => {
+                  setReceiptBlocked(bridge.current?.awaitingReceipt === true);
+                  setReceiptNotice(message || '');
+                  void refresh();
+                }}
+                onDismiss={() => setReceiptNotice('')}
+              />
             )}
           </MotionPresence>
           <MotionPresence>
@@ -2454,6 +2461,23 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               supports={composerSupports}
               attachmentTotalBytes={capabilities.limits?.attachmentTotalBytes}
               chat={chat}
+              disabledReason={
+                !connected
+                  ? connectionState === 'syncing'
+                    ? t('正在同步会话历史，请稍候…')
+                    : t('连接尚未恢复，请稍候…')
+                  : receiptBlocked
+                    ? t('操作结果待核对，请先查看上方提示')
+                    : session && !historyReady
+                      ? historyFailure
+                        ? t('历史读取失败，请点击上方重试')
+                        : t('正在同步会话历史，请稍候…')
+                      : current?.archived === 1
+                        ? t('会话已归档，请先恢复会话')
+                        : !selectedProject
+                          ? t('请选择项目后开始')
+                          : undefined
+              }
               disabled={
                 !connected ||
                 !selectedProject ||

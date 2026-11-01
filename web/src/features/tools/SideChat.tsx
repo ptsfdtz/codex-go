@@ -570,6 +570,19 @@ export function SideChat({
           supports(key)
         }
         chat={chat}
+        disabledReason={
+          !connected
+            ? t('连接尚未恢复，请稍候…')
+            : blocked || draft.outcomeUnknown
+              ? t('操作结果待核对，请先查看上方提示')
+              : sessionId && !ready
+                ? t('正在同步会话历史，请稍候…')
+                : current?.archived === 1
+                  ? t('会话已归档，请先恢复会话')
+                  : !actualProject
+                    ? t('请选择项目后开始')
+                    : undefined
+        }
         disabled={disabled || !actualProject}
         busy={busy}
         active={!!activeTurn}

@@ -563,7 +563,7 @@ async fn connection(
             if request.action=="system.hello"{hello=true;}
                 if !core.rates.lock().unwrap().take(format!("rpc:{device}"),60.,20.){if !send(&mut writer,Error::new("RATE_LIMITED","Request rate limit").packet(Some(&request.id))).await{break;}continue;}
                 let permit=local_slots.clone().try_acquire_owned();let global=core.rpc_slots.clone().try_acquire_owned();if permit.is_err()||global.is_err(){if !send(&mut writer,Error::new("RATE_LIMITED","Too many concurrent requests").packet(Some(&request.id))).await{break;}continue;}
-                let owner=core.clone();let tx=responses.clone();let device=device.clone();let ssh_owner=ssh_owner.clone();let ssh_alive=ssh_alive.clone();tokio::spawn(async move{let _permit=permit;let _global=global;let packet=if request.action.starts_with("ssh."){handle_ssh_request(owner,&request,&device,&ssh_owner,ssh_alive).await}else{handle_request(&owner,&request,&device).await};let _=tx.try_send(packet);});
+                let owner=core.clone();let tx=responses.clone();let device=device.clone();let ssh_owner=ssh_owner.clone();let ssh_alive=ssh_alive.clone();tokio::spawn(async move{let _permit=permit;let _global=global;let packet=if request.action.starts_with("ssh."){handle_ssh_request(owner,&request,&device,&ssh_owner,ssh_alive).await}else{handle_request(&owner,&request,&device).await};let _=tx.send(packet).await;});
             },Some(Ok(Message::Pong(_)))=>last_received=Instant::now(),Some(Ok(Message::Ping(bytes)))=>{last_received=Instant::now();if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Pong(bytes))).await,Ok(Ok(()))){break;}},Some(Ok(Message::Binary(_)))|Some(Ok(Message::Close(_)))|Some(Err(_))|None=>break}},
             result=result_rx.recv()=>{if let Some(v)=result{if !send(&mut writer,v).await{break;}}},
             _=core.authorization_changed.notified()=>{
@@ -726,21 +726,64 @@ pub async fn handle_request(core: &Core, r: &protocol::Request, device: &str) ->
         }
     }
     let result = core.dispatch(r, device).await;
-    match result {
+    let response = match result {
         Ok(payload) => {
-            let response = json!({"v":1,"type":"response","id":r.id,"action":r.action,"payload":payload,"ts":now()});
-            if mutate&&core.store.exec("UPDATE requests SET status='done',responseJson=? WHERE deviceId=? AND requestId=?",[response.to_string(),device.into(),r.id.clone()]).is_err(){return Error::new("OUTCOME_UNKNOWN","Could not save outcome; reconcile snapshot").packet(Some(&r.id));}
-            response
+            json!({"v":1,"type":"response","id":r.id,"action":r.action,"payload":payload,"ts":now()})
         }
-        Err(e) => {
-            let _ = core.store.append("request.failed", json!({"action":r.action,"requestId":r.id,"code":e.code,"message":crate::redact(&e.message)}), r.payload["sessionId"].as_str(), None);
+        Err(error) => {
+            let _ = core.store.append("request.failed", json!({"action":r.action,"requestId":r.id,"code":error.code,"message":crate::redact(&error.message)}), r.payload["sessionId"].as_str(), None);
             if mutate {
-                let _ = core.store.exec(
-                    "UPDATE requests SET status='unknown' WHERE deviceId=? AND requestId=?",
-                    [device, &r.id],
-                );
+                mutation_error(error).packet(Some(&r.id))
+            } else {
+                error.packet(Some(&r.id))
             }
-            e.packet(Some(&r.id))
         }
+    };
+    if mutate && save_mutation_response(&core.store, device, &r.id, &response).is_err() {
+        return Error::new(
+            "OUTCOME_UNKNOWN",
+            "Could not save outcome; reconcile snapshot",
+        )
+        .packet(Some(&r.id));
+    }
+    response
+}
+
+fn mutation_error(error: Error) -> Error {
+    if error.code.ends_with("_TIMEOUT")
+        || error.code.ends_with("_UNAVAILABLE")
+        || error.code.ends_with("_PROTOCOL_ERROR")
+        || matches!(error.code.as_str(), "DATABASE_ERROR" | "IO_ERROR")
+    {
+        Error::new(
+            "OUTCOME_UNKNOWN",
+            &format!("{}; verify action result ({})", error.message, error.code),
+        )
+    } else {
+        error
     }
 }
+
+fn save_mutation_response(
+    store: &crate::store::Store,
+    device: &str,
+    request_id: &str,
+    response: &Value,
+) -> Result<()> {
+    let status = if response["type"] == "error" && response["code"] == "OUTCOME_UNKNOWN" {
+        "unknown"
+    } else {
+        "done"
+    };
+    // Persist definite rejections as well as success. A lost rejection must be
+    // recoverable with requests.status instead of leaving an eternal unknown.
+    let updated = store.exec(
+        "UPDATE requests SET status=?,responseJson=? WHERE deviceId=? AND requestId=?",
+        rusqlite::params![status, response.to_string(), device, request_id],
+    )?;
+    ensure(updated == 1, "DATABASE_ERROR", "Action receipt disappeared")
+}
+
+#[cfg(test)]
+#[path = "request_outcome_tests.rs"]
+mod request_outcome_tests;
