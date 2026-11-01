@@ -1,6 +1,7 @@
 FROM rust:1.90-bookworm AS build
 WORKDIR /build
 COPY server ./server
+COPY web/src/i18n/*.json ./web/src/i18n/
 COPY packages/connection-protocol ./packages/connection-protocol
 RUN cargo build --release --locked --manifest-path server/Cargo.toml
 

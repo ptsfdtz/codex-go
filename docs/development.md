@@ -61,23 +61,23 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 ## 功能定向回归
 
-| 功能             | 检查入口                                                                                                 |
-| ---------------- | -------------------------------------------------------------------------------------------------------- |
-| 设置中的项目管理 | `pnpm test:project-settings-browser`                                                                     |
-| 原生运行状态     | `node --test scripts/web/test-session-working.mjs`                                                       |
-| 排队交互         | `node scripts/web/test-queued-messages-browser.mjs`                                                      |
-| Web 语音输入     | `pnpm test:speech-input-browser`，`SPEECH_TEST_ORIGIN` 默认 `http://127.0.0.1:1498/`                     |
-| 文件引用         | `pnpm test:file-references-browser`，默认端口 1492，可用 `FILE_REFERENCE_TEST_ORIGIN` 指定               |
-| Markdown 数学公式 | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/` |
-| 文字选中引用     | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定              |
-| 自动项目登记     | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests` |
-| 运行时权限配置兼容 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib workspace_policy_tests` |
-| 会话图片路径授权 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`             |
-| 动效与设置       | `pnpm test:ui-browser`、`pnpm test:motion-browser`                                                       |
-| 下拉选择与菜单   | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                       |
-| 侧栏分区与操作   | `node scripts/web/test-sidebar-browser.mjs`，`SIDEBAR_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`         |
-| 任务提醒与未读   | `pnpm test:task-notifications-browser`，`TASK_NOTIFICATIONS_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`   |
-| 首屏性能         | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站     |
+| 功能               | 检查入口                                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| 设置中的项目管理   | `pnpm test:project-settings-browser`                                                                     |
+| 原生运行状态       | `node --test scripts/web/test-session-working.mjs`                                                       |
+| 排队交互           | `node scripts/web/test-queued-messages-browser.mjs`                                                      |
+| Web 语音输入       | `pnpm test:speech-input-browser`，`SPEECH_TEST_ORIGIN` 默认 `http://127.0.0.1:1498/`                     |
+| 文件引用           | `pnpm test:file-references-browser`，默认端口 1492，可用 `FILE_REFERENCE_TEST_ORIGIN` 指定               |
+| Markdown 数学公式  | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                      |
+| 文字选中引用       | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定              |
+| 自动项目登记       | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests` |
+| 运行时权限配置兼容 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib workspace_policy_tests`               |
+| 会话图片路径授权   | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`             |
+| 动效与设置         | `pnpm test:ui-browser`、`pnpm test:motion-browser`                                                       |
+| 下拉选择与菜单     | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                      |
+| 侧栏分区与操作     | `node scripts/web/test-sidebar-browser.mjs`，`SIDEBAR_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`         |
+| 任务提醒与未读     | `pnpm test:task-notifications-browser`，`TASK_NOTIFICATIONS_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`   |
+| 首屏性能           | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站     |
 
 数学公式回归复用上述 Playwright 环境，可用 `COMPOSER_TEST_FONT` 指定中文字体，证据输出到 `artifacts/markdown-math/`。
 
@@ -102,3 +102,7 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal -
 浏览器检查复用 `PLAYWRIGHT_MODULE`，在隔离页面中挂载真实 App 并拦截全部账户/Host 请求，覆盖双会话流式归属、创建/发送、审批确认、草稿与文件切换、未知发送结果、终端输入及手机布局，不连接生产账户或调用模型。证据输出到 `artifacts/workspace-tools/`。
 
 最后一条 Rust 命令额外运行 Linux 本机 OpenSSH 集成测试，需要 `/usr/sbin/sshd`、`ssh` 与 `ssh-keygen`。测试在临时目录生成密钥和配置，只监听随机回环端口，使用临时 known_hosts，不修改日常 SSH 身份或 AgentDeck 状态；实际核对指纹、连接 PTY、中文输出、缩放、输入去重、连接归属和设备清理。不能据此认定 Windows ConPTY、macOS、密码/口令认证或云端整链路已经验收。
+
+## 中英文定向检查
+
+`node scripts/web/check-i18n.mjs` 校验中英文资源键、插值参数、复数与源码提取。启动本地 Vite 后运行 `PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs I18N_TEST_ORIGIN=http://127.0.0.1:1430 node scripts/web/test-i18n-browser.mjs`。脚本挂载真实 Web 组件并从仓库提供管理页及语言目录，拦截全部账户/Host 请求；不访问真实账户或执行模型任务。覆盖语言检测与切换、跨标签同步、草稿/表单保留、延迟组件、通知、安全插值和英文窄屏，结果与截图在 `artifacts/i18n/`。已有中文浏览器回归显式指定 `zh-CN`。
