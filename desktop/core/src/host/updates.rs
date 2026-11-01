@@ -1,4 +1,5 @@
 //! Explicit updates use the bundled, reviewed installer; never execute a remote script.
+use crate::i18n::{message, text};
 use std::{path::PathBuf, process::Command, time::Duration};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -35,7 +36,7 @@ pub fn configure_channel(channel: &str, version: Option<&str>) -> Result<()> {
     } else {
         return Err("Use update-channel stable or update-channel candidate X.Y.Z".into());
     }
-    println!("Update channel: {channel}. Refresh the Web update check; running jobs keep their pinned version.");
+    println!("{}", message("Update channel: {channel}. Refresh the Web update check; running jobs keep their pinned version.", &[("channel", channel.to_string())]));
     Ok(())
 }
 async fn selected_version(
@@ -210,21 +211,34 @@ async fn run_internal(
     let selected = selected_version(&client, &origin, expected).await?;
     let version = selected.trim();
     let current = std::fs::read_to_string(directory.join("release.txt"))
-        .unwrap_or_else(|_| "unknown (legacy/development build)".into());
+        .unwrap_or_else(|_| text("unknown (legacy/development build)"));
     println!(
-        "Installed: {}\nTarget: {version}\nSource: {origin}",
-        current.trim()
+        "{}",
+        message(
+            "Installed: {}\nTarget: {version}\nSource: {origin}",
+            &[
+                ("0", current.trim().to_string()),
+                ("version", version.to_string()),
+                ("origin", origin.to_string())
+            ]
+        )
     );
     if current.trim() == version {
-        println!("Already up to date.");
+        println!("{}", message("Already up to date.", &[]));
         return Ok(());
     }
     if !newer_release(current.trim(), version) {
-        println!("Cannot migrate this release format automatically. Use the official installer to upgrade. Local/custom builds are not replaced automatically.");
+        println!("{}", message("Cannot migrate this release format automatically. Use the official installer to upgrade. Local/custom builds are not replaced automatically.", &[]));
         return Ok(());
     }
     if check {
-        println!("Run agentdeck update to install; restart explicitly when tasks are idle.");
+        println!(
+            "{}",
+            message(
+                "Run agentdeck update to install; restart explicitly when tasks are idle.",
+                &[]
+            )
+        );
         return Ok(());
     }
     // Refuse to silently install a second copy when invoked from a development/custom layout.
@@ -302,9 +316,7 @@ async fn run_internal(
     if !success {
         return Err("Update installer failed; inspect the output above".into());
     }
-    println!(
-        "Update installed. Running tasks keep their current Host. Run agentdeck restart when idle."
-    );
+    println!("{}", message("Update installed. Running tasks keep their current Host. Run agentdeck restart when idle.", &[]));
     Ok(())
 }
 

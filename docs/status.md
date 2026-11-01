@@ -67,6 +67,8 @@ Web/PWA 已接入 1094 条共享中英文资源，覆盖登录、设置、对话
 
 管理页复用 Web 语言目录，新增固定静态资源路由并同步容器构建输入。服务端 cargo check 和受控 Chromium 的管理页切换、动态标签及编辑表单保值检查通过；不修改账户接口或数据库。
 
+Host CLI 新增本地资源、系统语言检测、`--lang` 和 `AGENTDECK_LANG`，Windows 通过系统区域接口补充检测；命令、JSON 和协议标识不翻译。Linux 本批 2 项语言单测、2 项隔离 CLI 集成测试及严格 Clippy 通过，覆盖显式/环境/系统优先级、参数原文和跨语言 JSON 一致性。Windows 编译及实机未测。
+
 本批证据为 `artifacts/commit-batch3/verification.json`，浏览器语言结果及截图见 `artifacts/i18n/`。受控浏览器使用接口替身；未做真实模型、Safari/手机/PWA 和跨平台真实安装验收，未构建发布候选或部署。
 
 ## Web 语音输入（源码新增，未部署）

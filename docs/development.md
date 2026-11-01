@@ -106,3 +106,5 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal -
 ## 中英文定向检查
 
 `node scripts/web/check-i18n.mjs` 校验中英文资源键、插值参数、复数与源码提取。启动本地 Vite 后运行 `PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs I18N_TEST_ORIGIN=http://127.0.0.1:1430 node scripts/web/test-i18n-browser.mjs`。脚本挂载真实 Web 组件并从仓库提供管理页及语言目录，拦截全部账户/Host 请求；不访问真实账户或执行模型任务。覆盖语言检测与切换、跨标签同步、草稿/表单保留、延迟组件、通知、安全插值和英文窄屏，结果与截图在 `artifacts/i18n/`。已有中文浏览器回归显式指定 `zh-CN`。
+
+Host 语言检查：`cargo test --locked --manifest-path desktop/core/Cargo.toml --lib i18n` 与 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test i18n_cli`。集成测试使用临时 `AGENTDECK_DATA_DIR`，不启动日常 Host。
