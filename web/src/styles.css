@@ -757,6 +757,9 @@ small,
   border-left: 3px solid var(--border);
   color: var(--muted);
 }
+.rich-content > blockquote:last-child {
+  margin-bottom: 0;
+}
 .rich-content table {
   display: block;
   border-collapse: collapse;

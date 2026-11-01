@@ -1949,11 +1949,14 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             <span
               className={`connection ${connected ? 'online-text' : ''}`}
               data-connection-state={connectionState}
+              title={connectionLabels[connectionState]}
+              aria-label={connectionLabels[connectionState]}
+              role="status"
             >
               <span
                 className={`dot ${connected || connectionState === 'syncing' ? 'online' : ''}`}
               />
-              {connectionLabels[connectionState]}
+              {connectionState !== 'connected' && connectionLabels[connectionState]}
             </span>
             {connected &&
               !chat &&
