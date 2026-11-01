@@ -1,3 +1,4 @@
+import { Select } from './components/Select';
 import { MotionPresence, MotionList, useSidebarMotion } from './motion';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
@@ -2719,15 +2720,15 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       <section className="settings-section panel-stack">
                         <label className="setting-row">
                           <span>外观</span>
-                          <select
+                          <Select
                             aria-label="外观"
                             value={theme}
-                            onChange={(e) => setTheme(e.target.value)}
+                            onValueChange={(value) => setTheme(value)}
                           >
                             <option value="system">跟随系统</option>
                             <option value="light">浅色</option>
                             <option value="dark">深色</option>
-                          </select>
+                          </Select>
                         </label>
                         <label className="setting-row">
                           <span>

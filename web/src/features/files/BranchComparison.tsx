@@ -1,3 +1,4 @@
+import { Select } from '../../components/Select';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -214,20 +215,33 @@ export function BranchComparison({
             <span className="branch-sr-only">基准</span>
             <div>
               <GitBranch size={14} />
-              <select
+              <Select
                 aria-label="基准分支"
                 title={`基准分支：${label(base)}`}
                 value={base}
                 disabled={loading || !branches}
-                onChange={(e) => setBase(e.target.value)}
+                onValueChange={(value) => setBase(value)}
               >
                 <option value="HEAD">HEAD（当前提交）</option>
-                {branches?.branches.map((b) => (
-                  <option key={b.name} value={b.name}>
-                    {label(b.name)}
-                  </option>
-                ))}
-              </select>
+                <optgroup label="本地分支">
+                  {branches?.branches
+                    .filter((b) => !b.name.startsWith('refs/remotes/'))
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {label(b.name)}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="远程分支">
+                  {branches?.branches
+                    .filter((b) => b.name.startsWith('refs/remotes/'))
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {label(b.name)}
+                      </option>
+                    ))}
+                </optgroup>
+              </Select>
             </div>
           </label>
           <IconButton
@@ -243,20 +257,33 @@ export function BranchComparison({
             <span className="branch-sr-only">目标</span>
             <div>
               <GitBranch size={14} />
-              <select
+              <Select
                 aria-label="目标分支"
                 title={`目标分支：${label(head)}`}
                 value={head}
                 disabled={loading || !branches}
-                onChange={(e) => setHead(e.target.value)}
+                onValueChange={(value) => setHead(value)}
               >
                 <option value="HEAD">HEAD（当前提交）</option>
-                {branches?.branches.map((b) => (
-                  <option key={b.name} value={b.name}>
-                    {label(b.name)}
-                  </option>
-                ))}
-              </select>
+                <optgroup label="本地分支">
+                  {branches?.branches
+                    .filter((b) => !b.name.startsWith('refs/remotes/'))
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {label(b.name)}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="远程分支">
+                  {branches?.branches
+                    .filter((b) => b.name.startsWith('refs/remotes/'))
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {label(b.name)}
+                      </option>
+                    ))}
+                </optgroup>
+              </Select>
             </div>
           </label>
           <button

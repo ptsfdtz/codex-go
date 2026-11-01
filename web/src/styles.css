@@ -116,63 +116,6 @@ select optgroup {
   color: var(--text);
   background: var(--bg);
 }
-/* Keep native keyboard, touch and screen-reader behaviour. Older browsers
-   retain the themed system picker; supporting browsers render this panel. */
-@supports (appearance: base-select) {
-  select,
-  select::picker(select) {
-    appearance: base-select;
-  }
-  select {
-    align-items: center;
-    gap: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  select::picker-icon {
-    color: var(--muted);
-  }
-  select::picker(select) {
-    color: var(--text);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 5px;
-    margin-block: 6px;
-    box-shadow: var(--shadow);
-    max-height: min(360px, 50dvh);
-    max-width: calc(100vw - 24px);
-    overflow: auto;
-    scrollbar-width: thin;
-    overscroll-behavior: contain;
-  }
-  select option {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 40px;
-    padding: 9px 12px;
-    border-radius: 7px;
-    font-size: 13px;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    outline-offset: -2px;
-  }
-  select option:checked {
-    background: var(--soft);
-    font-weight: 600;
-  }
-  select option::checkmark {
-    order: 1;
-    margin-inline-start: auto;
-    color: var(--green);
-  }
-  @media (hover: hover) and (pointer: fine) {
-    select option:hover {
-      background: var(--hover);
-    }
-  }
-}
 input:focus,
 textarea:focus,
 select:focus {
@@ -385,8 +328,10 @@ small,
   gap: 5px;
   padding: 0 5px 8px;
 }
-.rail-filters select {
+.rail-filters .select-control {
   width: 50%;
+}
+.rail-filters .select-trigger {
   font-size: 11px;
   padding: 6px;
 }
@@ -2140,7 +2085,7 @@ small,
 .settings-section .setting-row {
   min-height: 58px;
 }
-.settings-section .setting-row > select {
+.settings-section .setting-row > .select-control {
   width: auto;
   max-width: 52%;
   min-width: 120px;
@@ -3742,4 +3687,85 @@ small,
 }
 .activity-stage-items > .activity-turn:last-child {
   margin-bottom: 0;
+}
+
+/* Shared dropdown surfaces, including selectors and action menus. */
+:is(
+  .model-picker-popup,
+  .permission-popup,
+  .mode-menu,
+  .sidebar-context-menu,
+  .device-delete-confirmation
+)[popover],
+.popover {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-popover);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--menu-shadow);
+  padding: 6px;
+  max-width: calc(100vw - 24px);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.model-picker-popup[popover] {
+  padding: 8px;
+  scrollbar-width: thin;
+}
+.device-delete-confirmation[popover] {
+  padding: 12px;
+}
+.model-picker-popup::-webkit-scrollbar {
+  display: block;
+  width: 5px;
+}
+.model-picker-popup::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: var(--border);
+}
+:is(.popover, .mode-menu, .sidebar-context-menu) > button,
+.model-picker-popup .model-picker-option,
+.permission-popup .permission-option {
+  min-height: var(--menu-row-height);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  gap: 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+:is(.popover, .mode-menu, .sidebar-context-menu) > button > span,
+.model-picker-option > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+:is(.popover, .mode-menu) > button[aria-current='true'],
+.model-picker-popup .model-picker-option.selected,
+.permission-popup .permission-option[data-selected='true'] {
+  background: var(--soft);
+  font-weight: 600;
+}
+:is(.popover, .mode-menu, .sidebar-context-menu) > button > svg:first-child {
+  color: var(--muted);
+}
+:is(.popover, .mode-menu, .sidebar-context-menu) > hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 5px 6px;
+}
+@media (hover: hover) and (pointer: fine) {
+  :is(.popover, .mode-menu, .sidebar-context-menu) > button:hover:not(:disabled),
+  .model-picker-popup .model-picker-option:hover:not(:disabled),
+  .permission-popup .permission-option:hover:not(:disabled) {
+    background: var(--hover);
+  }
+}
+@media (pointer: coarse) {
+  :is(.popover, .mode-menu, .sidebar-context-menu) > button,
+  .model-picker-popup .model-picker-option,
+  .permission-popup .permission-option {
+    min-height: 44px;
+  }
 }

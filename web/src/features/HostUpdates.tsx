@@ -1,3 +1,4 @@
+import { Select } from '../components/Select';
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import type { Request } from '../workspace';
@@ -265,13 +266,14 @@ export function HostUpdates({
                   {!release && (
                     <label>
                       被控制电脑的系统
-                      <select
+                      <Select
+                        aria-label="被控制电脑的系统"
                         value={legacyPlatform}
-                        onChange={(event) => setLegacyPlatform(event.target.value)}
+                        onValueChange={(value) => setLegacyPlatform(value)}
                       >
                         <option value="windows">Windows</option>
                         <option value="linux">Linux</option>
-                      </select>
+                      </Select>
                     </label>
                   )}
                   <pre className="host-update-prompt">

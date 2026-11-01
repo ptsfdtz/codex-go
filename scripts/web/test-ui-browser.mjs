@@ -70,11 +70,13 @@ try {
   assert.equal(await nav.getByRole('button').count(), 8);
   assert.equal(await nav.getByRole('button', { name: '电脑', exact: true }).innerText(), '电脑');
   assert.equal(await dialog.getByText('选择适合你的界面主题。').count(), 0);
-  await page.getByRole('combobox', { name: '外观', exact: true }).selectOption('dark');
+  await page.getByRole('combobox', { name: '外观', exact: true }).click();
+  await page.getByRole('option', { name: '深色', exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await page.waitForTimeout(220);
   await page.screenshot({ path: new URL('settings-dark.png', out).pathname });
-  await page.getByRole('combobox', { name: '外观', exact: true }).selectOption('light');
+  await page.getByRole('combobox', { name: '外观', exact: true }).click();
+  await page.getByRole('option', { name: '浅色', exact: true }).click();
   await nav.getByRole('button', { name: '对话', exact: true }).click();
   const before = await dialog.boundingBox();
   await page.getByRole('button', { name: '未发送草稿', exact: true }).click();

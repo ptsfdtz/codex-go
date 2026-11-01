@@ -1,3 +1,4 @@
+import { Select } from '../../components/Select';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, KeyRound, ChevronLeft, RefreshCw } from 'lucide-react';
 import { Modal, IconButton } from '../../ui';
@@ -232,10 +233,10 @@ export function ApiSettings({
                 <>
                   <label>
                     思考强度
-                    <select
+                    <Select
                       aria-label="配置思考强度的模型"
                       value={selectedEffortModel}
-                      onChange={(event) => setEffortModel(event.target.value)}
+                      onValueChange={(value) => setEffortModel(value)}
                       disabled={busy}
                     >
                       {modelNames.map((model) => (
@@ -243,7 +244,7 @@ export function ApiSettings({
                           {model}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                   <input
                     aria-label={`${selectedEffortModel} 的思考强度`}

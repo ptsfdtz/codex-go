@@ -211,13 +211,15 @@ try {
   await modal.waitFor({ state: 'hidden' });
   assert.equal(await row.count(), 0);
   await page.getByRole('button', { name: '筛选和排序会话', exact: true }).click();
-  await page.getByRole('combobox', { name: '会话筛选', exact: true }).selectOption('archived');
+  await page.getByRole('combobox', { name: '会话筛选', exact: true }).click();
+  await page.getByRole('option', { name: '归档', exact: true }).click();
   const archived = recent.locator('.session-row').filter({ hasText: '制定计划并询问是否开发' });
   await archived.locator('.session').hover();
   await archived.getByRole('button', { name: '恢复 制定计划并询问是否开发', exact: true }).click();
   await modal.getByRole('button', { name: '确认', exact: true }).click();
   await modal.waitFor({ state: 'hidden' });
-  await page.getByRole('combobox', { name: '会话筛选', exact: true }).selectOption('all');
+  await page.getByRole('combobox', { name: '会话筛选', exact: true }).click();
+  await page.getByRole('option', { name: '全部对话', exact: true }).click();
   await page.getByRole('button', { name: '筛选和排序会话', exact: true }).click();
   await page.evaluate(() => window.sidebarConnection(false));
   assert.equal(

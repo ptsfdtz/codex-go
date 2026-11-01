@@ -41,6 +41,8 @@
 | 首屏与动效     | Markdown、设置、AgentChat、文件面板按需加载，Reduced Motion、弹窗焦点和退出处理；Chromium 受控检查通过，Safari/PWA/大历史待专项复核 |
 | AgentChat      | Web/云端已部署；密钥库隔离 PostgreSQL 集成测试及本地 HTTPS 模拟供应商回归通过，未调用真实供应商模型；跨域与手机软键盘待验收         |
 
+2026-11-01 下拉框优化已在源码完成，尚未部署：Web/PWA 的外观、会话筛选/排序、默认模型/推理强度/输出、Host 系统、AgentChat 配置、分支比较及侧边对话选择接入统一组件；顶部、工具、项目概览、侧栏、模型、权限和工作模式菜单统一圆角、背景、边框、阴影与菜单行状态。选项较多时支持搜索，分支按本地/远程分组，长名称换行，面板按可用空间上下展开并限制视口边界；保留禁用状态、键盘操作、表单值和弹窗内顶层显示。Web 类型检查、定向 ESLint、生产构建及本批受控 Chromium 回归通过，覆盖深浅主题、320/390/1100px、键盘/搜索/禁用项、点击外部关闭、对话框层级、工具菜单边界及触屏 44px 选项和点选；原有设置与侧栏浏览器回归通过。入口为 `pnpm test:dropdowns-browser`，证据位于 `artifacts/dropdowns/verification.json` 及同目录截图。未做 Safari、真实手机/PWA 和真实 Host 链路验收，不代表生产网页已更新。
+
 2026-11-01 数学公式源码修复，尚未部署：Codex 与 AgentChat 共用渲染器接入 TeX 语法解析和 KaTeX，支持 `\(...\)`、`\[...\]`、`$...$`、`$$...$$` 与 `math` 围栏，避免 Markdown 转义吞掉公式分隔符；单美元使用金额边界规则，保留代码及链接语义。公式样式和字体随 Markdown 按需加载，长块公式在消息内横向滚动，错误公式保留可见回退，不启用可信 TeX 命令或原始 HTML。本批 Web 类型检查、定向 ESLint、生产构建与受控 Chromium 回归通过：覆盖截图中的 Elo/BO3/BO5、中文、矩阵、对齐、列表/引用/表格、逐字符流式回复、金额和代码、错误回退、外部请求隔离及 320/390/1100px 布局；原有图片浏览器回归通过。入口为 `pnpm test:markdown-math-browser`，证据见 `artifacts/markdown-math/verification.json` 及同目录截图；参考 [LibreChat 渲染配置](https://github.com/danny-avila/LibreChat/blob/main/client/src/components/Chat/Messages/Content/markdownConfig.ts) 的语法扩展与 KaTeX 方案。未做真实模型、Safari/iPhone/PWA 验收，不代表生产网页已修复。
 
 首屏历史对照：主入口约 634→396 kB，gzip 198→126 kB；冷缓存、4 倍 CPU 降速、三次 Chromium 的 FCP 中位数 264→212 ms。该结果只代表本地实验，不代表真实网络、INP 或稳定 60fps；近期修改不自动继承旧结论。

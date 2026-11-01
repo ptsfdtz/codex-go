@@ -1,3 +1,4 @@
+import { Select } from '../components/Select';
 import { useRef, useState, type ReactNode, type MouseEvent } from 'react';
 import {
   Archive,
@@ -344,10 +345,10 @@ export function Sidebar({
             </div>
             <Collapse open={filters}>
               <div className="rail-filters">
-                <select
+                <Select
                   aria-label="会话筛选"
                   value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
+                  onValueChange={(value) => setFilter(value)}
                 >
                   {[
                     ['all', '全部对话'],
@@ -359,15 +360,15 @@ export function Sidebar({
                       {name}
                     </option>
                   ))}
-                </select>
-                <select
+                </Select>
+                <Select
                   aria-label="会话排序"
                   value={sort}
-                  onChange={(e) => setSort(e.target.value)}
+                  onValueChange={(value) => setSort(value)}
                 >
                   <option value="recent">最近更新</option>
                   <option value="title">按名称</option>
-                </select>
+                </Select>
               </div>
             </Collapse>
             <Collapse open={recentsOpen}>

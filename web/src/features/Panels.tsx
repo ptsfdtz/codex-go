@@ -1,3 +1,4 @@
+import { Select } from '../components/Select';
 import { useEffect, useState, useRef } from 'react';
 import {
   Folder,
@@ -938,11 +939,11 @@ export function ConfigurationPanel({
               }}
             >
               <h3>默认模型</h3>
-              <select
+              <Select
                 aria-label="默认模型"
                 value={model}
-                onChange={(e) => {
-                  setModel(e.target.value);
+                onValueChange={(value) => {
+                  setModel(value);
                   setEffort('');
                 }}
               >
@@ -958,11 +959,11 @@ export function ConfigurationPanel({
                     </option>
                   ) : null;
                 })}
-              </select>
-              <select
+              </Select>
+              <Select
                 aria-label="默认推理强度"
                 value={effort}
-                onChange={(e) => setEffort(e.target.value)}
+                onValueChange={(value) => setEffort(value)}
               >
                 <option value="">模型默认</option>
                 {effort &&
@@ -977,7 +978,7 @@ export function ConfigurationPanel({
                     const id = typeof e === 'string' ? e : e.reasoningEffort;
                     return <option key={id}>{id}</option>;
                   })}
-              </select>
+              </Select>
               <button disabled={action.busy || !value.userRevision || !model}>
                 保存模型默认值
               </button>
@@ -1001,7 +1002,11 @@ export function ConfigurationPanel({
               <h3>默认输出</h3>
               <label>
                 详细程度
-                <select value={verbosity} onChange={(e) => setVerbosity(e.target.value)}>
+                <Select
+                  aria-label="详细程度"
+                  value={verbosity}
+                  onValueChange={(value) => setVerbosity(value)}
+                >
                   {['default', 'low', 'medium', 'high'].map((v) => (
                     <option key={v} value={v}>
                       {(
@@ -1018,11 +1023,15 @@ export function ConfigurationPanel({
                       )[v] || v}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
                 思考摘要
-                <select value={summary} onChange={(e) => setSummary(e.target.value)}>
+                <Select
+                  aria-label="思考摘要"
+                  value={summary}
+                  onValueChange={(value) => setSummary(value)}
+                >
                   {['default', 'auto', 'concise', 'detailed', 'none'].map((v) => (
                     <option key={v} value={v}>
                       {(
@@ -1039,7 +1048,7 @@ export function ConfigurationPanel({
                       )[v] || v}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <button disabled={action.busy || !value.userRevision}>保存输出默认值</button>
             </form>

@@ -10,8 +10,8 @@
   width: min(310px, calc(100vw - 24px));
   min-width: 0;
   padding: 12px;
-  border-radius: 18px;
-  background: var(--soft);
+  border-radius: var(--radius-popover);
+  background: var(--bg);
 }
 .project-overview-heading {
   display: flex;

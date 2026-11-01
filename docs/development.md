@@ -72,9 +72,12 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 自动项目登记     | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests` |
 | 会话图片路径授权 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`             |
 | 动效与设置       | `pnpm test:ui-browser`、`pnpm test:motion-browser`                                                       |
+| 下拉选择与菜单   | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                       |
 | 首屏性能         | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站     |
 
 数学公式回归复用上述 Playwright 环境，可用 `COMPOSER_TEST_FONT` 指定中文字体，证据输出到 `artifacts/markdown-math/`。
+
+下拉框回归复用上述 Playwright 环境，先在指定端口启动本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1434 --strictPort`）。检查真实选择组件、分支搜索、设置菜单、弹窗层级、键盘和触屏操作、深浅主题与窄屏边界；截图和结果输出到 `artifacts/dropdowns/`，不连接真实 Host。
 
 自动项目登记真实接口测试须设置 `AGENTDECK_TEST_OFFICIAL_CODEX` 为已验证的官方程序绝对路径，并追加 `-- --include-ignored`，不调用模型。性能测试须使用独立固定的生产构建目录，避免并行构建替换资源。浏览器脚本的环境变量及实际覆盖以对应脚本为准。
 

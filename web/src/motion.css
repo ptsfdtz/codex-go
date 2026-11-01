@@ -278,41 +278,6 @@ button:disabled {
     }
   }
 }
-/* Progressive enhancement for the browser's native select surface. */
-@supports (appearance: base-select) {
-  select::picker(select) {
-    opacity: 0;
-    transform: scale(0.97);
-    transform-origin: top center;
-    transition:
-      opacity var(--motion-fast) var(--ease-out),
-      transform var(--motion-fast) var(--ease-out),
-      display var(--motion-fast) allow-discrete,
-      overlay var(--motion-fast) allow-discrete;
-  }
-  select:open::picker(select) {
-    opacity: 1;
-    transform: scale(1);
-  }
-  @starting-style {
-    select:open::picker(select) {
-      opacity: 0;
-      transform: scale(0.97);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    select::picker(select),
-    select:open::picker(select) {
-      transform: none;
-      transition: opacity 100ms ease;
-    }
-    @starting-style {
-      select:open::picker(select) {
-        transform: none;
-      }
-    }
-  }
-}
 .model-picker-popup,
 .permission-popup,
 .device-delete-confirmation {
