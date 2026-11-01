@@ -360,8 +360,7 @@ try {
   );
   assert.equal(await primary.getByRole('button', { name: '允许一次', exact: true }).count(), 0);
   checks.push('side approval confirmation sends the side session and turn identities');
-  const approvalNotice = page.getByRole('region', { name: '任务提醒', exact: true });
-  await approvalNotice.getByRole('button', { name: '关闭提醒', exact: true }).click();
+  assert.equal(await page.getByRole('region', { name: '任务提醒', exact: true }).count(), 0);
   await page.evaluate(() => {
     window.testSnapshot.approvals = [];
   });

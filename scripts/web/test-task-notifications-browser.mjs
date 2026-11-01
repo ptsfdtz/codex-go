@@ -152,8 +152,7 @@ try {
     }),
   );
   await page.waitForTimeout(160);
-  assert.equal(await notices.locator('.task-notification').count(), 0);
-  assert.equal(await notices.locator('.task-notification').count(), 0);
+  assert.equal(await notices.count(), 0);
   assert.equal(await toggle.locator('.notification-dot').count(), 1);
   await toggle.click();
   const row = page
