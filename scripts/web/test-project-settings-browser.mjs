@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, localStorage */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -7,7 +8,10 @@ const out = new URL('../../artifacts/project-settings/', import.meta.url);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
-  const context = await browser.newContext({ viewport: { width: 1100, height: 850 } });
+  const context = await browser.newContext({
+    locale: 'zh-CN',
+    viewport: { width: 1100, height: 850 },
+  });
   await context.addInitScript(() => {
     localStorage.setItem('agentdeck.web.work-mode', '"codex"');
     localStorage.setItem('agentdeck.web.theme', 'dark');
@@ -149,7 +153,7 @@ try {
     await page.evaluate((value) => {
       document.documentElement.dataset.theme = value;
     }, theme);
-    await page.screenshot({ path: new URL(`settings-${theme}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`settings-${theme}.png`, out)) });
   }
   await page.evaluate(() => window.projectTest.setProjects(window.projectTest.remote));
   await search.waitFor();
@@ -213,7 +217,7 @@ try {
     await region.getByRole('button', { name: '移除项目 workspace', exact: true }).click();
     const group = region.getByRole('group', { name: '移除“workspace”？' });
     assert(await group.evaluate((node) => node.scrollWidth <= node.clientWidth));
-    await page.screenshot({ path: new URL(`settings-${width}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`settings-${width}.png`, out)) });
     await group.getByRole('button', { name: '取消' }).click();
   }
   await page.evaluate(() => window.projectTest.setProjects([]));

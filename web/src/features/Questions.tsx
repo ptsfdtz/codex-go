@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../i18n';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   MessageCircle,
@@ -17,16 +18,17 @@ import { DataFields, IconButton } from '../ui';
 import { Collapse, MotionPresence } from '../motion';
 
 function ApprovalDetails({ approval }: { approval: Approval }) {
+  useLocale();
   const context = approval.context || {};
   const labels: Record<string, string> = {
-    command: '命令',
-    cwd: '目录',
-    reason: '原因',
-    grantRoot: '授权目录',
-    permissions: '申请权限',
-    additionalPermissions: '额外权限',
-    networkApprovalContext: '网络访问',
-    proposedExecpolicyAmendment: '命令规则变更',
+    command: t('命令'),
+    cwd: t('目录'),
+    reason: t('原因'),
+    grantRoot: t('授权目录'),
+    permissions: t('申请权限'),
+    additionalPermissions: t('额外权限'),
+    networkApprovalContext: t('网络访问'),
+    proposedExecpolicyAmendment: t('命令规则变更'),
   };
   const fields = Object.fromEntries(
     Object.entries(context)
@@ -41,7 +43,7 @@ function ApprovalDetails({ approval }: { approval: Approval }) {
     <div className="approval-details">
       {Object.keys(fields).length > 0 && <DataFields value={fields} />}
       <details open={!Object.keys(fields).length}>
-        <summary>请求详情</summary>
+        <summary>{t('请求详情')}</summary>
         <pre className="approval-context">{JSON.stringify(context, null, 2)}</pre>
       </details>
     </div>
@@ -65,6 +67,7 @@ function QuestionFields({
   canSubmit?: boolean;
   secondary?: ReactNode;
 }) {
+  useLocale();
   const [index, setIndex] = useState(0),
     [query, setQuery] = useState('');
   const currentIndex = Math.min(index, questions.length - 1);
@@ -101,7 +104,11 @@ function QuestionFields({
       {q.header && <small>{q.header}</small>}
       <p>{q.title}</p>
       {q.options.length > 12 && (
-        <input aria-label="搜索选项" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input
+          aria-label={t('搜索选项')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       )}
       <div className="question-options">
         {q.options
@@ -126,7 +133,7 @@ function QuestionFields({
       </div>
       <div className="question-response">
         <label>
-          {q.secret ? '敏感回答' : q.options.length ? '其他回答' : '你的回答'}
+          {q.secret ? t('敏感回答') : q.options.length ? t('其他回答') : t('你的回答')}
           <input
             className="question-answer"
             type={q.secret ? 'password' : 'text'}
@@ -148,7 +155,7 @@ function QuestionFields({
           {questions.length > 1 && (
             <IconButton
               icon={ChevronLeft}
-              label="上一个问题"
+              label={t('上一个问题')}
               disabled={disabled || currentIndex === 0}
               onClick={() => navigate(currentIndex - 1)}
             />
@@ -156,7 +163,7 @@ function QuestionFields({
           {last ? (
             <IconButton
               icon={Send}
-              label="提交回答"
+              label={t('提交回答')}
               disabled={
                 disabled ||
                 !canSubmit ||
@@ -167,14 +174,14 @@ function QuestionFields({
           ) : (
             <IconButton
               icon={ChevronRight}
-              label="下一个问题"
+              label={t('下一个问题')}
               disabled={disabled || !answers[q.id]?.trim()}
               onClick={advance}
             />
           )}
         </div>
       </div>
-      {q.secret && <small>敏感回答仅保留在内存中。</small>}
+      {q.secret && <small>{t('敏感回答仅保留在内存中。')}</small>}
     </div>
   );
 }
@@ -195,6 +202,7 @@ export function ApprovalCard({
   onRefresh: () => void;
   uncertain: () => boolean;
 }) {
+  useLocale();
   const [answers, setAnswers] = useState<Record<string, string>>({}),
     [busy, setBusy] = useState(false),
     [phase, setPhase] = useState('editing'),
@@ -234,14 +242,14 @@ export function ApprovalCard({
     !!(approval.status && approval.status !== 'pending');
   const approvalTitle =
     approval.method === 'item/commandExecution/requestApproval'
-      ? '执行命令'
+      ? t('执行命令')
       : approval.method === 'item/fileChange/requestApproval'
-        ? '修改文件'
+        ? t('修改文件')
         : approval.method === 'item/permissions/requestApproval'
-          ? '申请权限'
-          : '操作审批';
+          ? t('申请权限')
+          : t('操作审批');
   const allowLabel =
-    approval.method === 'item/permissions/requestApproval' ? '允许本轮' : '允许一次';
+    approval.method === 'item/permissions/requestApproval' ? t('允许本轮') : t('允许一次');
   const decisions = approval.allowedDecisions || ['approve', 'reject'];
   async function decide(decision: string) {
     if (
@@ -279,7 +287,11 @@ export function ApprovalCard({
       <div className="approval-copy">
         <div className="approval-heading">
           <strong>
-            {phase === 'sent' ? '已处理' : questions.length ? 'Codex 需要你的回答' : approvalTitle}
+            {phase === 'sent'
+              ? t('已处理')
+              : questions.length
+                ? t('Codex 需要你的回答')
+                : approvalTitle}
           </strong>
           {phase === 'editing' && !questions.length && (
             <div className="compact-actions approval-actions">
@@ -287,13 +299,13 @@ export function ApprovalCard({
                 <>
                   <IconButton
                     icon={ChevronLeft}
-                    label="返回审批选项"
+                    label={t('返回审批选项')}
                     disabled={locked}
                     onClick={() => setConfirmation(false)}
                   />
                   <IconButton
                     icon={CheckCheck}
-                    label={`确认${allowLabel}`}
+                    label={t('确认{{p0}}', { p0: allowLabel })}
                     className="approval-allow"
                     disabled={locked}
                     pending={busy}
@@ -305,7 +317,7 @@ export function ApprovalCard({
                   {(decisions.includes('reject') || decisions.includes('cancel')) && (
                     <IconButton
                       icon={X}
-                      label="拒绝操作"
+                      label={t('拒绝操作')}
                       disabled={locked}
                       onClick={() =>
                         void decide(decisions.includes('reject') ? 'reject' : 'cancel')
@@ -337,7 +349,7 @@ export function ApprovalCard({
                 secondary={
                   <IconButton
                     icon={SkipForward}
-                    label="跳过问题"
+                    label={t('跳过问题')}
                     disabled={locked}
                     onClick={() => void decide('cancel')}
                   />
@@ -346,21 +358,27 @@ export function ApprovalCard({
             ) : (
               <ApprovalDetails approval={approval} />
             )}
-            {expired && <p className="muted">请求已过期。</p>}
+            {expired && <p className="muted">{t('请求已过期。')}</p>}
           </>
         )}
-        {phase === 'unknown' && <p>发送结果待确认，请核对会话后再操作。</p>}
-        {error && <p className="error">{error}</p>}
+        {phase === 'unknown' && <p>{t('发送结果待确认，请核对会话后再操作。')}</p>}
+        {error && <p className="error">{errorText(error)}</p>}
         <MotionPresence>
           {confirmation && (
             <p className="approval-review" role="status">
-              请核对以上内容，再确认{allowLabel}。
+              {t('请核对以上内容，再确认')}
+              {allowLabel}。
             </p>
           )}
         </MotionPresence>
       </div>
       {phase === 'unknown' && (
-        <IconButton icon={RefreshCw} label="核对会话" disabled={disabled} onClick={onRefresh} />
+        <IconButton
+          icon={RefreshCw}
+          label={t('核对会话')}
+          disabled={disabled}
+          onClick={onRefresh}
+        />
       )}
     </section>
   );
@@ -385,6 +403,7 @@ export function AsyncQuestions({
   onRefresh: () => void;
   uncertain: () => boolean;
 }) {
+  useLocale();
   const questions = messageQuestions(entry),
     confirmed = confirmedAnswers(history, entry.item?.id || '');
   const [answers, setAnswers] = useState<Record<string, string>>({}),
@@ -453,7 +472,7 @@ export function AsyncQuestions({
         { sessionId },
       );
       if (active.sessionId !== sessionId || !('upstreamTurnId' in active))
-        throw new Error('会话身份不匹配');
+        throw new Error(t('会话身份不匹配'));
       if (active.upstreamTurnId) {
         const result = await request<{
           accepted?: boolean;
@@ -466,14 +485,14 @@ export function AsyncQuestions({
           result.sessionId !== sessionId ||
           result.upstreamTurnId !== active.upstreamTurnId
         )
-          throw new Error('回答受理结果需要核对');
+          throw new Error(t('回答受理结果需要核对'));
       } else {
         const result = await request<{ turn?: { sessionId?: string } }>('turn.start', {
           ...options,
           text,
         });
         accepted = true;
-        if (result.turn?.sessionId !== sessionId) throw new Error('回答受理结果需要核对');
+        if (result.turn?.sessionId !== sessionId) throw new Error(t('回答受理结果需要核对'));
       }
       const ids = [...new Set([...done, ...Object.keys(provided)])];
       localStorage.setItem(receiptKey, JSON.stringify({ phase: 'sent', ids }));
@@ -504,12 +523,12 @@ export function AsyncQuestions({
       <section className="async-questions">
         <div className="questions-heading">
           <MessageCircle size={18} />
-          <strong>Codex 需要你的回答</strong>
+          <strong>{t('Codex 需要你的回答')}</strong>
           <small>
             {busy
-              ? '发送中…'
+              ? t('发送中…')
               : phase === 'unknown' && !reconciled
-                ? '等待确认'
+                ? t('等待确认')
                 : `${done.size + remaining.filter((q) => answers[q.id]?.trim()).length} / ${questions.length}`}
           </small>
         </div>
@@ -524,7 +543,7 @@ export function AsyncQuestions({
                 phase !== 'editing' && (
                   <IconButton
                     icon={RefreshCw}
-                    label="核对会话"
+                    label={t('核对会话')}
                     disabled={disabled}
                     onClick={onRefresh}
                   />
@@ -533,7 +552,7 @@ export function AsyncQuestions({
             />
           </>
         )}
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{errorText(error)}</p>}
       </section>
     </Collapse>
   );

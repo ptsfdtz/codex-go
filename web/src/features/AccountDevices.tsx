@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../i18n';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Computer, Trash2, RefreshCw } from 'lucide-react';
 import { IconButton } from '../ui';
@@ -16,6 +17,7 @@ function DeleteAction({
   path: string;
   onDeleted?: () => void;
 }) {
+  useLocale();
   const id = useId();
   const popup = usePopoverMotion();
   const inFlight = useRef(false);
@@ -71,20 +73,20 @@ function DeleteAction({
         popover="auto"
         className="device-delete-confirmation"
         role="dialog"
-        aria-label={`确认${label}`}
+        aria-label={t('确认{{p0}}', { p0: label })}
       >
         <p>{warning}</p>
         <div className="compact-actions">
           <button disabled={pending} onClick={() => popup.current?.hidePopover()}>
-            取消
+            {t('取消')}
           </button>
           <button className="danger" disabled={pending} onClick={() => void remove()}>
-            {pending ? '正在删除…' : `确认${label}`}
+            {pending ? t('正在删除…') : t('确认{{p0}}', { p0: label })}
           </button>
         </div>
         {error && (
           <p className="error" role="alert">
-            {error}
+            {errorText(error)}
           </p>
         )}
       </div>
@@ -93,17 +95,22 @@ function DeleteAction({
 }
 
 export function DeleteDevice({ device, onDeleted }: { device: Device; onDeleted?: () => void }) {
+  useLocale();
   return (
     <DeleteAction
-      label="删除设备"
+      label={t('删除设备')}
       onDeleted={onDeleted}
       path={`/api/v1/devices/${encodeURIComponent(device.deviceId)}/registration`}
-      warning={`删除“${device.displayName}”将关闭其连接、清除云端登记和登录凭据，需要重新登录才能再次使用。电脑本地文件和 Codex 会话会保留。`}
+      warning={t(
+        '删除“{{p0}}”将关闭其连接、清除云端登记和登录凭据，需要重新登录才能再次使用。电脑本地文件和 Codex 会话会保留。',
+        { p0: device.displayName },
+      )}
     />
   );
 }
 
 export function AccountDevices() {
+  useLocale();
   const [devices, setDevices] = useState<Device[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -126,21 +133,21 @@ export function AccountDevices() {
     <section className="settings-section panel-stack">
       <div className="setting-row">
         <div>
-          <h3>已登记电脑</h3>
+          <h3>{t('已登记电脑')}</h3>
         </div>
         <IconButton
           icon={RefreshCw}
-          label="刷新 Host 设备"
+          label={t('刷新 Host 设备')}
           pending={loading}
           onClick={() => void load()}
         />
       </div>
       {error && (
         <p className="error" role="alert">
-          {error}
+          {errorText(error)}
         </p>
       )}
-      {!loading && !error && !devices.length && <p className="muted">暂无 Host 设备。</p>}
+      {!loading && !error && !devices.length && <p className="muted">{t('暂无 Host 设备。')}</p>}
       <MotionList>
         {devices.map((device) => (
           <div className="host-device-card" data-motion-item key={device.deviceId}>
@@ -149,7 +156,7 @@ export function AccountDevices() {
             </span>
             <div className="host-device-info">
               <strong>{device.displayName}</strong>
-              <small className="muted">{device.revoked ? '已撤销' : '已登记'}</small>
+              <small className="muted">{device.revoked ? t('已撤销') : t('已登记')}</small>
             </div>
             <DeleteDevice
               device={device}

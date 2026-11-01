@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { historyKey, mergeHistory, type HistoryEntry } from './history';
 import type { Packet } from './transport/bridge';
 
@@ -30,8 +31,10 @@ export function mergeHistorySnapshot(
 export function historyError(error: unknown): string {
   const message = String(error);
   if (message.includes('WORKSPACE_FORBIDDEN'))
-    return '无法读取此会话：工作目录已变化或不在电脑授权范围内。请在电脑端核对目录并同步工作区，或选择其他会话。';
-  return `会话历史读取失败：${message}`;
+    return t(
+      '无法读取此会话：工作目录已变化或不在电脑授权范围内。请在电脑端核对目录并同步工作区，或选择其他会话。',
+    );
+  return t('会话历史读取失败：{{p0}}', { p0: message });
 }
 
 // Use upstream turn/item identities. Tool and reasoning deltas must never be

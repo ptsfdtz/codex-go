@@ -1,3 +1,5 @@
+import { errorText, t, useLocale } from '../../i18n';
+import { Select } from '../../components/Select';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -32,7 +34,7 @@ type Comparison = {
 };
 type Diff = { text: string; binary: boolean; truncated: boolean };
 const label = (name: string) =>
-  name.replace(/^refs\/heads\//, '').replace(/^refs\/remotes\//, '远程 / ');
+  name.replace(/^refs\/heads\//, '').replace(/^refs\/remotes\//, t('远程 / '));
 
 export function BranchComparison({
   request,
@@ -43,6 +45,7 @@ export function BranchComparison({
   projectId: string;
   supported: boolean;
 }) {
+  useLocale();
   const [branches, setBranches] = useState<Branches>();
   const [base, setBase] = useState(''),
     [head, setHead] = useState('HEAD');
@@ -191,17 +194,17 @@ export function BranchComparison({
   const filtered =
     result?.files.filter((entry) => entry.path.toLowerCase().includes(filter.toLowerCase())) || [];
   const statusName = (status: string) =>
-    ({ A: '新增', M: '修改', D: '删除', T: '类型变更' })[status] || status;
+    ({ A: t('新增'), M: t('修改'), D: t('删除'), T: t('类型变更') })[status] || status;
   if (!supported)
     return (
       <div className="file-empty">
         <GitCompareArrows size={28} strokeWidth={1.5} />
-        <h3>比较分支</h3>
-        <p>当前电脑尚不支持分支比较，请升级 Host。</p>
+        <h3>{t('比较分支')}</h3>
+        <p>{t('当前电脑尚不支持分支比较，请升级 Host。')}</p>
       </div>
     );
   return (
-    <section className="branch-comparison" aria-label="分支比较">
+    <section className="branch-comparison" aria-label={t('分支比较')}>
       <form
         className="branch-controls"
         onSubmit={(event) => {
@@ -211,28 +214,41 @@ export function BranchComparison({
       >
         <div className="branch-selectors">
           <label className="branch-select-field">
-            <span className="branch-sr-only">基准</span>
+            <span className="branch-sr-only">{t('基准')}</span>
             <div>
               <GitBranch size={14} />
-              <select
-                aria-label="基准分支"
-                title={`基准分支：${label(base)}`}
+              <Select
+                aria-label={t('基准分支')}
+                title={t('基准分支：{{p0}}', { p0: label(base) })}
                 value={base}
                 disabled={loading || !branches}
-                onChange={(e) => setBase(e.target.value)}
+                onValueChange={(value) => setBase(value)}
               >
-                <option value="HEAD">HEAD（当前提交）</option>
-                {branches?.branches.map((b) => (
-                  <option key={b.name} value={b.name}>
-                    {label(b.name)}
-                  </option>
-                ))}
-              </select>
+                <option value="HEAD">{t('HEAD（当前提交）')}</option>
+                <optgroup label={t('本地分支')}>
+                  {branches?.branches
+                    .filter((b) => !b.name.startsWith('refs/remotes/'))
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {label(b.name)}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label={t('远程分支')}>
+                  {branches?.branches
+                    .filter((b) => b.name.startsWith('refs/remotes/'))
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {label(b.name)}
+                      </option>
+                    ))}
+                </optgroup>
+              </Select>
             </div>
           </label>
           <IconButton
             icon={ArrowLeftRight}
-            label="交换基准和目标分支"
+            label={t('交换基准和目标分支')}
             disabled={loading || !branches}
             onClick={() => {
               setBase(head);
@@ -240,30 +256,43 @@ export function BranchComparison({
             }}
           />
           <label className="branch-select-field">
-            <span className="branch-sr-only">目标</span>
+            <span className="branch-sr-only">{t('目标')}</span>
             <div>
               <GitBranch size={14} />
-              <select
-                aria-label="目标分支"
-                title={`目标分支：${label(head)}`}
+              <Select
+                aria-label={t('目标分支')}
+                title={t('目标分支：{{p0}}', { p0: label(head) })}
                 value={head}
                 disabled={loading || !branches}
-                onChange={(e) => setHead(e.target.value)}
+                onValueChange={(value) => setHead(value)}
               >
-                <option value="HEAD">HEAD（当前提交）</option>
-                {branches?.branches.map((b) => (
-                  <option key={b.name} value={b.name}>
-                    {label(b.name)}
-                  </option>
-                ))}
-              </select>
+                <option value="HEAD">{t('HEAD（当前提交）')}</option>
+                <optgroup label={t('本地分支')}>
+                  {branches?.branches
+                    .filter((b) => !b.name.startsWith('refs/remotes/'))
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {label(b.name)}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label={t('远程分支')}>
+                  {branches?.branches
+                    .filter((b) => b.name.startsWith('refs/remotes/'))
+                    .map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {label(b.name)}
+                      </option>
+                    ))}
+                </optgroup>
+              </Select>
             </div>
           </label>
           <button
             className="branch-compare-button"
             type="submit"
-            aria-label={loading ? '正在比较' : '比较分支'}
-            title="比较分支"
+            aria-label={loading ? t('正在比较') : t('比较分支')}
+            title={t('比较分支')}
             disabled={loading || !branches || !base}
           >
             {loading ? (
@@ -274,9 +303,9 @@ export function BranchComparison({
           </button>
         </div>
         <div className="branch-heading">
-          <fieldset className="branch-modes" aria-label="比较方式">
-            <legend>比较方式</legend>
-            <label title="目标分支从共同祖先以来的改动">
+          <fieldset className="branch-modes" aria-label={t('比较方式')}>
+            <legend>{t('比较方式')}</legend>
+            <label title={t('目标分支从共同祖先以来的改动')}>
               <input
                 type="radio"
                 name="branch-mode"
@@ -287,10 +316,10 @@ export function BranchComparison({
               />
               <span>
                 <GitBranch size={15} />
-                <span className="branch-sr-only">分支改动</span>
+                <span className="branch-sr-only">{t('分支改动')}</span>
               </span>
             </label>
-            <label title="两个分支的最终内容差异">
+            <label title={t('两个分支的最终内容差异')}>
               <input
                 type="radio"
                 name="branch-mode"
@@ -301,49 +330,51 @@ export function BranchComparison({
               />
               <span>
                 <GitCompareArrows size={15} />
-                <span className="branch-sr-only">两端差异</span>
+                <span className="branch-sr-only">{t('两端差异')}</span>
               </span>
             </label>
           </fieldset>
           <div>
             <details className="branch-help" ref={help}>
-              <summary aria-label="比较说明" title="比较说明">
+              <summary aria-label={t('比较说明')} title={t('比较说明')}>
                 <Info size={16} />
               </summary>
               <div>
-                分支改动：目标分支从共同祖先以来的改动。
+                {t('分支改动：目标分支从共同祖先以来的改动。')}
                 <br />
-                两端差异：比较两个分支的最终内容。
+                {t('两端差异：比较两个分支的最终内容。')}
                 <hr />
-                仅比较本机已有的提交，不含未提交改动；远程分支使用本地记录，不自动拉取。
+                {t('仅比较本机已有的提交，不含未提交改动；远程分支使用本地记录，不自动拉取。')}
               </div>
             </details>
             <IconButton
               icon={RefreshCw}
-              label="刷新分支"
+              label={t('刷新分支')}
               disabled={loading}
               onClick={() => setRevision((v) => v + 1)}
             />
           </div>
         </div>
       </form>
-      {branches?.truncated && <p className="branch-notice">分支列表已达上限，部分分支未显示。</p>}
+      {branches?.truncated && (
+        <p className="branch-notice">{t('分支列表已达上限，部分分支未显示。')}</p>
+      )}
       {error && (
         <p className="branch-notice error" role="alert">
-          {error}
+          {errorText(error)}
         </p>
       )}
       {result && stale ? (
         <div className="file-empty">
           <GitCompareArrows size={28} strokeWidth={1.5} />
-          <h3>比较条件已更改</h3>
-          <p>点击“比较”查看新的差异。</p>
+          <h3>{t('比较条件已更改')}</h3>
+          <p>{t('点击“比较”查看新的差异。')}</p>
         </div>
       ) : result ? (
         <>
           <div className="branch-summary">
             <span>
-              变更文件{' '}
+              {t('变更文件')}{' '}
               <small className="branch-count">
                 {result.files.length}
                 {result.truncated ? '+' : ''}
@@ -355,22 +386,24 @@ export function BranchComparison({
               {result.head.slice(0, 7)}
             </code>
           </div>
-          {result.truncated && <p className="branch-notice">列表已截断，最多显示 1,000 个文件。</p>}
+          {result.truncated && (
+            <p className="branch-notice">{t('列表已截断，最多显示 1,000 个文件。')}</p>
+          )}
           {!result.files.length ? (
             <div className="file-empty">
               <FileDiff size={28} strokeWidth={1.5} />
-              <h3>没有差异</h3>
-              <p>当前比较范围内没有文件改动。</p>
+              <h3>{t('没有差异')}</h3>
+              <p>{t('当前比较范围内没有文件改动。')}</p>
             </div>
           ) : (
             <div className={`branch-results ${filesOpen ? 'show-files' : 'show-preview'}`}>
-              <div className="branch-file-list" aria-label="分支变更文件">
+              <div className="branch-file-list" aria-label={t('分支变更文件')}>
                 <div className="branch-file-filter">
                   <Search size={13} />
                   <input
                     ref={fileFilter}
-                    aria-label="筛选变更文件"
-                    placeholder="筛选文件…"
+                    aria-label={t('筛选变更文件')}
+                    placeholder={t('筛选文件…')}
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
                   />
@@ -391,7 +424,7 @@ export function BranchComparison({
                         <small>
                           {entry.path.includes('/')
                             ? entry.path.slice(0, entry.path.lastIndexOf('/'))
-                            : '项目根目录'}
+                            : t('项目根目录')}
                         </small>
                       </span>
                       <small
@@ -402,7 +435,7 @@ export function BranchComparison({
                       </small>
                     </button>
                   ))}
-                  {!filtered.length && <p className="branch-notice">没有匹配的文件。</p>}
+                  {!filtered.length && <p className="branch-notice">{t('没有匹配的文件。')}</p>}
                 </div>
                 {file && (
                   <button
@@ -412,16 +445,16 @@ export function BranchComparison({
                       requestAnimationFrame(() => previewHeading.current?.focus());
                     }}
                   >
-                    返回差异
+                    {t('返回差异')}
                     <ChevronRight size={14} />
                   </button>
                 )}
               </div>
-              <div className="branch-preview" aria-label="分支文件差异">
+              <div className="branch-preview" aria-label={t('分支文件差异')}>
                 <div className="branch-preview-heading" ref={previewHeading} tabIndex={-1}>
                   <button
                     className="branch-show-files"
-                    aria-label="显示变更文件列表"
+                    aria-label={t('显示变更文件列表')}
                     aria-expanded={filesOpen}
                     onClick={() => {
                       setFilesOpen(true);
@@ -429,7 +462,7 @@ export function BranchComparison({
                     }}
                   >
                     <ArrowLeft size={14} />
-                    文件
+                    {t('文件')}
                   </button>
                   <span className="branch-preview-path" title={file?.path}>
                     {file ? (
@@ -441,7 +474,7 @@ export function BranchComparison({
                     ) : (
                       <>
                         <ListFilter size={14} />
-                        <span>文件差异</span>
+                        <span>{t('文件差异')}</span>
                       </>
                     )}
                   </span>
@@ -449,7 +482,7 @@ export function BranchComparison({
                     <div className="branch-file-navigation">
                       <IconButton
                         icon={Search}
-                        label="文件内查找"
+                        label={t('文件内查找')}
                         disabled={!diff || diff.binary}
                         onClick={() => setFindToken((value) => value + 1)}
                       />
@@ -458,13 +491,13 @@ export function BranchComparison({
                       </span>
                       <IconButton
                         icon={ChevronLeft}
-                        label="上一个变更文件"
+                        label={t('上一个变更文件')}
                         disabled={index <= 0}
                         onClick={() => selectFile(result.files[index - 1]?.fileId)}
                       />
                       <IconButton
                         icon={ChevronRight}
-                        label="下一个变更文件"
+                        label={t('下一个变更文件')}
                         disabled={index >= result.files.length - 1}
                         onClick={() => selectFile(result.files[index + 1]?.fileId)}
                       />
@@ -474,23 +507,25 @@ export function BranchComparison({
                 {diffLoading ? (
                   <div className="file-empty" role="status">
                     <LoaderCircle className="pending-icon" size={22} />
-                    <p>正在读取文件差异…</p>
+                    <p>{t('正在读取文件差异…')}</p>
                   </div>
                 ) : diffError ? (
                   <div className="file-empty" role="alert">
                     <p>{diffError}</p>
-                    <button onClick={() => setRetry((value) => value + 1)}>重试</button>
+                    <button onClick={() => setRetry((value) => value + 1)}>{t('重试')}</button>
                   </div>
                 ) : diff ? (
                   <>
                     {diff.truncated && (
-                      <div className="file-feedback">差异超过 128 KiB，仅显示前面的部分。</div>
+                      <div className="file-feedback">
+                        {t('差异超过 128 KiB，仅显示前面的部分。')}
+                      </div>
                     )}
                     {diff.binary ? (
                       <div className="file-empty">
                         <FileDiff size={28} strokeWidth={1.5} />
-                        <h3>此文件不提供文本差异</h3>
-                        <p>二进制文件、符号链接或子模块仅显示变更信息。</p>
+                        <h3>{t('此文件不提供文本差异')}</h3>
+                        <p>{t('二进制文件、符号链接或子模块仅显示变更信息。')}</p>
                       </div>
                     ) : (
                       <CodePreview
@@ -506,8 +541,8 @@ export function BranchComparison({
                 ) : (
                   <div className="file-empty">
                     <FileDiff size={28} strokeWidth={1.5} />
-                    <h3>查看文件差异</h3>
-                    <p>从文件列表选择一项，查看具体改动。</p>
+                    <h3>{t('查看文件差异')}</h3>
+                    <p>{t('从文件列表选择一项，查看具体改动。')}</p>
                   </div>
                 )}
               </div>
@@ -517,14 +552,14 @@ export function BranchComparison({
       ) : !loading && !error ? (
         <div className="file-empty">
           <GitCompareArrows size={28} strokeWidth={1.5} />
-          <h3>比较两个分支</h3>
-          <p>选择基准与目标，查看已提交的文件改动。</p>
+          <h3>{t('比较两个分支')}</h3>
+          <p>{t('选择基准与目标，查看已提交的文件改动。')}</p>
         </div>
       ) : (
         loading && (
           <div className="file-empty" role="status">
             <LoaderCircle className="pending-icon" size={22} />
-            <p>正在读取比较信息…</p>
+            <p>{t('正在读取比较信息…')}</p>
           </div>
         )
       )}

@@ -1,7 +1,11 @@
+import { errorText, t, useLocale } from '../i18n';
+import { Select } from '../components/Select';
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import type { Request } from '../workspace';
-import { Modal } from '../ui';
+import { IconButton, Modal } from '../ui';
 import { MotionPresence } from '../motion';
+import { usePreference } from './preferences';
 
 export type HostRelease = {
   notes?: string | null;
@@ -37,13 +41,27 @@ type UpdateStatus = {
   };
 };
 const phases: Record<UpdateJob['phase'], string> = {
-  installing: '正在下载、校验并安装，当前任务继续运行',
-  installed: '已安装，等待你确认空闲重启',
-  waitingIdle: '等待全部任务、审批及未知结果核对完成；空闲后重启',
-  restarting: '正在重启，连接将短暂中断',
-  preparingRuntime: '正在连接并准备 Codex 运行环境',
-  complete: '更新完成',
-  failed: '更新未完成',
+  get installing() {
+    return t('正在下载、校验并安装，当前任务继续运行');
+  },
+  get installed() {
+    return t('已安装，等待你确认空闲重启');
+  },
+  get waitingIdle() {
+    return t('等待全部任务、审批及未知结果核对完成；空闲后重启');
+  },
+  get restarting() {
+    return t('正在重启，连接将短暂中断');
+  },
+  get preparingRuntime() {
+    return t('正在连接并准备 Codex 运行环境');
+  },
+  get complete() {
+    return t('更新完成');
+  },
+  get failed() {
+    return t('更新未完成');
+  },
 };
 function validVersion(value: unknown): value is string {
   return (
@@ -58,13 +76,21 @@ export function HostUpdates({
   managed,
   disabled,
   name,
+  hostId,
 }: {
   request: Request;
   supported: boolean;
   managed: boolean;
   disabled: boolean;
   name: string;
+  hostId: string;
 }) {
+  useLocale();
+  const [dismissedJobId, setDismissedJobId] = usePreference<string>(
+    `agentdeck.web.host-update-dismissed.${hostId}`,
+    '',
+    (value): value is string => typeof value === 'string',
+  );
   const [release, setRelease] = useState<HostRelease>();
   const [status, setStatus] = useState<UpdateStatus>();
   const [error, setError] = useState('');
@@ -96,7 +122,7 @@ export function HostUpdates({
               !phases[value.job.phase] ||
               typeof value.job.id !== 'string')
           )
-            throw new Error('Invalid update status');
+            throw new Error(t('Invalid update status'));
           if (!cancelled) setStatus(value);
           if (value.host?.version !== lastRunningVersion) {
             lastReleaseCheck = 0;
@@ -112,13 +138,13 @@ export function HostUpdates({
             !['release', 'development'].includes(value.installation) ||
             typeof value.updateAvailable !== 'boolean'
           )
-            throw new Error('Invalid release');
+            throw new Error(t('Invalid release'));
           lastReleaseCheck = Date.now();
           if (!cancelled) setRelease(value);
         }
         if (!cancelled) setError('');
       } catch {
-        if (!cancelled) setError('更新状态暂时无法读取，请重连后核对；不要重复安装');
+        if (!cancelled) setError(t('更新状态暂时无法读取，请重连后核对；不要重复安装'));
       } finally {
         inFlight = false;
         if (!cancelled) setChecking(false);
@@ -143,7 +169,8 @@ export function HostUpdates({
       const value = await request<UpdateStatus>(action, payload);
       if (mounted.current) setStatus(value);
     } catch (cause) {
-      if (mounted.current) setError(`操作未确认，请先刷新状态核对。${String(cause)}`);
+      if (mounted.current)
+        setError(t('操作未确认，请先刷新状态核对。{{p0}}', { p0: String(cause) }));
     } finally {
       if (mounted.current) setWorking(false);
     }
@@ -156,53 +183,67 @@ export function HostUpdates({
     status.host.cloudOnline &&
     status.host.codexReady &&
     !status.host.runtimeError;
-  if (!outdated && !unknown && !error && !job) return null;
+  function closeNotice() {
+    setOpen(false);
+    if (!confirmedComplete || !job) return;
+    setDismissedJobId(job.id);
+  }
+  if (!outdated && !unknown && !error && (!job || (confirmedComplete && dismissedJobId === job.id)))
+    return null;
   const legacyCommand =
     (release?.platform || legacyPlatform) === 'linux'
       ? 'curl -fsSL https://agent.ptsfdtz.top/install.sh | sh'
       : 'irm https://agent.ptsfdtz.top/install.ps1 | iex';
   return (
-    <aside className="host-update-notice" aria-label="电脑更新">
+    <aside className="host-update-notice" aria-label={t('电脑更新')}>
       <span role="status">
         {`${name}：`}
         {error ||
-          (job
-            ? confirmedComplete
-              ? '更新完成'
-              : job.phase === 'complete'
-                ? '已更新，当前连接或 Codex 尚未就绪'
-                : phases[job.phase]
-            : outdated
-              ? `发现新版 ${release.latest}`
-              : '旧版 Host 需要在电脑上升级一次')}
+          (outdated && (!job || confirmedComplete)
+            ? t('发现新版 {{p0}}', { p0: release.latest })
+            : job
+              ? confirmedComplete
+                ? t('更新完成')
+                : job.phase === 'complete'
+                  ? t('已更新，当前连接或 Codex 尚未就绪')
+                  : phases[job.phase]
+              : t('旧版 Host 需要在电脑上升级一次'))}
       </span>
-      <button onClick={() => setOpen(true)}>查看更新</button>
+      <div className="host-update-actions">
+        <button onClick={() => setOpen(true)}>{t('查看更新')}</button>
+        {confirmedComplete && !outdated && !unknown && !error && (
+          <IconButton icon={X} label={t('关闭更新完成提示')} onClick={closeNotice} />
+        )}
+      </div>
       <MotionPresence>
         {open && (
-          <Modal title={`更新 ${name}`} onClose={() => setOpen(false)}>
+          <Modal title={t('更新 {{p0}}', { p0: name })} onClose={closeNotice}>
             <div className="panel-stack">
-              <p>这是当前选中的被控制电脑。更新保留账户、电脑身份、项目与会话。</p>
+              <p>{t('这是当前选中的被控制电脑。更新保留账户、电脑身份、项目与会话。')}</p>
               {release && (
                 <p>
-                  运行版本：{status?.host?.version || release.current || '未知'}
+                  {t('运行版本：')}
+                  {status?.host?.version || release.current || t('未知')}
                   <br />
-                  {release.channel === 'candidate' ? '候选测试版本' : '稳定版本'}：{release.latest}
+                  {release.channel === 'candidate' ? t('候选测试版本') : t('稳定版本')}：
+                  {release.latest}
                 </p>
               )}
               {job && (
                 <p role="status">
-                  目标版本：{job.version}
+                  {t('目标版本：')}
+                  {job.version}
                   <br />
                   {confirmedComplete
-                    ? '更新完成，云端连接与 Codex 已就绪'
+                    ? t('更新完成，云端连接与 Codex 已就绪')
                     : job.phase === 'complete'
-                      ? '已更新，当前连接或 Codex 尚未就绪'
+                      ? t('已更新，当前连接或 Codex 尚未就绪')
                       : phases[job.phase]}
                 </p>
               )}
               {release?.notes && <pre className="host-update-prompt">{release.notes}</pre>}
-              {job?.error && <p role="alert">{job.error}</p>}
-              {error && <p role="alert">{error}</p>}
+              {job?.error && <p role="alert">{errorText(job.error)}</p>}
+              {error && <p role="alert">{errorText(error)}</p>}
               {managed ? (
                 <>
                   {outdated && !active && !(job?.installed && job.version === release.latest) && (
@@ -210,20 +251,21 @@ export function HostUpdates({
                       disabled={working || disabled}
                       onClick={() => void act('system.updateInstall', { version: release.latest })}
                     >
-                      下载并安装更新
+                      {t('下载并安装更新')}
                     </button>
                   )}
                   {job?.installed && ['installed', 'failed'].includes(job.phase) && (
                     <>
                       <p>
-                        确认后，Host
-                        会等待所有任务结束并核对审批与未知结果，再重启切换版本。请先保存其他客户端的工作。
+                        {t(
+                          '确认后，Host 会等待所有任务结束并核对审批与未知结果，再重启切换版本。请先保存其他客户端的工作。',
+                        )}
                       </p>
                       <button
                         disabled={working || disabled}
                         onClick={() => void act('system.updateApply', { jobId: job.id })}
                       >
-                        空闲后重启并完成更新
+                        {t('空闲后重启并完成更新')}
                       </button>
                     </>
                   )}
@@ -232,26 +274,28 @@ export function HostUpdates({
                       disabled={working || disabled}
                       onClick={() => void act('system.updateCancel', { jobId: job.id })}
                     >
-                      取消待重启
+                      {t('取消待重启')}
                     </button>
                   )}
                 </>
               ) : (
                 <>
                   <p>
-                    此 Host 尚不支持网页直接更新。请在这台电脑的终端执行安装命令，任务空闲后再执行
-                    agentdeck restart。以后可直接在网页更新，无需 AI 会话。
+                    {t(
+                      '此 Host 尚不支持网页直接更新。请在这台电脑的终端执行安装命令，任务空闲后再执行 agentdeck restart。以后可直接在网页更新，无需 AI 会话。',
+                    )}
                   </p>
                   {!release && (
                     <label>
-                      被控制电脑的系统
-                      <select
+                      {t('被控制电脑的系统')}
+                      <Select
+                        aria-label={t('被控制电脑的系统')}
                         value={legacyPlatform}
-                        onChange={(event) => setLegacyPlatform(event.target.value)}
+                        onValueChange={(value) => setLegacyPlatform(value)}
                       >
                         <option value="windows">Windows</option>
                         <option value="linux">Linux</option>
-                      </select>
+                      </Select>
                     </label>
                   )}
                   <pre className="host-update-prompt">
@@ -265,11 +309,11 @@ export function HostUpdates({
                           `${legacyCommand}\nagentdeck restart\nagentdeck status --json`,
                         );
                       } catch {
-                        setError('复制失败，请手动选择命令复制');
+                        setError(t('复制失败，请手动选择命令复制'));
                       }
                     }}
                   >
-                    复制命令
+                    {t('复制命令')}
                   </button>
                 </>
               )}
@@ -277,7 +321,7 @@ export function HostUpdates({
                 disabled={checking || working}
                 onClick={() => setAttempt((value) => value + 1)}
               >
-                刷新状态
+                {t('刷新状态')}
               </button>
             </div>
           </Modal>

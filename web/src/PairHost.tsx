@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from './i18n';
 import { useEffect, useRef, useState } from 'react';
 import { randomToken } from './cloud';
 import { parseInvitation, invitationFromImage } from './pairing';
@@ -15,6 +16,7 @@ export function PairHost({
   onPaired: (grant: HostGrant) => void;
   onCancel: () => void;
 }) {
+  useLocale();
   const [invitation, setInvitation] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
@@ -49,7 +51,7 @@ export function PairHost({
         !Number.isFinite(Date.parse(pending.expiresAt)) ||
         Date.parse(pending.expiresAt) <= Date.now()
       )
-        throw new Error('电脑返回了无效的配对核对信息');
+        throw new Error(t('电脑返回了无效的配对核对信息'));
       setCode(pending.code);
       while (!cancelled.current && Date.parse(pending.expiresAt) > Date.now()) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -64,31 +66,31 @@ export function PairHost({
           },
         );
         if (cancelled.current) return;
-        if (result.status === 'rejected') throw new Error('电脑拒绝了配对请求');
+        if (result.status === 'rejected') throw new Error(t('电脑拒绝了配对请求'));
         if (result.status === 'approved') {
           if (result.hostId !== hostId || !/^[A-Za-z0-9_-]{43}$/.test(result.credential))
-            throw new Error('配对结果身份不匹配');
+            throw new Error(t('配对结果身份不匹配'));
           const grant = { hostId, fingerprint: qr.fingerprint, credential: result.credential };
           await saveGrant(scope, grant);
           if (!cancelled.current) onPaired(grant);
           return;
         }
-        if (result.status !== 'pending') throw new Error('配对状态无效');
+        if (result.status !== 'pending') throw new Error(t('配对状态无效'));
       }
-      if (!cancelled.current) throw new Error('配对已过期，请重新生成邀请码');
+      if (!cancelled.current) throw new Error(t('配对已过期，请重新生成邀请码'));
     } catch (error) {
       if (!cancelled.current)
-        setError(error instanceof Error ? error.message : '配对失败，请重新生成邀请码');
+        setError(error instanceof Error ? error.message : t('配对失败，请重新生成邀请码'));
     } finally {
       if (!cancelled.current) setBusy(false);
     }
   }
   return (
     <div className="pair-panel">
-      <h2>授权此浏览器</h2>
-      <p>在电脑端生成公网配对信息并粘贴到这里。连接后请在电脑端核对六位码并批准。</p>
+      <h2>{t('授权此浏览器')}</h2>
+      <p>{t('在电脑端生成公网配对信息并粘贴到这里。连接后请在电脑端核对六位码并批准。')}</p>
       <label>
-        导入二维码图片（也可用手机相机拍摄）
+        {t('导入二维码图片（也可用手机相机拍摄）')}
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"
@@ -113,16 +115,21 @@ export function PairHost({
         />
       </label>
       <textarea
-        aria-label="公网配对信息"
+        aria-label={t('公网配对信息')}
         value={invitation}
         onChange={(event) => setInvitation(event.target.value)}
         disabled={busy}
-        placeholder="粘贴配对 JSON"
+        placeholder={t('粘贴配对 JSON')}
       />
-      {code && <p className="pair-code">核对码：{code}</p>}
-      {error && <p className="error">{error}</p>}
+      {code && (
+        <p className="pair-code">
+          {t('核对码：')}
+          {code}
+        </p>
+      )}
+      {error && <p className="error">{errorText(error)}</p>}
       <button disabled={busy || !invitation.trim()} onClick={() => void pair()}>
-        {busy ? '等待电脑批准…' : '请求配对'}
+        {busy ? t('等待电脑批准…') : t('请求配对')}
       </button>
       <button
         className="ghost"
@@ -131,7 +138,7 @@ export function PairHost({
           onCancel();
         }}
       >
-        取消
+        {t('取消')}
       </button>
     </div>
   );

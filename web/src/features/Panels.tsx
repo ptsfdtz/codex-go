@@ -1,3 +1,5 @@
+import { errorText, t, useLocale } from '../i18n';
+import { Select } from '../components/Select';
 import { useEffect, useState, useRef } from 'react';
 import {
   Folder,
@@ -20,7 +22,7 @@ import { DataFields, IconButton } from '../ui';
 import { MotionList, MotionPresence } from '../motion';
 import type { Capabilities, Model, Project, Request, Session, Skill } from '../workspace';
 import { canManage, output, statusLabel } from '../workspace';
-import { contentText } from '../RichContent';
+import { contentText } from '../content-text';
 
 function useRead<T>(
   request: Request,
@@ -69,18 +71,19 @@ function LoadState({
   loading: boolean;
   reload: () => void;
 }) {
+  useLocale();
   return (
     <>
       {loading && (
         <p className="muted" role="status">
-          读取中…
+          {t('读取中…')}
         </p>
       )}
       {error && (
         <div className="error" role="alert">
-          {error}
+          {errorText(error)}
           <button className="text-button" onClick={reload}>
-            重试读取
+            {t('重试读取')}
           </button>
         </div>
       )}
@@ -115,7 +118,7 @@ function useAction() {
         {error && (
           <div className="action-feedback" aria-live="polite">
             <p className="error" role="alert">
-              {error}
+              {errorText(error)}
             </p>
           </div>
         )}
@@ -136,6 +139,7 @@ export function SessionPanel({
   onChanged: () => void;
   onSelect: (id: string) => void;
 }) {
+  useLocale();
   const { value, error, loading, reload } = useRead<{
     session: Session;
     turns: unknown[];
@@ -169,7 +173,7 @@ export function SessionPanel({
         }}
       >
         <input
-          aria-label="对话名称"
+          aria-label={t('对话名称')}
           value={title}
           disabled={action.busy || !safe}
           onChange={(e) => setTitle(e.target.value)}
@@ -185,17 +189,17 @@ export function SessionPanel({
         <button
           className="icon-button"
           type="submit"
-          aria-label="保存名称"
-          title="保存名称"
+          aria-label={t('保存名称')}
+          title={t('保存名称')}
           disabled={!canRename}
         >
           <Save size={18} aria-hidden="true" />
         </button>
       </form>
-      <div className="compact-actions session-actions" aria-label="会话操作">
+      <div className="compact-actions session-actions" aria-label={t('会话操作')}>
         <IconButton
           icon={session.pinned === 1 ? PinOff : Pin}
-          label={session.pinned === 1 ? '取消置顶' : '置顶会话'}
+          label={session.pinned === 1 ? t('取消置顶') : t('置顶会话')}
           pressed={session.pinned === 1}
           disabled={action.busy || !safe}
           onClick={() => void mutate('sessions.pin', { pinned: session.pinned !== 1 })}
@@ -203,7 +207,7 @@ export function SessionPanel({
         {supports('sessionFork') && (
           <IconButton
             icon={GitFork}
-            label="分叉会话"
+            label={t('分叉会话')}
             disabled={action.busy || !safe}
             onClick={() => void mutate('sessions.fork')}
           />
@@ -211,20 +215,20 @@ export function SessionPanel({
         {supports('sessionCompaction') && (
           <IconButton
             icon={Minimize2}
-            label="整理上下文"
+            label={t('整理上下文')}
             disabled={action.busy || !safe}
             onClick={() => setConfirmation('compact')}
           />
         )}
         <IconButton
           icon={session.archived === 1 ? ArchiveRestore : Archive}
-          label={session.archived === 1 ? '恢复会话' : '归档会话'}
+          label={session.archived === 1 ? t('恢复会话') : t('归档会话')}
           disabled={action.busy || !safe}
           onClick={() => setConfirmation(session.archived === 1 ? 'restore' : 'archive')}
         />
         <IconButton
           icon={Trash2}
-          label="永久删除会话"
+          label={t('永久删除会话')}
           className="danger"
           disabled={action.busy || !safe}
           onClick={() => setConfirmation('delete')}
@@ -235,12 +239,12 @@ export function SessionPanel({
           <div className="confirmation">
             <p>
               {confirmation === 'delete'
-                ? '永久删除此会话？此操作无法撤销。'
+                ? t('永久删除此会话？此操作无法撤销。')
                 : confirmation === 'compact'
-                  ? '整理此会话的上下文？电脑会重新核对最新轮次。'
+                  ? t('整理此会话的上下文？电脑会重新核对最新轮次。')
                   : confirmation === 'archive'
-                    ? '归档此会话？稍后可从归档列表恢复。'
-                    : '恢复此归档会话？'}
+                    ? t('归档此会话？稍后可从归档列表恢复。')
+                    : t('恢复此归档会话？')}
             </p>
             <div className="button-row">
               <button
@@ -255,7 +259,7 @@ export function SessionPanel({
                         threadStatus?: string;
                       }>('turn.latest', { sessionId: session.sessionId, contractVersion: 1 });
                       if (!latest.turn?.upstreamTurnId || latest.threadStatus !== 'idle')
-                        throw new Error('请先停止或核对当前任务');
+                        throw new Error(t('请先停止或核对当前任务'));
                       await request('sessions.compact', {
                         sessionId: session.sessionId,
                         expectedLastTurnId: latest.turn.upstreamTurnId,
@@ -267,23 +271,23 @@ export function SessionPanel({
                 }}
               >
                 {action.busy
-                  ? '处理中…'
+                  ? t('处理中…')
                   : confirmation === 'delete'
-                    ? '永久删除'
+                    ? t('永久删除')
                     : confirmation === 'compact'
-                      ? '整理上下文'
+                      ? t('整理上下文')
                       : confirmation === 'archive'
-                        ? '归档'
-                        : '恢复'}
+                        ? t('归档')
+                        : t('恢复')}
               </button>
               <button disabled={action.busy} onClick={() => setConfirmation('')}>
-                取消
+                {t('取消')}
               </button>
             </div>
           </div>
         )}
       </MotionPresence>
-      {!safe && <p className="muted">请先停止或核对正在进行的任务，再管理会话。</p>}
+      {!safe && <p className="muted">{t('请先停止或核对正在进行的任务，再管理会话。')}</p>}
       {action.feedback}
       <LoadState {...{ error, loading, reload }} />
     </div>
@@ -300,12 +304,12 @@ type Goal = {
 type GoalActivity = { threadStatus: string; turn: { status?: string } | null };
 function goalActivityMessage(activity: GoalActivity) {
   if (activity.threadStatus === 'active' || activity.turn?.status === 'inProgress')
-    return '当前会话仍有任务在执行。请先停止任务，再刷新状态。';
+    return t('当前会话仍有任务在执行。请先停止任务，再刷新状态。');
   if (
     !['idle', 'notLoaded'].includes(activity.threadStatus) ||
     (activity.turn && !['completed', 'interrupted', 'failed'].includes(activity.turn.status || ''))
   )
-    return '暂时无法确认会话已停止，请刷新状态后重试。';
+    return t('暂时无法确认会话已停止，请刷新状态后重试。');
   return '';
 }
 export function GoalPanel({
@@ -319,6 +323,7 @@ export function GoalPanel({
   supports: (s: string) => boolean;
   onChanged: () => void;
 }) {
+  useLocale();
   const { value, error, loading, reload } = useRead<{
     goal: Goal | null;
     goalRevision: string | null;
@@ -338,10 +343,10 @@ export function GoalPanel({
     goal = value?.goal;
   const activityMessage = activitySupported
     ? activity.error
-      ? '未能核对会话状态，请刷新状态后重试。'
+      ? t('未能核对会话状态，请刷新状态后重试。')
       : activity.value
         ? goalActivityMessage(activity.value)
-        : '正在核对会话状态…'
+        : t('正在核对会话状态…')
     : '';
   const disabled = action.busy || loading || !!error || !!activityMessage;
   function reloadState() {
@@ -350,7 +355,7 @@ export function GoalPanel({
   }
   async function mutate(kind: string) {
     const ok = await action.run(async () => {
-      if (!value?.goalRevision) throw new Error('请先读取当前目标');
+      if (!value?.goalRevision) throw new Error(t('请先读取当前目标'));
       try {
         if (activitySupported) {
           const latest = await request<GoalActivity>('turn.latest', {
@@ -371,16 +376,18 @@ export function GoalPanel({
         reloadState();
         const message = String(error);
         if (message.includes('OUTCOME_UNKNOWN'))
-          throw new Error('操作结果尚未确认，请先核对操作结果，不要重复提交。');
+          throw new Error(t('操作结果尚未确认，请先核对操作结果，不要重复提交。'));
         if (message.includes('SYNC_CONFLICT'))
-          throw new Error('目标或任务状态已变化，请核对刷新后的状态再操作。');
+          throw new Error(t('目标或任务状态已变化，请核对刷新后的状态再操作。'));
         if (
           message.includes('Stop or reconcile') ||
           message.includes('active or unreconciled') ||
           message.includes('Pause an existing goal')
         )
           throw new Error(
-            '电脑端尚未确认会话可修改。请先核对任务是否停止，再刷新状态；若已停止仍报错，需要更新电脑端。',
+            t(
+              '电脑端尚未确认会话可修改。请先核对任务是否停止，再刷新状态；若已停止仍报错，需要更新电脑端。',
+            ),
           );
         throw error;
       }
@@ -396,7 +403,7 @@ export function GoalPanel({
     <div className="panel-stack">
       <LoadState error={error} loading={loading} reload={reloadState} />
       {value && !goal && (
-        <p className="muted">此会话没有目标。选择输入框中的 Goal 模式并发送任务来创建。</p>
+        <p className="muted">{t('此会话没有目标。选择输入框中的 Goal 模式并发送任务来创建。')}</p>
       )}
       {goal && (
         <>
@@ -412,7 +419,7 @@ export function GoalPanel({
             disabled={action.busy || activity.loading || loading}
             onClick={reloadState}
           >
-            刷新状态
+            {t('刷新状态')}
           </button>
           <DataFields
             value={Object.fromEntries(
@@ -426,7 +433,7 @@ export function GoalPanel({
               {supports('sessionGoalResume') && ['paused', 'blocked'].includes(goal.status) && (
                 <button disabled={disabled} onClick={() => void mutate('resume')}>
                   <Play size={16} />
-                  继续目标
+                  {t('继续目标')}
                 </button>
               )}
               {supports('sessionGoalEdit') && (
@@ -438,12 +445,12 @@ export function GoalPanel({
                     setEditing(true);
                   }}
                 >
-                  编辑
+                  {t('编辑')}
                 </button>
               )}
               {supports('sessionGoalClear') && (
                 <button disabled={disabled} onClick={() => setClear(true)}>
-                  清除目标
+                  {t('清除目标')}
                 </button>
               )}
             </div>
@@ -457,7 +464,7 @@ export function GoalPanel({
               }}
             >
               <label>
-                目标
+                {t('目标')}
                 <textarea
                   rows={6}
                   value={objective}
@@ -465,26 +472,26 @@ export function GoalPanel({
                 />
               </label>
               <label>
-                Token 预算
+                {t('Token 预算')}
                 <input
                   type="number"
                   min={1}
                   step={1}
                   value={budget}
                   onChange={(e) => setBudget(e.target.value)}
-                  placeholder="不设新预算"
+                  placeholder={t('不设新预算')}
                 />
               </label>
-              <button disabled={disabled || !objective.trim()}>保存目标</button>
+              <button disabled={disabled || !objective.trim()}>{t('保存目标')}</button>
             </form>
           )}
           {clear && (
             <div className="confirmation">
-              <p>清除现有目标？</p>
+              <p>{t('清除现有目标？')}</p>
               <button disabled={disabled} onClick={() => void mutate('clear')}>
-                确认清除
+                {t('确认清除')}
               </button>
-              <button onClick={() => setClear(false)}>取消</button>
+              <button onClick={() => setClear(false)}>{t('取消')}</button>
             </div>
           )}
         </>
@@ -507,6 +514,7 @@ export function SkillsPanel({
   onSelect: (skills: Skill[]) => void;
   configure: boolean;
 }) {
+  useLocale();
   const { value, error, loading, reload } = useRead<{ skills: Skill[]; errorCount?: number }>(
     request,
     'skills.catalog',
@@ -517,17 +525,19 @@ export function SkillsPanel({
   return (
     <div className="panel-stack">
       <input
-        aria-label="搜索技能"
-        placeholder="搜索技能"
+        aria-label={t('搜索技能')}
+        placeholder={t('搜索技能')}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
       <div className="skills-summary">
-        <strong>技能</strong>
-        <span>{selected.length} / 8 已选择</span>
+        <strong>{t('技能')}</strong>
+        <span>
+          {selected.length} {t(' / 8 已选择')}
+        </span>
         {selected.length > 0 && (
           <button className="text-button" onClick={() => onSelect([])}>
-            清空
+            {t('清空')}
           </button>
         )}
       </div>
@@ -543,7 +553,10 @@ export function SkillsPanel({
             </div>
             <button
               className={`skill-select ${selected.some((v) => v.id === s.id) ? 'selected' : ''}`}
-              aria-label={`${selected.some((v) => v.id === s.id) ? '移除' : '添加'}技能 ${s.name}`}
+              aria-label={t('{{p0}}技能 {{p1}}', {
+                p0: selected.some((v) => v.id === s.id) ? t('移除') : t('添加'),
+                p1: s.name,
+              })}
               disabled={
                 !s.enabled || (!selected.some((v) => v.id === s.id) && selected.length >= 8)
               }
@@ -555,13 +568,13 @@ export function SkillsPanel({
                 )
               }
             >
-              {selected.some((v) => v.id === s.id) ? '已添加' : '添加'}
+              {selected.some((v) => v.id === s.id) ? t('已添加') : t('添加')}
             </button>
             {configure && (
               <label className="switch">
                 <input
                   type="checkbox"
-                  aria-label={`启用技能 ${s.name}`}
+                  aria-label={t('启用技能 {{p0}}', { p0: s.name })}
                   checked={s.enabled}
                   disabled={action.busy}
                   onChange={(e) =>
@@ -580,7 +593,9 @@ export function SkillsPanel({
             )}
           </div>
         ))}
-      {value?.errorCount ? <p className="muted">有 {value.errorCount} 个技能无法读取。</p> : null}
+      {value?.errorCount ? (
+        <p className="muted">{t('skills.unreadable', { count: value.errorCount })}</p>
+      ) : null}
       {action.feedback}
     </div>
   );
@@ -604,6 +619,7 @@ export function QueuePanel({
   supports: (s: string) => boolean;
   onChanged: () => void;
 }) {
+  useLocale();
   const { value, error, loading, reload } = useRead<{ data: QueueEntry[] }>(request, 'queue.list', {
     sessionId,
   });
@@ -625,8 +641,8 @@ export function QueuePanel({
   return (
     <div className="panel-stack">
       <div className="button-row">
-        <p className="muted">消息由电脑保存，网页不会在重连时自动重发。</p>
-        <IconButton icon={RefreshCw} label="刷新队列" onClick={reload} />
+        <p className="muted">{t('消息由电脑保存，网页不会在重连时自动重发。')}</p>
+        <IconButton icon={RefreshCw} label={t('刷新队列')} onClick={reload} />
       </div>
       <LoadState {...{ error, loading, reload }} />
       <MotionList className="panel-stack">
@@ -635,13 +651,13 @@ export function QueuePanel({
             <p>{contentText(entry.input)}</p>
             {entry.input.some(
               (p) => !!p && typeof p === 'object' && (p as { type?: string }).type !== 'text',
-            ) && <p className="muted">包含附件或技能；编辑时保留原资源。</p>}
+            ) && <p className="muted">{t('包含附件或技能；编辑时保留原资源。')}</p>}
             <div className="queue-toolbar">
               <small>{statusLabel(entry.status)}</small>
               <div className="compact-actions">
                 <IconButton
                   icon={Pencil}
-                  label="编辑队列消息"
+                  label={t('编辑队列消息')}
                   disabled={
                     action.busy ||
                     !!entry.deliveryState ||
@@ -659,14 +675,14 @@ export function QueuePanel({
                 {supports('nativeQueueStart') && !entry.deliveryState && (
                   <IconButton
                     icon={Play}
-                    label="立即发送队列消息"
+                    label={t('立即发送队列消息')}
                     disabled={action.busy}
                     onClick={() => void mutate('start', { submissionId: entry.id })}
                   />
                 )}
                 <IconButton
                   icon={ArrowUp}
-                  label="上移消息"
+                  label={t('上移消息')}
                   disabled={
                     action.busy || value.data.some((item) => !!item.deliveryState) || index === 0
                   }
@@ -678,7 +694,7 @@ export function QueuePanel({
                 />
                 <IconButton
                   icon={ArrowDown}
-                  label="下移消息"
+                  label={t('下移消息')}
                   disabled={
                     action.busy ||
                     value.data.some((item) => !!item.deliveryState) ||
@@ -692,7 +708,7 @@ export function QueuePanel({
                 />
                 <IconButton
                   icon={Trash2}
-                  label="删除队列消息"
+                  label={t('删除队列消息')}
                   disabled={action.busy}
                   onClick={() => setDeleting(entry.id)}
                 />
@@ -701,21 +717,21 @@ export function QueuePanel({
             <MotionPresence>
               {deleting === entry.id && (
                 <div className="confirmation">
-                  <p>删除这条待发送消息？</p>
+                  <p>{t('删除这条待发送消息？')}</p>
                   <button
                     disabled={action.busy}
                     onClick={() => void mutate('delete', { submissionId: entry.id })}
                   >
-                    确认删除
+                    {t('确认删除')}
                   </button>
-                  <button onClick={() => setDeleting('')}>取消</button>
+                  <button onClick={() => setDeleting('')}>{t('取消')}</button>
                 </div>
               )}
             </MotionPresence>
           </div>
         ))}
       </MotionList>
-      {value && !value.data.length && <p className="muted">暂无待发送消息。</p>}
+      {value && !value.data.length && <p className="muted">{t('暂无待发送消息。')}</p>}
       {editing && (
         <form
           className="panel-stack"
@@ -729,13 +745,13 @@ export function QueuePanel({
           }}
         >
           <label>
-            编辑待发送消息
+            {t('编辑待发送消息')}
             <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} />
           </label>
           <div className="button-row">
-            <button disabled={action.busy || !text.trim()}>保存</button>
+            <button disabled={action.busy || !text.trim()}>{t('保存')}</button>
             <button type="button" onClick={() => setEditing(undefined)}>
-              取消
+              {t('取消')}
             </button>
           </div>
         </form>
@@ -758,6 +774,7 @@ export function ProjectsPanel({
   onChanged: () => void;
   onProject: (id: string) => void;
 }) {
+  useLocale();
   const [remove, setRemove] = useState('');
   const action = useAction();
   return (
@@ -765,12 +782,14 @@ export function ProjectsPanel({
       <div className="panel-heading">
         <p className="muted">
           {supports('codexWorkspaceDiscovery')
-            ? '已同步的工作区'
-            : '此电脑需要更新 Host 才能自动同步 Codex 工作区；当前仍可在电脑上使用 agentdeck projects add PATH 添加。'}
+            ? t('已同步的工作区')
+            : t(
+                '此电脑需要更新 Host 才能自动同步 Codex 工作区；当前仍可在电脑上使用 agentdeck projects add PATH 添加。',
+              )}
         </p>
         <IconButton
           icon={RefreshCw}
-          label="同步 Codex 工作区"
+          label={t('同步 Codex 工作区')}
           disabled={action.busy || !supports('codexWorkspaceDiscovery')}
           onClick={() =>
             void action.run(async () => {
@@ -792,7 +811,7 @@ export function ProjectsPanel({
             </button>
             <IconButton
               icon={Trash2}
-              label={`移除项目 ${p.name}`}
+              label={t('移除项目 {{p0}}', { p0: p.name })}
               disabled={action.busy}
               onClick={() => setRemove(p.projectId)}
             />
@@ -800,8 +819,9 @@ export function ProjectsPanel({
               {remove === p.projectId && (
                 <div className="confirmation">
                   <p>
-                    从 Web 移除此工作区并撤销访问？不会删除电脑文件或 Codex
-                    会话，也不会自动重新添加。
+                    {t(
+                      '从 Web 移除此工作区并撤销访问？不会删除电脑文件或 Codex 会话，也不会自动重新添加。',
+                    )}
                   </p>
                   <button
                     disabled={action.busy}
@@ -811,16 +831,16 @@ export function ProjectsPanel({
                           projectId: p.projectId,
                         });
                         if (response.status === 'awaitingLocalConfirmation') {
-                          throw new Error('请更新电脑 Host 后再移除工作区。');
+                          throw new Error(t('请更新电脑 Host 后再移除工作区。'));
                         }
                         setRemove('');
                         onChanged();
                       })
                     }
                   >
-                    确认移除
+                    {t('确认移除')}
                   </button>
-                  <button onClick={() => setRemove('')}>取消</button>
+                  <button onClick={() => setRemove('')}>{t('取消')}</button>
                 </div>
               )}
             </MotionPresence>
@@ -841,6 +861,7 @@ function NativeProjects({
   request: Request;
   onProject: (id: string) => void;
 }) {
+  useLocale();
   type Native = {
     project: { id: string; name: string; roots: { path: string }[] };
     rootGrants: { rootIndex: number; projectId: string }[];
@@ -857,7 +878,7 @@ function NativeProjects({
   });
   return (
     <>
-      <h3>Codex 项目</h3>
+      <h3>{t('Codex 项目')}</h3>
       <LoadState {...{ error, loading, reload }} />
       {value?.data.map((p) => (
         <div className="panel-stack" key={p.project.id}>
@@ -871,13 +892,15 @@ function NativeProjects({
                 onClick={() => grant && onProject(grant.projectId)}
               >
                 {root.path}
-                {!grant && ' · 尚未授权'}
+                {!grant && t(' · 尚未授权')}
               </button>
             );
           })}
         </div>
       ))}
-      {value?.nextCursor && <button onClick={() => setCursor(value.nextCursor)}>下一页项目</button>}
+      {value?.nextCursor && (
+        <button onClick={() => setCursor(value.nextCursor)}>{t('下一页项目')}</button>
+      )}
     </>
   );
 }
@@ -891,6 +914,7 @@ export function ConfigurationPanel({
   models: Model[];
   supports: (s: string) => boolean;
 }) {
+  useLocale();
   const { value, error, loading, reload } = useRead<{
     values?: Record<string, unknown>;
     origins?: unknown;
@@ -937,16 +961,16 @@ export function ConfigurationPanel({
                 });
               }}
             >
-              <h3>默认模型</h3>
-              <select
-                aria-label="默认模型"
+              <h3>{t('默认模型')}</h3>
+              <Select
+                aria-label={t('默认模型')}
                 value={model}
-                onChange={(e) => {
-                  setModel(e.target.value);
+                onValueChange={(value) => {
+                  setModel(value);
                   setEffort('');
                 }}
               >
-                <option value="">选择模型</option>
+                <option value="">{t('选择模型')}</option>
                 {model && !models.some((m) => (m.id || m.model) === model) && (
                   <option value={model}>{model}</option>
                 )}
@@ -958,13 +982,13 @@ export function ConfigurationPanel({
                     </option>
                   ) : null;
                 })}
-              </select>
-              <select
-                aria-label="默认推理强度"
+              </Select>
+              <Select
+                aria-label={t('默认推理强度')}
                 value={effort}
-                onChange={(e) => setEffort(e.target.value)}
+                onValueChange={(value) => setEffort(value)}
               >
-                <option value="">模型默认</option>
+                <option value="">{t('模型默认')}</option>
                 {effort &&
                   !models
                     .find((m) => (m.id || m.model) === model)
@@ -977,9 +1001,9 @@ export function ConfigurationPanel({
                     const id = typeof e === 'string' ? e : e.reasoningEffort;
                     return <option key={id}>{id}</option>;
                   })}
-              </select>
+              </Select>
               <button disabled={action.busy || !value.userRevision || !model}>
-                保存模型默认值
+                {t('保存模型默认值')}
               </button>
             </form>
           )}
@@ -998,50 +1022,58 @@ export function ConfigurationPanel({
                 });
               }}
             >
-              <h3>默认输出</h3>
+              <h3>{t('默认输出')}</h3>
               <label>
-                详细程度
-                <select value={verbosity} onChange={(e) => setVerbosity(e.target.value)}>
+                {t('详细程度')}
+                <Select
+                  aria-label={t('详细程度')}
+                  value={verbosity}
+                  onValueChange={(value) => setVerbosity(value)}
+                >
                   {['default', 'low', 'medium', 'high'].map((v) => (
                     <option key={v} value={v}>
                       {(
                         {
-                          default: '默认',
-                          low: '精简',
-                          medium: '适中',
-                          high: '详细',
-                          auto: '自动',
-                          concise: '简短',
-                          detailed: '详细',
-                          none: '不显示',
+                          default: t('默认'),
+                          low: t('精简'),
+                          medium: t('适中'),
+                          high: t('详细'),
+                          auto: t('自动'),
+                          concise: t('简短'),
+                          detailed: t('详细'),
+                          none: t('不显示'),
                         } as Record<string, string>
                       )[v] || v}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
-                思考摘要
-                <select value={summary} onChange={(e) => setSummary(e.target.value)}>
+                {t('思考摘要')}
+                <Select
+                  aria-label={t('思考摘要')}
+                  value={summary}
+                  onValueChange={(value) => setSummary(value)}
+                >
                   {['default', 'auto', 'concise', 'detailed', 'none'].map((v) => (
                     <option key={v} value={v}>
                       {(
                         {
-                          default: '默认',
-                          low: '精简',
-                          medium: '适中',
-                          high: '详细',
-                          auto: '自动',
-                          concise: '简短',
-                          detailed: '详细',
-                          none: '不显示',
+                          default: t('默认'),
+                          low: t('精简'),
+                          medium: t('适中'),
+                          high: t('详细'),
+                          auto: t('自动'),
+                          concise: t('简短'),
+                          detailed: t('详细'),
+                          none: t('不显示'),
                         } as Record<string, string>
                       )[v] || v}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
-              <button disabled={action.busy || !value.userRevision}>保存输出默认值</button>
+              <button disabled={action.busy || !value.userRevision}>{t('保存输出默认值')}</button>
             </form>
           )}
         </>
@@ -1051,6 +1083,7 @@ export function ConfigurationPanel({
   );
 }
 export function RetentionPanel({ request }: { request: Request }) {
+  useLocale();
   const { value, error, loading, reload } = useRead<{
     retention: { days: number; maxMiB: number };
   }>(request, 'settings.get', {});
@@ -1067,7 +1100,7 @@ export function RetentionPanel({ request }: { request: Request }) {
     <div className="panel-stack">
       <LoadState {...{ error, loading, reload }} />
       <label>
-        缓存保留天数
+        {t('缓存保留天数')}
         <input
           type="number"
           min={1}
@@ -1078,7 +1111,7 @@ export function RetentionPanel({ request }: { request: Request }) {
         />
       </label>
       <label>
-        缓存上限 MiB
+        {t('缓存上限 MiB')}
         <input
           type="number"
           min={16}
@@ -1102,11 +1135,11 @@ export function RetentionPanel({ request }: { request: Request }) {
         }
         onClick={() => setConfirm(true)}
       >
-        更新缓存策略
+        {t('更新缓存策略')}
       </button>
       {confirm && (
         <div className="confirmation">
-          <p>更新电脑缓存策略？超过限额的本地缓存会被清理。</p>
+          <p>{t('更新电脑缓存策略？超过限额的本地缓存会被清理。')}</p>
           <button
             disabled={action.busy}
             onClick={() =>
@@ -1117,9 +1150,9 @@ export function RetentionPanel({ request }: { request: Request }) {
               })
             }
           >
-            确认更新
+            {t('确认更新')}
           </button>
-          <button onClick={() => setConfirm(false)}>取消</button>
+          <button onClick={() => setConfirm(false)}>{t('取消')}</button>
         </div>
       )}
       {action.feedback}
@@ -1127,6 +1160,7 @@ export function RetentionPanel({ request }: { request: Request }) {
   );
 }
 export function DiagnosticsPanel({ request }: { request: Request }) {
+  useLocale();
   const { value, error, loading, reload } = useRead<Record<string, unknown>>(
     request,
     'system.diagnostics',
@@ -1143,7 +1177,7 @@ export function DiagnosticsPanel({ request }: { request: Request }) {
             onClick={() => void action.run(() => navigator.clipboard.writeText(output(value)))}
           >
             <Copy size={16} />
-            复制已脱敏诊断
+            {t('复制已脱敏诊断')}
           </button>
         </>
       )}
@@ -1152,6 +1186,7 @@ export function DiagnosticsPanel({ request }: { request: Request }) {
   );
 }
 export function AccountPanel({ request }: { request: Request }) {
+  useLocale();
   const { value, error, loading, reload } = useRead<Record<string, unknown>>(
     request,
     'account.status',

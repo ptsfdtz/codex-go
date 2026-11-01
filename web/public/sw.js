@@ -15,17 +15,31 @@ self.addEventListener('fetch', (event) => {
     fetch(event.request, { cache: 'no-store' }).catch(
       () =>
         new Response(
-          `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+          `<!doctype html><html lang="en"><head><meta charset="utf-8">
           <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-          <meta name="theme-color" content="#ffffff"><title>AgentDeck · 网络不可用</title>
+          <meta name="theme-color" content="#ffffff"><title>AgentDeck · Offline</title>
           <style>:root{font:16px/1.7 system-ui;color:#171717;background:#fff}
           body{margin:0;min-height:100dvh;display:grid;place-items:center}
           main{padding:32px;max-width:28em}h1{font-size:24px}p{color:#676767}
           a{display:inline-block;padding:10px 18px;color:#fff;background:#171717;border-radius:10px;text-decoration:none}
           @media(prefers-color-scheme:dark){:root{color:#ececec;background:#212121}p{color:#b4b4b4}}</style>
-          </head><body><main><strong>AgentDeck</strong><h1>网络暂时不可用</h1>
-          <p>连接网络后重新打开。会话保存在电脑上，离线时无法读取或发送消息。</p>
-          <a href="./">重新连接</a></main></body></html>`,
+          </head><body><main><strong>AgentDeck</strong><h1 id="heading">Network unavailable</h1>
+          <p id="description">Reconnect to the network and open the app again. Conversations are saved on your computer; messages cannot be read or sent offline.</p>
+          <a id="reconnect" href="./">Reconnect</a></main>
+          <script>
+          (() => {
+            let preference = 'system';
+            try { preference = localStorage.getItem('agentdeck.language') || 'system'; } catch {}
+            const chinese = preference === 'zh-CN' || (preference !== 'en' && /^zh(?:-|$)/i.test(navigator.language));
+            document.documentElement.lang = chinese ? 'zh-CN' : 'en';
+            if (chinese) {
+              document.title = 'AgentDeck · 网络不可用';
+              document.getElementById('heading').textContent = '网络暂时不可用';
+              document.getElementById('description').textContent = '连接网络后重新打开。会话保存在电脑上，离线时无法读取或发送消息。';
+              document.getElementById('reconnect').textContent = '重新连接';
+            }
+          })();
+          </script></body></html>`,
           {
             status: 503,
             headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },

@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { Model } from '../workspace';
 
 export type ComposerPreferences = { model: string; effort: string; permission: string };
@@ -63,6 +64,6 @@ export function resolveComposerModelPreferences(
     : models.find((model) => model.isDefault);
   const model = selected?.model || selected?.id || value.model;
   if (!value.effort) return { model: value.model ? model : '', effort: '' };
-  if (!model) throw new Error('无法确定思维强度对应的模型，请先选择具体模型。');
+  if (!model) throw new Error(t('无法确定思维强度对应的模型，请先选择具体模型。'));
   return { model, effort: value.effort };
 }

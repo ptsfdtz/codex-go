@@ -37,7 +37,7 @@ jobs:
           mkdir candidate evidence
           python3 scripts/release/extract.py candidate.tar.gz candidate
           python3 scripts/release/extract.py e2e-evidence.tar.gz evidence
-      - name: Enforce Windows and Linux E2E gate
+      - name: Enforce Windows, Linux and macOS E2E gate
         id: verify
         env:
           VERSION: ${{ inputs.version }}
@@ -124,13 +124,13 @@ jobs:
           set -euo pipefail
           tar -czf agentdeck-downloads.tar.gz -C candidate install.sh install.ps1 install-codex.ps1 release-gate.py candidate.json codex-runtime-manifests verify-shared-runtime.py evidence releases web.tar.gz pages.tar.gz agentdeck-cloud
           cp "candidate/releases/$VERSION/"*.zip "candidate/releases/$VERSION/"*.tar.gz .
-          sha256sum agentdeck-downloads.tar.gz agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz > SHA256SUMS.txt
-          printf 'AgentDeck %s\n\nCommit: %s\nWindows x64 and Linux x64/ARM64 real E2E gate passed. Exact artifacts promoted from candidate-%s.\n' "$VERSION" "$SOURCE_SHA" "$VERSION" > release-notes.md
+          sha256sum agentdeck-downloads.tar.gz agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-macos-arm64.tar.gz > SHA256SUMS.txt
+          printf 'AgentDeck %s\n\nCommit: %s\nWindows x64, Linux x64/ARM64 and macOS arm64 real E2E gate passed. Exact artifacts promoted from candidate-%s.\n' "$VERSION" "$SOURCE_SHA" "$VERSION" > release-notes.md
           cat "candidate/releases/$VERSION/notes.txt" >> release-notes.md
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             test "$(gh release view "v$VERSION" --json targetCommitish --jq .targetCommitish)" = "$SOURCE_SHA"
           else
-            gh release create "v$VERSION" --target "$SOURCE_SHA" --latest --title "AgentDeck $VERSION" --notes-file release-notes.md agentdeck-downloads.tar.gz candidate/candidate.json agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz SHA256SUMS.txt
+            gh release create "v$VERSION" --target "$SOURCE_SHA" --latest --title "AgentDeck $VERSION" --notes-file release-notes.md agentdeck-downloads.tar.gz candidate/candidate.json agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-macos-arm64.tar.gz SHA256SUMS.txt
           fi
       - name: Report actual publication results
         if: always()

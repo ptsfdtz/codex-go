@@ -1,3 +1,4 @@
+import { t, useLocale } from '../../i18n';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '../../ui';
@@ -13,13 +14,14 @@ export function ImagePreview({
   alt: string;
   onError?: () => void;
 }) {
+  useLocale();
   const [expanded, setExpanded] = useState(false);
   return (
     <>
       <button
         type="button"
         className="message-image-open"
-        aria-label={`放大图片 ${alt}`}
+        aria-label={t('放大图片 {{p0}}', { p0: alt })}
         onClick={() => setExpanded(true)}
       >
         <img src={src} alt={alt} onError={onError} />

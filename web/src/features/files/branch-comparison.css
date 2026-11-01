@@ -111,8 +111,10 @@
   flex-shrink: 0;
   color: var(--muted);
 }
-.branch-select-field select {
-  appearance: auto;
+.branch-select-field .select-control {
+  flex: 1;
+}
+.branch-select-field .select-trigger {
   width: 100%;
   min-width: 0;
   height: 32px;
@@ -125,14 +127,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.branch-select-field select::picker(select) {
-  appearance: auto;
-}
 .branch-select-field > div:focus-within {
   outline: 2px solid var(--muted);
   outline-offset: 2px;
 }
-.branch-select-field select:focus {
+.branch-select-field .select-trigger:focus {
   outline: 0;
 }
 .branch-modes {
@@ -508,7 +507,7 @@
     padding-left: 0;
     border-left: 0;
   }
-  .branch-select-field select {
+  .branch-select-field .select-trigger {
     height: 34px;
   }
 }

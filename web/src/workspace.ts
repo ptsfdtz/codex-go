@@ -1,3 +1,4 @@
+import { t } from './i18n';
 export type Host = {
   customName?: string | null;
   customNameConfigured?: boolean;
@@ -83,6 +84,7 @@ export type Attachment = {
 };
 export type FileReference = { projectId: string; path: string; name: string };
 export type Draft = {
+  outcomeUnknown?: boolean;
   references?: FileReference[];
   text: string;
   attachments: Attachment[];
@@ -116,15 +118,15 @@ export function statusLabel(status?: string) {
   return (
     (
       {
-        inProgress: 'Running',
-        running: 'Running',
-        waitingApproval: 'Needs approval',
-        queued: 'Queued',
-        unknown: 'Needs reconciliation',
-        completed: 'Completed',
-        failed: 'Failed',
-        interrupted: 'Stopped',
-        idle: 'Ready',
+        inProgress: t('Running'),
+        running: t('Running'),
+        waitingApproval: t('Needs approval'),
+        queued: t('Queued'),
+        unknown: t('Needs reconciliation'),
+        completed: t('Completed'),
+        failed: t('Failed'),
+        interrupted: t('Stopped'),
+        idle: t('Ready'),
       } as Record<string, string>
     )[status || ''] ||
     status ||

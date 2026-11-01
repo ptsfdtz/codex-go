@@ -7,7 +7,7 @@ const out = fileURLToPath(new URL('../../artifacts/message-images/', import.meta
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1100, height: 800 } });
   page.setDefaultTimeout(6000);
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

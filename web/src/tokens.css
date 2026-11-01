@@ -38,6 +38,9 @@
   --radius-lg: 20px;
   --radius-composer: 26px;
   --shadow-subtle: 0 2px 8px #00000008;
+  --menu-shadow: 0 8px 24px #0002, 0 2px 6px #0001;
+  --menu-row-height: 38px;
+  --notification-blue: #3b82f6;
   --focus-ring: var(--muted);
   --content-width: 824px;
   --control-size: 36px;

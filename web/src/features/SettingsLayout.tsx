@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { motionDuration } from '../motion';
 import {
@@ -12,24 +13,60 @@ import {
 } from 'lucide-react';
 
 const categories = [
-  { id: 'general', name: '常规', icon: Settings },
+  {
+    id: 'general',
+    get name() {
+      return t('常规');
+    },
+    icon: Settings,
+  },
   {
     id: 'configuration',
-    name: '模型与输出',
+    get name() {
+      return t('模型与输出');
+    },
     icon: SlidersHorizontal,
   },
   {
     id: 'conversations',
-    name: '对话',
+    get name() {
+      return t('对话');
+    },
     icon: History,
   },
-  { id: 'shortcuts', name: '快捷键', icon: Keyboard },
-  { id: 'computers', name: '电脑', icon: Computer },
-  { id: 'data', name: '数据', icon: Database },
-  { id: 'diagnostics', name: '诊断', icon: FileText },
+  {
+    id: 'shortcuts',
+    get name() {
+      return t('快捷键');
+    },
+    icon: Keyboard,
+  },
+  {
+    id: 'computers',
+    get name() {
+      return t('电脑');
+    },
+    icon: Computer,
+  },
+  {
+    id: 'data',
+    get name() {
+      return t('数据');
+    },
+    icon: Database,
+  },
+  {
+    id: 'diagnostics',
+    get name() {
+      return t('诊断');
+    },
+    icon: FileText,
+  },
   {
     id: 'account',
-    name: 'Codex 账户',
+    get name() {
+      return t('Codex 账户');
+    },
     icon: UserRound,
   },
 ];
@@ -43,6 +80,7 @@ export function SettingsLayout({
   onChange: (id: string) => void;
   children: ReactNode;
 }) {
+  useLocale();
   const category = categories.find(({ id }) => id === active) || categories[0]!;
   const body = useRef<HTMLElement>(null);
   const nav = useRef<HTMLElement>(null);
@@ -60,7 +98,7 @@ export function SettingsLayout({
   }, [active]);
   return (
     <div className="settings-layout">
-      <nav ref={nav} className="settings-nav" aria-label="设置分类">
+      <nav ref={nav} className="settings-nav" aria-label={t('设置分类')}>
         {categories.map(({ id, name, icon: Icon }) => (
           <button
             key={id}

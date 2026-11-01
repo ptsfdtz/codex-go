@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from '../i18n';
 import { MotionPresence } from '../motion';
 import { useEffect, useState } from 'react';
 import { Target, CircleGauge } from 'lucide-react';
@@ -27,6 +28,7 @@ export function ComposerStatus({
   onGoal: () => void;
   enabled?: boolean;
 }) {
+  useLocale();
   const [goal, setGoal] = useState<{
       objective: string;
       status: string;
@@ -75,9 +77,14 @@ export function ComposerStatus({
       {usageSupported && (
         <button className="context-usage" onClick={() => setDetail(true)}>
           <CircleGauge size={14} />
-          <span>上下文 {percent !== undefined ? `${percent}%` : '—'}</span>
+          <span>
+            {t('上下文 ')}
+            {percent !== undefined ? `${percent}%` : '—'}
+          </span>
           <span>·</span>
-          <span>{counters?.total?.totalTokens?.toLocaleString() || '—'} tokens</span>
+          <span>
+            {counters?.total?.totalTokens?.toLocaleString(getLocale()) || '—'} {t(' tokens')}
+          </span>
         </button>
       )}
       {goal && (
@@ -86,77 +93,81 @@ export function ComposerStatus({
           <span>
             {(
               {
-                active: 'Working',
-                paused: 'Paused',
-                blocked: 'Blocked',
-                complete: 'Completed',
-                usageLimited: 'Usage limit',
-                budgetLimited: 'Budget limit',
+                active: t('Working'),
+                paused: t('Paused'),
+                blocked: t('Blocked'),
+                complete: t('Completed'),
+                usageLimited: t('Usage limit'),
+                budgetLimited: t('Budget limit'),
               } as Record<string, string>
             )[goal.status] || goal.status}
           </span>
           <span className="goal-composer-objective">{goal.objective}</span>
           {goal.timeUsedSeconds !== undefined && (
             <small>
-              {Math.floor(goal.timeUsedSeconds / 60)}m {goal.timeUsedSeconds % 60}s
+              {t('time.minutesSeconds', {
+                minutes: Math.floor(goal.timeUsedSeconds / 60),
+                seconds: goal.timeUsedSeconds % 60,
+              })}
             </small>
           )}
         </button>
       )}
       {error && (
         <button className="context-usage error" onClick={onGoal}>
-          Goal · 未更新
+          {t('Goal · 未更新')}
         </button>
       )}
       <MotionPresence>
         {detail && (
-          <Modal title="用量" className="usage-modal" onClose={() => setDetail(false)}>
+          <Modal title={t('用量')} className="usage-modal" onClose={() => setDetail(false)}>
             {counters ? (
               <div className="usage-detail">
-                <section className="usage-context" aria-label="上下文用量">
+                <section className="usage-context" aria-label={t('上下文用量')}>
                   <div className="usage-context-heading">
-                    <span>上下文已使用</span>
+                    <span>{t('上下文已使用')}</span>
                     <strong>{percent !== undefined ? `${percent}%` : '—'}</strong>
                   </div>
-                  <progress aria-label="上下文已使用" max={100} value={percent ?? 0} />
+                  <progress aria-label={t('上下文已使用')} max={100} value={percent ?? 0} />
                   <small>
-                    {used?.toLocaleString() ?? '—'} / {window?.toLocaleString() ?? '—'} tokens
+                    {used?.toLocaleString(getLocale()) ?? '—'} /{' '}
+                    {window?.toLocaleString(getLocale()) ?? '—'} {t(' tokens')}
                   </small>
                 </section>
                 <table className="usage-table">
-                  <caption>Token 用量</caption>
+                  <caption>{t('Token 用量')}</caption>
                   <thead>
                     <tr>
-                      <th scope="col">用量</th>
-                      <th scope="col">最近一次</th>
-                      <th scope="col">会话累计</th>
+                      <th scope="col">{t('用量')}</th>
+                      <th scope="col">{t('最近一次')}</th>
+                      <th scope="col">{t('会话累计')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(
                       [
-                        ['totalTokens', '总计'],
-                        ['inputTokens', '输入'],
-                        ['outputTokens', '输出'],
-                        ['cachedInputTokens', '缓存输入'],
-                        ['reasoningOutputTokens', '推理输出'],
+                        ['totalTokens', t('总计')],
+                        ['inputTokens', t('输入')],
+                        ['outputTokens', t('输出')],
+                        ['cachedInputTokens', t('缓存输入')],
+                        ['reasoningOutputTokens', t('推理输出')],
                         ...(counters.last?.cacheWriteInputTokens ||
                         counters.total?.cacheWriteInputTokens
-                          ? [['cacheWriteInputTokens', '缓存写入']]
+                          ? [['cacheWriteInputTokens', t('缓存写入')]]
                           : []),
                       ] as [string, string][]
                     ).map(([key, label]) => (
                       <tr key={key}>
                         <th scope="row">{label}</th>
-                        <td>{counters.last?.[key]?.toLocaleString() ?? '—'}</td>
-                        <td>{counters.total?.[key]?.toLocaleString() ?? '—'}</td>
+                        <td>{counters.last?.[key]?.toLocaleString(getLocale()) ?? '—'}</td>
+                        <td>{counters.total?.[key]?.toLocaleString(getLocale()) ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             ) : (
-              <p className="muted">暂无用量数据</p>
+              <p className="muted">{t('暂无用量数据')}</p>
             )}
           </Modal>
         )}

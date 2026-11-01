@@ -1,3 +1,6 @@
+import { contentText, fileReferencePart } from './content-text';
+export { contentText, fileReferencePart } from './content-text';
+import { errorText, t, useLocale } from './i18n';
 import { useEffect, useState, type ReactNode } from 'react';
 import { deferred } from './deferred';
 import type { HistoryEntry } from './history';
@@ -37,6 +40,7 @@ function SavedImage({
   entry: HistoryEntry;
   index: number;
 }) {
+  useLocale();
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -75,32 +79,38 @@ function SavedImage({
   return (
     <div className="saved-image">
       {url ? (
-        <ImagePreview key={url} src={url} alt="会话历史图片" />
+        <ImagePreview key={url} src={url} alt={t('会话历史图片')} />
       ) : error ? (
         <button
           className="ghost"
           disabled={!connection || loading}
           onClick={() => setRequested((value) => value + 1)}
         >
-          重试读取图片
+          {t('重试读取图片')}
         </button>
       ) : (
         <p className="muted" role="status">
-          {connection ? '读取图片中…' : '连接电脑后读取图片'}
+          {connection ? t('读取图片中…') : t('连接电脑后读取图片')}
         </p>
       )}
-      {error && <p className="error">图片暂不可用：{error}</p>}
+      {error && (
+        <p className="error">
+          {t('图片暂不可用：')}
+          {errorText(error)}
+        </p>
+      )}
     </div>
   );
 }
 
 function ImageDisclosure({ children }: { children: ReactNode }) {
+  useLocale();
   const [open, setOpen] = useState(false);
   return (
     <details className="tool-record" onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>
         <Image size={16} />
-        <span>图片</span>
+        <span>{t('图片')}</span>
         <ChevronRight size={14} />
       </summary>
       {open && <div className="tool-body">{children}</div>}
@@ -108,27 +118,6 @@ function ImageDisclosure({ children }: { children: ReactNode }) {
   );
 }
 
-export function contentText(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) return value.map(contentText).filter(Boolean).join('\n');
-  if (!value || typeof value !== 'object') return '';
-  const object = value as Record<string, unknown>;
-  if (fileReferencePart(object)) return '';
-  for (const key of [
-    'text',
-    'content',
-    'message',
-    'summary',
-    'aggregatedOutput',
-    'output',
-    'review',
-  ])
-    if (typeof object[key] === 'string' || Array.isArray(object[key])) {
-      const result = contentText(object[key]);
-      if (result) return result;
-    }
-  return '';
-}
 export function questionAnswers(body: string): { question: string; answer: string }[] | undefined {
   const match =
     /^\s*<send_user_message_question_reply>\s*([\s\S]+?)\s*<\/send_user_message_question_reply>\s*$/.exec(
@@ -166,6 +155,7 @@ export function RichContent({
   images?: MessageImageSource;
   sessionImages?: boolean;
 }) {
+  useLocale();
   const item = entry.item || {};
   const messageImages: MessageImageSource | undefined =
     sessionImages &&
@@ -204,7 +194,7 @@ export function RichContent({
         />
       ) : (
         <p className="muted" key={index}>
-          历史远程图片暂不可读取
+          {t('历史远程图片暂不可读取')}
         </p>
       ),
     )
@@ -228,7 +218,7 @@ export function RichContent({
         <details className="tool-record reasoning">
           <summary>
             <Brain size={16} />
-            <span>Thinking</span>
+            <span>{t('Thinking')}</span>
             <ChevronRight size={14} />
           </summary>
           <Markdown text={body} onFile={onFile} images={messageImages} />
@@ -237,7 +227,7 @@ export function RichContent({
         <div className="plan-content">
           <div className="plan-heading">
             <ListChecks size={17} />
-            计划
+            {t('计划')}
           </div>
           <Markdown text={body} onFile={onFile} images={messageImages} />
           {Array.isArray(item.plan) && (
@@ -260,27 +250,6 @@ export function RichContent({
   );
 }
 
-export function fileReferencePart(value: unknown): { name: string; path: string } | undefined {
-  if (!value || typeof value !== 'object') return;
-  const part = value as {
-    type?: string;
-    text?: string;
-    text_elements?: { byteRange?: { start?: number; end?: number }; placeholder?: string }[];
-  };
-  const text = part.text;
-  if (part.type !== 'text' || typeof text !== 'string' || !/^(?:\/|[A-Za-z]:[\\/])/.test(text))
-    return;
-  const elements = part.text_elements;
-  const name = elements?.[0]?.placeholder?.startsWith('@') ? elements[0].placeholder.slice(1) : '';
-  if (
-    name &&
-    Array.isArray(elements) &&
-    elements.length === 1 &&
-    elements[0]?.byteRange?.start === 0 &&
-    elements[0]?.byteRange?.end === new TextEncoder().encode(text).length
-  )
-    return { name, path: text };
-}
 export function FileReferences({
   parts,
   onFile,
@@ -288,6 +257,7 @@ export function FileReferences({
   parts: unknown[];
   onFile?: (path: string) => void;
 }) {
+  useLocale();
   const references = parts.flatMap((value, index) => {
     const reference = fileReferencePart(value);
     return reference ? [{ ...reference, index }] : [];
@@ -325,6 +295,7 @@ function ToolContent({
   onAgent?: (s: string) => void;
   children?: ReactNode;
 }) {
+  useLocale();
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState(false);
   const type = String(item.type || '');
@@ -346,18 +317,21 @@ function ToolContent({
   const label =
     (
       {
-        commandExecution: 'Ran command',
-        fileChange: 'Edited files',
-        webSearch: 'Searched the web',
-        mcpToolCall: `Used ${item.server || 'tool'}${item.tool ? ` · ${item.tool}` : ''}`,
-        imageView: 'Viewed image',
-        imageGeneration: 'Generated image',
-        collabAgentToolCall: 'Agent activity',
-        contextCompaction: 'Compacted context',
+        commandExecution: t('Ran command'),
+        fileChange: t('Edited files'),
+        webSearch: t('Searched the web'),
+        mcpToolCall: t('tool.used', {
+          server: item.server || t('tool.fallback'),
+          tool: item.tool ? ` · ${item.tool}` : '',
+        }),
+        imageView: t('Viewed image'),
+        imageGeneration: t('Generated image'),
+        collabAgentToolCall: t('Agent activity'),
+        contextCompaction: t('Compacted context'),
       } as Record<string, string>
     )[type] ||
     type ||
-    'Activity';
+    t('Activity');
   const preview =
     type === 'commandExecution'
       ? command.replace(/\s+/g, ' ')
@@ -392,10 +366,22 @@ function ToolContent({
             <div className="tool-meta">
               {typeof item.cwd === 'string' && <span>{item.cwd}</span>}
               {item.exitCode !== undefined && item.exitCode !== null && (
-                <span>Exit {String(item.exitCode)}</span>
+                <span>
+                  {t('Exit ')}
+                  {String(item.exitCode)}
+                </span>
               )}
-              {item.durationMs !== undefined && <span>{String(item.durationMs)} ms</span>}
-              {item.processId !== undefined && <span>Process {String(item.processId)}</span>}
+              {item.durationMs !== undefined && (
+                <span>
+                  {String(item.durationMs)} {t(' ms')}
+                </span>
+              )}
+              {item.processId !== undefined && (
+                <span>
+                  {t('Process ')}
+                  {String(item.processId)}
+                </span>
+              )}
             </div>
           </>
         )}
@@ -405,7 +391,7 @@ function ToolContent({
               <strong>{change.path}</strong>
               {onFile && change.path && (
                 <button className="text-button" onClick={() => onFile(change.path!)}>
-                  Preview current file
+                  {t('Preview current file')}
                 </button>
               )}
               {change.diff && <DiffText text={change.diff} />}
@@ -424,17 +410,17 @@ function ToolContent({
             ),
           ].map((id) => (
             <button key={id} className="text-button" onClick={() => onAgent(id)}>
-              Open agent conversation
+              {t('Open agent conversation')}
             </button>
           ))}
         {text.length > 16000 && (
           <button className="text-button" onClick={() => setFull(!full)}>
-            {full ? '收起' : '读取完整输出'}
+            {full ? t('收起') : t('读取完整输出')}
           </button>
         )}
         {type === 'mcpToolCall' && (
           <details className="technical-details">
-            <summary>Arguments and result</summary>
+            <summary>{t('Arguments and result')}</summary>
             <pre>
               {JSON.stringify(
                 { arguments: item.arguments, result: item.result, error: item.error },

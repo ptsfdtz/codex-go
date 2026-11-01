@@ -1,9 +1,11 @@
+import { errorText, t, useLocale } from '../i18n';
 import { useEffect, useState } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { MotionPresence } from '../motion';
 import { IconButton } from '../ui';
 
 export function AppUpdates() {
+  useLocale();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [available, setAvailable] = useState(false);
@@ -20,7 +22,7 @@ export function AppUpdates() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        if (!response.ok) throw new Error('Update check failed');
+        if (!response.ok) throw new Error(t('Update check failed'));
         const value: unknown = await response.json();
         if (
           !value ||
@@ -29,15 +31,17 @@ export function AppUpdates() {
           typeof value.version !== 'string' ||
           !/^[a-f0-9]{64}$/.test(value.version)
         )
-          throw new Error('Invalid release');
+          throw new Error(t('Invalid release'));
         const next = value.version !== __AGENTDECK_WEB_VERSION__;
         setAvailable(next);
         setChecked(true);
         setMessage(
-          next ? '发现新版本，可重新加载更新。请先发送或保存未发送的草稿。' : '当前已是最新版本',
+          next
+            ? t('发现新版本，可重新加载更新。请先发送或保存未发送的草稿。')
+            : t('当前已是最新版本'),
         );
       })
-      .catch(() => setMessage('检查更新失败，请稍后重试'))
+      .catch(() => setMessage(t('检查更新失败，请稍后重试')))
       .finally(() => {
         clearTimeout(timeout);
         setBusy(false);
@@ -64,8 +68,8 @@ export function AppUpdates() {
   }, []);
   return (
     <div className="panel-stack app-updates">
-      <h3>应用更新</h3>
-      {message && <p role="status">{message}</p>}
+      <h3>{t('应用更新')}</h3>
+      {message && <p role="status">{errorText(message)}</p>}
       <button
         disabled={busy || !import.meta.env.PROD}
         onClick={() => {
@@ -73,17 +77,19 @@ export function AppUpdates() {
           setChecking(true);
         }}
       >
-        {!import.meta.env.PROD ? '开发版' : busy ? '正在检查…' : '检查更新'}
+        {!import.meta.env.PROD ? t('开发版') : busy ? t('正在检查…') : t('检查更新')}
       </button>
-      {checked && available && <button onClick={() => setConfirmReload(true)}>重新加载更新</button>}
+      {checked && available && (
+        <button onClick={() => setConfirmReload(true)}>{t('重新加载更新')}</button>
+      )}
       <MotionPresence>
         {confirmReload && (
           <div className="confirmation">
-            <p>重新加载以更新？未发送的草稿可能丢失，请先保存。</p>
-            <IconButton icon={X} label="取消更新" onClick={() => setConfirmReload(false)} />
+            <p>{t('重新加载以更新？未发送的草稿可能丢失，请先保存。')}</p>
+            <IconButton icon={X} label={t('取消更新')} onClick={() => setConfirmReload(false)} />
             <IconButton
               icon={RefreshCw}
-              label="确认重新加载"
+              label={t('确认重新加载')}
               onClick={() => window.location.reload()}
             />
           </div>

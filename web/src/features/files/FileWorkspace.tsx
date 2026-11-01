@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../../i18n';
 import { useContentMotion } from '../../motion';
 import type { FileReference } from '../../workspace';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -46,6 +47,7 @@ type Content = {
 };
 
 export function FileWorkspace({
+  embedded = false,
   request,
   projectId,
   projectName,
@@ -63,6 +65,7 @@ export function FileWorkspace({
   onClose,
   onReference,
 }: {
+  embedded?: boolean;
   request: Request;
   projectId: string;
   projectName: string;
@@ -80,6 +83,7 @@ export function FileWorkspace({
   onClose: () => void;
   onReference: (reference: FileReference) => void;
 }) {
+  useLocale();
   const [comparing, setComparing] = useState(false);
   const [findToken, setFindToken] = useState(0);
   const [workspace, setWorkspace] = useState(() => {
@@ -118,7 +122,7 @@ export function FileWorkspace({
 
   const open = useCallback((path: string, view: FileTab['view'] = 'file') => {
     if (view !== 'changes' && !validFilePath(path)) {
-      setFeedback('请输入项目内的相对文件路径。');
+      setFeedback(t('请输入项目内的相对文件路径。'));
       return;
     }
     setWorkspace((state) => openTab(state, { path, view }));
@@ -158,7 +162,7 @@ export function FileWorkspace({
     for (const path of expanded) {
       if (Object.hasOwn(directoryRef.current, path)) continue;
       if (Object.keys(directoryRef.current).length >= 64) {
-        setFeedback('已达到目录浏览上限，请刷新项目文件或输入完整路径直接打开文件。');
+        setFeedback(t('已达到目录浏览上限，请刷新项目文件或输入完整路径直接打开文件。'));
         break;
       }
       directoryRef.current = { ...directoryRef.current, [path]: { entries: [], loading: true } };
@@ -222,12 +226,12 @@ export function FileWorkspace({
     setFeedback('');
     if (!visible || comparing || !active || active.view === 'changes') return;
     if (image && !imagePreview) {
-      setContent({ error: '当前电脑不支持图片预览，请升级 Host。' });
+      setContent({ error: t('当前电脑不支持图片预览，请升级 Host。') });
       return;
     }
     if (active.view === 'diff' && !changed) {
       if (!git.loading)
-        setContent({ error: git.error || '此文件已不在当前变更列表中，请刷新或查看文件内容。' });
+        setContent({ error: git.error || t('此文件已不在当前变更列表中，请刷新或查看文件内容。') });
       else setContent({ loading: true });
       return;
     }
@@ -306,14 +310,14 @@ export function FileWorkspace({
       hidden={!visible}
       inert={!visible}
       aria-hidden={!visible}
-      aria-label="项目文件工作区"
+      aria-label={t('项目文件工作区')}
     >
-      <header className="file-workspace-header" aria-label="文件预览导航">
+      <header className="file-workspace-header" aria-label={t('文件预览导航')}>
         {!comparing && workspace.tabs.length ? (
           <div
             className="file-tabs"
             role="tablist"
-            aria-label="已打开的文件"
+            aria-label={t('已打开的文件')}
             ref={tabList}
             onKeyDown={(event) => {
               const index = workspace.tabs.findIndex((tab) => tab.path === workspace.active);
@@ -349,7 +353,7 @@ export function FileWorkspace({
                   role="tab"
                   aria-selected={tab.path === workspace.active}
                   tabIndex={tab.path === workspace.active ? 0 : -1}
-                  title={tab.path || '全部变更'}
+                  title={tab.path || t('全部变更')}
                   onClick={() => open(tab.path, tab.view)}
                 >
                   {tab.view === 'changes' || tab.view === 'diff' ? (
@@ -357,7 +361,7 @@ export function FileWorkspace({
                   ) : (
                     <FileIcon path={tab.path} />
                   )}
-                  <span>{tab.view === 'changes' ? '全部变更' : tab.path.split('/').pop()}</span>
+                  <span>{tab.view === 'changes' ? t('全部变更') : tab.path.split('/').pop()}</span>
                   {gitStatusByPath.has(tab.path) && (
                     <small className={`file-git-status status-${gitStatusByPath.get(tab.path)}`}>
                       {gitStatusByPath.get(tab.path)}
@@ -366,7 +370,7 @@ export function FileWorkspace({
                 </button>
                 <button
                   className="file-tab-close"
-                  aria-label={`关闭标签 ${tab.path || '全部变更'}`}
+                  aria-label={t('关闭标签 {{p0}}', { p0: tab.path || t('全部变更') })}
                   onClick={() => close(tab.path)}
                 >
                   <X size={12} />
@@ -386,14 +390,14 @@ export function FileWorkspace({
               {content.text !== undefined && !content.loading && !content.error && (
                 <IconButton
                   icon={Search}
-                  label="文件内查找"
+                  label={t('文件内查找')}
                   onClick={() => setFindToken((value) => value + 1)}
                 />
               )}
               {changed && (
                 <IconButton
                   icon={FileDiff}
-                  label={active.view === 'diff' ? '查看文件' : '查看变更'}
+                  label={active.view === 'diff' ? t('查看文件') : t('查看变更')}
                   pressed={active.view === 'diff'}
                   onClick={() => open(active.path, active.view === 'diff' ? 'file' : 'diff')}
                 />
@@ -401,7 +405,7 @@ export function FileWorkspace({
               {active.view === 'file' && content.text !== undefined && (
                 <IconButton
                   icon={Copy}
-                  label="复制文件内容"
+                  label={t('复制文件内容')}
                   disabled={actionBusy}
                   onClick={() => void action(() => navigator.clipboard.writeText(content.text!))}
                 />
@@ -409,7 +413,7 @@ export function FileWorkspace({
               {active.view === 'file' && !content.loading && !content.error && (
                 <IconButton
                   icon={Plus}
-                  label={referenceAllowed ? '引用文件' : '升级 Host 后可添加文件引用'}
+                  label={referenceAllowed ? t('引用文件') : t('升级 Host 后可添加文件引用')}
                   disabled={actionBusy || !referenceAllowed}
                   onClick={() =>
                     void action(async () => {
@@ -425,39 +429,43 @@ export function FileWorkspace({
               )}
             </>
           )}
-          <IconButton
-            icon={ArrowLeft}
-            label="返回对话"
-            className="file-mobile-back"
-            onClick={onClose}
-          />
+          {!embedded && (
+            <IconButton
+              icon={ArrowLeft}
+              label={t('返回对话')}
+              className="file-mobile-back"
+              onClick={onClose}
+            />
+          )}
           <IconButton
             icon={GitCompareArrows}
-            label={comparing ? '返回项目文件' : '比较分支'}
+            label={comparing ? t('返回项目文件') : t('比较分支')}
             pressed={comparing}
             onClick={() => setComparing((value) => !value)}
           />
           {!comparing && (
             <IconButton
               icon={RefreshCw}
-              label="刷新项目文件和变更"
+              label={t('刷新项目文件和变更')}
               onClick={() => setRevision((value) => value + 1)}
             />
           )}
-          <IconButton
-            icon={wide ? Minimize2 : Maximize2}
-            label={wide ? '恢复并排预览' : '扩大文件预览'}
-            onClick={onExpand}
-          />
+          {!embedded && (
+            <IconButton
+              icon={wide ? Minimize2 : Maximize2}
+              label={wide ? t('恢复并排预览') : t('扩大文件预览')}
+              onClick={onExpand}
+            />
+          )}
           {!comparing && (
             <IconButton
               icon={ListTree}
-              label={treeOpen ? '隐藏文件目录' : '显示文件目录'}
+              label={treeOpen ? t('隐藏文件目录') : t('显示文件目录')}
               pressed={treeOpen}
               onClick={() => setTreeOpen((value) => !value)}
             />
           )}
-          <IconButton icon={X} label="关闭文件工作区" onClick={onClose} />
+          {!embedded && <IconButton icon={X} label={t('关闭文件工作区')} onClick={onClose} />}
         </div>
       </header>
       {comparing ? (
@@ -466,7 +474,7 @@ export function FileWorkspace({
         )
       ) : (
         <div className="file-workspace-body">
-          <section ref={previewMotion} className="file-editor" aria-label="文件预览">
+          <section ref={previewMotion} className="file-editor" aria-label={t('文件预览')}>
             {feedback && (
               <div className="file-feedback" role="status">
                 {feedback}
@@ -475,19 +483,19 @@ export function FileWorkspace({
             {!active ? (
               <div className="file-empty">
                 <FolderOpen size={32} />
-                <h3>浏览项目文件</h3>
+                <h3>{t('浏览项目文件')}</h3>
                 <p>
-                  从右侧目录选择文件，在这里预览。
+                  {t('从右侧目录选择文件，在这里预览。')}
                   <br />
-                  对话仍可在左侧继续。
+                  {t('对话仍可在左侧继续。')}
                 </p>
-                <button onClick={() => setTreeOpen(true)}>显示文件目录</button>
+                <button onClick={() => setTreeOpen(true)}>{t('显示文件目录')}</button>
               </div>
             ) : active.view === 'changes' ? (
               <div className="file-changes-overview">
                 <div
                   className="file-changes-heading"
-                  aria-label={`工作区变更，${changes.length} 个文件`}
+                  aria-label={t('工作区变更，{{p0}} 个文件', { p0: changes.length })}
                 >
                   <FileDiff size={15} aria-hidden="true" />
                   <small>{changes.length}</small>
@@ -495,23 +503,23 @@ export function FileWorkspace({
                     className="file-changes-info"
                     tabIndex={0}
                     role="img"
-                    aria-label="当前电脑的实际工作区改动，可能包含其他应用的修改。"
-                    title="当前电脑的实际工作区改动，可能包含其他应用的修改。"
+                    aria-label={t('当前电脑的实际工作区改动，可能包含其他应用的修改。')}
+                    title={t('当前电脑的实际工作区改动，可能包含其他应用的修改。')}
                   >
                     <Info size={15} aria-hidden="true" />
                   </span>
                 </div>
-                {git.loading && <p role="status">正在读取变更…</p>}
+                {git.loading && <p role="status">{t('正在读取变更…')}</p>}
                 {git.error && (
                   <p className="error" role="alert">
-                    {git.error}
+                    {errorText(git.error)}
                   </p>
                 )}
                 {git.value &&
                   (!git.value.available ? (
-                    <p>此项目没有可用的 Git 工作区。</p>
+                    <p>{t('此项目没有可用的 Git 工作区。')}</p>
                   ) : (
-                    !changes.length && <p>工作区没有改动。</p>
+                    !changes.length && <p>{t('工作区没有改动。')}</p>
                   ))}
                 {changes.map((file) => (
                   <button key={file.fileId} onClick={() => open(file.path, 'diff')}>
@@ -523,22 +531,23 @@ export function FileWorkspace({
                   </button>
                 ))}
                 {git.value?.truncated && (
-                  <p className="muted">变更列表已达到上限，部分文件未显示。</p>
+                  <p className="muted">{t('变更列表已达到上限，部分文件未显示。')}</p>
                 )}
               </div>
             ) : (
               <>
                 {content.loading && (
                   <div className="file-empty" role="status">
-                    正在读取{active.view === 'diff' ? '差异' : '文件'}…
+                    {t('正在读取')}
+                    {active.view === 'diff' ? t('差异') : t('文件')}…
                   </div>
                 )}
                 {content.error && (
                   <div className="file-empty" role="alert">
-                    <p className="error">{content.error}</p>
+                    <p className="error">{errorText(content.error)}</p>
                     <button onClick={() => setRevision((value) => value + 1)}>
                       <RefreshCw size={14} />
-                      重新读取
+                      {t('重新读取')}
                     </button>
                   </div>
                 )}
@@ -546,15 +555,17 @@ export function FileWorkspace({
                   !content.error &&
                   (content.binary ? (
                     <div className="file-empty">
-                      二进制文件无法显示文本差异。
-                      <button onClick={() => open(active.path)}>查看文件</button>
+                      {t('二进制文件无法显示文本差异。')}
+                      <button onClick={() => open(active.path)}>{t('查看文件')}</button>
                     </div>
                   ) : content.imageUrl ? (
                     <div className="file-workspace-image">
                       <img
                         src={content.imageUrl}
                         alt={active.path}
-                        onError={() => setContent({ error: '无法渲染此图片，请检查格式后重试。' })}
+                        onError={() =>
+                          setContent({ error: t('无法渲染此图片，请检查格式后重试。') })
+                        }
                       />
                     </div>
                   ) : (
@@ -572,13 +583,13 @@ export function FileWorkspace({
                     )
                   ))}
                 {content.truncated && (
-                  <div className="file-feedback">差异过长，当前预览已截断。</div>
+                  <div className="file-feedback">{t('差异过长，当前预览已截断。')}</div>
                 )}
               </>
             )}
           </section>
           {treeOpen && (
-            <aside className="file-explorer" aria-label="文件目录侧栏">
+            <aside className="file-explorer" aria-label={t('文件目录侧栏')}>
               <form
                 className="file-filter"
                 onSubmit={(event) => {
@@ -589,47 +600,53 @@ export function FileWorkspace({
                 <Search size={14} />
                 <input
                   id="file-filter"
-                  aria-label="筛选文件或打开路径"
-                  placeholder="筛选文件 / 输入路径"
+                  aria-label={t('筛选文件或打开路径')}
+                  placeholder={t('筛选文件 / 输入路径')}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                 />
                 {query && (
-                  <button type="button" aria-label="清除文件筛选" onClick={() => setQuery('')}>
+                  <button type="button" aria-label={t('清除文件筛选')} onClick={() => setQuery('')}>
                     <X size={13} />
                   </button>
                 )}
               </form>
               {query && (
-                <div className="file-filter-hint">筛选已加载目录；按 Enter 打开完整相对路径。</div>
+                <div className="file-filter-hint">
+                  {t('筛选已加载目录；按 Enter 打开完整相对路径。')}
+                </div>
               )}
               <div className="file-explorer-scroll">
                 {gitRead && (
                   <>
                     <button className="file-section-button" onClick={() => open('', 'changes')}>
                       <FileDiff size={14} />
-                      全部变更<small>{changes.length || ''}</small>
+                      {t('全部变更')}
+                      <small>{changes.length || ''}</small>
                     </button>
                     <details className="file-tree-section">
                       <summary>
-                        已更改的文件 <small>{changes.length || ''}</small>
+                        {t('已更改的文件 ')}
+                        <small>{changes.length || ''}</small>
                       </summary>
                       {git.loading && (
                         <p className="file-tree-message" role="status">
-                          核对变更中…
+                          {t('核对变更中…')}
                         </p>
                       )}
                       {git.error && (
                         <div className="file-tree-message error" role="alert">
-                          {git.error}
-                          <button onClick={() => setRevision((value) => value + 1)}>重试</button>
+                          {errorText(git.error)}
+                          <button onClick={() => setRevision((value) => value + 1)}>
+                            {t('重试')}
+                          </button>
                         </div>
                       )}
                       {git.value && !git.value.available && (
-                        <p className="file-tree-message">不是可用的 Git 工作区</p>
+                        <p className="file-tree-message">{t('不是可用的 Git 工作区')}</p>
                       )}
                       {git.value?.available && !changes.length && (
-                        <p className="file-tree-message">没有改动</p>
+                        <p className="file-tree-message">{t('没有改动')}</p>
                       )}
                       {changes
                         .filter((file) => file.path.toLowerCase().includes(query.toLowerCase()))
@@ -648,13 +665,13 @@ export function FileWorkspace({
                           </button>
                         ))}
                       {git.value?.truncated && (
-                        <p className="file-tree-message">变更列表已截断。</p>
+                        <p className="file-tree-message">{t('变更列表已截断。')}</p>
                       )}
                     </details>
                   </>
                 )}
                 <details className="file-tree-section" open>
-                  <summary>所有文件</summary>
+                  <summary>{t('所有文件')}</summary>
                   <FileTree
                     directories={directories}
                     expanded={expanded}

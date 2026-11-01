@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../../i18n';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Copy,
@@ -28,6 +29,7 @@ import './api-chat.css';
 import { Composer } from '../Composer';
 import type { Draft, Model } from '../../workspace';
 type Choice = { providerId: string; model: string; effort?: string };
+class DeletedChatError extends Error {}
 function saved<T>(key: string, fallback: T): T {
   try {
     return JSON.parse(localStorage.getItem(key) || 'null') || fallback;
@@ -39,6 +41,7 @@ function persist(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 export function ApiChat({ scope, modeControl }: { scope: string; modeControl: ReactNode }) {
+  useLocale();
   const [providers, setProviders] = useState<Provider[]>([]),
     [enabled, setEnabled] = useState(false);
   const [chats, setChats] = useState<ChatSummary[]>([]),
@@ -60,6 +63,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     [deleting, setDeleting] = useState('');
   const store = useRef(new LocalStore(scope)).current;
   const memory = useRef(new Map<string, ChatDetail>());
+  const deletedIds = useRef(new Set<string>());
   const jobs = useRef(new Map<string, { controller: AbortController; stopped: boolean }>());
   const channel = useRef<BroadcastChannel | null>(null);
   const pending = useRef<string | null>(null);
@@ -117,6 +121,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       ? detail.messages.find((message) => message.status === 'running')
       : undefined;
   const publish = useCallback((chat: ChatDetail) => {
+    if (deletedIds.current.has(chat.id)) return;
     const value = structuredClone(chat);
     memory.current.set(chat.id, value);
     if (!mounted.current) return;
@@ -135,41 +140,45 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     );
     if (selectedRef.current === chat.id) setDetail(value);
   }, []);
+  const forgetChat = useCallback((id: string) => {
+    deletedIds.current.add(id);
+    const job = jobs.current.get(id);
+    if (job) {
+      job.stopped = true;
+      job.controller.abort();
+    }
+    memory.current.delete(id);
+    if (!mounted.current) return;
+    setChats((values) => values.filter((chat) => chat.id !== id));
+    if (selectedRef.current === id) {
+      selectedRef.current = '';
+      setSelected('');
+      setDetail(undefined);
+    }
+  }, []);
   const saveChat = useCallback(
     async (chat: ChatDetail) => {
       const value = structuredClone(chat);
-      const summary: ChatSummary = {
-        id: value.id,
-        title: value.title,
-        providerId: value.providerId,
-        model: value.model,
-        effort: value.effort,
-        updatedAt: value.updatedAt,
-      };
+      if (!(await store.saveChat(value))) {
+        forgetChat(chat.id);
+        throw new DeletedChatError();
+      }
       publish(value);
-      await store.write([
-        { kind: 'chat', id: chat.id, value },
-        { kind: 'summary', id: chat.id, value: summary },
-      ]);
       channel.current?.postMessage({ type: 'updated', id: chat.id });
     },
-    [publish, store],
+    [forgetChat, publish, store],
   );
   const readChat = useCallback(
     async (id: string) => {
-      let chat = memory.current.get(id) || (await store.read<ChatDetail>('chat', id));
+      let chat =
+        (jobs.current.has(id) && memory.current.get(id)) ||
+        (await store.read<ChatDetail>('chat', id));
       if (!chat) return undefined;
       if (!jobs.current.has(id) && chat.messages.some((message) => message.status === 'running')) {
         const recover = async () => {
-          chat = structuredClone(chat!);
-          chat.uncertain = true;
-          for (const message of chat.messages)
-            if (message.status === 'running') {
-              message.status = 'interrupted';
-              if (message.role === 'assistant')
-                message.error = '页面关闭或连接中断，已有内容已保留；请求结果未知，不会自动重发。';
-            }
-          await saveChat(chat);
+          chat = await store.recoverChat(id);
+          if (chat) publish(chat);
+          channel.current?.postMessage({ type: 'updated', id });
         };
         if (navigator.locks)
           await navigator.locks.request(
@@ -179,12 +188,14 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
               if (lock) await recover();
             },
           );
-        else await recover();
+        // Without Web Locks we cannot distinguish an orphan from another tab's
+        // live request. Leave persistent state intact rather than guessing.
       }
-      memory.current.set(id, chat);
+      if (chat) memory.current.set(id, chat);
+      else memory.current.delete(id);
       return chat;
     },
-    [saveChat, scope, store],
+    [publish, scope, store],
   );
   const refresh = useCallback(async () => {
     const [providers, summaries] = await Promise.all([
@@ -214,6 +225,10 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           }
           return;
         }
+        if (type === 'deleted') {
+          forgetChat(id);
+          return;
+        }
         if (type === 'updated' && !jobs.current.has(id)) {
           memory.current.delete(id);
           void refresh()
@@ -241,7 +256,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       bus?.close();
       channel.current = null;
     };
-  }, [refresh, scope, store]);
+  }, [forgetChat, refresh, scope, store]);
   useEffect(() => {
     let cancelled = false;
     stick.current = true;
@@ -275,10 +290,12 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
   }, [selected, active, readChat]);
   useEffect(() => {
     const viewport = window.visualViewport;
-    const resize = () =>
+    const resize = () => {
+      if (viewport && viewport.scale !== 1) return;
       document
         .querySelector<HTMLElement>('.api-chat')
         ?.style.setProperty('--app-height', `${viewport?.height || window.innerHeight}px`);
+    };
     viewport?.addEventListener('resize', resize);
     resize();
     document.documentElement.dataset.theme =
@@ -296,19 +313,20 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     try {
       persist(`agentdeck.api.drafts.${scope}`, drafts);
     } catch {
-      setError('草稿无法保存到本地，请检查浏览器空间；请勿关闭页面');
+      setError(t('草稿无法保存到本地，请检查浏览器空间；请勿关闭页面'));
     }
   }, [scope, drafts]);
   useEffect(() => {
     try {
       persist(`agentdeck.api.choices.${scope}`, choices);
     } catch {
-      setError('模型选择无法保存到本地，请检查浏览器空间');
+      setError(t('模型选择无法保存到本地，请检查浏览器空间'));
     }
   }, [scope, choices]);
   async function execute(confirmed = false) {
     if (
       sending.current ||
+      !navigator.locks ||
       busy ||
       loading ||
       active ||
@@ -322,11 +340,11 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       return;
     }
     if (new TextEncoder().encode(text).length > 12000) {
-      setError('单条消息最多 12,000 字节，请缩短后发送');
+      setError(t('单条消息最多 12,000 字节，请缩短后发送'));
       return;
     }
     if (jobs.current.size >= 2) {
-      setError('请先完成或停止正在生成的对话');
+      setError(t('请先完成或停止正在生成的对话'));
       return;
     }
     const original = selected,
@@ -373,7 +391,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           )
           .map(({ role, content }) => ({ role, content }));
         if (new TextEncoder().encode(JSON.stringify(context)).length > 512 * 1024)
-          throw new Error('对话过长，请新建对话');
+          throw new Error(t('对话过长，请新建对话'));
         const user = {
           id: crypto.randomUUID(),
           requestId,
@@ -403,12 +421,12 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           latest.baseUrl !== provider.baseUrl ||
           !latest.models.includes(selectedChoice.model)
         )
-          throw new Error('接口配置已变化，请刷新设置后重试');
+          throw new Error(t('接口配置已变化，请刷新设置后重试'));
         if (
           selectedChoice.effort &&
           !latest.modelEfforts?.[selectedChoice.model]?.includes(selectedChoice.effort)
         )
-          throw new Error('此模型不支持当前思考强度，请重新选择');
+          throw new Error(t('此模型不支持当前思考强度，请重新选择'));
         const key = await getKey(latest.keyId || latest.id, controller.signal);
         controller.signal.throwIfAborted();
         requestStarted = true;
@@ -466,12 +484,13 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             : 'complete';
         if (controller.signal.aborted && !job.stopped) {
           chat.uncertain = true;
-          assistant.error = '生成已中断，已有内容已保留。';
+          assistant.error = t('生成已中断，已有内容已保留。');
         }
         await saveChat(chat);
       } catch (cause) {
         clearTimeout(flushTimer);
         await pendingWrite;
+        if (cause instanceof DeletedChatError) return;
         if (chat?.messages.at(-1)?.requestId === requestId) {
           const user = chat.messages.at(-2)!,
             assistant = chat.messages.at(-1)!;
@@ -482,17 +501,18 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           assistant.error = job.stopped
             ? undefined
             : controller.signal.aborted
-              ? '生成已中断，已有内容已保留。'
+              ? t('生成已中断，已有内容已保留。')
               : String(cause);
           try {
             await saveChat(chat);
           } catch (storageError) {
+            if (storageError instanceof DeletedChatError) return;
             publish(chat);
             if (mounted.current) setError(String(storageError));
           }
         }
         if (mounted.current && !job.stopped)
-          setError(controller.signal.aborted ? '生成已中断，已有内容已保留。' : String(cause));
+          setError(controller.signal.aborted ? t('生成已中断，已有内容已保留。') : String(cause));
       } finally {
         clearTimeout(timer);
         clearTimeout(flushTimer);
@@ -512,11 +532,10 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           `agentchat:${scope}:${id}`,
           { ifAvailable: true },
           async (lock) => {
-            if (!lock) throw new Error('此对话正在其他标签页生成，请稍后再试');
+            if (!lock) throw new Error(t('此对话正在其他标签页生成，请稍后再试'));
             await run();
           },
         );
-      else await run();
     } catch (error) {
       if (mounted.current) {
         setError(String(error));
@@ -542,22 +561,22 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     <div className={`shell api-chat ${sidebar ? 'with-sidebar' : ''}`}>
       <button
         className={`sidebar-scrim ${sidebar ? 'visible' : ''}`}
-        aria-label="关闭侧栏"
+        aria-label={t('关闭侧栏')}
         onClick={() => setSidebar(false)}
       />
       <aside className={`sidebar ${sidebar ? 'open' : ''}`} inert={!sidebar} aria-hidden={!sidebar}>
         <div className="sidebar-brand">
           {modeControl}
-          <IconButton icon={Menu} label="收起会话列表" onClick={() => setSidebar(false)} />
+          <IconButton icon={Menu} label={t('收起会话列表')} onClick={() => setSidebar(false)} />
         </div>
         <div className="sidebar-primary">
           <button disabled={busy} onClick={() => select('')}>
             <MessageSquarePlus size={19} />
-            新对话
+            {t('新对话')}
           </button>
           <IconButton
             icon={Search}
-            label="搜索对话"
+            label={t('搜索对话')}
             onClick={() => document.getElementById('api-chat-search')?.focus()}
           />
         </div>
@@ -565,13 +584,13 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           <Search size={15} />
           <input
             id="api-chat-search"
-            aria-label="搜索对话"
-            placeholder="搜索对话"
+            aria-label={t('搜索对话')}
+            placeholder={t('搜索对话')}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
-        <MotionList as="nav" className="sidebar-scroll api-chat-list" label="AgentChat 记录">
+        <MotionList as="nav" className="sidebar-scroll api-chat-list" label={t('AgentChat 记录')}>
           {chats
             .filter((chat) => chat.title.toLowerCase().includes(search.toLowerCase()))
             .map((chat) => (
@@ -585,7 +604,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                 </button>
                 <IconButton
                   icon={Trash2}
-                  label={`删除对话 ${chat.title}`}
+                  label={t('删除对话 {{p0}}', { p0: chat.title })}
                   disabled={
                     busy ||
                     memory.current
@@ -596,12 +615,12 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                 />
               </div>
             ))}
-          {!chats.length && <p className="api-list-empty">对话会保存在这里</p>}
+          {!chats.length && <p className="api-list-empty">{t('对话会保存在这里')}</p>}
         </MotionList>
         <div className="sidebar-footer">
           <button onClick={() => setSettings(true)}>
             <Settings size={18} />
-            设置
+            {t('设置')}
           </button>
         </div>
       </aside>
@@ -610,15 +629,15 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
           <header className="topbar">
             <IconButton
               icon={Menu}
-              label="打开会话列表"
+              label={t('打开会话列表')}
               onClick={() => setSidebar(!sidebar)}
               className={sidebar ? 'rail-toggle' : ''}
             />
             {!sidebar && modeControl}
             <span className="api-top-title">
-              {selected ? detail?.title || 'AgentChat' : '新对话'}
+              {selected ? detail?.title || 'AgentChat' : t('新对话')}
             </span>
-            <IconButton icon={Settings} label="设置" onClick={() => setSettings(true)} />
+            <IconButton icon={Settings} label={t('设置')} onClick={() => setSettings(true)} />
           </header>
           <div
             className="timeline api-timeline"
@@ -632,11 +651,13 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             {!selected ? (
               <div className="api-welcome">
                 <MessageCircle size={32} strokeWidth={1.3} />
-                <h1>有什么想聊的？</h1>
-                <p>{providers.length ? '选择模型，开始一段对话' : '添加你的 API，随时开始对话'}</p>
+                <h1>{t('有什么想聊的？')}</h1>
+                <p>
+                  {providers.length ? t('选择模型，开始一段对话') : t('添加你的 API，随时开始对话')}
+                </p>
                 {!providers.length && (
                   <button onClick={() => setSettings(true)} disabled={loading}>
-                    打开设置
+                    {t('打开设置')}
                   </button>
                 )}
               </div>
@@ -644,7 +665,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
               <div ref={contentMotion} className="api-messages">
                 {loading && !detail && (
                   <p className="muted" role="status">
-                    正在读取对话…
+                    {t('正在读取对话…')}
                   </p>
                 )}
                 {detail?.messages.map((message) => (
@@ -653,7 +674,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                       <Markdown
                         text={
                           message.content ||
-                          (message.status === 'running' ? '正在思考…' : '未收到回复')
+                          (message.status === 'running' ? t('正在思考…') : t('未收到回复'))
                         }
                       />
                     </div>
@@ -661,43 +682,48 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                       <div className="api-message-actions">
                         <IconButton
                           icon={Copy}
-                          label="复制回复"
+                          label={t('复制回复')}
                           disabled={!message.content}
                           onClick={() => {
                             void navigator.clipboard
                               .writeText(message.content)
-                              .catch(() => setError('复制失败，请手动选择文字'));
+                              .catch(() => setError(t('复制失败，请手动选择文字')));
                           }}
                         />
                         {message.status === 'running' ? (
-                          <span role="status">生成中</span>
+                          <span role="status">{t('生成中')}</span>
                         ) : message.status === 'stopped' ? (
-                          <span>已停止</span>
+                          <span>{t('已停止')}</span>
                         ) : null}
                       </div>
                     )}
-                    {message.error && <p className="api-feedback">{message.error}</p>}
+                    {message.error && <p className="api-feedback">{errorText(message.error)}</p>}
                   </article>
                 ))}
               </div>
             )}
           </div>
           <div className="api-composer-area">
+            {!navigator.locks && (
+              <p className="api-feedback" role="alert">
+                {t('当前浏览器无法安全协调多标签页，请使用支持 Web Locks 的浏览器发送消息。')}
+              </p>
+            )}
             {error && (
               <div className="api-feedback" role="alert">
-                {error}
+                {errorText(error)}
                 <button
                   className="text-button"
                   onClick={() => {
                     void refresh().catch((error) => setError(String(error)));
                   }}
                 >
-                  刷新会话
+                  {t('刷新会话')}
                 </button>
               </div>
             )}
             {!available && !!providers.length && (
-              <p className="api-feedback">请选择可用模型，或重新配置此对话的 API。</p>
+              <p className="api-feedback">{t('请选择可用模型，或重新配置此对话的 API。')}</p>
             )}
           </div>
           <Composer
@@ -710,7 +736,9 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             disabled={false}
             busy={busy && !active}
             active={!!active}
-            sendBlocked={loading || !enabled || !available || (!!selected && !detail)}
+            sendBlocked={
+              loading || !navigator.locks || !enabled || !available || (!!selected && !detail)
+            }
             permission="workspace"
             onPermission={() => {}}
             onChange={changeDraft}
@@ -734,31 +762,28 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       </MotionPresence>
       <MotionPresence>
         {confirmSend && (
-          <Modal compact title="上次请求结果未知" onClose={() => setConfirmSend(false)}>
-            <p>直连请求无法查询发送回执。再次发送可能产生重复用量。</p>
+          <Modal compact title={t('上次请求结果未知')} onClose={() => setConfirmSend(false)}>
+            <p>{t('直连请求无法查询发送回执。再次发送可能产生重复用量。')}</p>
             <div className="button-row">
-              <button onClick={() => void execute(true)}>仍然发送</button>
-              <button onClick={() => setConfirmSend(false)}>保留草稿</button>
+              <button onClick={() => void execute(true)}>{t('仍然发送')}</button>
+              <button onClick={() => setConfirmSend(false)}>{t('保留草稿')}</button>
             </div>
           </Modal>
         )}
       </MotionPresence>
       <MotionPresence>
         {deleting && (
-          <Modal compact title="删除对话" onClose={() => setDeleting('')}>
-            <p>删除此浏览器中的对话记录？</p>
+          <Modal compact title={t('删除对话')} onClose={() => setDeleting('')}>
+            <p>{t('删除此浏览器中的对话记录？')}</p>
             <div className="button-row">
               <button
                 disabled={busy}
                 onClick={() => {
                   setBusy(true);
                   void store
-                    .write([
-                      { kind: 'chat', id: deleting },
-                      { kind: 'summary', id: deleting },
-                    ])
+                    .deleteChat(deleting)
                     .then(async () => {
-                      memory.current.delete(deleting);
+                      forgetChat(deleting);
                       setDrafts((values) => {
                         const next = { ...values };
                         delete next[deleting];
@@ -770,7 +795,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                         return next;
                       });
                       if (selected === deleting) select('');
-                      channel.current?.postMessage({ type: 'updated', id: deleting });
+                      channel.current?.postMessage({ type: 'deleted', id: deleting });
                       setDeleting('');
                       await refresh();
                     })
@@ -778,9 +803,9 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
                     .finally(() => setBusy(false));
                 }}
               >
-                删除对话
+                {t('删除对话')}
               </button>
-              <button onClick={() => setDeleting('')}>取消</button>
+              <button onClick={() => setDeleting('')}>{t('取消')}</button>
             </div>
           </Modal>
         )}

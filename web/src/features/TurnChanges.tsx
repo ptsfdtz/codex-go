@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 import { MotionPresence, useContentMotion } from '../motion';
 import { useId, useState } from 'react';
 import { FileDiff } from 'lucide-react';
@@ -12,6 +13,7 @@ export function TurnChanges({
   entries: HistoryEntry[];
   projectRoot?: string;
 }) {
+  useLocale();
   const files = turnChanges(entries),
     duration = workDuration(entries);
   const [open, setOpen] = useState(false),
@@ -24,16 +26,16 @@ export function TurnChanges({
     projectRelativePath(path, projectRoot) || path.replaceAll('\\', '/').split('/').pop() || path;
   return (
     <>
-      {duration && <div className="work-duration">Worked for {duration}</div>}
+      {duration && <div className="work-duration">{t('task.duration', { duration })}</div>}
       {files.length > 0 && (
         <div className="turn-changes">
           <div className="changes-header">
             <FileDiff size={17} />
-            <strong>{files.length} files changed</strong>
+            <strong>{t('files.changed', { count: files.length })}</strong>
             <span className="diff-count-add">+{files.reduce((n, f) => n + f.added, 0)}</span>
             <span className="diff-count-remove">−{files.reduce((n, f) => n + f.removed, 0)}</span>
             <button className="text-button" onClick={() => setOpen(true)}>
-              View changes
+              {t('View changes')}
             </button>
           </div>
           {files.slice(0, expanded ? files.length : 3).map((f) => (
@@ -52,7 +54,7 @@ export function TurnChanges({
           ))}
           {files.length > 3 && (
             <button className="text-button" onClick={() => setExpanded(!expanded)}>
-              {expanded ? 'Show less' : `Show ${files.length - 3} more`}
+              {expanded ? t('Show less') : t('files.showMore', { count: files.length - 3 })}
             </button>
           )}
         </div>
@@ -60,12 +62,12 @@ export function TurnChanges({
       <MotionPresence>
         {open && file && (
           <Modal
-            title="改动预览"
+            title={t('改动预览')}
             wide
             className="changes-preview"
             onClose={() => setOpen(false)}
             header={
-              <div className="changes-tabs" role="tablist" aria-label="改动文件">
+              <div className="changes-tabs" role="tablist" aria-label={t('改动文件')}>
                 {files.map((f) => (
                   <button
                     key={f.path}

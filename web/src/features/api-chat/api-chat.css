@@ -22,15 +22,16 @@
 }
 .mode-menu {
   position: fixed;
-  inset: 54px auto auto 10px;
+  inset: auto;
   margin: 0;
   width: 264px;
   padding: 6px;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--soft);
+  border-radius: var(--radius-popover);
+  background: var(--bg);
   color: var(--text);
-  box-shadow: var(--shadow);
+  box-shadow: var(--menu-shadow);
+  overflow-y: auto;
 }
 .mode-menu > button {
   width: 100%;

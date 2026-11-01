@@ -130,16 +130,21 @@ pub fn filtered_path(path: &str) -> String {
         .join(";")
 }
 pub fn args() -> Vec<String> {
+    args_for_platform(std::env::consts::OS)
+}
+fn args_for_platform(platform: &str) -> Vec<String> {
     let mut args: Vec<String> = ["app-server", "--listen", "stdio://"]
         .iter()
         .map(|s| s.to_string())
         .collect();
-    #[cfg(windows)]
-    args.extend(["-c", "windows.sandbox=\"mxc\""].map(str::to_string));
-    // macOS keeps a legacy sandbox_mode even when a permissions profile is
-    // active. Override a broader user setting before the managed server starts.
-    #[cfg(target_os = "macos")]
-    args.extend(["-c", "sandbox_mode=\"workspace-write\""].map(str::to_string));
+    if platform == "windows" {
+        args.extend(["-c", "windows.sandbox=\"mxc\""].map(str::to_string));
+    }
+    // Windows and macOS can keep a legacy sandbox_mode alongside the named
+    // profile. Override broader user defaults for this process, not on disk.
+    if ["windows", "macos"].contains(&platform) {
+        args.extend(["-c", "sandbox_mode=\"workspace-write\""].map(str::to_string));
+    }
     args.extend(
         [
             "-c",
@@ -217,6 +222,9 @@ pub fn check_policy(v: &Value) -> Result<()> {
     check_policy_for(v, executable.as_deref())
 }
 pub fn check_policy_for(v: &Value, executable: Option<&Path>) -> Result<()> {
+    check_policy_for_platform(v, executable, std::env::consts::OS)
+}
+fn check_policy_for_platform(v: &Value, executable: Option<&Path>, platform: &str) -> Result<()> {
     let package_root = executable
         .and_then(Path::parent)
         .and_then(Path::parent)
@@ -224,17 +232,43 @@ pub fn check_policy_for(v: &Value, executable: Option<&Path>) -> Result<()> {
     let c = &v["config"];
     let profile = &c["permissions"]["agentdeck"];
     let fs = &profile["filesystem"];
-    let sandbox_mode = if cfg!(target_os = "macos") {
-        c["sandbox_mode"] == "workspace-write"
-    } else {
-        c["sandbox_mode"].is_null()
+    let sandbox_mode = match platform {
+        "windows" => c["sandbox_mode"].is_null() || c["sandbox_mode"] == "workspace-write",
+        "macos" => c["sandbox_mode"] == "workspace-write",
+        _ => c["sandbox_mode"].is_null(),
+    };
+    // Report only recognized policy names; unknown configuration values may
+    // contain private data and must not be echoed into status or diagnostics.
+    let observed_mode = match &c["sandbox_mode"] {
+        Value::Null => "unset",
+        Value::String(mode)
+            if ["read-only", "workspace-write", "danger-full-access"].contains(&mode.as_str()) =>
+        {
+            mode.as_str()
+        }
+        _ => "unrecognized value",
     };
     ensure(
-        c["default_permissions"] == "agentdeck"
-            && sandbox_mode
-            && profile["extends"] == ":workspace",
+        sandbox_mode,
         "UNSAFE_UPSTREAM_CONFIG",
-        "Workspace permission profile overridden",
+        &format!(
+            "Codex permission configuration conflict: sandbox_mode is {observed_mode}, expected {}; shared runtime must reload Host startup settings",
+            match platform {
+                "windows" => "workspace-write or unset",
+                "macos" => "workspace-write",
+                _ => "unset",
+            }
+        ),
+    )?;
+    ensure(
+        c["default_permissions"] == "agentdeck",
+        "UNSAFE_UPSTREAM_CONFIG",
+        "Codex permission configuration conflict: default_permissions must be agentdeck",
+    )?;
+    ensure(
+        profile["extends"] == ":workspace",
+        "UNSAFE_UPSTREAM_CONFIG",
+        "Codex permission configuration conflict: permissions.agentdeck.extends must be :workspace",
     )?;
     ensure(
         fs[":root"] == "deny"
@@ -245,7 +279,7 @@ pub fn check_policy_for(v: &Value, executable: Option<&Path>) -> Result<()> {
                 o.iter().all(|(k, v)| {
                     [":root", ":minimal", ":tmpdir", ":slash_tmp"].contains(&k.as_str())
                         || (k == "glob_scan_max_depth" && v.is_null())
-                        || (cfg!(target_os = "linux")
+                        || (platform == "linux"
                             && package_root.as_deref() == Some(k)
                             && v == "read")
                 })
@@ -404,6 +438,9 @@ impl Drop for Job {
         }
     }
 }
+#[cfg(test)]
+#[path = "workspace_policy_tests.rs"]
+mod workspace_policy_tests;
 #[cfg(test)]
 mod shared_resume_policy_tests {
     use super::*;

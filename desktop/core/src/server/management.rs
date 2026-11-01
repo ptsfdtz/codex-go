@@ -134,7 +134,8 @@ async fn control(State(state): State<Arc<Control>>, Json(request): Json<Value>) 
                 }
                 crate::host::update_job::ensure_idle(
                     &state.core.store,
-                    !state.core.busy.lock().unwrap().is_empty(),
+                    !state.core.busy.lock().unwrap().is_empty()
+                        || state.core.ssh_terminals.is_active(),
                 )?;
                 state
                     .core

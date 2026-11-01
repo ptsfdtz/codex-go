@@ -1,5 +1,6 @@
+import { t } from '../i18n';
 import type { HistoryEntry } from '../history';
-import { contentText } from '../RichContent';
+import { contentText } from '../content-text';
 export type Question = {
   id: string;
   title: string;
@@ -28,7 +29,7 @@ export function messageQuestions(entry: HistoryEntry): Question[] {
   );
 }
 export function replyText(entry: HistoryEntry, answers: Record<string, string>) {
-  if (!entry.item?.id) throw new Error('问题身份缺失，请刷新会话');
+  if (!entry.item?.id) throw new Error(t('问题身份缺失，请刷新会话'));
   const responses = messageQuestions(entry).flatMap((q) =>
     answers[q.id]?.trim()
       ? [
@@ -44,9 +45,9 @@ export function replyText(entry: HistoryEntry, answers: Record<string, string>) 
         ]
       : [],
   );
-  if (!responses.length) throw new Error('请填写回答');
+  if (!responses.length) throw new Error(t('请填写回答'));
   const text = `<send_user_message_question_reply>\n${JSON.stringify(responses)}\n</send_user_message_question_reply>`;
-  if (text.length > 64000) throw new Error('回答合计不能超过 64000 字符');
+  if (text.length > 64000) throw new Error(t('回答合计不能超过 64000 字符'));
   return text;
 }
 export function confirmedAnswers(history: HistoryEntry[], itemId: string) {

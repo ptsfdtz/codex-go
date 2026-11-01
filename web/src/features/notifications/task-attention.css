@@ -1,0 +1,22 @@
+.notification-badge-button {
+  position: relative;
+}
+.notification-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--notification-blue);
+  flex-shrink: 0;
+}
+.notification-badge-button > .notification-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.session-unread-dot {
+  margin-right: 2px;
+}
+.desktop-session-row:has(.session-unread-dot) > .session {
+  color: var(--text);
+}

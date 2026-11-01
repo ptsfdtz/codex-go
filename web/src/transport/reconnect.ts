@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 export type ConnectionState =
   | 'connecting'
   | 'syncing'
@@ -7,20 +8,32 @@ export type ConnectionState =
   | 'stopped';
 
 export const connectionLabels: Record<ConnectionState, string> = {
-  connected: '已连接',
-  syncing: '已连接，正在同步',
-  connecting: '正在连接',
-  retrying: '正在重新连接',
-  blocked: '连接需要处理',
-  stopped: '未连接',
+  get connected() {
+    return t('已连接');
+  },
+  get syncing() {
+    return t('已连接，正在同步');
+  },
+  get connecting() {
+    return t('正在连接');
+  },
+  get retrying() {
+    return t('正在重新连接');
+  },
+  get blocked() {
+    return t('连接需要处理');
+  },
+  get stopped() {
+    return t('未连接');
+  },
 };
 
 export function connectionError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (/TimeoutError|timed out|timeout/i.test(message))
-    return '连接请求超时，正在自动重试；电脑在线不代表浏览器连接已完成。';
+    return t('连接请求超时，正在自动重试；电脑在线不代表浏览器连接已完成。');
   if (/Cloud tunnel|relay|Failed to fetch|NetworkError|network|LAN unavailable/i.test(message))
-    return '浏览器到电脑的连接暂时不可用，正在自动重试。';
+    return t('浏览器到电脑的连接暂时不可用，正在自动重试。');
   return message;
 }
 
@@ -28,7 +41,7 @@ export function connectionError(error: unknown): string {
 // failures may retry; mutations are never part of this loop.
 export function retryable(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return !/certificate|pin\b|identity|authorization|credential|UNAUTHORIZED|FORBIDDEN|REVOKED|AUTH_|DEVICE_|ACCOUNT_|storage|stored|grant|SecurityError|QuotaExceeded|OperationError|配对|回执|存储|身份|授权|账户|浏览器不支持/i.test(
+  return !/certificate|pin\b|identity|authorization|credential|UNAUTHORIZED|FORBIDDEN|REVOKED|AUTH_|DEVICE_|ACCOUNT_|storage|stored|grant|pairing|receipt|identity|authorization|account|browser does not support|SecurityError|QuotaExceeded|OperationError|配对|回执|存储|身份|授权|账户|浏览器不支持/i.test(
     message,
   );
 }

@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../i18n';
 import { useEffect, useState } from 'react';
 import { api } from '../cloud';
 import type { Host } from '../workspace';
@@ -10,6 +11,7 @@ export function HostNameEditor({
   host: Host;
   onSaved: (name: HostName) => void;
 }) {
+  useLocale();
   const [value, setValue] = useState(host.customName || '');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,7 +39,7 @@ export function HostNameEditor({
   return (
     <div className="panel-stack">
       <label className="host-label">
-        电脑显示名称
+        {t('电脑显示名称')}
         <input
           value={value}
           maxLength={80}
@@ -51,13 +53,13 @@ export function HostNameEditor({
       </label>
       <div>
         <button disabled={saving || !dirty} onClick={() => void save()}>
-          {saving ? '保存中…' : '保存名称'}
+          {saving ? t('保存中…') : t('保存名称')}
         </button>
       </div>
-      <small className="muted">留空恢复默认名称</small>
+      <small className="muted">{t('留空恢复默认名称')}</small>
       {error && (
         <p className="error" role="alert">
-          {error}
+          {errorText(error)}
         </p>
       )}
     </div>

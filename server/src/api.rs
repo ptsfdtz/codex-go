@@ -102,6 +102,36 @@ pub fn router(state: Arc<State>) -> Router {
             }),
         )
         .route(
+            "/admin/i18n.js",
+            get(|| async {
+                (
+                    [(
+                        header::CONTENT_TYPE,
+                        "application/javascript; charset=utf-8",
+                    )],
+                    include_str!("../admin/i18n.js"),
+                )
+            }),
+        )
+        .route(
+            "/admin/locales/en.json",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+                    include_str!("../../web/src/i18n/en.json"),
+                )
+            }),
+        )
+        .route(
+            "/admin/locales/zh-CN.json",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+                    include_str!("../../web/src/i18n/zh-CN.json"),
+                )
+            }),
+        )
+        .route(
             "/admin/style.css",
             get(|| async {
                 (

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, Event */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -6,7 +7,7 @@ const out = new URL('../../artifacts/selection-quote/', import.meta.url);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/api/**', (route) => route.abort());
@@ -105,7 +106,7 @@ try {
   await button.waitFor();
   const rect = await button.boundingBox();
   assert(rect.x >= 0 && rect.x + rect.width <= 390);
-  await page.screenshot({ path: new URL('mobile-selected.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('mobile-selected.png', out)) });
   await button.click();
   const draft = await page.getByLabel('消息', { exact: true }).inputValue();
   assert(draft.startsWith('已有草稿\n\n> '));
@@ -113,7 +114,7 @@ try {
   assert(draft.endsWith('\n\n'));
   assert.equal(await page.evaluate(() => window.quoteCalls), 1);
   await button.waitFor({ state: 'hidden' });
-  await page.screenshot({ path: new URL('mobile-added.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('mobile-added.png', out)) });
   await select('#text');
   await button.waitFor();
   await page.keyboard.press('Escape');
@@ -132,7 +133,7 @@ try {
   await page.waitForTimeout(200);
   await select('#text');
   await button.waitFor();
-  await page.screenshot({ path: new URL('desktop-selected.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('desktop-selected.png', out)) });
   await page.evaluate(() => window.dispatchEvent(new Event('scroll')));
   await button.waitFor({ state: 'hidden' });
   assert.deepEqual(errors, []);

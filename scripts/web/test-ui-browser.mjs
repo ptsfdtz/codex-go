@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, localStorage, getComputedStyle */
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
@@ -7,7 +8,10 @@ const out = new URL('../../artifacts/ui-refresh/', import.meta.url);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 try {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 850 } });
+  const context = await browser.newContext({
+    locale: 'zh-CN',
+    viewport: { width: 1280, height: 850 },
+  });
   await context.addInitScript(() => {
     localStorage.setItem('agentdeck.web.work-mode', '"codex"');
     localStorage.setItem('agentdeck.web.theme', 'light');
@@ -58,7 +62,7 @@ try {
       await page.locator('.topbar').getByRole('button', { name: '新建会话', exact: true }).count(),
       0,
     );
-    await page.screenshot({ path: new URL(`header-${width}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`header-${width}.png`, out)) });
   }
   await page.locator('.topbar .icon-button').first().click();
   await page.waitForTimeout(350);
@@ -67,14 +71,17 @@ try {
   const dialog = page.getByRole('dialog', { name: '设置', exact: true });
   await dialog.waitFor();
   const nav = page.getByRole('navigation', { name: '设置分类' });
+  await nav.waitFor();
   assert.equal(await nav.getByRole('button').count(), 8);
   assert.equal(await nav.getByRole('button', { name: '电脑', exact: true }).innerText(), '电脑');
   assert.equal(await dialog.getByText('选择适合你的界面主题。').count(), 0);
-  await page.getByRole('combobox', { name: '外观', exact: true }).selectOption('dark');
+  await page.getByRole('combobox', { name: '外观', exact: true }).click();
+  await page.getByRole('option', { name: '深色', exact: true }).click();
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
   await page.waitForTimeout(220);
-  await page.screenshot({ path: new URL('settings-dark.png', out).pathname });
-  await page.getByRole('combobox', { name: '外观', exact: true }).selectOption('light');
+  await page.screenshot({ path: fileURLToPath(new URL('settings-dark.png', out)) });
+  await page.getByRole('combobox', { name: '外观', exact: true }).click();
+  await page.getByRole('option', { name: '浅色', exact: true }).click();
   await nav.getByRole('button', { name: '对话', exact: true }).click();
   const before = await dialog.boundingBox();
   await page.getByRole('button', { name: '未发送草稿', exact: true }).click();
@@ -97,7 +104,7 @@ try {
     await page.locator('.settings-body').evaluate((node) => node.getAnimations().length),
     0,
   );
-  await page.screenshot({ path: new URL('settings-light.png', out).pathname });
+  await page.screenshot({ path: fileURLToPath(new URL('settings-light.png', out)) });
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
   assert(await settings.evaluate((node) => document.activeElement === node));
@@ -112,7 +119,7 @@ try {
     assert.equal(Math.round(box.width), width);
     await nav.getByRole('button', { name: '常规', exact: true }).click();
     await page.waitForTimeout(220);
-    await page.screenshot({ path: new URL(`settings-${width}.png`, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(`settings-${width}.png`, out)) });
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'hidden' });
     await page.setViewportSize({ width: 1280, height: 850 });

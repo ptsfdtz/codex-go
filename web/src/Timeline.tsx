@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { Component, createRef, type ReactNode } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { motionDuration, MotionPresence } from './motion';
@@ -183,7 +184,7 @@ export class Timeline extends Component<
           }
         }}
         tabIndex={0}
-        aria-label="会话消息"
+        aria-label={t('会话消息')}
         onTouchStart={(event) => {
           if ((event.target as HTMLElement).closest('textarea, input, [contenteditable="true"]')) {
             this.touchY = undefined;
@@ -210,8 +211,8 @@ export class Timeline extends Component<
           {this.state.away && (
             <button
               className="ghost follow-latest"
-              aria-label={this.state.unread ? '有新进展，查看最新' : '回到最新'}
-              title={this.state.unread ? '有新进展，查看最新' : '回到最新'}
+              aria-label={this.state.unread ? t('有新进展，查看最新') : t('回到最新')}
+              title={this.state.unread ? t('有新进展，查看最新') : t('回到最新')}
               onClick={() => {
                 this.following = true;
                 this.userIntent = false;

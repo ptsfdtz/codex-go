@@ -1,6 +1,9 @@
 import { createContext, useContext } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeKatex from 'rehype-katex';
+import { remarkChatMath } from './features/markdown/math';
+import 'katex/dist/katex.min.css';
 import { MessageImage, type MessageImageSource } from './features/message-images/MessageImage';
 
 const MessageImages = createContext<MessageImageSource | undefined>(undefined);
@@ -21,7 +24,8 @@ export function Markdown({
   return (
     <MessageImages.Provider value={images}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkChatMath]}
+        rehypePlugins={[[rehypeKatex, { trust: false, strict: 'ignore', maxSize: 20 }]]}
         skipHtml
         urlTransform={(url) => url}
         components={{

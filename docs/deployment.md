@@ -8,6 +8,12 @@
 
 2026-10-30 用户明确授权“本次豁免，正式发布 0.4.2”，范围记录在 `scripts/release/waivers/0.4.2.json`。`.github/workflows/publish-0.4.2.yml` 仅从 `release` 分支晋升固定哈希的原始候选，部署和下载发布脚本通过 `waiver_042.py` 校验身份与完整性；未测项目不生成通过报告。生产备份、健康、全量公开资源校验和禁止降级仍执行。此入口不能接受其他版本或重封候选，默认发布工作流和下述全平台门槛继续适用于后续发布。
 
+## 0.4.3 单次 Windows/macOS 豁免入口
+
+2026-11-01 用户授权“windows和macos目前无法验证 你先豁免”。范围仅为本次精确 `candidate-0.4.3` 的 Windows x64、macOS ARM64 实机端到端验收；这两平台仍记为未测。授权及候选哈希保存在 `scripts/release/waivers/0.4.3.json`，入口为 `.github/workflows/publish-0.4.3.yml`，不沿用 0.4.2 授权。
+
+`waiver_043.py` 先核对固定源码、候选清单、原始校验器与豁免记录，再执行原始候选完整性校验，并要求 Linux x64/ARM64 的六项真实验收、官方运行时及脱敏证据哈希全部有效。工作流固定候选及实测证据归档哈希，只晋升已合并 main 的原始产物；生产备份、禁止降级、服务健康、全部 Web/下载资源校验及 VPS→Pages→稳定指针的顺序保持。默认四平台 `gate.py` 和通用发布流程未放宽，后续版本不能使用此入口。
+
 ## 下载发布与 VPS
 
 ### 正式发布流程与强制验收
@@ -71,7 +77,7 @@ releases/版本号/agentdeck-macos-arm64.tar.gz[.sha256]
 
 使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64/ARM64 和 macOS arm64；单独运行打包命令仅生成 Host 包，不满足正式发布准入。完整候选版须包含 Web、云端、安装脚本、版本清单及实测证据；正式流程输出的 `agentdeck-downloads.tar.gz` 包含这些文件，供已通过门槛的部署使用。Linux ARM64 基于 Ubuntu 24.04，x64 基于 Ubuntu 22.04，macOS arm64 使用 GitHub macOS 15 runner；macOS 包未签名/公证。旧独立 Linux workflow 和桌面安装器发布路径已移除。
 
-Web 构建自动生成 `version.json`，与资源一同部署并保持该清单不缓存。
+Web 构建自动生成 `version.json`，与资源一同部署并保持该清单不缓存。生产 Nginx 的 Web 根目录指向独立符号链接 `/opt/agentdeck/web-current`，与云端程序入口 `/opt/agentdeck/current` 分开。单独 Web 部署保留旧入口与配置备份，校验公开版本和文件哈希；若需要平滑重载，等待新配置和版本生效后再判断结果，不仅凭 reload 命令返回认定上线成功。
 
 在服务器执行 `sh scripts/host/publish-downloads.sh 上传目录 /opt/agentdeck/downloads`，先核对包校验值、发布不可变版本文件，最后原子更新 `stable.txt`；旧版本保留。将 `server/deploy/downloads.nginx.conf` 的规则 include 到现有 HTTPS server block，同一 server block 中另 include `server/deploy/web-updates.nginx.conf` 并沿用 Web 根目录，确保版本清单 no-store、PWA worker/安装清单重新验证；执行 `nginx -t` 后 reload。下载规则不替换现有 `/api/`、`/admin`、Web 或隧道转发；单个平台尚未发布时返回 404，不退回 HTML 页面冒充程序。
 

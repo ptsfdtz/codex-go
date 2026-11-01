@@ -10,7 +10,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 820 } });
+    const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1200, height: 820 } });
     page.setDefaultTimeout(6000);
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
@@ -195,7 +195,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await page.waitForFunction(() => window.blobs.size === 0);
     await page.getByRole('button', { name: '移除附件 requirements.md' }).click();
     await page.getByRole('button', { name: '移除技能 review' }).click();
-    await page.getByRole('button', { name: '移除 Plan 模式' }).click();
+    await page.getByRole('button', { name: '移除 计划 模式' }).click();
     await page.evaluate(() => {
       const dt = new DataTransfer();
       dt.items.add(new File(['drop contents'], 'dropped.txt', { type: 'text/plain' }));
@@ -259,7 +259,8 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await page
       .locator('.composer-actions')
       .screenshot({ animations: 'disabled', path: out + 'actions-empty-dark.png' });
-    assert(await queue.isDisabled());
+    assert.equal(await queue.count(), 0);
+    assert(await page.getByRole('button', { name: '语音输入', exact: true }).isEnabled());
     await editor.fill('继续检查并完成任务');
     await page
       .locator('.composer-actions')

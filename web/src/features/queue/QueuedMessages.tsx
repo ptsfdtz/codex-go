@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Trash2, Clock, RefreshCw, Paperclip } from 'lucide-react';
 import { IconButton } from '../../ui';
@@ -35,6 +36,7 @@ export function QueuedMessages({
   uncertain: () => boolean;
   onChanged: () => void;
 }) {
+  useLocale();
   const [entries, setEntries] = useState<QueuedMessage[]>([]),
     [error, setError] = useState('');
   const [readError, setReadError] = useState(''),
@@ -81,7 +83,7 @@ export function QueuedMessages({
         .then((value) => {
           if (!current) return;
           if (value.sessionId !== sessionId || !Array.isArray(value.data))
-            throw new Error('队列会话身份不匹配');
+            throw new Error(t('队列会话身份不匹配'));
           setEntries(value.data);
           setReadError('');
           setFresh(true);
@@ -112,7 +114,7 @@ export function QueuedMessages({
         });
         if (!alive.current || source.current !== origin) return;
         if (turn.sessionId !== sessionId || !turn.upstreamTurnId)
-          throw new Error('当前任务已变化，请刷新队列后重试');
+          throw new Error(t('当前任务已变化，请刷新队列后重试'));
         await request('queue.steer', {
           sessionId,
           submissionId: entry.id,
@@ -126,7 +128,7 @@ export function QueuedMessages({
       }
     } catch (error) {
       if (alive.current && source.current === origin) {
-        setError(uncertain() ? '操作结果待确认，请核对队列和会话，勿重复发送。' : String(error));
+        setError(uncertain() ? t('操作结果待确认，请核对队列和会话，勿重复发送。') : String(error));
         setReload((value) => value + 1);
       }
     } finally {
@@ -136,15 +138,20 @@ export function QueuedMessages({
   }
   if (!enabled || (!entries.length && !error && !readError)) return null;
   return (
-    <section className="queued-messages" aria-label="待发送消息" aria-busy={loading || !!pending}>
+    <section
+      className="queued-messages"
+      aria-label={t('待发送消息')}
+      aria-busy={loading || !!pending}
+    >
       <div className="queued-heading">
         <span>
           <Clock size={13} />
-          待发送 <small>{entries.length}</small>
+          {t('待发送 ')}
+          <small>{entries.length}</small>
         </span>
         <IconButton
           icon={RefreshCw}
-          label="刷新待发送消息"
+          label={t('刷新待发送消息')}
           disabled={!!pending || loading}
           onClick={() => setReload((value) => value + 1)}
         />
@@ -160,13 +167,13 @@ export function QueuedMessages({
                   !!(part as { text_elements?: unknown[] }).text_elements?.length),
             );
           const reason = entry.deliveryState
-            ? entry.deliveryMessage || '请先核对会话，再删除这条记录'
+            ? entry.deliveryMessage || t('请先核对会话，再删除这条记录')
             : active && !canSteer
-              ? '升级 Host 后可补充到当前任务'
+              ? t('升级 Host 后可补充到当前任务')
               : active && resources
-                ? '含资源的消息保留在队列中，任务空闲后可提前发送'
+                ? t('含资源的消息保留在队列中，任务空闲后可提前发送')
                 : !active && !canStart
-                  ? '当前电脑不支持提前发送'
+                  ? t('当前电脑不支持提前发送')
                   : '';
           return (
             <div className="queued-message" key={entry.id}>
@@ -182,7 +189,7 @@ export function QueuedMessages({
                     )
                   }
                 >
-                  {text || '资源消息'}
+                  {text || t('资源消息')}
                 </button>
                 {expanded.includes(entry.id) && <FileReferences parts={entry.input} />}
                 {entry.deliveryState && <small className="queued-reason">{reason}</small>}
@@ -191,28 +198,30 @@ export function QueuedMessages({
                 {resources && (
                   <span
                     className="queued-resource"
-                    title="包含附件、技能或引用"
-                    aria-label="包含附件、技能或引用"
+                    title={t('包含附件、技能或引用')}
+                    aria-label={t('包含附件、技能或引用')}
                     role="img"
                   >
                     <Paperclip size={14} />
                   </span>
                 )}
                 <span
-                  title={reason || (active ? '补充到当前任务，不停止运行' : '立即发送这条消息')}
+                  title={
+                    reason || (active ? t('补充到当前任务，不停止运行') : t('立即发送这条消息'))
+                  }
                   tabIndex={reason ? 0 : undefined}
                   aria-label={reason || undefined}
                 >
                   <IconButton
                     icon={ArrowUp}
-                    label={`提前发送消息 ${entry.id}`}
+                    label={t('提前发送消息 {{p0}}', { p0: entry.id })}
                     disabled={disabled || loading || !fresh || !!pending || !!reason}
                     onClick={() => void mutate('send', entry)}
                   />
                 </span>
                 <IconButton
                   icon={Trash2}
-                  label={`删除待发送消息 ${entry.id}`}
+                  label={t('删除待发送消息 {{p0}}', { p0: entry.id })}
                   disabled={disabled || loading || !fresh || !!pending}
                   onClick={() => void mutate('delete', entry)}
                 />
@@ -223,7 +232,7 @@ export function QueuedMessages({
       </div>
       {(error || readError) && (
         <p className="queued-error" role="alert">
-          {error || readError}
+          {errorText(error || readError)}
         </p>
       )}
     </section>

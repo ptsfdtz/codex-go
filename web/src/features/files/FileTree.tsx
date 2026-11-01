@@ -1,3 +1,4 @@
+import { errorText, t, useLocale } from '../../i18n';
 import { useState } from 'react';
 import {
   ChevronDown,
@@ -29,6 +30,7 @@ export function FileIcon({
   directory?: boolean;
   open?: boolean;
 }) {
+  useLocale();
   const ext = path.split('.').pop()?.toLowerCase() || '';
   const Icon = directory
     ? open
@@ -71,6 +73,7 @@ export function FileTree({
   onOpen: (path: string) => void;
   onRetry: (path: string) => void;
 }) {
+  useLocale();
   const needle = query.trim().toLowerCase();
   const [focused, setFocused] = useState('');
   const matches = new Set<string>();
@@ -107,22 +110,22 @@ export function FileTree({
       <>
         {directory.loading && (
           <p className="file-tree-message" role="status">
-            读取目录中…
+            {t('读取目录中…')}
           </p>
         )}
         {directory.error && (
           <div className="file-tree-message error" role="alert">
-            {directory.error}
+            {errorText(directory.error)}
             <button onClick={() => onRetry(path)}>
               <RefreshCw size={12} />
-              重试
+              {t('重试')}
             </button>
           </div>
         )}
         {!directory.loading &&
           !directory.error &&
           !directory.truncated &&
-          directory.entries.length === 0 && <p className="file-tree-message">空目录</p>}
+          directory.entries.length === 0 && <p className="file-tree-message">{t('空目录')}</p>}
         {directory.entries
           .filter((entry) => !needle || matches.has(entry.path))
           .map((entry) => {
@@ -165,13 +168,15 @@ export function FileTree({
                 </button>
                 {folder && open && depth < 31 && branch(entry.path, depth + 1)}
                 {folder && open && depth >= 31 && (
-                  <p className="file-tree-message">目录层级过深，请通过路径打开文件。</p>
+                  <p className="file-tree-message">{t('目录层级过深，请通过路径打开文件。')}</p>
                 )}
               </div>
             );
           })}
         {directory.truncated && (
-          <p className="file-tree-message">目录过大，当前列表已截断；可输入完整路径打开文件。</p>
+          <p className="file-tree-message">
+            {t('目录过大，当前列表已截断；可输入完整路径打开文件。')}
+          </p>
         )}
       </>
     );
@@ -179,7 +184,7 @@ export function FileTree({
   return (
     <div
       role="tree"
-      aria-label="项目目录"
+      aria-label={t('项目目录')}
       className="file-tree"
       onKeyDown={(event) => {
         const node = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="treeitem"]');
@@ -210,7 +215,9 @@ export function FileTree({
       }}
     >
       {branch('', 0)}
-      {needle && !matches.size && <p className="file-tree-message">已加载目录中没有匹配的文件。</p>}
+      {needle && !matches.size && (
+        <p className="file-tree-message">{t('已加载目录中没有匹配的文件。')}</p>
+      )}
     </div>
   );
 }

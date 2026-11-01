@@ -1,3 +1,4 @@
+use agentdeck_service::i18n::{message, text};
 // User-facing CLI for the persistent, headless AgentDeck host.
 use agentdeck_service::{
     host::{self, Config},
@@ -8,14 +9,14 @@ use std::io::Write;
 type AnyResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 fn usage() {
-    println!("AgentDeck Host {}\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH|auto] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck update-channel stable | candidate X.Y.Z\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck codex-login [--device-auth]\n  agentdeck codex [THREAD_ID]\n  agentdeck desktop [ABSOLUTE_DESKTOP_EXE] [THREAD_ID]\n  agentdeck runtime-check [--codex-exe PATH]\n  agentdeck runtime-start | runtime-serve\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", env!("CARGO_PKG_VERSION"));
+    println!("{}", message("AgentDeck Host {}\n\n  --lang system | zh-CN | en (any command)\n\n  agentdeck login [--origin https://agent.ptsfdtz.top] --username NAME\n  agentdeck start | stop | restart | status [--json]\n  agentdeck serve [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--sandbox-verified]\n  agentdeck configure [--runtime-ws URL --runtime-token-file PATH --protocol VERSION] [--codex-exe PATH|auto] [--sandbox-verified]\n  agentdeck update [--check] [--origin HTTPS_ORIGIN]\n  agentdeck update-channel stable | candidate X.Y.Z\n  agentdeck autostart enable | disable | status\n  agentdeck projects list | add PATH | remove PROJECT_ID | sync\n  agentdeck devices list | revoke DEVICE_ID\n  agentdeck approvals list | approve ID | reject ID | cancel ID\n  agentdeck password | logout [--unbind]\n  agentdeck codex-login [--device-auth]\n  agentdeck codex [THREAD_ID]\n  agentdeck desktop [ABSOLUTE_DESKTOP_EXE] [THREAD_ID]\n  agentdeck runtime-check [--codex-exe PATH]\n  agentdeck runtime-start | runtime-serve\n  agentdeck logs [--follow] | doctor\n\nCodex authentication is separate from the AgentDeck account.\n", &[("0", env!("CARGO_PKG_VERSION").to_string())]));
 }
 fn value(args: &[String], name: &str) -> AnyResult<Option<String>> {
     if let Some(index) = args.iter().position(|v| v == name) {
         return Ok(Some(
             args.get(index + 1)
                 .filter(|v| !v.starts_with("--"))
-                .ok_or_else(|| format!("{name} requires a value"))?
+                .ok_or_else(|| message("{name} requires a value", &[("name", name.to_string())]))?
                 .clone(),
         ));
     }
@@ -42,12 +43,12 @@ async fn ensure_host() -> AnyResult<()> {
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    Err("Host control is unavailable; run agentdeck logs / doctor. An existing GUI may need to be stopped first.".into())
+    Err(text("Host control is unavailable; run agentdeck logs / doctor. An existing GUI may need to be stopped first.").into())
 }
 fn configure(args: &[String]) -> AnyResult<()> {
     let _configuration = host::shared_runtime::configuration_guard()?;
     if host::running()? || host::shared_runtime::running()? {
-        return Err("Stop the host and shared runtime owner before changing persistent runtime configuration".into());
+        return Err(text("Stop the host and shared runtime owner before changing persistent runtime configuration").into());
     }
     let mut config = Config::load()?;
     if let Some(ws) = value(args, "--runtime-ws")? {
@@ -71,45 +72,57 @@ fn configure(args: &[String]) -> AnyResult<()> {
     }
     config.save()?;
     println!(
-        "Host settings saved in {}",
-        host::data_dir()?.join("host.json").display()
+        "{}",
+        message(
+            "Host settings saved in {}",
+            &[(
+                "0",
+                format!("{}", host::data_dir()?.join("host.json").display())
+            )]
+        )
     );
     Ok(())
 }
 async fn password(old: Option<String>) -> AnyResult<String> {
     let old = match old {
         Some(v) => v,
-        None => rpassword::prompt_password("Current AgentDeck password: ")?,
+        None => rpassword::prompt_password(text("Current AgentDeck password: "))?,
     };
-    let new = rpassword::prompt_password("New AgentDeck password: ")?;
-    let confirmation = rpassword::prompt_password("Confirm new password: ")?;
+    let new = rpassword::prompt_password(text("New AgentDeck password: "))?;
+    let confirmation = rpassword::prompt_password(text("Confirm new password: "))?;
     if new != confirmation {
-        return Err("Passwords do not match".into());
+        return Err(text("Passwords do not match").into());
     }
     management::call(
         &host::data_dir()?,
         json!({"action":"cloud.password","oldPassword":old,"newPassword":new}),
     )
     .await?;
-    println!("Password changed. Login again with the new password.");
+    println!(
+        "{}",
+        message("Password changed. Login again with the new password.", &[])
+    );
     Ok(new)
 }
 async fn login(args: &[String]) -> AnyResult<()> {
     if flag(args, "--password") {
-        return Err("Passwords must be entered at the hidden terminal prompt".into());
+        return Err(text("Passwords must be entered at the hidden terminal prompt").into());
     }
     let origin = value(args, "--origin")?.unwrap_or_else(|| "https://agent.ptsfdtz.top".into());
     agentdeck_service::cloud::validate_origin(&origin)?;
-    let username = value(args, "--username")?.ok_or("--username is required")?;
+    let username = value(args, "--username")?.ok_or(text("--username is required"))?;
     ensure_host().await?;
-    let secret = rpassword::prompt_password("AgentDeck password: ")?;
+    let secret = rpassword::prompt_password(text("AgentDeck password: "))?;
     management::call(
         &host::data_dir()?,
         json!({"action":"cloud.login","origin":origin,"username":username,"password":secret}),
     )
     .await?;
     if state().await?["cloud"]["mustChangePassword"] == true {
-        println!("The temporary password must be changed.");
+        println!(
+            "{}",
+            message("The temporary password must be changed.", &[])
+        );
         let changed = password(Some(secret)).await?;
         management::call(
             &host::data_dir()?,
@@ -117,11 +130,15 @@ async fn login(args: &[String]) -> AnyResult<()> {
         )
         .await?;
     }
-    println!("Signed in. Credentials and computer identity are saved.\nExisting Codex workspaces appear automatically in Web. Add another directory with agentdeck projects add PATH. Enable logon startup with agentdeck autostart enable.");
+    println!("{}", message("Signed in. Credentials and computer identity are saved.\nExisting Codex workspaces appear automatically in Web. Add another directory with agentdeck projects add PATH. Enable logon startup with agentdeck autostart enable.", &[]));
     Ok(())
 }
 async fn manage(command: &str, args: &[String]) -> AnyResult<()> {
-    let operand = |index: usize| args.get(index).cloned().ok_or("Missing command argument");
+    let operand = |index: usize| {
+        args.get(index)
+            .cloned()
+            .ok_or(text("Missing command argument"))
+    };
     let action = match command {
         "logout" => json!({"action":"cloud.logout","unbind":flag(args,"--unbind")}),
         "projects" => match operand(0)?.as_str() {
@@ -129,12 +146,12 @@ async fn manage(command: &str, args: &[String]) -> AnyResult<()> {
             "add" => json!({"action":"project.add","path":dunce::canonicalize(operand(1)?)?}),
             "remove" => json!({"action":"project.remove","projectId":operand(1)?}),
             "sync" => json!({"action":"workspaces.sync"}),
-            _ => return Err("Use projects list/add/remove/sync".into()),
+            _ => return Err(text("Use projects list/add/remove/sync").into()),
         },
         "devices" => match operand(0)?.as_str() {
             "list" => json!({"action":"state"}),
             "revoke" => json!({"action":"device.revoke","deviceId":operand(1)?}),
-            _ => return Err("Use devices list/revoke".into()),
+            _ => return Err(text("Use devices list/revoke").into()),
         },
         "approvals" => {
             let decision = operand(0)?;
@@ -142,14 +159,14 @@ async fn manage(command: &str, args: &[String]) -> AnyResult<()> {
                 json!({"action":"state"})
             } else {
                 if !["approve", "reject", "cancel"].contains(&decision.as_str()) {
-                    return Err("Use approvals list/approve/reject/cancel".into());
+                    return Err(text("Use approvals list/approve/reject/cancel").into());
                 }
                 let id = operand(1)?;
                 let snapshot = state().await?;
                 let row = snapshot["approvals"]
                     .as_array()
                     .and_then(|rows| rows.iter().find(|row| row["approvalId"] == id))
-                    .ok_or("Approval not found; inspect approvals list")?;
+                    .ok_or(text("Approval not found; inspect approvals list"))?;
                 json!({"action":"approval.decide","approvalId":id,"sessionId":row["sessionId"],"turnId":row["turnId"],"decision":decision})
             }
         }
@@ -164,9 +181,9 @@ async fn manage(command: &str, args: &[String]) -> AnyResult<()> {
                 json!({"action":"pair.approve","requestId":operand(1)?,"code":operand(2)?})
             }
             "reject" => json!({"action":"pair.confirm","requestId":operand(1)?,"approve":false}),
-            _ => return Err("Use pair create/pending/approve/reject".into()),
+            _ => return Err(text("Use pair create/pending/approve/reject").into()),
         },
-        _ => return Err("Unsupported command".into()),
+        _ => return Err(text("Unsupported command").into()),
     };
     let mut result = management::call(&host::data_dir()?, action).await?;
     if matches!(args.first().map(String::as_str), Some("list" | "pending")) {
@@ -197,36 +214,66 @@ async fn status(args: &[String]) -> AnyResult<()> {
     match snapshot {
         Ok(s) => {
             println!(
-                "Host: running\nData: {}\nAccount: {}\nCloud: {}\nCodex: {}\nProjects: {}",
-                host::data_dir()?.display(),
-                s["cloud"]["username"]
-                    .as_str()
-                    .filter(|v| !v.is_empty())
-                    .unwrap_or("not signed in"),
-                if s["cloud"]["online"] == true {
-                    "online"
-                } else {
-                    "offline"
-                },
-                if s["codexReady"] == true {
-                    "ready"
-                } else {
-                    "not ready"
-                },
-                s["projects"].as_array().map_or(0, Vec::len)
+                "{}",
+                message(
+                    "Host: running\nData: {}\nAccount: {}\nCloud: {}\nCodex: {}\nProjects: {}",
+                    &[
+                        ("0", format!("{}", host::data_dir()?.display())),
+                        (
+                            "1",
+                            s["cloud"]["username"]
+                                .as_str()
+                                .filter(|v| !v.is_empty())
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| text("not signed in"))
+                                .to_string()
+                        ),
+                        (
+                            "2",
+                            (if s["cloud"]["online"] == true {
+                                text("online")
+                            } else {
+                                text("offline")
+                            })
+                            .to_string()
+                        ),
+                        (
+                            "3",
+                            (if s["codexReady"] == true {
+                                text("ready")
+                            } else {
+                                text("not ready")
+                            })
+                            .to_string()
+                        ),
+                        (
+                            "4",
+                            format!("{}", s["projects"].as_array().map_or(0, Vec::len))
+                        )
+                    ]
+                )
             );
             if !s["runtimeError"].is_null() {
                 print(&s["runtimeError"])?;
             }
         }
         Err(_) => println!(
-            "Host: {}\nData: {}",
-            if host::running()? {
-                "starting or unavailable; inspect logs"
-            } else {
-                "stopped"
-            },
-            host::data_dir()?.display()
+            "{}",
+            message(
+                "Host: {}\nData: {}",
+                &[
+                    (
+                        "0",
+                        (if host::running()? {
+                            text("starting or unavailable; inspect logs")
+                        } else {
+                            text("stopped")
+                        })
+                        .to_string()
+                    ),
+                    ("1", format!("{}", host::data_dir()?.display()))
+                ]
+            )
         ),
     }
     Ok(())
@@ -248,7 +295,7 @@ async fn logs(args: &[String]) -> AnyResult<()> {
             std::io::stdout().flush()?;
             offset = len;
         } else if !flag(args, "--follow") {
-            println!("No host log yet.");
+            println!("{}", message("No host log yet.", &[]));
         }
         if !flag(args, "--follow") {
             break;
@@ -258,7 +305,12 @@ async fn logs(args: &[String]) -> AnyResult<()> {
     Ok(())
 }
 async fn run() -> AnyResult<()> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
+    let mut args: Vec<_> = std::env::args().skip(1).collect();
+    let language = value(&args, "--lang")?;
+    agentdeck_service::i18n::initialize(language.as_deref())?;
+    if let Some(index) = args.iter().position(|arg| arg == "--lang") {
+        args.drain(index..=index + 1);
+    }
     let (command, args) = match args.split_first() {
         Some((c, a)) => (c.as_str(), a),
         None => ("help", &[][..]),
@@ -270,12 +322,23 @@ async fn run() -> AnyResult<()> {
                 .and_then(|p| std::fs::read_to_string(p.parent()?.join("release.txt")).ok());
             if let Some(release) = release.filter(|v| host::updates::valid_version(v.trim())) {
                 println!(
-                    "AgentDeck Host {} (core {})",
-                    release.trim(),
-                    env!("CARGO_PKG_VERSION")
+                    "{}",
+                    message(
+                        "AgentDeck Host {} (core {})",
+                        &[
+                            ("0", release.trim().to_string()),
+                            ("1", env!("CARGO_PKG_VERSION").to_string())
+                        ]
+                    )
                 );
             } else {
-                println!("AgentDeck Host {} (development)", env!("CARGO_PKG_VERSION"));
+                println!(
+                    "{}",
+                    message(
+                        "AgentDeck Host {} (development)",
+                        &[("0", env!("CARGO_PKG_VERSION").to_string())]
+                    )
+                );
             }
             Ok(())
         }
@@ -290,7 +353,7 @@ async fn run() -> AnyResult<()> {
             args.get(1).map(String::as_str),
         ),
         "update-install-worker" | "update-activate-worker" => {
-            let id = args.first().ok_or("Update job ID required")?;
+            let id = args.first().ok_or(text("Update job ID required"))?;
             host::update_job::worker(id, command == "update-activate-worker").await?;
             Ok(())
         }
@@ -300,7 +363,10 @@ async fn run() -> AnyResult<()> {
         }
         "stop" => {
             host::stop().await?;
-            println!("Host stopped. Autostart setting retained.");
+            println!(
+                "{}",
+                message("Host stopped. Autostart setting retained.", &[])
+            );
             Ok(())
         }
         "restart" => {
@@ -312,25 +378,24 @@ async fn run() -> AnyResult<()> {
         "configure" => configure(args),
         "desktop" => {
             if args.len() > 2 {
-                return Err("Use agentdeck desktop [ABSOLUTE_DESKTOP_EXE] [THREAD_ID]".into());
+                return Err(
+                    text("Use agentdeck desktop [ABSOLUTE_DESKTOP_EXE] [THREAD_ID]").into(),
+                );
             }
             let executable = match args.first() {
                 Some(path) => std::path::PathBuf::from(path),
                 None => host::desktop_client::discover()?,
             };
             host::desktop_client::launch(&executable, args.get(1).map(String::as_str)).await?;
-            println!("Requested original Codex desktop startup against the official shared runtime; confirm the desktop opens successfully.");
-            println!(
-                "If startup reports PROXY_CONFIG_MISMATCH, redacted diagnostics are saved to {}",
-                host::data_dir()?
+            println!("{}", message("Requested original Codex desktop startup against the official shared runtime; confirm the desktop opens successfully.", &[]));
+            println!("{}", message("If startup reports PROXY_CONFIG_MISMATCH, redacted diagnostics are saved to {}", &[("0", format!("{}", host::data_dir()?
                     .join("desktop-startup-diagnostic.json")
-                    .display()
-            );
+                    .display()))]));
             Ok(())
         }
         "codex-login" => {
             if args.iter().any(|arg| arg != "--device-auth") {
-                return Err("Use agentdeck codex-login [--device-auth]".into());
+                return Err(text("Use agentdeck codex-login [--device-auth]").into());
             }
             let config = Config::load()?;
             let executable =
@@ -343,12 +408,15 @@ async fn run() -> AnyResult<()> {
             if command.status()?.success() {
                 Ok(())
             } else {
-                Err("Official Codex login did not complete; retry agentdeck codex-login".into())
+                Err(
+                    text("Official Codex login did not complete; retry agentdeck codex-login")
+                        .into(),
+                )
             }
         }
         "codex" => {
             if args.len() > 1 {
-                return Err("Use agentdeck codex [THREAD_ID]".into());
+                return Err(text("Use agentdeck codex [THREAD_ID]").into());
             }
             host::shared_runtime::background().await?;
             let config = Config::load()?;
@@ -361,10 +429,10 @@ async fn run() -> AnyResult<()> {
             if status.success() {
                 Ok(())
             } else {
-                Err(
-                    "Codex terminal exited unsuccessfully; no independent runtime was started"
-                        .into(),
+                Err(text(
+                    "Codex terminal exited unsuccessfully; no independent runtime was started",
                 )
+                .into())
             }
         }
         "serve" => {
@@ -385,13 +453,19 @@ async fn run() -> AnyResult<()> {
                 if command.status()?.success() {
                     Ok(())
                 } else {
-                    Err("Service failed; inspect logs".into())
+                    Err(text("Service failed; inspect logs").into())
                 }
             }
         }
         "runtime-start" if args.is_empty() => {
             host::shared_runtime::background().await?;
-            println!("Shared native runtime ready. Host and client exits do not stop it.");
+            println!(
+                "{}",
+                message(
+                    "Shared native runtime ready. Host and client exits do not stop it.",
+                    &[]
+                )
+            );
             Ok(())
         }
         "runtime-serve" if args.is_empty() => {
@@ -433,50 +507,73 @@ async fn run() -> AnyResult<()> {
             if report["passed"] == true {
                 Ok(())
             } else {
-                Err("Native runtime compatibility check failed".into())
+                Err(text("Native runtime compatibility check failed").into())
             }
         }
         "doctor" => {
             println!(
-                "Platform: {} / {}\nData: {}\nService: {}",
-                std::env::consts::OS,
-                std::env::consts::ARCH,
-                host::data_dir()?.display(),
-                std::env::current_exe()?
-                    .parent()
-                    .unwrap()
-                    .join(if cfg!(windows) {
-                        "agentdeck-service.exe"
-                    } else {
-                        "agentdeck-service"
-                    })
-                    .display()
+                "{}",
+                message(
+                    "Platform: {} / {}\nData: {}\nService: {}",
+                    &[
+                        ("0", std::env::consts::OS.to_string()),
+                        ("1", std::env::consts::ARCH.to_string()),
+                        ("2", format!("{}", host::data_dir()?.display())),
+                        (
+                            "3",
+                            format!(
+                                "{}",
+                                std::env::current_exe()?
+                                    .parent()
+                                    .unwrap()
+                                    .join(if cfg!(windows) {
+                                        "agentdeck-service.exe"
+                                    } else {
+                                        "agentdeck-service"
+                                    })
+                                    .display()
+                            )
+                        )
+                    ]
+                )
             );
             let config = Config::load()?;
             println!(
-                "Runtime: {}",
-                if config.runtime_target()?.attached() {
-                    "attached (configured)"
-                } else {
-                    "managed Codex"
-                }
+                "{}",
+                message(
+                    "Runtime: {}",
+                    &[(
+                        "0",
+                        (if config.runtime_target()?.attached() {
+                            text("attached (configured)")
+                        } else {
+                            text("managed Codex")
+                        })
+                        .to_string()
+                    )]
+                )
             );
             if let Ok(exe) = config.codex_executable() {
-                println!("Codex: {}", exe.display());
-            } else {
                 println!(
-                    "Codex not found. Install the supported CLI or use configure --codex-exe PATH."
+                    "{}",
+                    message("Codex: {}", &[("0", format!("{}", exe.display()))])
                 );
+            } else {
+                println!("{}", message("Codex not found. Install the supported CLI or use configure --codex-exe PATH.", &[]));
             }
             status(&[]).await
         }
-        _ => Err(format!("Unknown command: {command}; use agentdeck help").into()),
+        _ => Err(message(
+            "Unknown command: {command}; use agentdeck help",
+            &[("command", command.to_string())],
+        )
+        .into()),
     }
 }
 #[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
-        eprintln!("{}", agentdeck_service::redact(&e.to_string()));
+        eprintln!("{}", agentdeck_service::redact(&text(&e.to_string())));
         std::process::exit(1);
     }
 }

@@ -1,0 +1,271 @@
+.popover.tools-menu {
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(520px, calc(100vw - 24px));
+  padding: 18px;
+}
+.tools-menu h3 {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 550;
+}
+.tools-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.tools-grid > button {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 13px 12px;
+  background: var(--soft);
+  border: 1px solid transparent;
+}
+.tools-grid > button:hover {
+  border-color: var(--border);
+  background: var(--hover);
+}
+.tools-grid > button > span {
+  flex: 1;
+  white-space: nowrap;
+}
+.tools-grid kbd {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.tools-workspace {
+  flex-shrink: 0;
+  background: var(--bg);
+}
+.tools-workspace > .file-workspace {
+  width: 100%;
+  flex: 1;
+  border: 0;
+}
+.tools-header {
+  display: flex;
+  align-items: center;
+  min-height: 45px;
+  gap: 2px;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.tools-header nav {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  gap: 2px;
+  scrollbar-width: none;
+}
+.tools-header nav > button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  padding: 7px 8px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-size: 12px;
+}
+.tools-header nav > button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--soft);
+}
+.tools-header nav > button:hover {
+  background: var(--hover);
+}
+.workspace-tool-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-tool-body[hidden] {
+  display: none;
+}
+.tool-unavailable {
+  padding: 24px;
+  color: var(--muted);
+}
+.side-chat {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg);
+}
+.side-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.side-chat-header .select-control {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+}
+.side-chat-header .select-trigger {
+  font-size: 12px;
+  padding: 7px 4px;
+}
+.side-chat-header .icon-button {
+  flex: 0 0 30px;
+}
+.side-chat .timeline-content {
+  padding: 16px 18px;
+}
+.side-chat .composer-wrap {
+  padding: 8px 12px 12px;
+}
+.side-chat .turn {
+  max-width: 100%;
+}
+.side-chat .message-content {
+  min-width: 0;
+}
+.side-chat-empty {
+  padding: 50px 10px;
+  color: var(--muted);
+  text-align: center;
+}
+.side-chat-empty h3 {
+  color: var(--text);
+  font-weight: 500;
+}
+.side-chat-feedback {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ssh-tool {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #171717;
+  color: #e7e7e7;
+}
+.ssh-connect {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--text);
+}
+.ssh-connect h3,
+.ssh-connect p {
+  margin: 0;
+}
+.ssh-connect p {
+  line-height: 1.7;
+  font-size: 12px;
+}
+.ssh-connect label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+.ssh-connect input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.ssh-connect-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.ssh-connect > button {
+  align-self: flex-start;
+  padding: 9px 24px;
+}
+.ssh-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+  font-size: 12px;
+}
+.ssh-status > span {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ssh-status button,
+.ssh-keys button {
+  background: #252525;
+  border-color: #444;
+  color: #e7e7e7;
+  font-size: 11px;
+}
+.ssh-error {
+  padding: 8px 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ssh-screen {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  overflow: hidden;
+}
+.ssh-screen .xterm {
+  height: 100%;
+}
+.ssh-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid #333;
+}
+@media (max-width: 1100px) {
+  .tools-header nav > button > span {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+  .popover.tools-menu {
+    padding: 14px;
+  }
+  .tools-header nav > button > span {
+    display: inline;
+  }
+  .tools-header > button[aria-label='扩大工具栏'],
+  .tools-header > button[aria-label='恢复并排工具'] {
+    display: none;
+  }
+  .ssh-connect {
+    padding: 20px;
+  }
+}
+/* The existing outer drawer animates by keeping a zero-width hidden panel.
+   Its embedded file view must leave the vertical flow when another tool opens. */
+.tools-workspace > .file-workspace[hidden] {
+  display: none;
+}
+.tools-workspace > .file-workspace,
+.file-workspace-wide .tools-workspace > .file-workspace {
+  width: 100%;
+  transition: none;
+}

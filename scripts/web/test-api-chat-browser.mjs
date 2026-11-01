@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 /* global window, document, localStorage, navigator, TextEncoder, Response, ReadableStream, AbortController, setInterval, clearInterval */
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -118,6 +119,7 @@ const base = `https://127.0.0.1:${upstream.address().port}/v1`;
 const browser = await chromium.launch({ headless: true });
 try {
   const context = await browser.newContext({
+    locale: 'zh-CN',
     viewport: { width: 1280, height: 850 },
     ignoreHTTPSErrors: true,
   });
@@ -181,14 +183,16 @@ try {
   }
   async function screenshot(name) {
     await page.waitForTimeout(250);
-    await page.screenshot({ path: new URL(name, out).pathname });
+    await page.screenshot({ path: fileURLToPath(new URL(name, out)) });
   }
   const editor = page.getByRole('textbox', { name: '消息', exact: true });
   const picker = page.getByRole('button', { name: '切换模型', exact: true });
   async function waitIdle() {
     await page.waitForFunction(() => {
-      const button = document.querySelector('button[aria-label="发送"]');
-      return !!button && document.querySelector('textarea[aria-label="消息"]').value === '';
+      return (
+        !document.querySelector('button[aria-label="停止"]') &&
+        document.querySelector('textarea[aria-label="消息"]').value === ''
+      );
     });
   }
   async function records(kind, scope = 'local-chat-test') {
@@ -270,7 +274,7 @@ try {
   await page.reload();
   await loadFont();
   await page.locator('.api-chat-row > button:first-child').filter({ hasText: '我想优化' }).click();
-  await picker.filter({ hasText: 'High' }).waitFor();
+  await picker.filter({ hasText: '高' }).waitFor();
   await picker.click();
   await page.locator('.model-picker-model-toggle').click();
   await page.getByRole('button', { name: 'model-b · 我的接口', exact: true }).click();
@@ -454,10 +458,9 @@ try {
   await page.getByRole('button', { name: '新对话', exact: true }).click();
   await page.evaluate(async () => {
     const { LocalStore } = await import('/src/features/api-chat/local.ts');
-    window.originalWrite = LocalStore.prototype.write;
-    LocalStore.prototype.write = async function (entries) {
-      if (entries.some((entry) => entry.kind === 'chat')) throw new Error('模拟本地存储空间不足');
-      return window.originalWrite.call(this, entries);
+    window.originalSaveChat = LocalStore.prototype.saveChat;
+    LocalStore.prototype.saveChat = async function () {
+      throw new Error('模拟本地存储空间不足');
     };
   });
   const upstreamBeforeStorageFailure = upstreamCalls.length;
@@ -468,9 +471,39 @@ try {
   assert.equal(upstreamCalls.length, upstreamBeforeStorageFailure);
   await page.evaluate(async () => {
     const { LocalStore } = await import('/src/features/api-chat/local.ts');
-    LocalStore.prototype.write = window.originalWrite;
-    delete window.originalWrite;
+    LocalStore.prototype.saveChat = window.originalSaveChat;
+    delete window.originalSaveChat;
   });
+  // A second tab can delete while a stream is flushing, even if its broadcast
+  // is lost. The owner must stop and must not republish the deleted chat.
+  mode = 'hang';
+  await editor.fill('delete-during-stream');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await page.getByRole('button', { name: '停止', exact: true }).waitFor();
+  const deletingId = (await records('summary')).find(
+    (chat) => chat.title === 'delete-during-stream',
+  ).id;
+  const deletingPage = await context.newPage();
+  await deletingPage.goto(origin);
+  await deletingPage.evaluate(async (id) => {
+    const { LocalStore } = await import('/src/features/api-chat/local.ts');
+    await new LocalStore('local-chat-test').deleteChat(id);
+  }, deletingId);
+  await page.getByRole('heading', { name: '有什么想聊的？', exact: true }).waitFor();
+  assert(!(await records('chat')).some((chat) => chat.id === deletingId));
+  assert(!(await records('summary')).some((chat) => chat.id === deletingId));
+  await deletingPage.close();
+  mode = 'normal';
+  // Browsers without Web Locks fail closed, retaining their draft and never
+  // starting a provider request or guessing that another tab's work is orphaned.
+  const beforeNoLocks = upstreamCalls.length;
+  await page.evaluate(() => Object.defineProperty(navigator, 'locks', { value: undefined }));
+  await editor.fill('no-locks-draft');
+  await page.getByRole('alert').filter({ hasText: 'Web Locks' }).waitFor();
+  assert(await page.getByRole('button', { name: '发送', exact: true }).isDisabled());
+  await editor.press('Enter');
+  assert.equal(await editor.inputValue(), 'no-locks-draft');
+  assert.equal(upstreamCalls.length, beforeNoLocks);
   const localData = await page.evaluate(async () => {
     const { LocalStore } = await import('/src/features/api-chat/local.ts');
     const store = new LocalStore('local-chat-test');

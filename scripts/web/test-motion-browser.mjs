@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const browser = await chromium.launch({ headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 850 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1280, height: 850 } });
   await page.route('**/api/**', (route) => route.abort());
   await page.goto(process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430');
   const errors = [];
