@@ -34,7 +34,7 @@
 | 重启与恢复       | 空闲重启后自动重连、身份与历史保持；实际断线重连后核对任务结果，不丢审批、不重复发送未知结果任务       |
 | 本次改动         | 在各平台真实链路中验证变更功能及相关旧客户端兼容；涉及更新时验证下载安装、空闲切换、就绪判定与失败恢复 |
 
-发布自动化（已实现，未在线运行）：推送代码只运行检查，不再自动发布或部署 Pages。在 GitHub Actions 的 **Prepare candidate** 选择 `release` 分支，填写公开版本号 `X.Y.Z` 和更新说明；构建 Windows/Linux/macOS Host、正式 Web、Pages 与云端，生成绑定提交及全部文件 SHA-256 的 `candidate.json`，保存为 `candidate-X.Y.Z` 预发布。随后只上传不可变候选下载文件，不切换生产 Web、云端或稳定指针，供实测机验证真正的下载安装。正式流程 **Promote tested release** 仅下载这批产物，强制验证 Windows x64、Linux x64/ARM64、macOS arm64 的实测记录，备份并部署 VPS、核对健康和公开文件、部署 Pages，最后开放稳定更新并生成 `vX.Y.Z` 正式 Release。构建、证据验证、VPS、Pages 任一步失败都不进入后续步骤；VPS/Pages 跨服务并非原子事务，部署部分成功时需核对 Actions 及备份后重试，不能宣称全部发布完成。下载发布脚本本身也强制验收门槛，缺少证据不得手动推进稳定指针；正式晋升拒绝用较低版本覆盖现有稳定版。
+发布自动化（0.4.3 单次授权入口已在线执行）：推送代码只运行检查，不再自动发布或部署 Pages。在 GitHub Actions 的 **Prepare candidate** 选择 `release` 分支，填写公开版本号 `X.Y.Z` 和更新说明；构建 Windows/Linux/macOS Host、正式 Web、Pages 与云端，生成绑定提交及全部文件 SHA-256 的 `candidate.json`，保存为 `candidate-X.Y.Z` 预发布。随后只上传不可变候选下载文件，不切换生产 Web、云端或稳定指针，供实测机验证真正的下载安装。正式流程 **Promote tested release** 仅下载这批产物，强制验证 Windows x64、Linux x64/ARM64、macOS arm64 的实测记录，备份并部署 VPS、核对健康和公开文件、部署 Pages，最后开放稳定更新并生成 `vX.Y.Z` 正式 Release。构建、证据验证、VPS、Pages 任一步失败都不进入后续步骤；VPS/Pages 跨服务并非原子事务，部署部分成功时需核对 Actions 及备份后重试，不能宣称全部发布完成。下载发布脚本本身也强制验收门槛，缺少证据不得手动推进稳定指针；正式晋升拒绝用较低版本覆盖现有稳定版。
 
 候选版下载并解包后，用 Python ≥3.11 生成实测记录模板；模板所有检查默认为未通过，不生成模拟通过记录：
 
@@ -60,7 +60,7 @@ gh release upload candidate-X.Y.Z e2e-evidence.tar.gz
 
 证据文件不得包含令牌、密码、未脱敏日志或完整聊天；不可用历史测试或改模板冒充实测。全部通过且取得当次发布授权后，才在 Actions 运行 **Promote tested release** 并填写同一版本。候选归档或清单变化会使原证据失效；缺少 ARM64 实测时本流程也会阻止正式晋升。CLI `--version` 同时显示安装发布版本和内核版本，提交哈希保留用于产物诊断。
 
-首次启用自动部署需配置 GitHub `candidate` 与 `production` environments 的分支规则，并为 `production` 设置发布审核；设置变量 `AGENTDECK_CLOUD_ORIGIN`、`AGENTDECK_DEPLOY_HOST`（SSH 目标），以及 secrets `AGENTDECK_DEPLOY_KEY`、`AGENTDECK_DEPLOY_KNOWN_HOSTS`（固定服务器指纹，不临时信任扫描结果）。VPS 需 Python ≥3.11、curl、tar、sha256sum、flock，现有 Nginx/systemd 与可成功执行的 `agentdeck-backup.service`；部署用户须具备既有发布目录及服务管理权限。在受保护的 `/etc/agentdeck/release.env` 设置 `AGENTDECK_WEB_LINK` 为现有 Nginx 文档根目录的绝对符号链接，云端链接默认 `/opt/agentdeck/current`，下载目录默认 `/opt/agentdeck/downloads`，公网域名默认 `https://agent.ptsfdtz.top`；脚本拒绝猜测或覆盖普通目录。只有已确认数据库向后兼容时才设置 `AGENTDECK_ROLLBACK_SAFE_VERSION=X.Y.Z`（仅授权该版本的程序回退）；默认失败只恢复静态资源、保留数据库和诊断，不擅自回退云端程序。配置与真实候选验收完成前不能上线本次自动化。
+首次启用自动部署需配置 GitHub `candidate` 与 `production` environments 的分支规则，并为 `production` 设置发布审核；设置变量 `AGENTDECK_CLOUD_ORIGIN`、`AGENTDECK_DEPLOY_HOST`（SSH 目标），以及 secrets `AGENTDECK_DEPLOY_KEY`、`AGENTDECK_DEPLOY_KNOWN_HOSTS`（固定服务器指纹，不临时信任扫描结果）。VPS 需 Python ≥3.11、curl、tar、sha256sum、flock，现有 Nginx/systemd 与可成功执行的 `agentdeck-backup.service`；部署用户须具备既有发布目录及服务管理权限。在受保护的 `/etc/agentdeck/release.env` 设置 `AGENTDECK_WEB_LINK` 为现有 Nginx 文档根目录的绝对符号链接，云端链接默认 `/opt/agentdeck/current`，下载目录默认 `/opt/agentdeck/downloads`，公网域名默认 `https://agent.ptsfdtz.top`；脚本拒绝猜测或覆盖普通目录。只有已确认数据库向后兼容时才设置 `AGENTDECK_ROLLBACK_SAFE_VERSION=X.Y.Z`（仅授权该版本的程序回退）；默认失败只恢复静态资源、保留数据库和诊断，不擅自回退云端程序。每次上线仍须完成对应配置、当批候选验收与明确发布授权。
 
 正式 Web：[agent.ptsfdtz.top](https://agent.ptsfdtz.top/)，管理端 [/admin](https://agent.ptsfdtz.top/admin)。生产使用现有 Nginx、Rust/systemd 和 PostgreSQL 17，Cloudflare 仅做 DNS。云端账户 schema v3 支持电脑证书/地址登记、会话绑定的短期凭据、撤销和刷新轮换；VPS 继续只转发加密业务字节。
 
