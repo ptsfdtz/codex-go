@@ -9,6 +9,8 @@ const {
   saveComposerModelPreferences: saveModel,
 } = await loadWebModule('features/composer-preferences');
 
+const { setLanguagePreference } = await loadWebModule('i18n/index');
+
 let storage;
 beforeEach(() => {
   storage = new Map();
@@ -116,7 +118,14 @@ test('explicit model and effort remain paired and use the wire model identifier'
 });
 test('default without effort remains implicit and missing default does not send orphan effort', () => {
   assert.deepEqual(resolve({ model: '', effort: '' }, models), { model: '', effort: '' });
-  assert.throws(() => resolve({ model: '', effort: 'high' }, []), /先选择具体模型/);
+  for (const [language, message] of [
+    ['zh-CN', /先选择具体模型/],
+    ['en', /Choose a specific model first/],
+  ]) {
+    setLanguagePreference(language);
+    assert.throws(() => resolve({ model: '', effort: 'high' }, []), message);
+  }
+  setLanguagePreference('system');
 });
 test('previously saved effort-only choices resolve without changing other conversations', () => {
   saveModel(key('new:project'), { model: '', effort: 'high' });
