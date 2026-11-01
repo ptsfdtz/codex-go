@@ -12,6 +12,7 @@ import { AccountPassword } from './AccountPassword';
 import type { HostGrant } from './host-book';
 import { contentText, RichContent } from './RichContent';
 import { Timeline } from './Timeline';
+import { readHistoryPage } from './history-page';
 import { ActivityStages } from './features/activity/ActivityStages';
 import { historyKey, mergeHistory, type HistoryEntry } from './history';
 import { applyProgress, historyError, mergeHistorySnapshot, finalItem } from './conversation';
@@ -131,6 +132,13 @@ const FileWorkspace = deferred<
   ),
 );
 import './features/files/file-workspace.css';
+import { ToolsButton, ToolHeader, type Tool } from './features/tools/ToolsNavigation';
+const SshTerminal = deferred<
+  React.ComponentProps<typeof import('./features/tools/SshTerminal').SshTerminal>
+>(() => import('./features/tools/SshTerminal').then((module) => ({ default: module.SshTerminal })));
+const SideChat = deferred<
+  React.ComponentProps<typeof import('./features/tools/SideChat').SideChat>
+>(() => import('./features/tools/SideChat').then((module) => ({ default: module.SideChat })));
 import { usePreference } from './features/preferences';
 import {
   resolveComposerModelPreferences,
@@ -141,19 +149,6 @@ import {
   saveComposerModelPreferences,
   type ComposerModelPreferences,
 } from './features/composer-preferences';
-
-type HistoryPage = {
-  data?: HistoryEntry[];
-  nextCursor?: string;
-  resource?: {
-    cursor?: string | null;
-    sha256?: string;
-    bytes?: number;
-    chunkBytes?: number;
-    turnId?: string;
-    itemId?: string;
-  } | null;
-};
 
 function Login({ onLogin }: { onLogin: () => void }) {
   const [username, setUsername] = useState('');
@@ -339,6 +334,9 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     useState<Parameters<typeof ComposerStatus>[0]['observedUsage']>();
   const [filePath, setFilePath] = useState<string>();
   const [fileWorkspaceOpen, setFileWorkspaceOpen] = useState(false);
+  const [activeTool, setActiveTool] = useState<Tool>('files');
+  const [sideChatSeen, setSideChatSeen] = useState(false);
+  const [terminalSeen, setTerminalSeen] = useState(false);
   const [fileWorkspaceSeen, setFileWorkspaceSeen] = useState(false);
   const [fileWorkspaceWide, setFileWorkspaceWide] = useState(false);
   const [fileWorkspaceView, setFileWorkspaceView] = useState<'files' | 'changes'>('files');
@@ -491,81 +489,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       );
   }
 
-  async function historyPage(
-    connection: Bridge,
-    sessionId: string,
-    cursor?: string,
-  ): Promise<HistoryPage & { data: HistoryEntry[] }> {
-    const page = await connection.request<HistoryPage>('sessions.history', {
-      sessionId,
-      ...(cursor ? { cursor } : {}),
-      limit: 50,
-      sortDirection: 'desc',
-    });
-    const data = [...(page.data || [])];
-    const resource = page.resource;
-    if (!resource) return { ...page, data };
-    const total = resource.bytes || 0;
-    if (
-      total < 1 ||
-      total > 8 * 1024 * 1024 ||
-      !/^[a-f0-9]{64}$/i.test(resource.sha256 || '') ||
-      (resource.cursor !== null &&
-        resource.cursor !== undefined &&
-        typeof resource.cursor !== 'string')
-    )
-      throw new Error('电脑返回了无效的历史资源描述');
-    const cacheKey = `${sessionId}:${resource.sha256!.toLowerCase()}`;
-    const cached = historyResourceCache.current.get(cacheKey);
-    if (cached) return { ...page, data: [...data, cached] };
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    while (offset < total) {
-      const chunk = await connection.request<{
-        data?: string;
-        offset?: number;
-        totalBytes?: number;
-        nextOffset?: number;
-      }>('sessions.historyContent', {
-        sessionId,
-        ...(typeof resource.cursor === 'string' ? { cursor: resource.cursor } : {}),
-        sha256: resource.sha256,
-        offset,
-        sortDirection: 'desc',
-      });
-      if (chunk.offset !== offset || chunk.totalBytes !== total || typeof chunk.data !== 'string')
-        throw new Error('历史资源分块无效');
-      const binary = atob(chunk.data);
-      if (!binary.length || binary.length > 64 * 1024 || offset + binary.length > total)
-        throw new Error('历史资源分块超出限制');
-      for (let index = 0; index < binary.length; index++)
-        bytes[offset + index] = binary.charCodeAt(index);
-      const next = chunk.nextOffset ?? total;
-      if (next !== offset + binary.length || next <= offset)
-        throw new Error('历史资源 offset 无效');
-      offset = next;
-    }
-    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
-      .map((value) => value.toString(16).padStart(2, '0'))
-      .join('');
-    if (digest.toLowerCase() !== resource.sha256!.toLowerCase())
-      throw new Error('历史资源校验失败');
-    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as HistoryEntry;
-    if (
-      !parsed ||
-      typeof parsed !== 'object' ||
-      !parsed.item ||
-      (resource.turnId && parsed.turnId !== resource.turnId) ||
-      (resource.itemId && parsed.item.id !== resource.itemId)
-    )
-      throw new Error('历史资源内容无效');
-    if (historyResourceCache.current.size >= 4) {
-      const oldest = historyResourceCache.current.keys().next().value;
-      if (oldest) historyResourceCache.current.delete(oldest);
-    }
-    historyResourceCache.current.set(cacheKey, parsed);
-    data.push(parsed);
-    return { ...page, data };
+  function historyPage(connection: Bridge, sessionId: string, cursor?: string) {
+    return readHistoryPage(connection, sessionId, cursor, historyResourceCache.current);
   }
 
   function publishLatestPage(data: HistoryEntry[], before: HistoryEntry[], terminal: number) {
@@ -695,6 +620,29 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   }, [panel]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.ssh-screen')) return;
+      if (e.ctrlKey && host) {
+        const tool =
+          e.key === '`'
+            ? 'terminal'
+            : e.altKey && e.key.toLowerCase() === 's'
+              ? 'chat'
+              : e.shiftKey && e.key.toLowerCase() === 'g'
+                ? 'changes'
+                : !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'p'
+                  ? 'files'
+                  : undefined;
+        if (
+          tool &&
+          (tool === 'terminal' || tool === 'chat' || (connected && selectedProject && !chat))
+        ) {
+          e.preventDefault();
+          showTool(tool);
+          return;
+        }
+      }
+      if (target.closest('.side-chat')) return;
       if (e.ctrlKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPanel('search');
@@ -717,7 +665,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [snapshot.sessions, session, scope]);
+  }, [snapshot.sessions, session, scope, host, connected, selectedProject]);
 
   useEffect(() => {
     const generation = accountEpoch.current;
@@ -1580,11 +1528,31 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     }
     showFiles(relative);
   }
-  function showFiles(path?: string, view: 'files' | 'changes' = 'files') {
-    setFileTargetProject(selectedProject);
+  function showFiles(
+    path?: string,
+    view: 'files' | 'changes' = 'files',
+    projectId = selectedProject,
+  ) {
+    setActiveTool(view);
+    setFileTargetProject(projectId);
     setFilePath(path);
     setFileWorkspaceView(view);
     setFileOpenToken((value) => value + 1);
+    setFileWorkspaceSeen(true);
+    setFileWorkspaceOpen(true);
+    setPanel('');
+    setMenu(false);
+    setWorkspaceMenu(false);
+    if (matchMedia('(max-width:1300px)').matches) setSidebarOpen(false);
+  }
+  function showTool(tool: Tool) {
+    if (tool === 'files' || tool === 'changes') {
+      showFiles(undefined, tool);
+      return;
+    }
+    setActiveTool(tool);
+    if (tool === 'chat') setSideChatSeen(true);
+    if (tool === 'terminal') setTerminalSeen(true);
     setFileWorkspaceSeen(true);
     setFileWorkspaceOpen(true);
     setPanel('');
@@ -1797,10 +1765,14 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   if (signedIn === null) return <main className="center">加载中…</main>;
   if (!signedIn) return <Login onLogin={() => location.reload()} />;
   if (mustChangePassword) return <AccountPassword />;
-  const filesVisible = fileWorkspaceOpen && connected && !!selectedProject && !chat;
+  const toolsVisible = fileWorkspaceOpen && !!host;
+  const fileProject = fileTargetProject || selectedProject;
+  const filesAvailable = connected && !!fileProject && fileProject !== chatProject;
+  const filesVisible =
+    toolsVisible && filesAvailable && (activeTool === 'files' || activeTool === 'changes');
   return (
     <div
-      className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${filesVisible ? 'has-file-workspace' : ''}`}
+      className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${toolsVisible ? 'has-file-workspace' : ''}`}
     >
       <Sidebar
         key={JSON.stringify([scope, host?.hostId])}
@@ -1862,7 +1834,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         setFilter={setFilter}
       />
       <section
-        className={`conversation-layout ${filesVisible ? 'with-file-workspace' : ''} ${fileWorkspaceWide ? 'file-workspace-wide' : ''}`}
+        className={`conversation-layout ${toolsVisible ? 'with-file-workspace' : ''} ${fileWorkspaceWide ? 'file-workspace-wide' : ''}`}
         ref={conversationElement}
         style={{ '--file-pane-width': `${filePaneWidth}%` } as React.CSSProperties}
       >
@@ -1954,6 +1926,12 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     onFile={openFile}
                   />
                 ))}
+            {host && (
+              <ToolsButton
+                onOpen={showTool}
+                fileAvailable={connected && !!selectedProject && !chat}
+              />
+            )}
             <IconButton icon={Computer} label="切换电脑" onClick={() => openPanel('computers')} />
             <div className="menu-anchor">
               <IconButton icon={MoreHorizontal} label="更多操作" onClick={() => setMenu(!menu)} />
@@ -2470,11 +2448,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             onNew={newChat}
           />
         </section>
-        {filesVisible && (
+        {toolsVisible && (
           <div
             className="file-pane-resizer"
             role="separator"
-            aria-label="调整对话与文件预览宽度"
+            aria-label="调整对话与工具栏宽度"
             aria-orientation="vertical"
             aria-valuemin={35}
             aria-valuemax={75}
@@ -2523,41 +2501,120 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             }}
           />
         )}
-        {fileWorkspaceSeen && connected && selectedProject && !chat && (
-          <FileWorkspace
-            key={JSON.stringify([connectionEpoch.current, host?.hostId, selectedProject])}
-            request={request}
-            projectId={selectedProject}
-            projectName={
-              projects.find((project) => project.projectId === selectedProject)?.name || '项目'
-            }
-            storageKey={`agentdeck.web.files.${JSON.stringify([scope, host?.hostId, selectedProject])}`}
-            visible={filesVisible}
-            initialPath={fileTargetProject === selectedProject ? filePath : undefined}
-            initialView={fileTargetProject === selectedProject ? fileWorkspaceView : 'files'}
-            openToken={fileOpenToken}
-            imagePreview={supports('projectImagePreview')}
-            gitRead={supports('gitRead')}
-            gitBranchCompare={supports('gitBranchCompare')}
-            referenceAllowed={supports('fileReferenceInputs')}
-            expanded={fileWorkspaceWide}
-            onExpand={() => setFileWorkspaceWide((value) => !value)}
-            onClose={() => setFileWorkspaceOpen(false)}
-            onReference={(reference) => {
-              const refs = draft.references || [];
-              if (reference.projectId !== selectedProject) return;
-              if (refs.length >= 32) {
-                setError('最多引用 32 个文件');
-                return;
-              }
-              if (!refs.some((ref) => ref.path === reference.path))
-                updateDraft({ references: [...refs, reference] });
-              requestAnimationFrame(() =>
-                document.querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')?.focus(),
-              );
-              if (matchMedia('(max-width:760px)').matches) setFileWorkspaceOpen(false);
-            }}
-          />
+        {fileWorkspaceSeen && host && (
+          <aside
+            key={JSON.stringify([scope, host.hostId])}
+            className="file-workspace tools-workspace"
+            hidden={!toolsVisible}
+            inert={!toolsVisible}
+            aria-label="工作区工具栏"
+          >
+            <ToolHeader
+              active={activeTool}
+              onChange={showTool}
+              fileAvailable={connected && !!selectedProject && !chat}
+              expanded={fileWorkspaceWide}
+              onExpand={() => setFileWorkspaceWide((value) => !value)}
+              onClose={() => setFileWorkspaceOpen(false)}
+            />
+            {connected && filesAvailable && (
+              <FileWorkspace
+                embedded
+                key={JSON.stringify([connectionEpoch.current, host?.hostId, fileProject])}
+                request={request}
+                projectId={fileProject}
+                projectName={
+                  projects.find((project) => project.projectId === fileProject)?.name || '项目'
+                }
+                storageKey={`agentdeck.web.files.${JSON.stringify([scope, host?.hostId, fileProject])}`}
+                visible={filesVisible}
+                initialPath={fileTargetProject === fileProject ? filePath : undefined}
+                initialView={fileTargetProject === fileProject ? fileWorkspaceView : 'files'}
+                openToken={fileOpenToken}
+                imagePreview={supports('projectImagePreview')}
+                gitRead={supports('gitRead')}
+                gitBranchCompare={supports('gitBranchCompare')}
+                referenceAllowed={
+                  fileProject === selectedProject && supports('fileReferenceInputs')
+                }
+                expanded={fileWorkspaceWide}
+                onExpand={() => setFileWorkspaceWide((value) => !value)}
+                onClose={() => setFileWorkspaceOpen(false)}
+                onReference={(reference) => {
+                  const refs = draft.references || [];
+                  if (reference.projectId !== selectedProject) return;
+                  if (refs.length >= 32) {
+                    setError('最多引用 32 个文件');
+                    return;
+                  }
+                  if (!refs.some((ref) => ref.path === reference.path))
+                    updateDraft({ references: [...refs, reference] });
+                  requestAnimationFrame(() =>
+                    document
+                      .querySelector<HTMLTextAreaElement>('textarea[aria-label="消息"]')
+                      ?.focus(),
+                  );
+                  if (matchMedia('(max-width:760px)').matches) setFileWorkspaceOpen(false);
+                }}
+              />
+            )}
+            {(activeTool === 'files' || activeTool === 'changes') && !filesAvailable && (
+              <p className="tool-unavailable">
+                {connected
+                  ? '请先选择一个项目以浏览文件和改动。'
+                  : '电脑连接已断开，恢复后可继续浏览文件。'}
+              </p>
+            )}
+            {sideChatSeen && (
+              <div
+                className="workspace-tool-body"
+                hidden={activeTool !== 'chat'}
+                inert={activeTool !== 'chat'}
+              >
+                <SideChat
+                  request={request}
+                  connection={bridge.current}
+                  connected={connected}
+                  snapshot={snapshot}
+                  models={models}
+                  capabilities={capabilities}
+                  initialProject={selectedProject}
+                  scope={JSON.stringify([scope, host.hostId])}
+                  blocked={receiptBlocked}
+                  drafts={drafts}
+                  setDrafts={setDrafts}
+                  onChanged={() => void refresh(false)}
+                  onFile={(projectId, path) => {
+                    const relative = projectRelativePath(
+                      path,
+                      snapshot.projects?.find((p) => p.projectId === projectId)?.canonicalPath,
+                    );
+                    if (!relative) {
+                      setError('该文件不在当前授权项目中，无法预览');
+                      return;
+                    }
+                    showFiles(relative, 'files', projectId);
+                  }}
+                />
+              </div>
+            )}
+            {terminalSeen && toolsVisible && connected && supports('sshTerminal') && (
+              <div
+                className="workspace-tool-body"
+                hidden={activeTool !== 'terminal'}
+                inert={activeTool !== 'terminal'}
+              >
+                <SshTerminal request={request} visible={activeTool === 'terminal'} />
+              </div>
+            )}
+            {activeTool === 'terminal' && (!connected || !supports('sshTerminal')) && (
+              <p className="tool-unavailable">
+                {connected
+                  ? '当前 Host 尚不支持 SSH 终端，请升级 Host 后使用。'
+                  : '请先连接电脑，再启动 SSH 终端。'}
+              </p>
+            )}
+          </aside>
         )}
       </section>
       <MotionPresence>

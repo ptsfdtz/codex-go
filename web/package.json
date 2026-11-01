@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@reclaimprotocol/tls": "0.1.5",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "highlight.js": "11.11.1",
     "jsqr": "1.4.0",
     "katex": "0.16.47",

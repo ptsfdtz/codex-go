@@ -92,7 +92,9 @@ export function Composer({
   execution = true,
   sendBlocked = false,
   attachmentTotalBytes = 512 * 1024,
+  panels,
 }: {
+  panels?: string[];
   draft: Draft;
   status?: ReactNode;
   prompts?: ReactNode;
@@ -241,7 +243,12 @@ export function Composer({
     if (['plan', 'default', 'goal'].includes(name)) {
       if (name === 'default' || supports(name)) onChange({ mode: name, text: '' });
     } else if (name === 'new') onNew();
-    else onPanel(({ mention: 'files', compact: 'manage' } as Record<string, string>)[name] || name);
+    else {
+      const panel =
+        ({ mention: 'files', compact: 'manage' } as Record<string, string>)[name] || name;
+      if (!panels || panels.includes(panel)) onPanel(panel);
+      else onChange({ text });
+    }
   }
   function send() {
     if (ready && !queueReason) onSend(active ? 'queue' : undefined);

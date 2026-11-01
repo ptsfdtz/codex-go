@@ -46,6 +46,7 @@ type Content = {
 };
 
 export function FileWorkspace({
+  embedded = false,
   request,
   projectId,
   projectName,
@@ -63,6 +64,7 @@ export function FileWorkspace({
   onClose,
   onReference,
 }: {
+  embedded?: boolean;
   request: Request;
   projectId: string;
   projectName: string;
@@ -425,12 +427,14 @@ export function FileWorkspace({
               )}
             </>
           )}
-          <IconButton
-            icon={ArrowLeft}
-            label="返回对话"
-            className="file-mobile-back"
-            onClick={onClose}
-          />
+          {!embedded && (
+            <IconButton
+              icon={ArrowLeft}
+              label="返回对话"
+              className="file-mobile-back"
+              onClick={onClose}
+            />
+          )}
           <IconButton
             icon={GitCompareArrows}
             label={comparing ? '返回项目文件' : '比较分支'}
@@ -444,11 +448,13 @@ export function FileWorkspace({
               onClick={() => setRevision((value) => value + 1)}
             />
           )}
-          <IconButton
-            icon={wide ? Minimize2 : Maximize2}
-            label={wide ? '恢复并排预览' : '扩大文件预览'}
-            onClick={onExpand}
-          />
+          {!embedded && (
+            <IconButton
+              icon={wide ? Minimize2 : Maximize2}
+              label={wide ? '恢复并排预览' : '扩大文件预览'}
+              onClick={onExpand}
+            />
+          )}
           {!comparing && (
             <IconButton
               icon={ListTree}
@@ -457,7 +463,7 @@ export function FileWorkspace({
               onClick={() => setTreeOpen((value) => !value)}
             />
           )}
-          <IconButton icon={X} label="关闭文件工作区" onClick={onClose} />
+          {!embedded && <IconButton icon={X} label="关闭文件工作区" onClick={onClose} />}
         </div>
       </header>
       {comparing ? (

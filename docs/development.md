@@ -77,3 +77,15 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 数学公式回归复用上述 Playwright 环境，可用 `COMPOSER_TEST_FONT` 指定中文字体，证据输出到 `artifacts/markdown-math/`。
 
 自动项目登记真实接口测试须设置 `AGENTDECK_TEST_OFFICIAL_CODEX` 为已验证的官方程序绝对路径，并追加 `-- --include-ignored`，不调用模型。性能测试须使用独立固定的生产构建目录，避免并行构建替换资源。浏览器脚本的环境变量及实际覆盖以对应脚本为准。
+
+## 工作区工具栏与 SSH 定向检查
+
+```sh
+pnpm test:workspace-tools-browser # 默认本地 Vite 端口 1495，可用 WORKSPACE_TOOLS_TEST_ORIGIN 覆盖
+cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal
+cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal -- --include-ignored
+```
+
+浏览器检查复用 `PLAYWRIGHT_MODULE`，在隔离页面中挂载真实 App 并拦截全部账户/Host 请求，覆盖双会话流式归属、创建/发送、审批确认、草稿与文件切换、未知发送结果、终端输入及手机布局，不连接生产账户或调用模型。证据输出到 `artifacts/workspace-tools/`。
+
+最后一条 Rust 命令额外运行 Linux 本机 OpenSSH 集成测试，需要 `/usr/sbin/sshd`、`ssh` 与 `ssh-keygen`。测试在临时目录生成密钥和配置，只监听随机回环端口，使用临时 known_hosts，不修改日常 SSH 身份或 AgentDeck 状态；实际核对指纹、连接 PTY、中文输出、缩放、输入去重、连接归属和设备清理。不能据此认定 Windows ConPTY、macOS、密码/口令认证或云端整链路已经验收。
