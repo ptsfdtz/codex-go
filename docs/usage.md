@@ -113,6 +113,12 @@ agentdeck status --json
 
 旧桌面实例仍运行时，先在任务空闲后从旧托盘“停止并退出”，再启动 Host。不会强杀原实例或生成另一套身份。已有 MSIX 私有数据需要沿用该实际目录，可显式设置 `AGENTDECK_DATA_DIR`；不再通过 `.tmp/desktop-dev-data-dir.txt` 隐式切换，不能仅凭云端账户恢复电脑证书。
 
+### Windows 权限配置冲突
+
+0.4.2 若提示 `Codex is not ready`，先执行 `agentdeck status --json`。当 `runtimeError` 为 `UNSAFE_UPSTREAM_CONFIG: Workspace permission profile overridden` 时，检查 `${CODEX_HOME}/config.toml`（未设置 `CODEX_HOME` 时为 `$HOME/.codex/config.toml`）中的旧 `sandbox_mode`。已知 `sandbox_mode = "danger-full-access"` 会与 Host 工作区权限校验冲突；这个通用错误也可能表示默认权限名称或权限继承关系不符。
+
+针对已确认的旧 `sandbox_mode` 冲突，先备份文件，再移除或注释该配置项；0.4.2 Windows 改成 `workspace-write` 仍会被旧校验拒绝。保存工作并核对任务、审批与未知发送结果后重启电脑，使独立共享运行时重新加载配置；仅执行 `agentdeck restart` 会保留共享运行时，不能保证重载。启动 Host 后确认 `codexReady=true`、`runtimeError=null`，再执行 `agentdeck projects sync`。源码已增加进程内安全默认值覆盖和具体字段诊断，尚未发布，验收边界见[功能状态](status.md)。
+
 ## Linux 运行时
 
 0.4.2 默认自动下载、校验并启动官方共享运行时，保留 Linux systemd Host 的隔离限制；正常安装无需手工配置 WebSocket。就绪以 `codexReady`、`sandboxVerified`、`sharedRuntime` 为 true、`runtimeError` 为 null 为准。Linux 原生桌面共享尚未支持，CLI 使用 `agentdeck codex`。

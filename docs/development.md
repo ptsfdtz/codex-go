@@ -70,6 +70,7 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | Markdown 数学公式 | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/` |
 | 文字选中引用     | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定              |
 | 自动项目登记     | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests` |
+| 运行时权限配置兼容 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib workspace_policy_tests` |
 | 会话图片路径授权 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`             |
 | 动效与设置       | `pnpm test:ui-browser`、`pnpm test:motion-browser`                                                       |
 | 下拉选择与菜单   | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                       |
@@ -80,6 +81,8 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 下拉框回归复用上述 Playwright 环境，先在指定端口启动本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1434 --strictPort`）。检查真实选择组件、分支搜索、设置菜单、弹窗层级、键盘和触屏操作、深浅主题与窄屏边界；截图和结果输出到 `artifacts/dropdowns/`，不连接真实 Host。
 
 自动项目登记真实接口测试须设置 `AGENTDECK_TEST_OFFICIAL_CODEX` 为已验证的官方程序绝对路径，并追加 `-- --include-ignored`，不调用模型。性能测试须使用独立固定的生产构建目录，避免并行构建替换资源。浏览器脚本的环境变量及实际覆盖以对应脚本为准。
+
+运行时权限配置兼容测试使用同一 `AGENTDECK_TEST_OFFICIAL_CODEX` 变量，追加 `-- --include-ignored` 可运行官方接口检查。它在临时 `CODEX_HOME` 中分别设置未指定、read-only、workspace-write、danger-full-access，并检查受信任项目局部配置；使用 Windows 启动参数，核对全局/项目配置、项目列表与临时会话权限，确认两份配置文件保持不变。不读取日常认证、不调用模型；Linux 上运行只证明官方配置覆盖和会话元数据行为，不能代替 Windows MXC 实际读写隔离、权限切换和共享运行时重启验收。
 
 ## 工作区工具栏与 SSH 定向检查
 

@@ -81,6 +81,14 @@ Host 新增 `sshTerminal` 能力和连接归属的 OpenSSH PTY，支持现有配
 
 官方包来源校验、共享所有者、独立认证连接和 Linux x64 本地云端加密转发下 CLI↔Web 同 UUID 续聊、真实文件读写及外部拒绝通过。完整细节和 Windows/macOS 自行验收步骤见[运行时专项验收](runtime.md)，不能据此晋升候选。
 
+2026-11-01 Windows 0.4.2 用户现场反馈：`agentdeck projects sync` 提示 `Codex is not ready`；状态中 `cloud.online=true`、`codexReady=false`、`sandboxVerified=true`，`runtimeError` 为 `UNSAFE_UPSTREAM_CONFIG: Workspace permission profile overridden`，运行时版本为 `0.166.0-alpha.1`。用户只读检查确认 `.codex/config.toml` 第一行存在 `sandbox_mode = "danger-full-access"`。结合源码定位为已有 Codex 配置与 Host 工作区权限校验冲突；此次错误发生在权限配置检查阶段，云端已连接，已有沙箱探测通过也不能替代当前运行时配置检查。
+
+0.4.2 的触发机制：启动参数指定 `default_permissions="agentdeck"` 及继承 `:workspace` 的权限配置，但 Windows 未显式覆盖用户配置中的旧 `sandbox_mode`；校验要求该字段为 null，同时核对默认权限和继承关系，任一不符均返回上述通用错误。已知用户配置中的 `danger-full-access` 与这一要求不符；在 0.4.2 Windows 改成 `workspace-write` 仍不满足 null 条件。旧版临时处理为备份并注释冲突项，在核对任务并保存工作后重启电脑，使独立共享运行时重新加载配置；仅重启 Host 会保留共享运行时。操作与恢复条件见[使用与维护](usage.md#windows-权限配置冲突)，尚未取得该用户修改后的恢复结果。
+
+源码已修复，尚未发布：`desktop/core/src/upstream/codex.rs` 的 Windows 启动参数显式覆盖 `sandbox_mode="workspace-write"`，保留原有 `agentdeck` 权限配置、审批及 MXC 设置，不修改用户文件。Windows 校验兼容空值和 workspace-write，仍拒绝 danger-full-access；macOS 与 Linux 的原有模式要求保持。权限模式、默认权限名称及继承关系分别报告具体字段，模式值只回显已知枚举，其他配置值不写入诊断。文件系统、网络、临时目录、MCP/hooks 和实际会话权限检查继续执行，未修改逐轮普通/完整访问切换逻辑。
+
+本批 5 项权限兼容单元测试、1 项共享恢复策略回归与严格 Clippy 通过；1 项官方接口测试在 Linux x64 以固定官方 `0.166.0-alpha.1` 和 Windows 启动参数通过，覆盖未指定、read-only、workspace-write、danger-full-access 四种用户及受信任项目局部配置，核对全局/项目配置、项目列表、临时会话权限和两份配置文件保持不变。测试隔离 Codex 状态且不调用模型，入口见[开发与验证](development.md)。该结果仅证明配置覆盖与会话元数据行为，未验证 Windows MXC 实际读写边界、真实普通→完整→普通切换、Host 项目同步整链路及共享运行时重启。Windows MSVC 目标编译检查在依赖构建阶段因当前 Linux 环境缺少 `lib.exe` 失败，不能记为 Windows 编译通过；仍需 Windows 候选编译与实机验收。本批未构建发布候选、替换日常 Host 或部署，正式下载仍为 0.4.2。
+
 Windows 用户已在 `release` 源码 `692bba2` 编译并重启 Host 后，确认原版桌面通过共享入口启动，AgentDeck Web 能显示其新建对话；截图显示同一标题下依次完成桌面写入 `DESKTOP-1`、Web 续聊追加 `WEB-2`、桌面续聊追加 `DESKTOP-3`，两边均显示交替消息和结果。用户于 2026-10-30 确认该功能成功，并授权发布 `0.4.2`。这记录 Windows 桌面↔Web 的实测通过；尚未取得本批安装包升级、CLI 第三端、重启恢复及完整权限验收记录。
 
 当前源码修复桌面接入的默认功能标志、单插件 MCP 策略默认值及 analytics 默认提示比较；显式禁用、未知开关、错误类型及其他 MCP/审批配置差异仍拒绝。Host 索引保留 `appServer`，仍执行非临时会话、授权项目和规范化工作目录校验，提供脱敏启动诊断。18 项启动检查单元测试、1 项索引测试、严格 Clippy、CLI/代理构建及 Linux x64 官方运行时隔离验证已通过；证据位于 `artifacts/plugin-startup-diagnosis/`。这些定向验证不能代替 0.4.2 同批安装包的全平台验收。
