@@ -194,15 +194,24 @@ try {
     };
     [...window.testBridge.events].forEach((listener) => listener(packet));
   });
-  await page
-    .getByRole('region', { name: 'Task notifications' })
-    .getByText('Task completed', { exact: true })
-    .waitFor();
+  await page.locator('[data-session-id="other"] .session-unread-dot').first().waitFor();
+  assert.equal(await page.getByRole('region', { name: 'Task notifications' }).count(), 0);
+  assert.equal(
+    await page
+      .locator('[data-session-id="other"] .session')
+      .first()
+      .getAttribute('aria-description'),
+    'Task completed, unread notifications',
+  );
   await page.evaluate(() => window.localeApi.setLanguagePreference('zh-CN'));
-  await page
-    .getByRole('region', { name: '任务提醒' })
-    .getByText('任务已完成', { exact: true })
-    .waitFor();
+  assert.equal(await page.getByRole('region', { name: '任务提醒' }).count(), 0);
+  assert.equal(
+    await page
+      .locator('[data-session-id="other"] .session')
+      .first()
+      .getAttribute('aria-description'),
+    '任务已完成，有未读提醒',
+  );
   checks.push(
     'Live App/settings/menu/status/notification labels; composer DOM and unsent draft preserved; user names remain text',
   );

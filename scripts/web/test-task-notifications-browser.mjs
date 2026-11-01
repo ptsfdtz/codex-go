@@ -137,8 +137,9 @@ try {
       payload: { turn: { turnId: 'local-1', upstreamTurnId: 'native-1', status: 'completed' } },
     }),
   );
-  const notices = page.getByRole('region', { name: '任务提醒', exact: true });
-  await notices.getByText('任务已完成', { exact: true }).waitFor();
+  const notices = page.locator('.task-notifications');
+  await page.locator('.notification-dot').first().waitFor();
+  assert.equal(await notices.count(), 0);
   assert(await input.evaluate((el) => el === document.activeElement));
   assert.equal(await input.inputValue(), 'Keep this draft and focus');
   const toggle = page.getByRole('button', { name: '打开会话列表', exact: true });
@@ -151,8 +152,7 @@ try {
     }),
   );
   await page.waitForTimeout(160);
-  assert.equal(await notices.locator('.task-notification').count(), 1);
-  await notices.getByRole('button', { name: '关闭提醒', exact: true }).click();
+  assert.equal(await notices.locator('.task-notification').count(), 0);
   assert.equal(await notices.locator('.task-notification').count(), 0);
   assert.equal(await toggle.locator('.notification-dot').count(), 1);
   await toggle.click();
@@ -164,7 +164,7 @@ try {
   assert.equal(await row.locator('.session-unread-dot').count(), 0);
   assert.equal(await toggle.locator('.notification-dot').count(), 0);
   checks.push(
-    'background conversation completion, card/hamburger/session blue dots, no focus theft, native/local dedup, dismiss keeps unread, opening clears unread',
+    'background completion keeps hamburger/session blue dots without popup cards or focus theft, native/local dedup, opening clears unread',
   );
 
   await page.evaluate(() => {
@@ -204,8 +204,9 @@ try {
       payload: { turn: { status: 'failed' } },
     }),
   );
-  await notices.getByText('任务执行失败', { exact: true }).waitFor();
-  // A currently selected conversation still receives an explicit notification.
+  await page.locator('.notification-dot').first().waitFor();
+  assert.equal(await notices.count(), 0);
+  // A currently selected conversation still receives an unread indicator.
   assert.equal(
     await page
       .getByRole('button', { name: '收起会话列表', exact: true })
@@ -234,10 +235,14 @@ try {
       payload: { approvalId: 'approval-1', method: 'item/commandExecution/requestApproval' },
     }),
   );
-  await notices.getByText('需要你的审批', { exact: true }).waitFor();
-  assert.equal(await notices.locator('.task-notification').count(), 1);
+  await page
+    .getByRole('navigation', { name: '最近对话列表', exact: true })
+    .locator('[data-session-id="other"] .session-unread-dot')
+    .waitFor();
+  assert.equal(await notices.count(), 0);
+  assert.equal(await notices.locator('.task-notification').count(), 0);
   checks.push(
-    'async/native questions show blue dots without top-right cards; question priority, marked row dot, selected conversation failure, read on interaction, approval alert',
+    'async/native questions show blue dots without top-right cards; question priority, marked row dot, selected conversation failure, read on interaction, approval unread without popup cards',
   );
 
   await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
@@ -251,13 +256,7 @@ try {
       await page.setViewportSize({ width, height: 850 });
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(250);
-      const cards = await notices.locator('.task-notification').all();
-      for (const card of cards) {
-        const box = await card.boundingBox();
-        assert(
-          box.x >= 0 && box.x + box.width <= width + 1 && box.y >= 0 && box.y + box.height <= 850,
-        );
-      }
+      assert.equal(await notices.count(), 0);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
       await page.screenshot({
         path: fileURLToPath(new URL(`notifications-${theme}-${width}.png`, out)),
@@ -281,9 +280,7 @@ try {
   );
   await page.waitForTimeout(160);
   assert.equal(await notices.locator('.task-notification').count(), 0);
-  checks.push(
-    'dark/light 320/390/1200px bounds, unread survives remount while replayed events do not repopup',
-  );
+  checks.push('dark/light 320/390/1200px without popup cards, unread survives remount and replay');
 
   await page.evaluate(async () => {
     const { TaskAttention, packetNotice } = await import(

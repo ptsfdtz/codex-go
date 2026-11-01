@@ -48,7 +48,7 @@ import type {
 import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { useTaskAttention } from './features/notifications/use-task-attention';
-import { TaskNotifications } from './features/notifications/TaskNotifications';
+import './features/notifications/task-attention.css';
 import { messageQuestions, confirmedAnswers } from './features/question-replies';
 import type { WorkMode } from './features/ModeSwitcher';
 import { deferred } from './deferred';
@@ -1821,20 +1821,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         onSearch={() => openPanel('search')}
         filter={filter}
         setFilter={setFilter}
-      />
-      <TaskNotifications
-        notices={attention.notices}
-        sessions={snapshot.sessions || []}
-        onOpen={(item) => {
-          chooseSession(item);
-          setPanel('');
-          requestAnimationFrame(() => {
-            conversationElement.current
-              ?.querySelector<HTMLElement>('.conversation .workspace-title')
-              ?.focus({ preventScroll: true });
-          });
-        }}
-        onDismiss={attention.dismiss}
       />
       <section
         className={`conversation-layout ${toolsVisible ? 'with-file-workspace' : ''} ${fileWorkspaceWide ? 'file-workspace-wide' : ''}`}
