@@ -259,7 +259,8 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await page
       .locator('.composer-actions')
       .screenshot({ animations: 'disabled', path: out + 'actions-empty-dark.png' });
-    assert(await queue.isDisabled());
+    assert.equal(await queue.count(), 0);
+    assert(await page.getByRole('button', { name: '语音输入', exact: true }).isEnabled());
     await editor.fill('继续检查并完成任务');
     await page
       .locator('.composer-actions')

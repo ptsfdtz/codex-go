@@ -66,6 +66,7 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 设置中的项目管理 | `pnpm test:project-settings-browser`                                                                     |
 | 原生运行状态     | `node --test scripts/web/test-session-working.mjs`                                                       |
 | 排队交互         | `node scripts/web/test-queued-messages-browser.mjs`                                                      |
+| Web 语音输入     | `pnpm test:speech-input-browser`，`SPEECH_TEST_ORIGIN` 默认 `http://127.0.0.1:1498/`                     |
 | 文件引用         | `pnpm test:file-references-browser`，默认端口 1492，可用 `FILE_REFERENCE_TEST_ORIGIN` 指定               |
 | Markdown 数学公式 | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/` |
 | 文字选中引用     | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定              |
@@ -79,6 +80,8 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 首屏性能         | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站     |
 
 数学公式回归复用上述 Playwright 环境，可用 `COMPOSER_TEST_FONT` 指定中文字体，证据输出到 `artifacts/markdown-math/`。
+
+语音输入回归复用上述 Playwright 环境，先启动指定端口的本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1498 --strictPort`）。脚本挂载真实 Composer，以浏览器识别接口替身检查临时预览、光标插入、确认结果去重、手动发送、跨输入框独占、切换/隐藏/退出清理、错误和超时，以及窄屏深浅主题；拦截外部/API 请求，不请求真实麦克风或识别服务。可用 `COMPOSER_TEST_FONT` 指定中文字体，结果及截图输出到 `artifacts/speech-input/`；受控通过不能替代真实语音识别、浏览器供应商网络和手机/PWA 验收。
 
 下拉框回归复用上述 Playwright 环境，先在指定端口启动本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1434 --strictPort`）。检查真实选择组件、分支搜索、设置菜单、弹窗层级、键盘和触屏操作、深浅主题与窄屏边界；截图和结果输出到 `artifacts/dropdowns/`，不连接真实 Host。
 

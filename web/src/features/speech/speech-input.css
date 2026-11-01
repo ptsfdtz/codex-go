@@ -1,0 +1,64 @@
+.composer-actions > .speech-button {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: #171717;
+}
+.composer-actions > .speech-button[aria-pressed='false']:hover:not(:disabled) {
+  background: #ededed;
+  opacity: 1;
+}
+.composer-actions > .speech-button[aria-pressed='true'] {
+  color: #cf5555;
+  background: #cf555514;
+}
+.composer-actions > .speech-button > svg {
+  width: 22px;
+  height: 22px;
+}
+.speech-feedback {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--soft);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.speech-feedback-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.speech-feedback-heading > span {
+  flex: 1;
+  min-width: 0;
+}
+.speech-feedback button {
+  padding: 3px 8px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  color: inherit;
+  flex-shrink: 0;
+}
+.speech-feedback button:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.speech-interim {
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 90px;
+  overflow-y: auto;
+  margin: 6px 0;
+}
+.speech-feedback small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+}

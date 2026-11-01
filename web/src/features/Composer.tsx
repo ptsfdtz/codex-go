@@ -21,6 +21,8 @@ import type { Attachment, Draft, Model } from '../workspace';
 import { readAttachments } from './composer-input';
 import { PermissionPicker } from './PermissionPicker';
 import { ModelPicker } from './ModelPicker';
+import { useSpeechInput } from './speech/use-speech-input';
+import './speech/speech-input.css';
 
 function AttachmentCard({
   attachment,
@@ -178,6 +180,12 @@ export function Composer({
       window.visualViewport?.removeEventListener('resize', resize);
     };
   }, [draft.text, expanded, planConfirmation]);
+  const speech = useSpeechInput({
+    value: draft.text,
+    disabled: disabled || busy,
+    input: textarea,
+    onText: (text) => onChange({ text }),
+  });
   const hasResources = !!(
     draft.attachments.length ||
     draft.skills.length ||
@@ -201,6 +209,7 @@ export function Composer({
     !busy &&
     !addingAttachments &&
     !sendBlocked &&
+    !speech.active &&
     (!active || execution) &&
     hasContent;
   function closeMenu(focus = true) {
@@ -383,7 +392,10 @@ export function Composer({
             }
             value={draft.text}
             rows={1}
-            onChange={(event) => changeText(event.target.value)}
+            onChange={(event) => {
+              speech.cancel();
+              changeText(event.target.value);
+            }}
             onKeyDown={(event) => {
               if (
                 event.key !== 'Enter' ||
@@ -587,7 +599,35 @@ export function Composer({
                   onClick={onStop}
                 />
               )}
-              {active && execution ? (
+              {speech.active || !hasContent ? (
+                <button
+                  type="button"
+                  className="icon-button send-button speech-button"
+                  aria-label={speech.active ? '结束语音输入' : '语音输入'}
+                  title={
+                    speech.active
+                      ? '结束语音输入，等待最后的识别文字'
+                      : speech.unavailable || speech.description
+                  }
+                  aria-description={speech.unavailable || speech.description}
+                  aria-pressed={speech.active}
+                  disabled={disabled || busy || speech.phase === 'stopping'}
+                  onClick={() => (speech.active ? speech.stop() : speech.start())}
+                >
+                  {speech.active ? (
+                    <Square size={17} aria-hidden="true" />
+                  ) : (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M4 9v6M9 3v18M14 7v10M19 9v6"
+                        stroke="currentColor"
+                        strokeWidth="2.4"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  )}
+                </button>
+              ) : active && execution ? (
                 <button
                   type="button"
                   className="icon-button send-button composer-queue"
@@ -609,6 +649,26 @@ export function Composer({
               ) : null}
             </div>
           </div>
+          {(speech.active || speech.message) && (
+            <div className="speech-feedback" role="status" aria-live="polite">
+              <div className="speech-feedback-heading">
+                <span>
+                  {speech.active
+                    ? speech.phase === 'starting'
+                      ? '正在启动语音输入，请允许麦克风…'
+                      : speech.phase === 'stopping'
+                        ? '正在完成识别…'
+                        : '正在听，请说话…'
+                    : speech.message}
+                </span>
+                <button type="button" onClick={speech.active ? speech.cancel : speech.dismiss}>
+                  {speech.active ? '取消听写' : '关闭语音提示'}
+                </button>
+              </div>
+              {speech.interim && <p className="speech-interim">{speech.interim}</p>}
+              {speech.active && <small>{speech.description}</small>}
+            </div>
+          )}
           {(addingAttachments ||
             attachmentError ||
             feedback ||
