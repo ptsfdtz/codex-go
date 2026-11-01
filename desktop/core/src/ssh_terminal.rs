@@ -394,6 +394,29 @@ mod tests {
         assert_eq!(out.bytes.len(), BUFFER_BYTES);
     }
     #[test]
+    fn disconnected_or_stopped_host_rejects_late_terminal_creation() {
+        let terminals = Terminals::default();
+        let alive = AtomicBool::new(false);
+        let p = open();
+        assert_eq!(
+            terminals
+                .handle("ssh.open", &p, "tab", "device", &alive)
+                .unwrap_err()
+                .code,
+            "SSH_CLOSED"
+        );
+        alive.store(true, Ordering::SeqCst);
+        terminals.close_all();
+        assert_eq!(
+            terminals
+                .handle("ssh.open", &p, "tab", "device", &alive)
+                .unwrap_err()
+                .code,
+            "SSH_CLOSED"
+        );
+        assert!(!terminals.is_active());
+    }
+    #[test]
     fn protocol_rejects_extra_fields_and_large_input() {
         let p = open();
         let packet = |action: &str, payload: Value| json!({"v":1,"type":"request","id":"test","action":action,"payload":payload});

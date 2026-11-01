@@ -59,7 +59,7 @@
 
 Host 新增 `sshTerminal` 能力和连接归属的 OpenSSH PTY，支持现有配置/密钥、密码及指纹提示、输入、输出游标、缩放和关闭；输入按序号去重，输出缓冲有界，终端内容不进入持久聊天、操作回执或事件日志。不同标签页不能读写彼此终端；关闭工具栏、断线、设备撤销或 Host 停止会清理终端，恢复不自动连接。活跃终端阻止空闲更新切换；旧 Host 显示升级提示，无数据库迁移。
 
-本批 Linux Rust 4 项定向测试通过，其中 1 项以临时密钥、配置和随机回环端口启动真实 sshd，实际核对主机指纹、中文 PTY 输出、窗口尺寸、输入去重、连接归属和设备清理；严格 Clippy 通过。Web 类型检查、定向 ESLint、生产构建及受控 Chromium 检查通过，覆盖双会话同时流式更新且不串线、文件预览和草稿保留、侧边已有/新会话发送、审批确认归属、未知结果阻断、SSH 输入/控制键及 390px 布局；修复嵌套文件栏隐藏动画占用侧边对话高度。入口为 `pnpm test:workspace-tools-browser` 与[开发与验证](development.md)中的 SSH 命令，浏览器证据见 `artifacts/workspace-tools/verification.json` 及同目录截图。
+本批 Linux Rust 5 项定向测试通过，其中 1 项以临时密钥、配置和随机回环端口启动真实 sshd，实际核对主机指纹、中文 PTY 输出、窗口尺寸、输入去重、连接归属和设备清理；严格 Clippy 通过。Web 类型检查、定向 ESLint、生产构建及受控 Chromium 检查通过，覆盖双会话同时流式更新且不串线、文件预览和草稿保留、侧边已有/新会话发送、审批确认归属、未知结果阻断、SSH 输入/控制键及 390px 布局；修复嵌套文件栏隐藏动画占用侧边对话高度。入口为 `pnpm test:workspace-tools-browser` 与[开发与验证](development.md)中的 SSH 命令，浏览器证据见 `artifacts/workspace-tools/verification.json` 及同目录截图。
 
 本批仅完成源码与上述定向验证，未构建发布候选、未更新生产 Web 或日常 Host。尚未验证真实模型双对话、云端到 Host 再到 SSH 的完整链路、Windows ConPTY、macOS、真实密码/密钥口令认证，以及 Safari/手机/PWA；受控浏览器中的 Host 数据和 SSH 响应为测试替身，不能视为真实整链路验收。现有正式版本和下载指针不变。
 
