@@ -2031,6 +2031,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           {host && connected && (
             <HostUpdates
               key={host.hostId}
+              hostId={host.hostId}
               request={request}
               supported={supports('hostUpdateCheck')}
               disabled={busy || receiptBlocked}

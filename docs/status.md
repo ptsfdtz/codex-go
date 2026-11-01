@@ -2,24 +2,30 @@
 
 [开发入口](../AGENTS.md) · [发布流程](deployment.md) · [运行时验收](runtime.md)
 
-截至 2026-10-30。此处维护当前结论；早期部署和逐轮测试流水查阅 Git 历史。源码已实现、Web 已部署、Host 已安装与真实端到端验收分别记录，不能相互替代。
+截至 2026-11-01。此处维护当前结论；早期部署和逐轮测试流水查阅 Git 历史。源码已实现、Web 已部署、Host 已安装与真实端到端验收分别记录，不能相互替代。
 
 ## 当前交付
 
-| 组件          | 当前记录                                                                                                                               |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 正式版本      | [AgentDeck 0.4.2](https://github.com/ptsfdtz/codex-go/releases/tag/v0.4.2)，2026-10-30 发布，稳定指针为 0.4.2，core 仍为 0.3.0         |
-| 源码与合并    | 产品源码 `c96f94d83b18b7e64cf2348ca35cf480cb5de45f`，PR #6 合并至 main `2291613`；发布入口 PR #7 合并至 main `d1881d5`                 |
-| Web/PWA       | VPS 与 Pages 使用本批预构建产物；Web 版本 `b4e73660ec3fc6af777797867b6eda16a823fa73cd2ffce8c1dabe44fea1572a`                           |
-| 生产程序目录  | `/opt/agentdeck/releases/0.4.2`；云端 `/opt/agentdeck/current`、Web `/opt/agentdeck/web-current` 已切换                                |
-| Host 稳定下载 | Windows x64、Linux x64/ARM64、macOS arm64 四个平台包均已发布，哈希与原始候选一致；用户电脑需更新并在空闲后重启                         |
-| 官方运行时    | 固定官方 `0.166.0-alpha.1`，自动下载、完整性核验与共享入口随 0.4.2 发布；Linux 原生桌面共享仍未支持                                    |
-| 发布结果      | [工作流 41075932370](https://github.com/ptsfdtz/codex-go/actions/runs/41075932370) 的 VPS、Pages、稳定指针和 GitHub Release 均成功     |
-| 回退证据      | `/var/backups/agentdeck/publish-0.4.2-20261030T145603Z` 保存旧链接、受保护配置和稳定下载入口；原链接目标均在 `web-d045d07-20261029` 下 |
+| 组件          | 当前记录                                                                                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 正式版本      | [AgentDeck 0.4.2](https://github.com/ptsfdtz/codex-go/releases/tag/v0.4.2)，2026-10-30 发布，稳定指针为 0.4.2，core 仍为 0.3.0                                                        |
+| 源码与合并    | 产品源码 `c96f94d83b18b7e64cf2348ca35cf480cb5de45f`，PR #6 合并至 main `2291613`；发布入口 PR #7 合并至 main `d1881d5`                                                                |
+| Web/PWA       | 生产 Web 更新为 `50395d6217590875348a3d7a5354df331aca2623279fc211aa4d4194248ffdd5`；备用 Pages 保留 0.4.2 发布构建 `b4e73660ec3fc6af777797867b6eda16a823fa73cd2ffce8c1dabe44fea1572a` |
+| 生产程序目录  | 云端 `/opt/agentdeck/current` 仍为 `/opt/agentdeck/releases/0.4.2`；Web `/opt/agentdeck/web-current` 指向 `/opt/agentdeck/releases/web-50395d621759-20261031T084503Z/web`             |
+| Host 稳定下载 | Windows x64、Linux x64/ARM64、macOS arm64 四个平台包均已发布，哈希与原始候选一致；用户电脑需更新并在空闲后重启                                                                        |
+| 官方运行时    | 固定官方 `0.166.0-alpha.1`，自动下载、完整性核验与共享入口随 0.4.2 发布；Linux 原生桌面共享仍未支持                                                                                   |
+| 发布结果      | [工作流 41075932370](https://github.com/ptsfdtz/codex-go/actions/runs/41075932370) 的 VPS、Pages、稳定指针和 GitHub Release 均成功                                                    |
+| 回退证据      | `/var/backups/agentdeck/publish-0.4.2-20261030T145603Z` 保存旧链接、受保护配置和稳定下载入口；原链接目标均在 `web-d045d07-20261029` 下                                                |
 
-本批发布按用户单次授权豁免完整跨平台端到端验收，范围见下文；不将构建与资源校验记为真实任务测试。部署前备份服务成功，生产存活/就绪、全部本批 Web/下载文件哈希与三个公开安装脚本校验通过，Pages 全部 23 个文件与候选一致；GitHub 四个平台附件摘要与原候选一致，latest 为 v0.4.2。证据位于 `artifacts/release-0.4.2/published-verification.json`、`github-published.json` 及发布工作流。
+0.4.2 正式发布当批按用户单次授权豁免完整跨平台端到端验收，范围见下文；不将构建与资源校验记为真实任务测试。部署前备份服务成功，生产存活/就绪、全部本批 Web/下载文件哈希与三个公开安装脚本校验通过，Pages 全部 23 个文件与候选一致；GitHub 四个平台附件摘要与原候选一致，latest 为 v0.4.2。证据位于 `artifacts/release-0.4.2/published-verification.json`、`github-published.json` 及发布工作流。
 
-回退时先核对正在执行的任务和数据库兼容性，再按备份中的 `previous-cloud.txt`、`previous-web.txt` 恢复对应程序/静态链接及下载入口；不得直接回滚数据库或更换加密主密钥。旧程序和备份仍保留。此前 Web/AgentChat 的定向验证仅作为历史范围证据，不代替本批验收。
+0.4.2 整包回退时先核对正在执行的任务和数据库兼容性，再按备份中的 `previous-cloud.txt`、`previous-web.txt` 恢复对应程序/静态链接及下载入口；不得直接回滚数据库或更换加密主密钥。旧程序和备份仍保留。此前 Web/AgentChat 的定向验证仅作为历史范围证据，不代替本批验收。
+
+2026-10-31 Web 修复已部署：电脑更新完成提示新增关闭按钮；关闭已完成的更新详情也会确认并收起提示。浏览器按 Host 和更新任务记住关闭状态，刷新/重连后保持；新任务、新版本、未就绪、失败和状态读取错误仍显示，不清除 Host 的任务记录。Web 类型、定向 ESLint、生产构建和 390px 手机视口的受控 Chromium 检查通过，覆盖轮询、重新挂载、不同电脑/任务、详情关闭及存储不可用；证据位于 `artifacts/host-update-dismissal/verification.json`。
+
+用户在看到本批检查结果后明确指示“更新web端”，本次按该指示仅更新生产网页，不沿用 0.4.2 的单次豁免，也未声称通过新的全平台真实验收。源码快照基于 `622f3928da59b3bd3794a44d9ea25fd1daf7a109` 加未提交的 Web 修复，差异 SHA-256 `afb5cdd66906dad6ab3dca92bab3cf67bd0021ba637cede109c1ebd0cd52fbf8`；部署归档 SHA-256 `0748c6acc1c387b17d18e3f4cba5a1aa96695ee0ebe8498486643523465b4011`。切换为 Nginx 独立 Web 根目录 `/opt/agentdeck/web-current`，保留 10 个旧资源供已打开页面使用；22 个本批公开文件哈希、首页、版本 no-store 和存活/就绪均通过；公开站点在 Chromium 中加载登录页正常且无页面错误，云端 PID/启动时间及稳定下载指针不变。首轮校验在平滑重载后仍读取到旧版本，已自动恢复旧网页与配置；增加版本收敛等待后重试成功。
+
+本次 Web 回退：`python3 /var/backups/agentdeck/web-50395d621759-20261031T084503Z/rollback.py`（先核对没有后续部署）。备份目录 `/var/backups/agentdeck/web-50395d621759-20261031T084503Z` 保存旧网页、Nginx 配置、旧入口和部署记录；源码快照、产物清单及线上校验证据在 `artifacts/host-update-dismissal/`。生产 Web 与备用 Pages 当前版本不同；未做真实手机或 Host 更新验收。
 
 ## Web 功能
 
@@ -34,6 +40,8 @@
 | 图片与引用     | 页内图片放大、历史附件预览、取消/校验、文字引用、结构化文件卡片；受控回归通过，原生图片/文件引用需对应 Host 能力                    |
 | 首屏与动效     | Markdown、设置、AgentChat、文件面板按需加载，Reduced Motion、弹窗焦点和退出处理；Chromium 受控检查通过，Safari/PWA/大历史待专项复核 |
 | AgentChat      | Web/云端已部署；密钥库隔离 PostgreSQL 集成测试及本地 HTTPS 模拟供应商回归通过，未调用真实供应商模型；跨域与手机软键盘待验收         |
+
+2026-11-01 数学公式源码修复，尚未部署：Codex 与 AgentChat 共用渲染器接入 TeX 语法解析和 KaTeX，支持 `\(...\)`、`\[...\]`、`$...$`、`$$...$$` 与 `math` 围栏，避免 Markdown 转义吞掉公式分隔符；单美元使用金额边界规则，保留代码及链接语义。公式样式和字体随 Markdown 按需加载，长块公式在消息内横向滚动，错误公式保留可见回退，不启用可信 TeX 命令或原始 HTML。本批 Web 类型检查、定向 ESLint、生产构建与受控 Chromium 回归通过：覆盖截图中的 Elo/BO3/BO5、中文、矩阵、对齐、列表/引用/表格、逐字符流式回复、金额和代码、错误回退、外部请求隔离及 320/390/1100px 布局；原有图片浏览器回归通过。入口为 `pnpm test:markdown-math-browser`，证据见 `artifacts/markdown-math/verification.json` 及同目录截图；参考 [LibreChat 渲染配置](https://github.com/danny-avila/LibreChat/blob/main/client/src/components/Chat/Messages/Content/markdownConfig.ts) 的语法扩展与 KaTeX 方案。未做真实模型、Safari/iPhone/PWA 验收，不代表生产网页已修复。
 
 首屏历史对照：主入口约 634→396 kB，gzip 198→126 kB；冷缓存、4 倍 CPU 降速、三次 Chromium 的 FCP 中位数 264→212 ms。该结果只代表本地实验，不代表真实网络、INP 或稳定 60fps；近期修改不自动继承旧结论。
 

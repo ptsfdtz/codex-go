@@ -71,7 +71,7 @@ releases/版本号/agentdeck-macos-arm64.tar.gz[.sha256]
 
 使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64/ARM64 和 macOS arm64；单独运行打包命令仅生成 Host 包，不满足正式发布准入。完整候选版须包含 Web、云端、安装脚本、版本清单及实测证据；正式流程输出的 `agentdeck-downloads.tar.gz` 包含这些文件，供已通过门槛的部署使用。Linux ARM64 基于 Ubuntu 24.04，x64 基于 Ubuntu 22.04，macOS arm64 使用 GitHub macOS 15 runner；macOS 包未签名/公证。旧独立 Linux workflow 和桌面安装器发布路径已移除。
 
-Web 构建自动生成 `version.json`，与资源一同部署并保持该清单不缓存。
+Web 构建自动生成 `version.json`，与资源一同部署并保持该清单不缓存。生产 Nginx 的 Web 根目录指向独立符号链接 `/opt/agentdeck/web-current`，与云端程序入口 `/opt/agentdeck/current` 分开。单独 Web 部署保留旧入口与配置备份，校验公开版本和文件哈希；若需要平滑重载，等待新配置和版本生效后再判断结果，不仅凭 reload 命令返回认定上线成功。
 
 在服务器执行 `sh scripts/host/publish-downloads.sh 上传目录 /opt/agentdeck/downloads`，先核对包校验值、发布不可变版本文件，最后原子更新 `stable.txt`；旧版本保留。将 `server/deploy/downloads.nginx.conf` 的规则 include 到现有 HTTPS server block，同一 server block 中另 include `server/deploy/web-updates.nginx.conf` 并沿用 Web 根目录，确保版本清单 no-store、PWA worker/安装清单重新验证；执行 `nginx -t` 后 reload。下载规则不替换现有 `/api/`、`/admin`、Web 或隧道转发；单个平台尚未发布时返回 404，不退回 HTML 页面冒充程序。
 

@@ -744,6 +744,24 @@ small,
 .rich-content p:last-child {
   margin-bottom: 0;
 }
+.rich-content .katex-display,
+.api-message-body .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+}
+.rich-content .katex-display > .katex,
+.api-message-body .katex-display > .katex {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
+.rich-content .katex-error,
+.api-message-body .katex-error {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .rich-content > :first-child {
   margin-top: 0;
 }
@@ -2989,7 +3007,14 @@ small,
   font-size: 13px;
 }
 .host-update-notice > span {
-  flex: 1 1 240px;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.host-update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
 }
 .host-update-prompt {
   white-space: pre-wrap;

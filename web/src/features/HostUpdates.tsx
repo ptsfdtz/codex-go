@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import type { Request } from '../workspace';
-import { Modal } from '../ui';
+import { IconButton, Modal } from '../ui';
 import { MotionPresence } from '../motion';
+import { usePreference } from './preferences';
 
 export type HostRelease = {
   notes?: string | null;
@@ -58,13 +60,20 @@ export function HostUpdates({
   managed,
   disabled,
   name,
+  hostId,
 }: {
   request: Request;
   supported: boolean;
   managed: boolean;
   disabled: boolean;
   name: string;
+  hostId: string;
 }) {
+  const [dismissedJobId, setDismissedJobId] = usePreference<string>(
+    `agentdeck.web.host-update-dismissed.${hostId}`,
+    '',
+    (value): value is string => typeof value === 'string',
+  );
   const [release, setRelease] = useState<HostRelease>();
   const [status, setStatus] = useState<UpdateStatus>();
   const [error, setError] = useState('');
@@ -156,7 +165,13 @@ export function HostUpdates({
     status.host.cloudOnline &&
     status.host.codexReady &&
     !status.host.runtimeError;
-  if (!outdated && !unknown && !error && !job) return null;
+  function closeNotice() {
+    setOpen(false);
+    if (!confirmedComplete || !job) return;
+    setDismissedJobId(job.id);
+  }
+  if (!outdated && !unknown && !error && (!job || (confirmedComplete && dismissedJobId === job.id)))
+    return null;
   const legacyCommand =
     (release?.platform || legacyPlatform) === 'linux'
       ? 'curl -fsSL https://agent.ptsfdtz.top/install.sh | sh'
@@ -166,20 +181,25 @@ export function HostUpdates({
       <span role="status">
         {`${name}：`}
         {error ||
-          (job
-            ? confirmedComplete
-              ? '更新完成'
-              : job.phase === 'complete'
-                ? '已更新，当前连接或 Codex 尚未就绪'
-                : phases[job.phase]
-            : outdated
-              ? `发现新版 ${release.latest}`
+          (outdated && (!job || confirmedComplete)
+            ? `发现新版 ${release.latest}`
+            : job
+              ? confirmedComplete
+                ? '更新完成'
+                : job.phase === 'complete'
+                  ? '已更新，当前连接或 Codex 尚未就绪'
+                  : phases[job.phase]
               : '旧版 Host 需要在电脑上升级一次')}
       </span>
-      <button onClick={() => setOpen(true)}>查看更新</button>
+      <div className="host-update-actions">
+        <button onClick={() => setOpen(true)}>查看更新</button>
+        {confirmedComplete && !outdated && !unknown && !error && (
+          <IconButton icon={X} label="关闭更新完成提示" onClick={closeNotice} />
+        )}
+      </div>
       <MotionPresence>
         {open && (
-          <Modal title={`更新 ${name}`} onClose={() => setOpen(false)}>
+          <Modal title={`更新 ${name}`} onClose={closeNotice}>
             <div className="panel-stack">
               <p>这是当前选中的被控制电脑。更新保留账户、电脑身份、项目与会话。</p>
               {release && (

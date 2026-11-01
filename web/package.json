@@ -12,17 +12,23 @@
     "@reclaimprotocol/tls": "0.1.5",
     "highlight.js": "11.11.1",
     "jsqr": "1.4.0",
+    "katex": "0.16.47",
     "lucide-react": "0.468.0",
+    "mdast-util-math": "3.0.0",
+    "micromark-extension-llm-math": "3.1.1-20250610",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-markdown": "10.1.0",
+    "rehype-katex": "7.0.1",
     "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "@vitejs/plugin-react": "4.7.0",
+    "micromark-util-types": "2.0.3",
     "typescript": "5.9.3",
+    "unified": "11.0.5",
     "vite": "6.4.1"
   }
 }
