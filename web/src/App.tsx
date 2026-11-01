@@ -31,6 +31,9 @@ import type {
 } from './workspace';
 import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
+import { useTaskAttention } from './features/notifications/use-task-attention';
+import { TaskNotifications } from './features/notifications/TaskNotifications';
+import { messageQuestions, confirmedAnswers } from './features/question-replies';
 import type { WorkMode } from './features/ModeSwitcher';
 import { deferred } from './deferred';
 const ApiChat = deferred<
@@ -327,8 +330,26 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     false,
     (value): value is boolean => typeof value === 'boolean',
   );
-  const notificationRef = useRef(notification);
-  notificationRef.current = notification;
+  const attention = useTaskAttention(scope, host?.hostId, snapshot, notification);
+  const attentionRef = useRef(attention);
+  attentionRef.current = attention;
+  useEffect(() => {
+    if (!historyReady || !connected || !session) return;
+    for (const entry of history) {
+      const questions = messageQuestions(entry);
+      if (
+        !entry.item?.id ||
+        !questions.length ||
+        confirmedAnswers(history, entry.item.id).size >= questions.length
+      )
+        continue;
+      attention.receive({
+        action: 'upstream.progress',
+        sessionId: session,
+        payload: { method: 'item/completed', item: entry.item },
+      });
+    }
+  }, [history, historyReady, connected, session, attention.receive]);
   const [statusRevision, setStatusRevision] = useState(0);
   const [queueRevision, setQueueRevision] = useState(0);
   const [observedUsage, setObservedUsage] =
@@ -975,6 +996,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     function consume(packets: Packet[], baselineKeys?: Set<string>) {
       let entries = historyRef.current;
       for (const packet of packets) {
+        attentionRef.current.receive(packet);
         const payload = packet.payload || {};
         const selected = packet.sessionId === sessionRef.current;
         if (selected && ['turn.progress', 'upstream.progress'].includes(packet.action || '')) {
@@ -1053,15 +1075,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             uncertainBaseline.current.clear();
             scheduleRefresh(true);
           }
-          if (
-            notificationRef.current &&
-            'Notification' in window &&
-            Notification.permission === 'granted' &&
-            document.visibilityState !== 'visible'
-          )
-            new Notification('Codex task updated', {
-              body: 'Open AgentDeck to review the result.',
-            });
+
         }
         if (selected && packet.action === 'session.deleted') {
           selectSession(undefined, false);
@@ -1500,6 +1514,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   }
 
   function chooseSession(item: Session) {
+    attention.read(item.sessionId);
     setSelectedProject(item.projectId || '');
     selectSession(item.sessionId);
     const running = snapshot.turns?.find(
@@ -1779,6 +1794,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         key={JSON.stringify([scope, host?.hostId])}
         brand={modeControl}
         sessions={snapshot.sessions || []}
+        unread={attention.unread}
         connected={connected}
         projects={projects}
         chatAvailable={connected && supports('projectlessChat')}
@@ -1834,18 +1850,50 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         filter={filter}
         setFilter={setFilter}
       />
+      <TaskNotifications
+        notices={attention.notices}
+        sessions={snapshot.sessions || []}
+        onOpen={(item) => {
+          chooseSession(item);
+          setPanel('');
+          requestAnimationFrame(() => {
+            conversationElement.current
+              ?.querySelector<HTMLElement>('.conversation .workspace-title')
+              ?.focus({ preventScroll: true });
+          });
+        }}
+        onDismiss={attention.dismiss}
+      />
       <section
         className={`conversation-layout ${toolsVisible ? 'with-file-workspace' : ''} ${fileWorkspaceWide ? 'file-workspace-wide' : ''}`}
         ref={conversationElement}
         style={{ '--file-pane-width': `${filePaneWidth}%` } as React.CSSProperties}
       >
-        <section className="conversation">
+        <section
+          className="conversation"
+          onPointerDownCapture={(event) => {
+            if (session && (event.target as Element).closest('.timeline, .composer-wrap'))
+              attention.read(session);
+          }}
+          onFocusCapture={(event) => {
+            if (
+              session &&
+              document.visibilityState === 'visible' &&
+              (event.target as Element).closest('.timeline, .composer-wrap')
+            )
+              attention.read(session);
+          }}
+          onInputCapture={() => {
+            if (session) attention.read(session);
+          }}
+        >
           <header className="topbar">
             <IconButton
               icon={Menu}
               label="打开会话列表"
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className={sidebarOpen ? 'rail-toggle' : ''}
+              badge={Object.keys(attention.unread).length ? '有未读任务提醒' : undefined}
             />
             <div className="workspace-anchor">
               <button
@@ -2732,7 +2780,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         </label>
                         <label className="setting-row">
                           <span>
-                            任务通知<small>仅在应用打开时接收</small>
+                            系统通知<small>页面后台时提醒；应用内卡片和蓝点始终显示</small>
                           </span>
                           <input
                             type="checkbox"

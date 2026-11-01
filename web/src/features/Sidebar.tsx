@@ -34,6 +34,7 @@ import { Collapse, MotionList } from '../motion';
 import type { Host, Project, Session } from '../workspace';
 import { canManage, isSessionWorking } from '../workspace';
 import './Sidebar.css';
+import { attentionLabels, type AttentionKind } from './notifications/task-attention';
 
 type SessionAction = 'pin' | 'archive' | 'restore';
 export function Sidebar({
@@ -60,6 +61,7 @@ export function Sidebar({
   setFilter,
   onSessionAction,
   actionsBlocked = false,
+  unread = {},
 }: {
   brand?: ReactNode;
   sessions: Session[];
@@ -84,6 +86,7 @@ export function Sidebar({
   setFilter: (s: string) => void;
   onSessionAction: (action: SessionAction, session: Session) => Promise<void>;
   actionsBlocked?: boolean;
+  unread?: Record<string, AttentionKind>;
 }) {
   const [sort, setSort] = useState('recent');
   const [projectsOpen, setProjectsOpen] = useState(true);
@@ -242,8 +245,14 @@ export function Sidebar({
         onClick={() => onSelect(s)}
         title={s.title || '未命名会话'}
         aria-current={s.sessionId === sessionId ? 'page' : undefined}
+        aria-description={
+          unread[s.sessionId] ? `${attentionLabels[unread[s.sessionId]!]}，有未读提醒` : undefined
+        }
       >
         <span className="session-title">{s.title || '未命名会话'}</span>
+        {unread[s.sessionId] && (
+          <span className="notification-dot session-unread-dot" aria-hidden="true" />
+        )}
         {isSessionWorking(s) && (
           <span
             className={`session-working ${connected ? '' : 'is-stale'}`}
@@ -298,6 +307,7 @@ export function Sidebar({
             icon={Menu}
             label="收起会话列表"
             onClick={onClose}
+            badge={Object.keys(unread).length ? '有未读任务提醒' : undefined}
           />
         </div>
         <div className="sidebar-primary">

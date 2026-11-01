@@ -9,6 +9,7 @@ export function IconButton({
   className = '',
   pressed,
   pending = false,
+  badge,
 }: {
   icon: LucideIcon;
   label: string;
@@ -17,16 +18,18 @@ export function IconButton({
   className?: string;
   pressed?: boolean;
   pending?: boolean;
+  badge?: string;
 }) {
   return (
     <button
       type="button"
-      className={`icon-button ${className}`}
+      className={`icon-button ${className} ${badge ? 'notification-badge-button' : ''}`}
       title={label}
       aria-label={label}
       disabled={disabled || pending}
       aria-pressed={pressed}
       aria-busy={pending || undefined}
+      aria-description={badge}
       onClick={onClick}
     >
       {pending ? (
@@ -34,6 +37,7 @@ export function IconButton({
       ) : (
         <Icon size={19} strokeWidth={1.6} aria-hidden="true" />
       )}
+      {badge && <span className="notification-dot" aria-hidden="true" />}
     </button>
   );
 }

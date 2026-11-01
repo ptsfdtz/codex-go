@@ -25,6 +25,7 @@
     "test:message-images-browser": "node scripts/web/test-message-images-browser.mjs",
     "test:markdown-math-browser": "node scripts/web/test-markdown-math-browser.mjs",
     "test:dropdowns-browser": "node scripts/web/test-dropdowns-browser.mjs",
+    "test:task-notifications-browser": "node scripts/web/test-task-notifications-browser.mjs",
     "test:host-names": "node --test scripts/web/test-host-names.mjs",
     "test:workspace-tools-browser": "node scripts/web/test-workspace-tools-browser.mjs",
     "test:selection-quote-browser": "node scripts/web/test-selection-quote-browser.mjs",
