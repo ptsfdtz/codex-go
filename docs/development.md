@@ -116,3 +116,5 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal -
 Host 语言检查：`cargo test --locked --manifest-path desktop/core/Cargo.toml --lib i18n` 与 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test i18n_cli`。集成测试使用临时 `AGENTDECK_DATA_DIR`，不启动日常 Host。
 
 生产 TLS 分块回归为 `pnpm test:tls-bundle-browser`：先构建并在回环端口 1599 启动 Vite preview，复用 Playwright 和本机 OpenSSL。脚本仅在临时目录创建证书，通过回环 WebSocket 转接到本地 TLS 1.3 服务，验证正确 pin 的握手/数据交换、错误 pin 不释放应用数据、分块在连接前不加载且各小于 500 kB；不连接真实 Host。根证书与 TLS 代码分包仅改善独立缓存和单块大小，首次连接合计约 551 kB，未削减根证书或改变加密及 pin 校验。
+
+Pages 候选在 Windows Git Bash 中构建时须排除 `VITE_BASE_PATH` 的 MSYS 环境路径转换。构建后运行 `GITHUB_REPOSITORY=ptsfdtz/codex-go node scripts/web/check-pages-build.mjs`，核对首页所有资源均使用仓库部署前缀且实际存在；这项产物检查不代替浏览器跨域连接或真实设备验收。

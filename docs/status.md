@@ -6,9 +6,13 @@
 
 ## 0.4.3 候选准备（尚未正式发布）
 
-用户已授权完成验收后合并 main，并正式发布 0.4.3 更新全部线上环境。目前准备从 release 封存候选；源码 `373ecf3` 的 [CI 41312857339](https://github.com/ptsfdtz/codex-go/actions/runs/41312857339) Linux x64/ARM64 与 macOS 已通过，Windows 打包仍在执行。正式发布流程已补全 macOS ARM64 独立附件及 SHA-256，四平台真实验收门槛保持。
+用户已授权完成验收后合并 main，并正式发布 0.4.3 更新全部线上环境。[合并请求 #9](https://github.com/ptsfdtz/codex-go/pull/9) 保持草稿；`373ecf3` 的 [CI 41312857339](https://github.com/ptsfdtz/codex-go/actions/runs/41312857339) 四个平台均通过。正式发布流程已补全 macOS ARM64 独立附件及 SHA-256，四平台真实验收门槛保持。
 
-当前尚无 0.4.3 候选哈希或同批真实端到端证据，Windows、Linux x64/ARM64、macOS ARM64 的安装升级、云端连接、真实模型、沙箱审批、重连恢复和本次功能均须按发布文档记录。尚未合并 main、部署或推进稳定下载指针，正式版本仍为 0.4.2。
+首轮候选构建 [41314241902](https://github.com/ptsfdtz/codex-go/actions/runs/41314241902)，源码 `e191b72`，在封存前发现 Windows Git Bash 将 Pages 的 `VITE_BASE_PATH=/codex-go/` 转为 `/Program Files/Git/codex-go/`，真实产物在浏览器中白屏；已取消该轮。构建脚本排除该变量的 MSYS 环境路径转换，并新增 `check-pages-build.mjs` 核对所有首页资源的部署前缀与文件存在性；新检查可拒绝首轮错误产物。修复后必须重新构建候选，未改写旧产物冒充通过。
+
+首轮 Linux x64 包已在独立用户、状态目录与 PostgreSQL 17 中完成 0.4.2 安装升级、显式重启后保留测试账户/电脑身份/项目授权及原生进程；官方来源、实际沙箱边界、双连接共享会话、原样 Web 经真实云端转发连接 Host、英文切换和刷新重连通过。记录在 `artifacts/release-0.4.3/linux-partial.json`；这些是首轮部分证据，须与最终候选重新绑定并补测，不代表最终候选已验收。
+
+当前尚无已封存 0.4.3 候选哈希或完整同批端到端证据；缺少可用模型认证及 Windows/macOS 测试机。Windows、Linux x64/ARM64、macOS ARM64 的真实模型/历史、审批与本次功能均须按发布文档记录。尚未合并 main、部署或推进稳定下载指针，正式版本仍为 0.4.2。
 
 ## Windows 隔离审查修复（未部署）
 

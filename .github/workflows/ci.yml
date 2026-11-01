@@ -50,8 +50,10 @@ jobs:
         shell: bash
         run: |
           test -n "$VITE_CLOUD_ORIGIN"
+          export MSYS2_ENV_CONV_EXCL=VITE_BASE_PATH
           export VITE_BASE_PATH="/${GITHUB_REPOSITORY#*/}/"
           pnpm --filter @agentdeck/web build
+          node scripts/web/check-pages-build.mjs
           cp web/dist/index.html web/dist/404.html
           tar -czf pages.tar.gz -C web/dist .
         env:
