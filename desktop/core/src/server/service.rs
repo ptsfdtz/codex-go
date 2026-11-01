@@ -22,6 +22,7 @@ use tokio::sync::{mpsc, Notify, Semaphore};
 pub(crate) const MAX_CONCURRENT_TASKS: usize = 5;
 
 pub struct Core {
+    pub(crate) ssh_terminals: crate::ssh_terminal::Terminals,
     pub(crate) lan_gateway: Mutex<Option<(std::net::SocketAddr, tokio::task::JoinHandle<()>)>>,
     pub cloud: crate::cloud::Cloud,
     pub(crate) discovery: Mutex<Option<crate::server::discovery::Advertisement>>,
@@ -75,6 +76,7 @@ impl Core {
         local: mpsc::Sender<Value>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            ssh_terminals: crate::ssh_terminal::Terminals::default(),
             lan_gateway: Mutex::new(None),
             cloud: crate::cloud::Cloud::default(),
             discovery: Mutex::new(None),
@@ -125,6 +127,7 @@ impl Core {
         }
     }
     pub fn request_stop(&self) {
+        self.ssh_terminals.close_all();
         if let Some((_, task)) = self.lan_gateway.lock().unwrap().take() {
             task.abort();
         }
@@ -817,6 +820,7 @@ impl Core {
     }
     pub fn revoke_device(&self, device: &str) -> Result<()> {
         Pairing::revoke(&self.store, device)?;
+        self.ssh_terminals.close_device(device);
         self.authorization_changed.notify_waiters();
         let authorized = self
             .store

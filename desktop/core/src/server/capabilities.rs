@@ -57,6 +57,7 @@ pub fn describe_profile(
         "gitWrite": false,
         "fileEditor": false,
         "terminal": false,
+        "sshTerminal": true,
         "browser": false,
         "automationManagement": false
     });

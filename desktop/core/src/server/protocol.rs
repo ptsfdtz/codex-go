@@ -83,6 +83,14 @@ pub fn parse(v: Value) -> Result<Request> {
         | "settings.get"
         | "devices.revokeSelf" => (&[], &[]),
         "requests.status" => (&["requestId"], &[]),
+        "ssh.open" => (
+            &["terminalId", "host", "cols", "rows"],
+            &["user", "port", "identity"],
+        ),
+        "ssh.read" => (&["terminalId", "offset"], &[]),
+        "ssh.write" => (&["terminalId", "sequence", "data"], &[]),
+        "ssh.resize" => (&["terminalId", "cols", "rows"], &[]),
+        "ssh.close" => (&["terminalId"], &[]),
         "system.updateInstall" => (&["version"], &[]),
         "system.updateApply" | "system.updateCancel" => (&["jobId"], &[]),
         "sessions.refreshIndex" => (&["contractVersion"], &[]),
@@ -185,6 +193,9 @@ pub fn parse(v: Value) -> Result<Request> {
         _ => return Err(Error::new("INVALID_REQUEST", "Unsupported action")),
     };
     fields(p, required, optional)?;
+    if r.action.starts_with("ssh.") {
+        crate::ssh_terminal::validate(&r.action, p)?;
+    }
     if ["git.compare", "git.compareDiff"].contains(&r.action.as_str()) {
         text(p, "base", 1, 512)?;
         text(p, "head", 1, 512)?;

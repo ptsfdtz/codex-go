@@ -526,6 +526,13 @@ async fn connection(
             .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(8)))
             .clone()
     };
+    let ssh_owner = crate::uid("ssh_connection");
+    let ssh_alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let _ssh_cleanup = SshConnection {
+        core: core.clone(),
+        owner: ssh_owner.clone(),
+        alive: ssh_alive.clone(),
+    };
     let mut hello = false;
     let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -556,7 +563,7 @@ async fn connection(
             if request.action=="system.hello"{hello=true;}
                 if !core.rates.lock().unwrap().take(format!("rpc:{device}"),60.,20.){if !send(&mut writer,Error::new("RATE_LIMITED","Request rate limit").packet(Some(&request.id))).await{break;}continue;}
                 let permit=local_slots.clone().try_acquire_owned();let global=core.rpc_slots.clone().try_acquire_owned();if permit.is_err()||global.is_err(){if !send(&mut writer,Error::new("RATE_LIMITED","Too many concurrent requests").packet(Some(&request.id))).await{break;}continue;}
-                let owner=core.clone();let tx=responses.clone();let device=device.clone();tokio::spawn(async move{let _permit=permit;let _global=global;let packet=handle_request(&owner,&request,&device).await;let _=tx.try_send(packet);});
+                let owner=core.clone();let tx=responses.clone();let device=device.clone();let ssh_owner=ssh_owner.clone();let ssh_alive=ssh_alive.clone();tokio::spawn(async move{let _permit=permit;let _global=global;let packet=if request.action.starts_with("ssh."){handle_ssh_request(owner,&request,&device,&ssh_owner,ssh_alive).await}else{handle_request(&owner,&request,&device).await};let _=tx.try_send(packet);});
             },Some(Ok(Message::Pong(_)))=>last_received=Instant::now(),Some(Ok(Message::Ping(bytes)))=>{last_received=Instant::now();if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Pong(bytes))).await,Ok(Ok(()))){break;}},Some(Ok(Message::Binary(_)))|Some(Ok(Message::Close(_)))|Some(Err(_))|None=>break}},
             result=result_rx.recv()=>{if let Some(v)=result{if !send(&mut writer,v).await{break;}}},
             _=core.authorization_changed.notified()=>{
@@ -588,6 +595,52 @@ async fn connection(
         let _ = core.invalidate_approvals(true);
     }
     core.publish();
+}
+// Connection ownership is stricter than device ownership: another tab cannot
+// read a password prompt or type into this terminal, even on the same account.
+struct SshConnection {
+    core: Arc<Core>,
+    owner: String,
+    alive: Arc<std::sync::atomic::AtomicBool>,
+}
+impl Drop for SshConnection {
+    fn drop(&mut self) {
+        self.alive.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.core.ssh_terminals.close_owner(&self.owner);
+    }
+}
+async fn handle_ssh_request(
+    core: Arc<Core>,
+    r: &protocol::Request,
+    device: &str,
+    owner: &str,
+    alive: Arc<std::sync::atomic::AtomicBool>,
+) -> Value {
+    let _guard = core.update_gate.read().await;
+    if core
+        .update_draining
+        .load(std::sync::atomic::Ordering::SeqCst)
+        || core.stopping.load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return Error::new("SSH_CLOSED", "Host 正在重启，请稍后重新连接").packet(Some(&r.id));
+    }
+    let host = core.clone();
+    let action = r.action.clone();
+    let payload = r.payload.clone();
+    let owner = owner.to_owned();
+    let device = device.to_owned();
+    let result = tokio::task::spawn_blocking(move || {
+        host.ssh_terminals
+            .handle(&action, &payload, &owner, &device, &alive)
+    })
+    .await;
+    match result {
+        Ok(Ok(payload)) => {
+            json!({"v":1,"type":"response","id":r.id,"action":r.action,"payload":payload,"ts":now()})
+        }
+        Ok(Err(e)) => e.packet(Some(&r.id)),
+        Err(_) => Error::new("SSH_ERROR", "SSH 终端操作失败").packet(Some(&r.id)),
+    }
 }
 async fn authorized(
     core: &Core,
