@@ -127,8 +127,13 @@ export function SideChat({
     setError('');
   }
   useEffect(() => {
-    if (!project && initialProject) setProject(initialProject);
-  }, [project, initialProject]);
+    if (
+      !sessionId &&
+      initialProject &&
+      (!project || !snapshot.projects?.some((p) => p.projectId === project))
+    )
+      setProject(initialProject);
+  }, [project, initialProject, sessionId, snapshot.projects]);
   useEffect(() => {
     if (!connected || !sessionId || !capabilities.features?.externalThreadObservation) return;
     let live = true;

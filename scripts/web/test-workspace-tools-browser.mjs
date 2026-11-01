@@ -116,6 +116,8 @@ try {
     Bridge.prototype.request = async function (action, payload = {}) {
       window.calls.push({ action, payload });
       if (action === 'snapshot.get') return structuredClone(window.testSnapshot);
+      if (action === 'events.replay')
+        return { events: [], cursor: window.testSnapshot.cursor, hasMore: false };
       if (action === 'system.capabilities')
         return {
           features: {
@@ -125,6 +127,8 @@ try {
             sessionManagement: true,
             attachments: true,
             activeTurnSteering: true,
+            externalThreadObservation: true,
+            latestUpstreamTurn: true,
             sshTerminal: window.sshSupported !== false,
           },
         };
@@ -176,6 +180,10 @@ try {
           },
         });
         return { turn };
+      }
+      if (action === 'turn.latest') {
+        const turn = window.testSnapshot.turns.find((t) => t.sessionId === payload.sessionId);
+        return { turn: turn ? { ...turn, status: 'inProgress' } : null };
       }
       if (action === 'turn.active') return { upstreamTurnId: 'native-' + payload.sessionId };
       if (action === 'ssh.open') {
@@ -275,6 +283,13 @@ try {
     'side header must sit directly below tool tabs',
   );
   await page.screenshot({ path: new URL('two-chats-desktop.png', out).pathname });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'dark';
+  });
+  await page.screenshot({ path: new URL('two-chats-dark.png', out).pathname });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+  });
   const nav = host.getByRole('navigation', { name: '工作区工具', exact: true });
   await nav.getByRole('button', { name: '文件', exact: true }).click();
   await host.getByRole('treeitem', { name: /README.md/ }).dblclick();
@@ -344,6 +359,8 @@ try {
   );
   assert.equal(await primary.getByRole('button', { name: '允许一次', exact: true }).count(), 0);
   checks.push('side approval confirmation sends the side session and turn identities');
+  const approvalNotice = page.getByRole('region', { name: '任务提醒', exact: true });
+  await approvalNotice.getByRole('button', { name: '关闭提醒', exact: true }).click();
   await page.evaluate(() => {
     window.testSnapshot.approvals = [];
   });
@@ -414,6 +431,32 @@ try {
   await page.waitForFunction(() => window.sshClosed > 0);
   assert.equal(await primary.isVisible(), true);
   checks.push('390px layout switches between main and tools; closing tools closes SSH');
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.evaluate(() => {
+    window.sshSupported = false;
+    window.testBridge.close();
+  });
+  await host.getByRole('button', { name: '打开工具', exact: true }).click();
+  await host
+    .locator('.tools-grid')
+    .getByRole('button', { name: /SSH 终端/ })
+    .click();
+  await host
+    .getByText('当前 Host 尚不支持 SSH 终端，请升级 Host 后使用。', { exact: true })
+    .waitFor();
+  const openCount = await page.evaluate(
+    () => window.calls.filter((c) => c.action === 'ssh.open').length,
+  );
+  await page.evaluate(() => {
+    window.sshSupported = true;
+    window.testBridge.close();
+  });
+  await host.getByLabel('主机 / SSH 别名').waitFor();
+  assert.equal(
+    await page.evaluate(() => window.calls.filter((c) => c.action === 'ssh.open').length),
+    openCount,
+  );
+  checks.push('old Hosts show an upgrade message; reconnecting never restarts SSH');
   assert.deepEqual(errors, []);
   await writeFile(
     new URL('verification.json', out),
