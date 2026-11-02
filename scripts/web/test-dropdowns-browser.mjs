@@ -27,7 +27,6 @@ try {
     const { ModeSwitcher } = await import('/src/features/ModeSwitcher.tsx');
     const { ModelPicker } = await import('/src/features/ModelPicker.tsx');
     const { PermissionPicker } = await import('/src/features/PermissionPicker.tsx');
-    const { ToolsButton } = await import('/src/features/tools/ToolsNavigation.tsx');
     document.getElementById('root').style.display = 'none';
     const el = document.createElement('main');
     el.id = 'dropdown-test';
@@ -138,11 +137,6 @@ try {
           h(BranchComparison, { request, projectId: 'dropdown-project', supported: true }),
         ),
         h('button', { type: 'button', id: 'outside' }, '菜单外部'),
-        h(
-          'div',
-          { style: { position: 'fixed', top: 12, right: 12 } },
-          h(ToolsButton, { onOpen: () => {}, fileAvailable: true }),
-        ),
         modal &&
           h(
             Modal,
@@ -214,6 +208,14 @@ try {
 
   await page.getByRole('button', { name: '打开选择弹窗' }).click();
   const dialog = page.getByRole('dialog', { name: '选择弹窗' });
+  assert.equal(
+    await dialog.evaluate((el) => getComputedStyle(el, '::backdrop').backgroundColor),
+    'rgba(0, 0, 0, 0)',
+  );
+  assert.equal(
+    await dialog.evaluate((el) => getComputedStyle(el, '::backdrop').backdropFilter),
+    'none',
+  );
   await page.getByRole('combobox', { name: '弹窗选择', exact: true }).click();
   await page.getByRole('option', { name: 'C', exact: true }).click();
   assert(await dialog.isVisible());
@@ -275,17 +277,11 @@ try {
         bg: getComputedStyle(el).backgroundColor,
         radius: getComputedStyle(el).borderRadius,
       }));
-      assert.equal(colors.radius, '14px');
+      assert.equal(colors.radius, '12px');
       assert.equal(colors.bg, theme === 'dark' ? 'rgb(33, 33, 33)' : 'rgb(255, 255, 255)');
       await page.screenshot({
         path: fileURLToPath(new URL(`branches-${theme}-${width}.png`, out)),
       });
-      await page.keyboard.press('Escape');
-      await page.getByRole('button', { name: '打开工具', exact: true }).click();
-      const tools = page.getByRole('region', { name: '工具', exact: true });
-      const toolsBox = await tools.boundingBox();
-      assert(toolsBox.x >= 0 && toolsBox.x + toolsBox.width <= width + 1);
-      assert.equal(await tools.evaluate((el) => getComputedStyle(el).borderRadius), '14px');
       await page.keyboard.press('Escape');
     }
   }
@@ -314,7 +310,7 @@ try {
     await page.getByRole('button', { name, exact: true }).click();
     const popup = page.locator(`${popupSelector}:popover-open`);
     await popup.waitFor();
-    assert.equal(await popup.evaluate((el) => getComputedStyle(el).borderRadius), '14px');
+    assert.equal(await popup.evaluate((el) => getComputedStyle(el).borderRadius), '12px');
     await page.waitForTimeout(180);
     if (popupSelector === '.mode-menu') {
       const anchor = await page.getByRole('button', { name, exact: true }).boundingBox();
@@ -324,6 +320,73 @@ try {
     await popup.screenshot({ path: fileURLToPath(new URL(`${popupSelector.slice(1)}.png`, out)) });
     await page.keyboard.press('Escape');
   }
+  const modelTrigger = page.getByRole('button', { name: '切换模型', exact: true });
+  await modelTrigger.click();
+  const models = page.getByRole('group', { name: '模型', exact: true });
+  await models.getByRole('button', { name: 'Model B', exact: true }).click();
+  assert.equal(await modelTrigger.innerText(), 'Model B');
+  await page.keyboard.press('Escape');
+  await modelTrigger.click();
+  assert.equal(
+    await models.getByRole('button', { name: 'Model B', exact: true }).getAttribute('aria-pressed'),
+    'true',
+  );
+  assert(await models.getByRole('button', { name: 'Model A', exact: true }).isVisible());
+  await page.keyboard.press('Escape');
+  checks.push(
+    'model choices visible on each open; choosing a model updates the controlled draft and selected state',
+  );
+  // Anchored button menus use one keyboard contract and expose open state.
+  for (const [name, selector] of [
+    ['切换工作模式', '.mode-menu'],
+    ['执行权限：工作区权限', '.permission-popup'],
+  ]) {
+    const trigger = page.getByRole('button', { name, exact: true });
+    await trigger.focus();
+    await trigger.press('ArrowDown');
+    const menu = page.locator(`${selector}:popover-open`);
+    await menu.waitFor();
+    await page.waitForTimeout(180);
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    assert(
+      await menu
+        .locator('button:not(:disabled)')
+        .first()
+        .evaluate((el) => el === document.activeElement),
+    );
+    await page.keyboard.press('End');
+    assert(
+      await menu
+        .locator('button:not(:disabled)')
+        .last()
+        .evaluate((el) => el === document.activeElement),
+    );
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(180);
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    assert(await trigger.evaluate((el) => el === document.activeElement));
+  }
+  // Model/permission pickers also work when their trigger is near the top edge.
+  for (const width of [320, 1100]) {
+    await page.setViewportSize({ width, height: 480 });
+    for (const [name, selector] of [
+      ['切换模型', '.model-picker-popup'],
+      ['执行权限：工作区权限', '.permission-popup'],
+    ]) {
+      const trigger = page.getByRole('button', { name, exact: true });
+      await trigger.click();
+      await page.waitForTimeout(180);
+      const box = await page.locator(`${selector}:popover-open`).boundingBox();
+      assert(
+        box.x >= 0 && box.y >= 0 && box.x + box.width <= width + 1 && box.y + box.height <= 481,
+        JSON.stringify(box),
+      );
+      await page.keyboard.press('Escape');
+    }
+  }
+  checks.push(
+    'transparent dialog backdrop; menu keyboard focus/open state; short viewport picker bounds',
+  );
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await basic.click();
   await page.keyboard.press('Escape');

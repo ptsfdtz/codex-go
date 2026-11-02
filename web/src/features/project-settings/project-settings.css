@@ -84,7 +84,7 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 13px 0;
+  padding: 6px 0;
 }
 .project-settings-folder {
   display: grid;
@@ -99,10 +99,11 @@
 .project-settings-open {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   align-items: stretch;
   flex: 1;
   min-width: 0;
-  padding: 3px 0;
+  padding: 2px 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -131,13 +132,13 @@
 }
 .project-settings-path {
   display: block;
-  margin-top: 4px;
+  margin-top: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 16px;
 }
 .project-settings-actions {
   display: flex;
@@ -145,8 +146,8 @@
   flex-shrink: 0;
 }
 .project-settings-actions .icon-button {
-  width: 32px;
-  height: 34px;
+  width: var(--control-size);
+  height: var(--control-size);
   color: var(--muted);
 }
 .project-settings-actions .icon-button svg {
@@ -232,8 +233,8 @@
     gap: 9px;
   }
   .project-settings-actions .icon-button {
-    width: 36px;
-    height: 40px;
+    width: var(--control-size);
+    height: var(--control-size);
   }
   .project-settings-confirm {
     margin-left: 0;

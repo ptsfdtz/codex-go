@@ -29,8 +29,8 @@
   font-size: 13px;
 }
 .project-overview-heading .icon-button {
-  width: 28px;
-  height: 28px;
+  width: var(--control-size);
+  height: var(--control-size);
 }
 .project-overview-heading .icon-button svg {
   width: 15px;

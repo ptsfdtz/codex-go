@@ -90,8 +90,8 @@
   background: var(--hover);
 }
 .file-workspace .icon-button {
-  width: 30px;
-  height: 30px;
+  width: var(--control-size);
+  height: var(--control-size);
   padding: 4px;
   flex-shrink: 0;
 }

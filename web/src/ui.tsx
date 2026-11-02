@@ -64,6 +64,16 @@ export function Modal({
   const dialog = useRef<HTMLDialogElement>(null);
   const present = useMotionPresence();
   const backdropPress = useRef(false);
+  const outside = (event: { clientX: number; clientY: number }) => {
+    const box = dialog.current?.getBoundingClientRect();
+    return (
+      !!box &&
+      (event.clientX < box.left ||
+        event.clientX > box.right ||
+        event.clientY < box.top ||
+        event.clientY > box.bottom)
+    );
+  };
   const [entered, setEntered] = useState(false);
   useLayoutEffect(() => {
     const node = dialog.current;
@@ -94,10 +104,10 @@ export function Modal({
         onClose();
       }}
       onPointerDown={(event) => {
-        backdropPress.current = event.target === dialog.current;
+        backdropPress.current = event.target === dialog.current && outside(event);
       }}
       onClick={(event) => {
-        if (event.target === dialog.current && backdropPress.current) onClose();
+        if (event.target === dialog.current && backdropPress.current && outside(event)) onClose();
         backdropPress.current = false;
       }}
     >

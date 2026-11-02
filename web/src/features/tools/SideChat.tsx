@@ -36,6 +36,8 @@ export function SideChat({
   models,
   capabilities,
   initialProject,
+  initialSession = '',
+  instanceId = '',
   scope,
   blocked,
   onChanged,
@@ -50,6 +52,8 @@ export function SideChat({
   models: Model[];
   capabilities: Capabilities;
   initialProject: string;
+  initialSession?: string;
+  instanceId?: string;
   scope: string;
   drafts: Record<string, Draft>;
   setDrafts: Dispatch<SetStateAction<Record<string, Draft>>>;
@@ -59,7 +63,7 @@ export function SideChat({
 }) {
   useLocale();
   const [project, setProject] = useState(initialProject);
-  const [sessionId, setSessionId] = useState('');
+  const [sessionId, setSessionId] = useState(initialSession);
   const [permission, setPermission] = useState('workspace');
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const history = useRef(entries);
@@ -83,7 +87,7 @@ export function SideChat({
   liveConnection.current = connection;
   const cache = useRef(new Map<string, HistoryEntry>());
   const keyFor = (id: string) => JSON.stringify([scope, 'side', id]);
-  const draftKey = keyFor(sessionId || `new:${project}`);
+  const draftKey = keyFor(sessionId || `new:${project}:${instanceId}`);
   const current = snapshot.sessions?.find((item) => item.sessionId === sessionId);
   const draft = drafts[draftKey] || {
     ...emptyDraft(),

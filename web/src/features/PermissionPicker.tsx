@@ -1,6 +1,6 @@
+import { positionPopover, useMenuPopover } from '../components/popover';
 import { t, useLocale } from '../i18n';
 import { useId } from 'react';
-import { usePopoverMotion } from '../motion';
 import { Check, Shield, ShieldAlert } from 'lucide-react';
 
 export function PermissionPicker({
@@ -14,11 +14,12 @@ export function PermissionPicker({
 }) {
   useLocale();
   const id = useId();
-  const popup = usePopoverMotion();
+  const popup = useMenuPopover();
   const close = () => popup.current?.hidePopover();
   return (
     <div className="permission-picker">
       <button
+        type="button"
         className="permission"
         disabled={disabled}
         popoverTarget={id}
@@ -28,13 +29,8 @@ export function PermissionPicker({
         })}
         data-permission={permission}
         onClick={(event) => {
-          const box = event.currentTarget.getBoundingClientRect();
-          if (popup.current) {
-            const width = Math.min(200, window.innerWidth - 24);
-            popup.current.style.left = `${Math.max(12, Math.min(box.right - width, window.innerWidth - width - 12))}px`;
-            popup.current.style.bottom = `${window.innerHeight - box.top + 10}px`;
-            popup.current.style.maxHeight = `${Math.max(120, box.top - 24)}px`;
-          }
+          if (popup.current)
+            positionPopover(event.currentTarget, popup.current, { width: 220, preferAbove: true });
         }}
       >
         {permission === 'full' ? <ShieldAlert size={16} /> : <Shield size={16} />}
@@ -53,6 +49,7 @@ export function PermissionPicker({
           { value: 'full', title: t('完整访问'), icon: ShieldAlert },
         ].map(({ value, title, icon: Icon }) => (
           <button
+            type="button"
             key={value}
             className="permission-option"
             data-selected={permission === value}

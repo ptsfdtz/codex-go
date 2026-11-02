@@ -473,7 +473,6 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
       await page.evaluate(() => ({ model: window.draft.model, effort: window.draft.effort })),
       { model: 'wire-default', effort: 'high' },
     );
-    await page.getByRole('button', { name: '模型 · Default Test', exact: true }).click();
     await page.getByRole('button', { name: 'Model B', exact: true }).click();
     await slider.fill('1');
     assert.deepEqual(

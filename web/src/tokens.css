@@ -32,18 +32,21 @@
   --space-6: 24px;
   --space-8: 32px;
   --radius-sm: 8px;
-  --radius-control: 9px;
+  --radius-control: 8px;
   --radius-md: 12px;
-  --radius-popover: 14px;
-  --radius-lg: 20px;
-  --radius-composer: 26px;
+  --radius-popover: 12px;
+  --radius-lg: 16px;
+  --radius-composer: 22px;
   --shadow-subtle: 0 2px 8px #00000008;
   --menu-shadow: 0 8px 24px #0002, 0 2px 6px #0001;
-  --menu-row-height: 38px;
+  --menu-row-height: 36px;
   --notification-blue: #3b82f6;
   --focus-ring: var(--muted);
   --content-width: 824px;
   --control-size: 36px;
+  --control-compact: 32px;
+  --control-line: 20px;
+  --control-padding-x: 12px;
 }
 :root[data-theme='dark'] {
   --bg: #212121;

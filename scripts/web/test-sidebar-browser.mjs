@@ -366,9 +366,12 @@ try {
   const touchRow = touchRecent
     .locator('.session-row')
     .filter({ hasText: '制定计划并询问是否开发' });
+  assert.equal(await touchRow.locator('.sidebar-edit:visible').count(), 0);
+  assert.equal(await touchRow.locator('.sidebar-session-actions button:visible').count(), 1);
   await touchRow
-    .getByRole('button', { name: '编辑会话 制定计划并询问是否开发', exact: true })
+    .getByRole('button', { name: '更多操作 制定计划并询问是否开发', exact: true })
     .tap();
+  await touch.getByRole('menuitem', { name: '编辑会话', exact: true }).tap();
   assert.deepEqual(await touch.evaluate(() => window.sidebarCalls.at(-1)), ['manage', 'a1']);
   await touchRow
     .getByRole('button', { name: '更多操作 制定计划并询问是否开发', exact: true })
@@ -386,7 +389,31 @@ try {
   await touch.getByRole('button', { name: '在 AgentHub 中新建对话', exact: true }).tap();
   assert.deepEqual(await touch.evaluate(() => window.sidebarCalls.at(-1)), ['project', 'b']);
   await settle(touch);
-  await touch.screenshot({ path: fileURLToPath(new URL('mobile-touch.png', out)) });
+  await touch.getByRole('button', { name: '筛选和排序会话', exact: true }).tap();
+  await touch.getByRole('button', { name: '同步电脑已有对话', exact: true }).tap();
+  assert.deepEqual(await touch.evaluate(() => window.sidebarCalls.at(-1)), ['refresh']);
+  await touch.getByRole('button', { name: '筛选和排序会话', exact: true }).tap();
+  await touch.locator('.sidebar-scroll').evaluate((el) => (el.scrollTop = 0));
+  for (const width of [390, 320]) {
+    await touch.setViewportSize({ width, height: 844 });
+    for (const theme of ['dark', 'light']) {
+      await touch.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+      await settle(touch);
+      const compactRows = await touch
+        .locator('.desktop-session-row')
+        .evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height));
+      assert(
+        compactRows.length > 0 && compactRows.every((height) => height === 36),
+        JSON.stringify(compactRows),
+      );
+      const moreButton = await touchRow.locator('.sidebar-more').boundingBox();
+      assert.equal(moreButton.height, 36);
+      assert.equal(moreButton.width, 36);
+      await touch.screenshot({
+        path: fileURLToPath(new URL(`mobile-touch-${theme}-${width}.png`, out)),
+      });
+    }
+  }
   await touch.close();
   assert.deepEqual(errors, []);
   await writeFile(
@@ -400,7 +427,7 @@ try {
           'menu click/right-click/keyboard/Escape/focus/outside',
           'anchored archive confirmation: cancel/failure/retry/pending/restore',
           'disconnected/running guards',
-          '320/390px bounds, bottom-edge upward placement, touch actions',
+          '320/390px bounds, 36px compact mobile rows/actions, bottom-edge upward placement, touch actions',
         ],
         errors,
         scope: 'Controlled real Sidebar; no production deployment or real Host actions.',

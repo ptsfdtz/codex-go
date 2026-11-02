@@ -23,6 +23,7 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
+  Plus,
   RefreshCw,
   Search,
   Settings,
@@ -287,6 +288,7 @@ export function Sidebar({
         </button>
         <IconButton
           icon={SquarePen}
+          className="sidebar-edit"
           label={t('编辑会话 {{p0}}', { p0: s.title || t('未命名会话') })}
           onClick={() => onManage(s)}
         />
@@ -380,7 +382,7 @@ export function Sidebar({
                         <span>{p.name}</span>
                       </button>
                       <IconButton
-                        icon={SquarePen}
+                        icon={Plus}
                         label={t('在 {{p0}} 中新建对话', { p0: p.name })}
                         onClick={() => onProject(p.projectId)}
                       />
@@ -451,6 +453,10 @@ export function Sidebar({
             </div>
             <Collapse open={filters}>
               <div className="rail-filters">
+                <button type="button" className="sidebar-mobile-refresh" onClick={onRefresh}>
+                  <RefreshCw size={15} />
+                  {t('同步电脑已有对话')}
+                </button>
                 <Select
                   aria-label={t('会话筛选')}
                   value={filter}

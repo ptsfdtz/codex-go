@@ -130,7 +130,7 @@ button:disabled {
     transform var(--motion-panel) var(--ease-out);
 }
 .modal::backdrop {
-  background: rgb(0 0 0 / 44%);
+  background: transparent;
   backdrop-filter: none;
   transition: background-color var(--motion-panel) ease;
 }
