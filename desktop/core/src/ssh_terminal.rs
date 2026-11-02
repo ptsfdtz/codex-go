@@ -463,9 +463,13 @@ mod tests {
         let store = crate::store::Store::open(&temp.path().join("test.db")).unwrap();
         let project = crate::paths::add_local(&store, &root).unwrap();
         let root = crate::paths::root(&store, s(&project, "projectId")).unwrap();
-        let mut cmd = shell_command(&root);
+        let cmd = shell_command(&root);
         #[cfg(windows)]
-        cmd.arg("-NoProfile");
+        let cmd = {
+            let mut cmd = cmd;
+            cmd.arg("-NoProfile");
+            cmd
+        };
         let mut p = open();
         p["projectId"] = project["projectId"].clone();
         let mut terminal = Terminal::spawn("tab", "device", &p, cmd).unwrap();
