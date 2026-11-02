@@ -8,7 +8,10 @@ await mkdir(out, { recursive: true });
 const fontPath = process.env.COMPOSER_TEST_FONT;
 const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+  });
   try {
     const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1200, height: 820 } });
     page.setDefaultTimeout(6000);

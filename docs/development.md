@@ -61,25 +61,27 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 ## 功能定向回归
 
-| 功能               | 检查入口                                                                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 设置中的项目管理   | `pnpm test:project-settings-browser`                                                                                                 |
-| 原生运行状态       | `node --test scripts/web/test-session-working.mjs`                                                                                   |
-| 排队交互           | `node scripts/web/test-queued-messages-browser.mjs`                                                                                  |
-| Web 语音输入       | `pnpm test:speech-input-browser`，`SPEECH_TEST_ORIGIN` 默认 `http://127.0.0.1:1498/`                                                 |
-| 断线及回执恢复     | `pnpm test:recovery-browser`，`RECOVERY_TEST_ORIGIN` 默认 `http://127.0.0.1:1500/`                                                   |
-| 文件引用           | `pnpm test:file-references-browser`，默认端口 1492，可用 `FILE_REFERENCE_TEST_ORIGIN` 指定                                           |
-| Markdown 数学公式  | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                                                  |
-| 文字选中引用       | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定                                          |
-| 自动项目登记       | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests`                             |
-| 运行时权限配置兼容 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib workspace_policy_tests`                                           |
-| 会话图片路径授权   | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`                                         |
-| 动效与设置         | `pnpm test:ui-browser`、`pnpm test:motion-browser`                                                                                   |
-| 手机侧栏与紧凑设置 | `node scripts/web/test-mobile-settings-browser.mjs`，复用 `COMPOSER_TEST_ORIGIN` / Playwright；效果图在 `artifacts/mobile-settings/` |
-| 下拉选择与菜单     | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                                                  |
-| 侧栏分区与操作     | `node scripts/web/test-sidebar-browser.mjs`，`SIDEBAR_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                                     |
-| 任务提醒与未读     | `pnpm test:task-notifications-browser`，`TASK_NOTIFICATIONS_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                               |
-| 首屏性能           | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站                                 |
+| 功能                   | 检查入口                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 设置中的项目管理       | `pnpm test:project-settings-browser`                                                                                                 |
+| 原生运行状态           | `node --test scripts/web/test-session-working.mjs`                                                                                   |
+| 排队交互               | `node scripts/web/test-queued-messages-browser.mjs`                                                                                  |
+| Web 语音输入           | `pnpm test:speech-input-browser`，`SPEECH_TEST_ORIGIN` 默认 `http://127.0.0.1:1498/`                                                 |
+| 断线及回执恢复         | `pnpm test:recovery-browser`，`RECOVERY_TEST_ORIGIN` 默认 `http://127.0.0.1:1500/`                                                   |
+| 文件引用               | `pnpm test:file-references-browser`，默认端口 1492，可用 `FILE_REFERENCE_TEST_ORIGIN` 指定                                           |
+| Markdown 数学公式      | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                                                  |
+| 文字选中引用           | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定                                          |
+| 自动项目登记           | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests`                             |
+| 运行时权限配置兼容     | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib workspace_policy_tests`                                           |
+| 会话图片路径授权       | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`                                         |
+| 输入发送动效与改动标签 | `pnpm test:send-motion-browser`，复用 `COMPOSER_TEST_ORIGIN`（默认 1497）及 Playwright；截图和结果在 `artifacts/send-motion/`        |
+| 动效与设置             | `pnpm test:ui-browser`、`pnpm test:motion-browser`、`pnpm test:sidebar-motion-browser`                                               |
+| 手机侧栏与紧凑设置     | `node scripts/web/test-mobile-settings-browser.mjs`，复用 `COMPOSER_TEST_ORIGIN` / Playwright；效果图在 `artifacts/mobile-settings/` |
+| 下拉选择与菜单         | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                                                  |
+| 侧栏分区与操作         | `node scripts/web/test-sidebar-browser.mjs`，`SIDEBAR_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                                     |
+| 项目概览卡片           | `pnpm test:project-overview-browser`，复用 `COMPOSER_TEST_ORIGIN`，默认端口 1495；截图在 `artifacts/project-overview/`               |
+| 任务提醒与未读         | `pnpm test:task-notifications-browser`，`TASK_NOTIFICATIONS_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                               |
+| 首屏性能               | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站                                 |
 
 数学公式回归复用上述 Playwright 环境，可用 `COMPOSER_TEST_FONT` 指定中文字体，证据输出到 `artifacts/markdown-math/`。
 
