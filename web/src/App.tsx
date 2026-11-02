@@ -1920,7 +1920,26 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     key={JSON.stringify([host?.hostId, project.projectId])}
                     request={request}
                     project={project}
-                    computer={host ? hostName(host) : ''}
+                    history={renderedHistory}
+                    draft={draft}
+                    connection={bridge.current}
+                    sessionId={session || ''}
+                    onEntry={jumpTo}
+                    onAddSources={
+                      !busy &&
+                      !receiptBlocked &&
+                      supports('attachments') &&
+                      draft.attachments.length < 4 &&
+                      (!session || historyReady) &&
+                      current?.archived !== 1
+                        ? () =>
+                            document
+                              .querySelector<HTMLInputElement>(
+                                '.conversation .composer input[type="file"]',
+                              )
+                              ?.click()
+                        : undefined
+                    }
                     gitRead={supports('gitRead')}
                     fileBrowser={supports('projectFileBrowser')}
                     activeTurn={activeTurn}

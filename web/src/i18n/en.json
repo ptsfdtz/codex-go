@@ -1119,5 +1119,12 @@
   "复制会话标题": "Copy conversation title",
   "复制会话 ID": "Copy conversation ID",
   "复制工作目录": "Copy working directory",
-  "基于当前会话创建分叉，原会话保留。": "Create a fork from this conversation. The original conversation is preserved."
+  "基于当前会话创建分叉，原会话保留。": "Create a fork from this conversation. The original conversation is preserved.",
+  "后台进程": "Background processes",
+  "来源": "Sources",
+  "当前会话暂无运行中的命令": "No running commands in this chat",
+  "当前会话暂无附件或文件引用": "No attachments or file references in this chat",
+  "查看全部来源": "View all sources",
+  "添加图片": "Add images",
+  "当前会话": "Current chat"
 }
