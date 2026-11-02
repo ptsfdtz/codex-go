@@ -61,24 +61,25 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 ## 功能定向回归
 
-| 功能               | 检查入口                                                                                                 |
-| ------------------ | -------------------------------------------------------------------------------------------------------- |
-| 设置中的项目管理   | `pnpm test:project-settings-browser`                                                                     |
-| 原生运行状态       | `node --test scripts/web/test-session-working.mjs`                                                       |
-| 排队交互           | `node scripts/web/test-queued-messages-browser.mjs`                                                      |
-| Web 语音输入       | `pnpm test:speech-input-browser`，`SPEECH_TEST_ORIGIN` 默认 `http://127.0.0.1:1498/`                     |
-| 断线及回执恢复     | `pnpm test:recovery-browser`，`RECOVERY_TEST_ORIGIN` 默认 `http://127.0.0.1:1500/`                       |
-| 文件引用           | `pnpm test:file-references-browser`，默认端口 1492，可用 `FILE_REFERENCE_TEST_ORIGIN` 指定               |
-| Markdown 数学公式  | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                      |
-| 文字选中引用       | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定              |
-| 自动项目登记       | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests` |
-| 运行时权限配置兼容 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib workspace_policy_tests`               |
-| 会话图片路径授权   | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`             |
-| 动效与设置         | `pnpm test:ui-browser`、`pnpm test:motion-browser`                                                       |
-| 下拉选择与菜单     | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                      |
-| 侧栏分区与操作     | `node scripts/web/test-sidebar-browser.mjs`，`SIDEBAR_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`         |
-| 任务提醒与未读     | `pnpm test:task-notifications-browser`，`TASK_NOTIFICATIONS_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`   |
-| 首屏性能           | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站     |
+| 功能               | 检查入口                                                                                                                             |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 设置中的项目管理   | `pnpm test:project-settings-browser`                                                                                                 |
+| 原生运行状态       | `node --test scripts/web/test-session-working.mjs`                                                                                   |
+| 排队交互           | `node scripts/web/test-queued-messages-browser.mjs`                                                                                  |
+| Web 语音输入       | `pnpm test:speech-input-browser`，`SPEECH_TEST_ORIGIN` 默认 `http://127.0.0.1:1498/`                                                 |
+| 断线及回执恢复     | `pnpm test:recovery-browser`，`RECOVERY_TEST_ORIGIN` 默认 `http://127.0.0.1:1500/`                                                   |
+| 文件引用           | `pnpm test:file-references-browser`，默认端口 1492，可用 `FILE_REFERENCE_TEST_ORIGIN` 指定                                           |
+| Markdown 数学公式  | `pnpm test:markdown-math-browser`，`MATH_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                                                  |
+| 文字选中引用       | `pnpm test:selection-quote-browser`，默认端口 1491，可用 `SELECTION_QUOTE_TEST_ORIGIN` 指定                                          |
+| 自动项目登记       | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib automatic_project_registration_tests`                             |
+| 运行时权限配置兼容 | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib workspace_policy_tests`                                           |
+| 会话图片路径授权   | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`                                         |
+| 动效与设置         | `pnpm test:ui-browser`、`pnpm test:motion-browser`                                                                                   |
+| 手机侧栏与紧凑设置 | `node scripts/web/test-mobile-settings-browser.mjs`，复用 `COMPOSER_TEST_ORIGIN` / Playwright；效果图在 `artifacts/mobile-settings/` |
+| 下拉选择与菜单     | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                                                  |
+| 侧栏分区与操作     | `node scripts/web/test-sidebar-browser.mjs`，`SIDEBAR_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                                     |
+| 任务提醒与未读     | `pnpm test:task-notifications-browser`，`TASK_NOTIFICATIONS_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                               |
+| 首屏性能           | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站                                 |
 
 数学公式回归复用上述 Playwright 环境，可用 `COMPOSER_TEST_FONT` 指定中文字体，证据输出到 `artifacts/markdown-math/`。
 
@@ -100,7 +101,7 @@ AgentChat 跨标签存储回归为 `pnpm test:api-chat-storage-browser`，复用
 
 运行时权限配置兼容测试使用同一 `AGENTDECK_TEST_OFFICIAL_CODEX` 变量，追加 `-- --include-ignored` 可运行官方接口检查。它在临时 `CODEX_HOME` 中分别设置未指定、read-only、workspace-write、danger-full-access，并检查受信任项目局部配置；使用 Windows 启动参数，核对全局/项目配置、项目列表与临时会话权限，确认两份配置文件保持不变。不读取日常认证、不调用模型；Linux 上运行只证明官方配置覆盖和会话元数据行为，不能代替 Windows MXC 实际读写隔离、权限切换和共享运行时重启验收。
 
-## 工作区工具栏与 SSH 定向检查
+## 工作区工具栏与终端定向检查
 
 ```sh
 pnpm test:workspace-tools-browser # 默认本地 Vite 端口 1495，可用 WORKSPACE_TOOLS_TEST_ORIGIN 覆盖
@@ -108,7 +109,11 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal
 cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal -- --include-ignored
 ```
 
-浏览器检查复用 `PLAYWRIGHT_MODULE`，在隔离页面中挂载真实 App 并拦截全部账户/Host 请求，覆盖双会话流式归属、创建/发送、审批确认、草稿与文件切换、未知发送结果、终端输入及手机布局，不连接生产账户或调用模型。证据输出到 `artifacts/workspace-tools/`。
+浏览器检查复用 `PLAYWRIGHT_MODULE`，在隔离页面中挂载真实 App 并拦截全部账户/Host 请求，覆盖多标签和同类多实例、流式归属、创建/发送、审批确认、草稿与文件隔离、未知发送结果、终端输入/隐藏保留/关闭清理、控件尺寸及手机布局，不连接生产账户或调用模型。证据输出到 `artifacts/workspace-tools/`。
+
+工具浏览器脚本同时覆盖当前会话更多菜单的入口移除、重命名/置顶/分叉/归档恢复、复制、同会话侧边打开与独立新草稿、窄屏菜单层级及键盘导航；所有 Host 操作均为受控替身，不修改生产会话。
+
+普通 Rust 定向检查包含项目终端协议字段限制、未授权项目拒绝，以及临时授权目录内真实 shell 的相对文件读取；测试使用隔离数据库，Windows 测试关闭 profile 并应答 ConPTY 光标查询，不修改日常 Host 状态。浏览器检查覆盖自动启动、项目身份、输入及关闭清理；可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 使用已有 Chromium。
 
 最后一条 Rust 命令额外运行 Linux 本机 OpenSSH 集成测试，需要 `/usr/sbin/sshd`、`ssh` 与 `ssh-keygen`。测试在临时目录生成密钥和配置，只监听随机回环端口，使用临时 known_hosts，不修改日常 SSH 身份或 AgentDeck 状态；实际核对指纹、连接 PTY、中文输出、缩放、输入去重、连接归属和设备清理。不能据此认定 Windows ConPTY、macOS、密码/口令认证或云端整链路已经验收。
 
