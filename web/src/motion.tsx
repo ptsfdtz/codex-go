@@ -295,19 +295,13 @@ export function initializeMotion() {
   }
 }
 
-// Drawer, scrim and desktop content share one clock. Read all interrupted
-// positions before cancelling, so a quick reversal never restarts at an edge.
+// Keep the drawer visible until its exit finishes. Animate the desktop gutter
+// with it, so content reflows continuously instead of jumping to its final width.
 export function useSidebarMotion(open: boolean) {
   const ref = useRef<HTMLElement>(null);
-  const previous = useRef<
-    | {
-        node: HTMLElement;
-        open: boolean;
-        desktop: boolean;
-        left: number;
-      }
-    | undefined
-  >(undefined);
+  const previous = useRef<{ node: HTMLElement; open: boolean; desktop: boolean } | undefined>(
+    undefined,
+  );
   const running = useRef(new Map<HTMLElement, Animation>());
   useLayoutEffect(() => {
     const node = ref.current;
@@ -318,26 +312,26 @@ export function useSidebarMotion(open: boolean) {
     const desktop = matchMedia('(min-width: 761px)').matches;
     const before = previous.current;
     if (before?.node === node && before.open === open && before.desktop === desktop) return;
-    const transform = getComputedStyle(node).transform;
-    const offset = transform === 'none' ? 0 : new DOMMatrix(transform).m41;
-    const left = node.getBoundingClientRect().left - offset;
-    previous.current = { node, open, desktop, left };
-    if (
-      before?.node === node &&
-      before.open === open &&
-      before.desktop === desktop &&
-      Math.abs(before.left - left) < 0.5
-    )
-      return;
     const width = sidebar.getBoundingClientRect().width;
-    const sidebarTransform = getComputedStyle(sidebar).transform;
+    // Read interrupted positions before cancelling any timeline.
+    const sidebarStyle = getComputedStyle(sidebar);
     const sidebarOffset = running.current.has(sidebar)
-      ? sidebarTransform === 'none'
+      ? sidebarStyle.transform === 'none'
         ? 0
-        : new DOMMatrix(sidebarTransform).m41
+        : new DOMMatrix(sidebarStyle.transform).m41
       : before?.open
         ? 0
         : -width;
+    const sidebarOpacity = running.current.has(sidebar)
+      ? sidebarStyle.opacity
+      : before?.open
+        ? '1'
+        : '0';
+    const margin = running.current.has(node)
+      ? parseFloat(getComputedStyle(node).marginLeft)
+      : before?.open && desktop
+        ? width
+        : 0;
     const scrimOpacity = running.current.has(scrim)
       ? getComputedStyle(scrim).opacity
       : before?.open
@@ -348,12 +342,16 @@ export function useSidebarMotion(open: boolean) {
       element.style.visibility = '';
     }
     running.current.clear();
+    previous.current = { node, open, desktop };
     if (!before || before.node !== node || before.desktop !== desktop || before.open === open)
       return;
     const style = getComputedStyle(document.documentElement);
-    const duration = motionDuration(parseFloat(style.getPropertyValue('--motion-drawer')));
-    const easing = style.getPropertyValue('--ease-drawer').trim();
+    // Production CSS minifiers may rewrite 320ms as .32s.
+    const cssDuration = style.getPropertyValue('--motion-drawer').trim();
+    const milliseconds = parseFloat(cssDuration) * (cssDuration.endsWith('ms') ? 1 : 1000);
+    const duration = motionDuration(Number.isFinite(milliseconds) ? milliseconds : 0);
     if (!duration) return;
+    const easing = style.getPropertyValue('--ease-drawer').trim();
     const startTime = document.timeline.currentTime;
     const animate = (element: HTMLElement, frames: Keyframe[]) => {
       element.style.visibility = 'visible';
@@ -371,20 +369,34 @@ export function useSidebarMotion(open: boolean) {
         { transform: `translateX(${sidebarOffset}px)` },
         { transform: `translateX(${open ? 0 : -width}px)` },
       ]);
-      const delta = before.left + offset - left;
-      if (desktop && Math.abs(delta) > 0.5)
-        animate(node, [{ transform: `translateX(${delta}px)` }, { transform: 'translateX(0)' }]);
+      if (desktop)
+        animate(node, [{ marginLeft: `${margin}px` }, { marginLeft: `${open ? width : 0}px` }]);
+    } else {
+      animate(sidebar, [{ opacity: sidebarOpacity }, { opacity: open ? 1 : 0 }]);
     }
     if (!desktop) animate(scrim, [{ opacity: scrimOpacity }, { opacity: open ? 1 : 0 }]);
   });
   useLayoutEffect(() => {
     const animations = running.current;
-    return () => {
+    const reset = () => {
       for (const [element, animation] of animations) {
         animation.cancel();
         element.style.visibility = '';
       }
       animations.clear();
+      const node = ref.current;
+      previous.current = node
+        ? {
+            node,
+            open: !!node.parentElement?.classList.contains('with-sidebar'),
+            desktop: matchMedia('(min-width: 761px)').matches,
+          }
+        : undefined;
+    };
+    window.addEventListener('resize', reset);
+    return () => {
+      window.removeEventListener('resize', reset);
+      reset();
     };
   }, []);
   return ref;

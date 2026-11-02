@@ -231,7 +231,7 @@ small,
 .sidebar {
   width: var(--sidebar-width);
   flex-shrink: 0;
-  display: none;
+  display: flex;
   flex-direction: column;
   background: var(--rail);
   padding: 12px 12px 8px;

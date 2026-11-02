@@ -1,11 +1,11 @@
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-drawer: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-press: 120ms;
   --motion-fast: 160ms;
   --motion-panel: 200ms;
-  --motion-drawer: 280ms;
+  --motion-drawer: 320ms;
 }
 
 /* The wrapper keeps exiting surfaces mounted without changing their layout. */
@@ -65,7 +65,7 @@ button:disabled {
   }
 }
 
-/* One shared WAAPI timeline drives the drawer, scrim and desktop FLIP. */
+/* One shared WAAPI timeline drives the drawer, scrim and desktop gutter. */
 .sidebar {
   display: flex;
   position: absolute;
