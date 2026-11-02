@@ -23,7 +23,6 @@ import { readAttachments } from './composer-input';
 import { PermissionPicker } from './PermissionPicker';
 import { ModelPicker } from './ModelPicker';
 import { useSpeechInput } from './speech/use-speech-input';
-import './speech/speech-input.css';
 
 function AttachmentCard({
   attachment,
@@ -614,12 +613,7 @@ export function Composer({
                   type="button"
                   className="icon-button send-button speech-button"
                   aria-label={speech.active ? t('结束语音输入') : t('语音输入')}
-                  title={
-                    speech.active
-                      ? t('结束语音输入，等待最后的识别文字')
-                      : speech.unavailable || speech.description
-                  }
-                  aria-description={speech.unavailable || speech.description}
+                  title={speech.active ? t('结束语音输入') : t('语音输入')}
                   aria-pressed={speech.active}
                   disabled={disabled || busy || speech.phase === 'stopping'}
                   onClick={() => (speech.active ? speech.stop() : speech.start())}
@@ -631,7 +625,7 @@ export function Composer({
                       <path
                         d="M4 9v6M9 3v18M14 7v10M19 9v6"
                         stroke="currentColor"
-                        strokeWidth="2.4"
+                        strokeWidth="1.6"
                         strokeLinecap="round"
                       />
                     </svg>
@@ -661,24 +655,10 @@ export function Composer({
               ) : null}
             </div>
           </div>
-          {(speech.active || speech.message) && (
-            <div className="speech-feedback" role="status" aria-live="polite">
-              <div className="speech-feedback-heading">
-                <span>
-                  {speech.active
-                    ? speech.phase === 'starting'
-                      ? t('正在启动语音输入，请允许麦克风…')
-                      : speech.phase === 'stopping'
-                        ? t('正在完成识别…')
-                        : t('正在听，请说话…')
-                    : errorText(speech.message)}
-                </span>
-                <button type="button" onClick={speech.active ? speech.cancel : speech.dismiss}>
-                  {speech.active ? t('取消听写') : t('关闭语音提示')}
-                </button>
-              </div>
-              {speech.interim && <p className="speech-interim">{speech.interim}</p>}
-              {speech.active && <small>{speech.description}</small>}
+          {speech.message && (
+            <div className="composer-feedback speech-error" role="alert">
+              <span>{errorText(speech.message)}</span>
+              <IconButton icon={X} label={t('关闭语音提示')} onClick={speech.dismiss} />
             </div>
           )}
           {(addingAttachments ||

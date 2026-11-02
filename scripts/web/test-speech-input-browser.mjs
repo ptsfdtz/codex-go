@@ -135,6 +135,13 @@ try {
   const main = page.locator('#speech-main'),
     side = page.locator('#speech-side');
   const input = main.getByRole('textbox', { name: '消息', exact: true });
+  const settleTheme = () =>
+    page.waitForFunction(
+      () =>
+        getComputedStyle(document.querySelector('#speech-main textarea')).color ===
+        getComputedStyle(document.documentElement).color,
+    );
+
   const mic = main.getByRole('button', { name: '语音输入', exact: true });
   const finish = main.getByRole('button', { name: '结束语音输入', exact: true });
   assert.equal(
@@ -163,11 +170,13 @@ try {
     'one primary action: empty draft voice, typed text send arrow, clearing restores voice',
   );
   await begin();
-  await main.getByText('正在听，请说话…', { exact: true }).waitFor();
+  await finish.waitFor();
+  assert.equal(await main.locator('.speech-feedback, .speech-error').count(), 0);
   assert.equal(await page.evaluate(() => window.latestRecognition().lang), 'zh-CN');
   await page.evaluate(() => window.emitResult([['临时文字', false]]));
-  await main.getByText('临时文字', { exact: true }).waitFor();
-  assert.equal(await input.inputValue(), '');
+  await page.waitForFunction(() => window.drafts.main.text === '临时文字');
+  await page.evaluate(() => window.emitResult([['临时修正', false]]));
+  await page.waitForFunction(() => window.drafts.main.text === '临时修正');
   assert.equal(await send.count(), 0);
   await page.evaluate(() =>
     window.emitResult([
@@ -175,7 +184,7 @@ try {
       ['还在说', false],
     ]),
   );
-  await page.waitForFunction(() => window.drafts.main.text === '语音');
+  await page.waitForFunction(() => window.drafts.main.text === '语音还在说');
   await page.evaluate(() =>
     window.emitResult([
       ['语音', true],
@@ -191,7 +200,8 @@ try {
   );
   assert.equal(await input.inputValue(), '语音输入');
   await finish.click();
-  await main.getByText('正在完成识别…', { exact: true }).waitFor();
+  assert.equal(await finish.isDisabled(), true);
+  assert.equal(await main.locator('.speech-feedback, .speech-error').count(), 0);
   await page.evaluate(() =>
     window.emitResult([
       ['语音', true],
@@ -206,10 +216,12 @@ try {
   await main.getByRole('button', { name: '发送', exact: true }).click();
   assert.deepEqual(await page.evaluate(() => window.sends), ['main']);
   checks.push(
-    'explicit start, interim preview, draft insertion, final deduplication and manual sending',
+    'live draft transcription, interim revisions, cumulative final deduplication and manual sending',
   );
 
   await begin();
+  await page.evaluate(() => window.emitResult([['说了但还没确认', false]]));
+  await page.waitForFunction(() => window.drafts.main.text === '说了但还没确认');
   await page.evaluate(() => {
     window.staleRecognition = window.latestRecognition();
   });
@@ -262,6 +274,10 @@ try {
     window.renderSpeech();
   });
   await begin();
+  await page.evaluate(() => window.latestRecognition().onerror?.({ error: 'no-speech' }));
+  await mic.waitFor();
+  assert.equal(await main.locator('.speech-feedback, .speech-error').count(), 0);
+  await begin();
   await page.keyboard.press('Escape');
   await mic.waitFor();
   await begin();
@@ -279,10 +295,9 @@ try {
   checks.push('CSS-hidden mobile main conversations also release the microphone');
 
   for (const [code, expected] of [
-    ['not-allowed', '麦克风或语音识别权限未获允许'],
-    ['network', '语音识别服务连接失败'],
-    ['audio-capture', '无法使用麦克风'],
-    ['no-speech', '未识别到语音'],
+    ['not-allowed', '请允许麦克风权限'],
+    ['network', '语音连接失败，请重试'],
+    ['audio-capture', '麦克风不可用'],
   ]) {
     await begin();
     await page.evaluate((code) => window.latestRecognition().onerror?.({ error: code }), code);
@@ -293,11 +308,9 @@ try {
     window.throwOnStart = true;
   });
   await begin();
-  await main.getByText(/语音识别启动失败/).waitFor();
+  await main.getByText(/语音启动失败/).waitFor();
   await main.getByRole('button', { name: '关闭语音提示' }).click();
-  checks.push(
-    'permission, network, capture, silence and synchronous startup failures preserve drafts',
-  );
+  checks.push('concise permission, network, capture and startup errors preserve drafts');
 
   await page.evaluate(() => {
     window.SpeechRecognition = undefined;
@@ -305,14 +318,15 @@ try {
     window.renderSpeech();
   });
   await begin();
-  await main.getByText(/当前浏览器未提供网页语音识别/).waitFor();
+  await main.getByText(/当前浏览器不支持语音输入/).waitFor();
   await page.evaluate(() => {
     window.webkitSpeechRecognition = window.testRecognition;
     window.apiMode = true;
     window.renderSpeech();
   });
   await begin();
-  await main.getByText('正在听，请说话…', { exact: true }).waitFor();
+  await finish.waitFor();
+  assert.equal(await main.locator('.speech-feedback, .speech-error').count(), 0);
   await page.evaluate(() => window.emitResult([['/new ', true]]));
   await page.waitForFunction(() => window.drafts.main.text.includes('/new '));
   assert.deepEqual(await page.evaluate(() => window.panels), []);
@@ -320,6 +334,79 @@ try {
   checks.push(
     'unsupported-browser fallback, prefixed API and AgentChat text entry without slash-command execution',
   );
+
+  // A whitespace-only draft keeps the voice action available, allowing a
+  // selection insertion to verify that revisions preserve surrounding text.
+  await input.fill(' \n ');
+  await input.evaluate((node) => node.setSelectionRange(1, 2));
+  await mic.click();
+  await page.evaluate(() => window.emitResult([['中间', false]]));
+  await page.waitForFunction(() => window.drafts.main.text === ' 中间 ');
+  await page.evaluate(() => window.emitResult([['修正后', true]]));
+  await page.waitForFunction(() => window.drafts.main.text === ' 修正后 ');
+  await page.evaluate(() => window.latestRecognition().onend?.());
+  checks.push('selection replacement and live revisions preserve the surrounding draft');
+
+  const actionStyle = (button) =>
+    button.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return Object.fromEntries(
+        [
+          'width',
+          'height',
+          'backgroundColor',
+          'color',
+          'borderWidth',
+          'borderRadius',
+          'marginLeft',
+          'padding',
+          'opacity',
+        ].map((key) => [key, style[key]]),
+      );
+    });
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      window.apiMode = false;
+      window.renderSpeech();
+    }, theme);
+    await input.fill('');
+    await mic.waitFor();
+    const reference = await actionStyle(mic);
+    assert.equal(reference.width, '34px');
+    assert.equal(reference.height, '34px');
+    await mic.click();
+    await finish.waitFor();
+    assert.deepEqual(await actionStyle(finish), reference);
+    await page.evaluate(() => window.emitResult([['按钮样式', false]]));
+    await page.waitForFunction(() => window.drafts.main.text === '按钮样式');
+    await finish.click();
+    await page.evaluate(() => window.latestRecognition().onend?.());
+    await send.waitFor();
+    assert.deepEqual(await actionStyle(send), reference);
+    await page.evaluate(() => {
+      window.active = true;
+      window.renderSpeech();
+    });
+    const stop = main.getByRole('button', { name: '停止', exact: true });
+    const queue = main.getByRole('button', { name: '加入队列', exact: true });
+    await stop.waitFor();
+    assert.deepEqual(await actionStyle(stop), reference);
+    const queueStyle = await actionStyle(queue);
+    assert.deepEqual({ ...queueStyle, opacity: reference.opacity }, reference);
+    await main.getByRole('button', { name: '添加附件和操作', exact: true }).click();
+    await main.getByRole('menuitem', { name: '展开编辑器', exact: true }).click();
+    const collapse = main.getByRole('button', { name: '收起编辑器', exact: true });
+    await collapse.waitFor();
+    assert.deepEqual(await actionStyle(collapse), reference);
+    await page.screenshot({ path: fileURLToPath(new URL(`desktop-actions-${theme}.png`, out)) });
+    await collapse.click();
+    await page.evaluate(() => {
+      window.active = false;
+      window.renderSpeech();
+    });
+  }
+  checks.push('voice, finish, send, queue, stop and collapse share action styles in both themes');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => {
@@ -330,16 +417,9 @@ try {
   });
   await begin();
   await page.evaluate(() => window.emitResult([['手机语音识别中的预览文字', false]]));
-  await main.getByText('手机语音识别中的预览文字', { exact: true }).waitFor();
-  assert.equal(
-    await main.locator('.speech-feedback').evaluate((el) => getComputedStyle(el).paddingTop),
-    '10px',
-  );
-  await page.waitForFunction(
-    () =>
-      getComputedStyle(document.querySelector('#speech-main .speech-button')).color ===
-      'rgb(207, 85, 85)',
-  );
+  await page.waitForFunction(() => window.drafts.main.text === '手机语音识别中的预览文字');
+  assert.equal(await main.locator('.speech-feedback, .speech-error').count(), 0);
+  await settleTheme();
   await page.screenshot({ path: fileURLToPath(new URL('mobile-listening.png', out)) });
   const box = await mic.or(finish).boundingBox();
   assert.ok(box.x >= 0 && box.x + box.width <= 390);
@@ -350,15 +430,22 @@ try {
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'light';
   });
+  await settleTheme();
   await page.screenshot({ path: fileURLToPath(new URL('mobile-light.png', out)) });
-  await main.getByRole('button', { name: '取消听写' }).click();
-  checks.push('390px light/dark layout keeps microphone, text preview and stop controls visible');
+  await finish.click();
+  await page.evaluate(() => window.latestRecognition().onend?.());
+  assert.equal(await input.inputValue(), '手机语音识别中的预览文字');
+  checks.push('390px light/dark layout writes directly into draft without listening hints');
 
   await page.clock.install();
   await begin();
+  await page.evaluate(() => window.emitResult([['停止后保留', false]]));
+  await page.waitForFunction(() => window.drafts.main.text === '停止后保留');
   await finish.click();
   await page.clock.fastForward(5100);
-  await main.getByText(/未确认的片段已舍弃/).waitFor();
+  await send.waitFor();
+  assert.equal(await input.inputValue(), '停止后保留');
+  assert.equal(await main.locator('.speech-feedback, .speech-error').count(), 0);
   await begin();
   await page.clock.fastForward(120100);
   assert.ok(await page.evaluate(() => window.latestRecognition().stops > 0));

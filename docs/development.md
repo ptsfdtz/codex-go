@@ -84,7 +84,7 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 回执恢复回归复用上述 Playwright 与本地 Vite，在隔离 App 中使用真实 Bridge、Web Locks 和虚拟时钟，替换 HostSocket 并拦截账户/Host 外部请求；核对查询反馈、pending/unknown/notFound/拒绝/查询失败、显式人工确认、草稿保留、迟到响应、慢历史与发送并发、失活连接及真实双标签锁竞争。不会连接生产 Host 或调用模型。结果和 320/390/1100px 深浅主题截图在 `artifacts/recovery/`。Host 回执持久化与防重定向测试：`cargo test --locked --manifest-path desktop/core/Cargo.toml --lib request_outcome_tests`。
 
-语音输入回归复用上述 Playwright 环境，先启动指定端口的本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1498 --strictPort`）。脚本挂载真实 Composer，以浏览器识别接口替身检查临时预览、光标插入、确认结果去重、手动发送、跨输入框独占、切换/隐藏/退出清理、错误和超时，以及窄屏深浅主题；拦截外部/API 请求，不请求真实麦克风或识别服务。可用 `COMPOSER_TEST_FONT` 指定中文字体，结果及截图输出到 `artifacts/speech-input/`；受控通过不能替代真实语音识别、浏览器供应商网络和手机/PWA 验收。
+语音输入回归复用上述 Playwright 环境，先启动指定端口的本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1498 --strictPort`）。脚本挂载真实 Composer，以浏览器识别接口替身检查实时写入与修正、选区插入、累积结果去重、手动发送、跨输入框独占、切换/隐藏/退出清理、简短错误和超时保留文字，以及右下角按钮统一样式与窄屏深浅主题；拦截外部/API 请求，不请求真实麦克风或识别服务。可用 `COMPOSER_TEST_FONT` 指定中文字体，结果及截图输出到 `artifacts/speech-input/`；受控通过不能替代真实语音识别、浏览器供应商网络和手机/PWA 验收。
 
 下拉框回归复用上述 Playwright 环境，先在指定端口启动本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1434 --strictPort`）。检查真实选择组件、分支搜索、设置菜单、弹窗层级、键盘和触屏操作、深浅主题与窄屏边界；截图和结果输出到 `artifacts/dropdowns/`，不连接真实 Host。
 

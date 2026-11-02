@@ -2990,8 +2990,7 @@ small,
   min-height: 36px;
   gap: 4px;
 }
-.composer-toolbar > .composer-add,
-.composer-actions > .composer-stop {
+.composer-toolbar > .composer-add {
   width: 34px;
   height: 34px;
   flex-shrink: 0;
@@ -2999,8 +2998,7 @@ small,
   border-radius: 50%;
   background: transparent;
 }
-.composer-toolbar > .composer-add:hover,
-.composer-actions > .composer-stop:hover {
+.composer-toolbar > .composer-add:hover {
   background: var(--hover);
 }
 .composer-toolbar .composer-model {
@@ -3023,12 +3021,6 @@ small,
   color: #b98a55;
   background: transparent;
   box-shadow: none;
-}
-.composer-toolbar .send-button {
-  width: 34px;
-  height: 34px;
-  margin-left: 2px;
-  flex-shrink: 0;
 }
 .composer-resources {
   align-items: center;
@@ -3176,46 +3168,49 @@ small,
 .composer-actions .permission:hover:not(:disabled) {
   background: var(--hover);
 }
-.composer-actions > .composer-stop {
-  width: 32px;
-  height: 32px;
-  color: var(--button-text);
-  background: var(--button);
-}
-.composer-actions > .composer-stop:hover:not(:disabled) {
-  background: var(--button);
-  opacity: 0.85;
-}
-.composer-actions > .composer-stop:disabled {
-  opacity: 0.4;
-}
-.composer-stop svg {
-  width: 11px;
-  height: 11px;
-  fill: currentColor;
-  stroke-width: 0;
-}
-.composer-toolbar .composer-queue {
-  margin-left: 0;
+/* All execution actions share the same surface; permission keeps its own style. */
+.composer-actions > .icon-button {
+  width: 34px;
+  height: 34px;
+  margin: 0;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 50%;
-  color: var(--text);
-  background: transparent;
+  background: var(--button);
+  color: var(--button-text);
 }
-.composer-toolbar .composer-queue svg {
+.composer-actions > .icon-button:hover:not(:disabled) {
+  background: var(--button);
+  opacity: 0.8;
+}
+.composer-actions > .icon-button:disabled {
+  opacity: 0.3;
+}
+.composer-actions > .icon-button > svg {
   width: 19px;
   height: 19px;
 }
-.composer-toolbar .composer-queue:hover:not(:disabled) {
-  background: var(--hover);
-  opacity: 1;
+.composer-actions > .icon-button > svg.lucide-square {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+  stroke-width: 0;
 }
-.composer-toolbar .composer-queue:disabled {
-  background: transparent;
-  color: var(--muted);
-  opacity: 0.45;
-  border-color: transparent;
+.speech-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.speech-error > span {
+  flex: 1;
+}
+.speech-error > .icon-button {
+  width: 24px;
+  height: 24px;
+}
+.speech-error > .icon-button > svg {
+  width: 14px;
+  height: 14px;
 }
 .message-image {
   display: block;

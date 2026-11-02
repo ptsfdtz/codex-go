@@ -41,7 +41,7 @@ textarea,
 button:active:not(:disabled):not(.menu-scrim):not(.sidebar-scrim) {
   transform: scale(0.97);
 }
-.send-button:active:not(:disabled) {
+.composer-actions > .icon-button:active:not(:disabled) {
   transform: scale(0.94);
 }
 button:disabled {
@@ -57,7 +57,7 @@ button:disabled {
   transition: opacity var(--motion-fast) ease;
 }
 @media (hover: hover) and (pointer: fine) {
-  .send-button:hover:not(:disabled) {
+  .composer-actions > .icon-button:hover:not(:disabled) {
     transform: translateY(-1px);
   }
   .composer:focus-within {
