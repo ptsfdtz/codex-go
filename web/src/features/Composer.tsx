@@ -1,3 +1,4 @@
+import { useSendMotion } from './use-send-motion';
 import { errorText, t, useLocale } from '../i18n';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -136,6 +137,12 @@ export function Composer({
   const [preview, setPreview] = useState<{ url: string; attachment: Attachment }>();
   const file = useRef<HTMLInputElement>(null),
     textarea = useRef<HTMLTextAreaElement>(null);
+  const beginSendMotion = useSendMotion(
+    textarea,
+    draft,
+    busy,
+    disabled || sendBlocked || !!feedback,
+  );
   const trigger = useRef<HTMLButtonElement>(null),
     menu = usePopoverMotion();
   const latest = useRef(draft);
@@ -172,8 +179,9 @@ export function Composer({
     resize();
     let width = node.getBoundingClientRect().width;
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry || entry.contentRect.width === width) return;
-      width = entry.contentRect.width;
+      const measuredWidth = node.getBoundingClientRect().width;
+      if (!entry || measuredWidth === width) return;
+      width = measuredWidth;
       resize();
     });
     observer.observe(node);
@@ -268,7 +276,10 @@ export function Composer({
     }
   }
   function send() {
-    if (ready && !queueReason) onSend(active ? 'queue' : undefined);
+    if (ready && !queueReason) {
+      beginSendMotion();
+      onSend(active ? 'queue' : undefined);
+    }
   }
   function isFileDrag(event: React.DragEvent) {
     return Array.from(event.dataTransfer.types).includes('Files');
@@ -566,6 +577,7 @@ export function Composer({
                   disabled={!ready || hasResources}
                   onClick={() => {
                     closeMenu(false);
+                    beginSendMotion();
                     onSend('steer');
                   }}
                 >

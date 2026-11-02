@@ -2805,7 +2805,7 @@ small,
   max-width: min(440px, 65vw);
   min-height: 40px;
   padding: 8px 12px;
-  border-color: transparent;
+  border: 0;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
@@ -2821,9 +2821,12 @@ small,
   font-size: 10px;
 }
 .changes-tabs .selected {
-  background: var(--soft);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
   color: var(--text);
-  border-color: var(--border);
+}
+.changes-tabs button:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 .changes-preview .modal-title {
   gap: 8px;
@@ -3910,4 +3913,16 @@ small,
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+.composer-send-flight {
+  position: fixed;
+  z-index: 28;
+  pointer-events: none;
+  user-select: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  box-sizing: border-box;
+  contain: layout paint;
 }
