@@ -171,6 +171,12 @@ pub async fn control(
     if auth.kind != "desktop" {
         return Err(Error::forbidden());
     }
+    if !state
+        .limits
+        .take(format!("control:{}", auth.device_id), 10., 1., 1.)
+    {
+        return Err(Error::limit());
+    }
     let host = state
         .store
         .host_for_device(&auth.device_id)

@@ -12,6 +12,8 @@ AgentChat 回归：`pnpm test:api-chat-browser`（复用下方 Playwright 变量
 
 默认在 `release` 分支开发，不自动提交或推送。Host Rust 源码暂保留 `desktop/core/` 路径，以维持公开入口、测试和协议导出的兼容性；这不表示仍依赖桌面 UI。
 
+云端安全回归：`cargo test --locked --manifest-path server/Cargo.toml --all-targets` 运行无数据库检查；设置独立且库名以 `_test` 结尾的 `AGENTDECK_TEST_DATABASE_URL` 后加 `-- --include-ignored`，包含真实 PostgreSQL 的认证/CSRF/账户隔离/刷新重用/密码重置与密钥库回归，不可使用生产库。`cargo clippy --locked --manifest-path server/Cargo.toml --all-targets -- -D warnings` 做静态检查。Cloud CI 使用独立 PostgreSQL 服务执行全部上述测试，并用 `cargo audit --file server/Cargo.lock --deny warnings` 检查 RustSec 公告；不以 Host 锁文件的结果替代云端结果。
+
 | 目录                                             | 职责                                            |
 | ------------------------------------------------ | ----------------------------------------------- |
 | `desktop/core/src/host/`、`src/bin/agentdeck.rs` | CLI、持久配置、后台监督、自启与日志             |

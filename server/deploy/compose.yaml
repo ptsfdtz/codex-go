@@ -19,6 +19,9 @@ services:
       context: ../..
       dockerfile: server/Dockerfile
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
     environment:
       AGENTDECK_DATABASE_URL: postgres://agentdeck:${AGENTDECK_DB_PASSWORD:?set AGENTDECK_DB_PASSWORD}@postgres:5432/agentdeck
       AGENTDECK_PUBLIC_ORIGIN: https://${AGENTDECK_DOMAIN:?set AGENTDECK_DOMAIN}

@@ -15,10 +15,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 
 pub fn router(state: Arc<State>) -> Router {
     let web_origins = state.config.web_origins.clone();
@@ -142,6 +139,10 @@ pub fn router(state: Arc<State>) -> Router {
         )
         .fallback(|| async { Error::new(StatusCode::NOT_FOUND, "NOT_FOUND", "地址不存在") })
         .layer(DefaultBodyLimit::max(16 * 1024))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(crate::http_security::Guard::new(&state.config)),
+            crate::http_security::guard,
+        ))
         .layer(middleware::from_fn(move |request, next| {
             browser_headers(request, next, web_origins.clone())
         }))
@@ -317,20 +318,7 @@ pub(crate) async fn web_auth(
     Ok(auth)
 }
 fn login_limit(state: &State, headers: &HeaderMap, peer: SocketAddr, username: &str) -> Result<()> {
-    let source = if state.config.proxy_token.as_ref().is_some_and(|expected| {
-        headers
-            .get("x-agentdeck-proxy-token")
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|value| security::equal(expected, value))
-    }) {
-        headers
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<IpAddr>().ok())
-            .unwrap_or(peer.ip())
-    } else {
-        peer.ip()
-    };
+    let source = security::client_ip(headers, peer, state.config.proxy_token.as_deref());
     if !state
         .limits
         .take(format!("login-ip:{source}"), 30., 0.5, 1.)

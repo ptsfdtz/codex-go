@@ -10,13 +10,11 @@ if [ -e "$1" ]; then
   echo 'Backup destination already exists' >&2
   exit 2
 fi
-backup_temp="$1.partial"
-if [ -e "$backup_temp" ]; then
-  echo 'Partial backup destination already exists' >&2
-  exit 2
-fi
+backup_temp=$(mktemp "$1.partial.XXXXXXXX")
 trap 'rm -f -- "$backup_temp"' EXIT HUP INT TERM
 docker compose exec -T postgres pg_dump -U agentdeck -d agentdeck --format=custom > "$backup_temp"
 docker compose exec -T postgres pg_restore --list < "$backup_temp" > /dev/null
-mv -- "$backup_temp" "$1"
+# Atomically refuse an existing destination, including a symlink created after
+# the initial check. Both paths are in the same directory/filesystem.
+ln -T -- "$backup_temp" "$1"
 echo 'Database backup created. Keep the deployment environment and Caddy volume backups separately.'

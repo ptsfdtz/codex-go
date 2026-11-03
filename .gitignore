@@ -9,6 +9,16 @@ desktop/test-results/
 dist/
 artifacts/
 .env
+.env.*
+!.env.example
+cloud.env
+release.env
+*.key
+*.p12
+*.dump
+*.sql.gz
+*.pgpass
+.ssh/
 *.log
 *.db*
 *.pem

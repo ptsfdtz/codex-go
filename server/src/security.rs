@@ -14,6 +14,29 @@ use std::{
 use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 
+// Only the configured edge may supply a single, parsed client IP. Never use
+// arbitrary forwarded headers as rate-limit identities.
+pub(crate) fn client_ip(
+    headers: &axum::http::HeaderMap,
+    peer: std::net::SocketAddr,
+    proxy_token: Option<&str>,
+) -> std::net::IpAddr {
+    if proxy_token.is_some_and(|expected| {
+        headers
+            .get("x-agentdeck-proxy-token")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|value| equal(expected, value))
+    }) {
+        headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(peer.ip())
+    } else {
+        peer.ip()
+    }
+}
+
 pub fn token() -> String {
     let mut bytes = [0u8; 32];
     rand::rng().fill_bytes(&mut bytes);
