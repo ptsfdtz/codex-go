@@ -1,6 +1,8 @@
 import { t, useLocale } from '../i18n';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { Download } from 'lucide-react';
+import { Check, Download } from 'lucide-react';
+import { IconButton, Modal } from '../ui';
+import { MotionPresence } from '../motion';
 
 interface InstallPrompt extends Event {
   prompt(): Promise<void>;
@@ -59,10 +61,43 @@ export function InstallProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function InstallApp() {
+export function InstallApp({ iconOnly = false }: { iconOnly?: boolean }) {
   useLocale();
   const { standalone, added, prompt, install } = useContext(InstallContext);
+  const [guideOpen, setGuideOpen] = useState(false);
   if (standalone) return null;
+  const guide = (
+    <ul>
+      <li>{t('Android：在浏览器菜单中选择“安装应用”或“添加到主屏幕”。')}</li>
+      <li>
+        {t('iPhone / iPad：在 Safari 中点“分享”→“添加到主屏幕”；若有“作为网页 App 打开”，请开启。')}
+      </li>
+      <li>{t('电脑：在浏览器地址栏或菜单中选择“安装 AgentDeck”。')}</li>
+    </ul>
+  );
+  if (iconOnly)
+    return (
+      <>
+        <IconButton
+          icon={added ? Check : Download}
+          label={t('安装 AgentDeck')}
+          onClick={() => (prompt && !added ? void install() : setGuideOpen(true))}
+        />
+        <MotionPresence>
+          {guideOpen && (
+            <Modal title={t('安装 AgentDeck')} compact onClose={() => setGuideOpen(false)}>
+              <div className="pwa-install">
+                {added ? (
+                  <p role="status">{t('已添加到主屏幕，请从 AgentDeck 图标打开。')}</p>
+                ) : (
+                  guide
+                )}
+              </div>
+            </Modal>
+          )}
+        </MotionPresence>
+      </>
+    );
   return (
     <div className="pwa-install">
       {added ? (
@@ -77,14 +112,7 @@ export function InstallApp() {
           )}
           <details>
             <summary>{t('添加到主屏幕')}</summary>
-            <ul>
-              <li>{t('Android：在浏览器菜单中选择“安装应用”或“添加到主屏幕”。')}</li>
-              <li>
-                {t(
-                  'iPhone / iPad：在 Safari 中点“分享”→“添加到主屏幕”；若有“作为网页 App 打开”，请开启。',
-                )}
-              </li>
-            </ul>
+            {guide}
           </details>
         </>
       )}

@@ -2489,10 +2489,13 @@ small,
   }
 }
 @media (max-width: 760px) {
+  .shell {
+    --sidebar-width: 300px;
+  }
   .sidebar {
     position: absolute;
     z-index: 32;
-    width: 300px;
+    width: var(--sidebar-width);
     max-width: 85vw;
     height: calc(100% - var(--app-safe-top) - var(--app-safe-bottom));
     top: var(--app-safe-top);
@@ -2502,7 +2505,7 @@ small,
   .sidebar-scrim.visible {
     position: fixed;
     display: block;
-    inset: 0 0 0 min(300px, 85vw);
+    inset: 0 0 0 min(var(--sidebar-width), 85vw);
     z-index: 31;
     border: 0;
     border-radius: 0;

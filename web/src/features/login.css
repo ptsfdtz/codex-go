@@ -1,0 +1,118 @@
+.login-page {
+  min-height: var(--app-height, 100dvh);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  padding: max(20px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(32px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background: var(--bg);
+}
+.login-utilities {
+  --control-size: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.login-utilities > .icon-button,
+.login-utilities .select-trigger-icon {
+  color: var(--muted);
+  border-radius: 50%;
+}
+.login-utilities .select-trigger-icon > svg {
+  color: inherit;
+}
+.login-utilities .select-trigger-icon[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+.login-panel {
+  width: min(100%, 360px);
+  justify-self: center;
+  align-self: center;
+  padding-block: 48px 88px;
+}
+.login-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 36px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+}
+.login-mark {
+  width: 36px;
+  height: 36px;
+  background: currentColor;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+.login-form {
+  display: grid;
+  gap: 20px;
+}
+.login-field {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+:root .login-page input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+  width: 100%;
+  height: 50px;
+  padding: 0 15px;
+  border-radius: 12px;
+  background: var(--soft);
+  border-color: transparent;
+  font-size: 16px;
+  font-weight: 400;
+}
+.login-field input::placeholder {
+  color: var(--muted);
+  opacity: 0.65;
+}
+.login-field input:focus {
+  border-color: var(--muted);
+  outline: 2px solid var(--border);
+  outline-offset: 2px;
+}
+.login-submit {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--button);
+  color: var(--button-text);
+  font-size: 14px;
+  font-weight: 600;
+  gap: 10px;
+}
+.login-submit:disabled {
+  opacity: 0.45;
+}
+.login-error {
+  margin: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .login-utilities .select-trigger-icon:hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .login-submit:hover:not(:disabled) {
+    background: var(--button);
+    opacity: 0.85;
+  }
+}
+@media (pointer: coarse) {
+  .login-utilities {
+    --control-size: 44px;
+  }
+}
+@media (max-height: 600px) {
+  .login-panel {
+    padding-block: 24px;
+  }
+}

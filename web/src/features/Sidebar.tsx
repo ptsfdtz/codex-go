@@ -36,6 +36,7 @@ import { Collapse, MotionList } from '../motion';
 import type { Host, Project, Session } from '../workspace';
 import { canManage, isSessionWorking } from '../workspace';
 import './Sidebar.css';
+import { SidebarResizer } from './SidebarResizer';
 import { attentionLabels, type AttentionKind } from './notifications/task-attention';
 
 type SessionAction = 'pin' | 'archive' | 'restore';
@@ -307,6 +308,7 @@ export function Sidebar({
         inert={!open}
         aria-hidden={!open}
       >
+        <SidebarResizer open={open} onClose={onClose} />
         <div className="sidebar-brand">
           {brand || <strong>AgentDeck</strong>}
           <IconButton

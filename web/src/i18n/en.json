@@ -1126,5 +1126,7 @@
   "当前会话暂无附件或文件引用": "No attachments or file references in this chat",
   "查看全部来源": "View all sources",
   "添加图片": "Add images",
-  "当前会话": "Current chat"
+  "当前会话": "Current chat",
+  "电脑：在浏览器地址栏或菜单中选择“安装 AgentDeck”。": "Desktop: choose “Install AgentDeck” in the browser address bar or menu.",
+  "调整侧边栏宽度": "Resize sidebar"
 }

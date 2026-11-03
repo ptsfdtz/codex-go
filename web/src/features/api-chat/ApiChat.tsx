@@ -25,6 +25,7 @@ import {
   type ChatMessage,
 } from './client';
 import { LocalStore } from './local';
+import { SidebarResizer } from '../SidebarResizer';
 import './api-chat.css';
 import { Composer } from '../Composer';
 import type { Draft, Model } from '../../workspace';
@@ -565,6 +566,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
         onClick={() => setSidebar(false)}
       />
       <aside className={`sidebar ${sidebar ? 'open' : ''}`} inert={!sidebar} aria-hidden={!sidebar}>
+        <SidebarResizer open={sidebar} onClose={() => setSidebar(false)} />
         <div className="sidebar-brand">
           {modeControl}
           <IconButton icon={Menu} label={t('收起会话列表')} onClick={() => setSidebar(false)} />

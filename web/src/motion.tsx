@@ -343,6 +343,10 @@ export function useSidebarMotion(open: boolean) {
     }
     running.current.clear();
     previous.current = { node, open, desktop };
+    if (node.parentElement?.hasAttribute('data-sidebar-collapse')) {
+      node.parentElement.removeAttribute('data-sidebar-collapse');
+      return;
+    }
     if (!before || before.node !== node || before.desktop !== desktop || before.open === open)
       return;
     const style = getComputedStyle(document.documentElement);

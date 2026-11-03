@@ -78,6 +78,7 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 会话图片路径授权       | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`                                         |
 | 输入发送动效与改动标签 | `pnpm test:send-motion-browser`，复用 `COMPOSER_TEST_ORIGIN`（默认 1497）及 Playwright；截图和结果在 `artifacts/send-motion/`        |
 | 动效与设置             | `pnpm test:ui-browser`、`pnpm test:motion-browser`、`pnpm test:sidebar-motion-browser`                                               |
+| 侧边栏拖动与自动隐藏   | `pnpm test:sidebar-resize-browser`，`SIDEBAR_RESIZE_TEST_ORIGIN` 默认 `http://127.0.0.1:1512`                                      |
 | 手机侧栏与紧凑设置     | `node scripts/web/test-mobile-settings-browser.mjs`，复用 `COMPOSER_TEST_ORIGIN` / Playwright；效果图在 `artifacts/mobile-settings/` |
 | 下拉选择与菜单         | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                                                  |
 | 侧栏分区与操作         | `node scripts/web/test-sidebar-browser.mjs`，`SIDEBAR_TEST_ORIGIN` 默认 `http://127.0.0.1:1430/`                                     |
@@ -86,6 +87,8 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 首屏性能               | `pnpm test:performance-browser`，`PERF_TEST_ORIGIN` 默认端口 1599，`PERF_BASELINE_ORIGIN` 指定对照站                                 |
 
 数学公式回归复用上述 Playwright 环境，可用 `COMPOSER_TEST_FONT` 指定中文字体，证据输出到 `artifacts/markdown-math/`。
+
+侧边栏拖动检查复用 Playwright，先运行 `pnpm --filter @agentdeck/web exec vite --mode cloud-dev --host 127.0.0.1 --port 1512 --strictPort`。脚本挂载真实 App，在隔离浏览器中拦截账户接口及外部请求，覆盖主聊天和 AgentChat 的鼠标拖动、主区连续布局、宽度保存、过窄立即隐藏及重新打开、键盘调宽/收起/重置、Esc/失焦/窗口缩放清理，以及 320/390px 浏览器触摸拖动与取消、遮罩边缘同步。证据在 `artifacts/sidebar-resize/`，不连接真实账户、Host 或模型；合成触屏事件不能代替手机/PWA 实机验收。
 
 回执恢复回归复用上述 Playwright 与本地 Vite，在隔离 App 中使用真实 Bridge、Web Locks 和虚拟时钟，替换 HostSocket 并拦截账户/Host 外部请求；核对查询反馈、pending/unknown/notFound/拒绝/查询失败、显式人工确认、草稿保留、迟到响应、慢历史与发送并发、失活连接及真实双标签锁竞争。不会连接生产 Host 或调用模型。结果和 320/390/1100px 深浅主题截图在 `artifacts/recovery/`。Host 回执持久化与防重定向测试：`cargo test --locked --manifest-path desktop/core/Cargo.toml --lib request_outcome_tests`。
 

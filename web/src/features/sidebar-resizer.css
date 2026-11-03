@@ -1,0 +1,42 @@
+.sidebar-resizer {
+  position: absolute;
+  inset-block: 0;
+  right: -5px;
+  width: 10px;
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: 0;
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+[data-sidebar-resizing] .sidebar-resizer::after {
+  opacity: 0.5;
+}
+.sidebar-resizer:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.shell[data-sidebar-resizing],
+.shell[data-sidebar-resizing] * {
+  cursor: col-resize;
+  user-select: none;
+}
+@media (pointer: coarse) {
+  .sidebar-resizer {
+    width: 16px;
+    right: -8px;
+  }
+  .sidebar-resizer::after {
+    left: 7px;
+  }
+}

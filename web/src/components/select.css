@@ -29,6 +29,17 @@
 .select-trigger[aria-expanded='true'] > svg {
   transform: rotate(180deg);
 }
+:root .select-control .select-trigger-icon {
+  width: var(--control-size);
+  padding: 0;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.select-trigger-icon[aria-expanded='true'] > svg {
+  transform: none;
+}
 .select-popup {
   position: fixed;
   inset: auto;
