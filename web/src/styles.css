@@ -3170,6 +3170,7 @@ small,
   }
 }
 .composer-actions {
+  --composer-action-size: max(34px, var(--control-size));
   display: flex;
   align-items: center;
   flex-shrink: 0;
@@ -3188,8 +3189,9 @@ small,
 }
 /* All execution actions share the same surface; permission keeps its own style. */
 .composer-actions > .icon-button {
-  width: 34px;
-  height: 34px;
+  width: var(--composer-action-size);
+  height: var(--composer-action-size);
+  min-height: var(--composer-action-size);
   margin: 0;
   padding: 0;
   border: 0;
