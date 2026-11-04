@@ -17,6 +17,7 @@ try {
   const page = await browser.newPage({
     locale: 'zh-CN',
     viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2,
     hasTouch: true,
     reducedMotion: 'reduce',
   });
@@ -250,8 +251,9 @@ try {
   await main
     .getByText('已保留项目授权、执行审批及重连恢复语义。现在可以继续下一步。', { exact: true })
     .waitFor();
-  await shot('conversation-390-dark');
+  await shot('conversation-390-compact-dark');
   await main.getByRole('textbox', { name: '消息', exact: true }).focus();
+  await shot('conversation-390-editing-dark');
   await main.getByRole('button', { name: '执行权限：工作区权限', exact: true }).click();
   const permission = page.getByRole('dialog', { name: '应如何批准 Codex 操作？' });
   await permission.waitFor();

@@ -665,7 +665,7 @@
     max-width: none;
     background: var(--bg);
     box-shadow: none;
-    padding: 4px 14px 10px;
+    padding: 4px 18px 12px;
   }
   .shell .sidebar-scrim.visible,
   .shell .sidebar-resizer {
@@ -709,7 +709,7 @@
     border-radius: 0;
   }
   .shell .sidebar-brand .mode-trigger {
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 600;
   }
   .shell .sidebar-brand .mode-switcher {
@@ -717,13 +717,13 @@
     margin: 0;
   }
   .shell .host-strip {
-    padding: 10px 0 20px;
-    margin-right: -14px;
-    padding-right: 14px;
+    padding: 10px 0 18px;
+    margin-right: -18px;
+    padding-right: 18px;
   }
   .shell .host-chip {
     font-size: 16px;
-    min-height: 42px;
+    min-height: 40px;
     padding-inline: 14px;
   }
   .shell .sidebar-primary {
@@ -737,13 +737,15 @@
     min-height: 44px;
   }
   .shell .desktop-rail-heading {
-    font-size: 15px;
-    padding-left: 4px;
+    font-size: 16px;
+    font-weight: 500;
+    padding-left: 0;
   }
   .shell .desktop-sidebar .sidebar-project-toggle {
     min-height: 44px;
-    padding-left: 4px;
-    font-size: 17px;
+    padding-left: 0;
+    font-size: 16px;
+    gap: 10px;
   }
   .shell .desktop-sidebar .sidebar-project-heading > .icon-button svg {
     width: 20px;
@@ -751,12 +753,21 @@
   }
   .shell .desktop-sidebar .desktop-session-row > .session {
     min-height: 44px;
-    font-size: 15px;
+    font-size: 16px;
     line-height: 24px;
-    padding-right: 36px;
+    padding-block: 10px;
+    padding-right: 28px;
   }
   .shell .desktop-sidebar .sidebar-project-sessions .session {
-    padding-left: 38px;
+    padding-left: 33px;
+  }
+  .shell .sidebar-project + .sidebar-project {
+    margin-top: 18px;
+  }
+  .shell .sidebar-folder-icon,
+  .shell .sidebar-folder-icon > svg:first-child {
+    width: 23px;
+    height: 23px;
   }
   .shell .desktop-sidebar .sidebar-session-actions {
     opacity: 0;
@@ -773,15 +784,16 @@
   .shell .sidebar-quick-compose {
     display: flex;
     align-items: center;
-    min-height: 46px;
+    min-height: 44px;
     gap: 12px;
     flex-shrink: 0;
-    margin: 8px 10px 2px;
-    padding: 10px 14px;
+    margin: 8px 13px 2px;
+    padding: 6px 12px;
     border: 0;
     border-radius: 99px;
     background: var(--soft);
     color: var(--muted);
+    font-size: 16px;
   }
   .sidebar-quick-compose > span {
     flex: 1;
@@ -821,42 +833,94 @@
     max-width: calc(100vw - 142px);
   }
   .shell .conversation-subtitle {
-    font-size: 11px;
+    font-size: 12px;
     min-height: 18px;
   }
   .shell .timeline-content {
-    padding: 16px 14px 18px;
+    padding: 12px 14px 16px;
   }
-  .shell .assistant-turn .rich-content {
+  .shell .assistant-turn .rich-content,
+  .shell .api-message-assistant .api-message-body {
+    font-size: 16.5px;
+    line-height: 1.5;
+  }
+  .shell .user-turn .rich-content {
     font-size: 16px;
-    line-height: 1.65;
+    line-height: 1.5;
+  }
+  .shell .user-turn > .message-content {
+    padding: 10px 14px;
+    border-radius: 20px;
+  }
+  .shell .rich-content p {
+    margin-bottom: 12px;
+  }
+  .shell .rich-content p:last-child {
+    margin-bottom: 0;
+  }
+  .shell .activity-stage > summary,
+  .shell .tool-record > summary {
+    font-size: 16px;
+    min-height: 30px;
+    line-height: 1.5;
+  }
+  .shell .activity-stage {
+    margin-block: 4px 14px;
+  }
+  .shell .task-progress {
+    font-size: 15px;
+  }
+  .shell .agent-tray-trigger {
+    min-height: 30px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    padding: 4px 12px;
+  }
+  .shell .goal-composer {
+    min-height: 30px;
+    font-size: 13px;
+    padding: 4px 12px;
+  }
+  .shell .queued-text {
+    font-size: 14px;
+    line-height: 1.5;
   }
   .shell .composer-wrap {
     padding: 8px 11px 8px;
   }
   .shell .composer {
-    padding: 11px 8px 8px;
-    border-radius: 25px;
+    padding: 12px 8px 6px;
+    border-radius: 22px;
+  }
+  .shell .composer.is-expanded {
+    border-color: transparent;
+  }
+  .shell .composer-wrap:has(.goal-composer) .composer {
+    border-radius: 22px;
   }
   .shell .composer > textarea {
     font-size: 16px;
-    padding-inline: 6px;
+    padding: 0 6px 8px;
+    line-height: 24px;
     min-height: 36px;
   }
   .shell .composer-toolbar {
     gap: 1px;
+    min-height: 36px;
   }
   .shell .composer.is-compact {
     display: grid;
     grid-template-columns: 36px minmax(0, 1fr) auto;
     align-items: center;
     gap: 3px;
-    padding: 4px 8px;
+    padding: 3px 8px;
     border-radius: 99px;
+    margin-inline: clamp(12px, 5vw, 20px);
   }
   .shell .composer.is-compact > textarea {
     grid-area: 1 / 2;
-    padding: 5px 0;
+    padding: 4px 0;
+    min-height: 32px;
     overflow: hidden;
   }
   .shell .composer.is-compact .composer-toolbar {
@@ -887,10 +951,24 @@
   }
   .shell .composer-actions {
     gap: 2px;
-    --composer-action-size: 32px;
+    --composer-action-size: 30px;
   }
   .shell .new-conversation-context {
-    padding: 0 24px 12px;
+    padding: 0 24px 14px;
+  }
+  .shell .new-context-row {
+    min-height: 44px;
+  }
+  .shell .top-menu > button {
+    font-size: 16px;
+    min-height: 42px;
+  }
+  .popover.composer-menu > button {
+    min-height: 60px;
+    font-size: 17px;
+  }
+  .shell .context-usage-popup {
+    font-size: 14px;
   }
   .shell .is-new-conversation .workspace-anchor {
     visibility: hidden;
