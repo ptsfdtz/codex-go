@@ -49,7 +49,9 @@ export function useMenuPopover() {
       if (!node.matches(':popover-open')) trigger.click();
       requestAnimationFrame(() => {
         if (node.matches(':popover-open'))
-          (event.key === 'ArrowUp' ? buttons().at(-1) : buttons()[0])?.focus();
+          (event.key === 'ArrowUp' ? buttons().at(-1) : buttons()[0])?.focus({
+            preventScroll: true,
+          });
       });
     };
     const navigate = (event: KeyboardEvent) => {
@@ -66,7 +68,8 @@ export function useMenuPopover() {
           : event.key === 'End'
             ? options.length - 1
             : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
-      options[next]?.focus();
+      options[next]?.focus({ preventScroll: true });
+      options[next]?.scrollIntoView({ block: 'nearest' });
     };
     const dismiss = (event: Event) => {
       if (event.target instanceof Node && node.contains(event.target)) return;
@@ -75,11 +78,20 @@ export function useMenuPopover() {
     const blur = (event: FocusEvent) => {
       if (event.target !== trigger) dismiss(event);
     };
+    const scroll = (event: Event) => {
+      // Unrelated timeline updates can scroll while a composer/menu is opening.
+      // Only a scroller that moves this trigger invalidates its anchor.
+      if (
+        event.target === document ||
+        (event.target instanceof Element && event.target.contains(trigger))
+      )
+        dismiss(event);
+    };
     node.addEventListener('toggle', toggle);
     node.addEventListener('keydown', navigate);
     trigger.addEventListener('keydown', openWithKeyboard);
     document.addEventListener('focusin', blur);
-    document.addEventListener('scroll', dismiss, true);
+    document.addEventListener('scroll', scroll, true);
     window.addEventListener('resize', dismiss);
     window.visualViewport?.addEventListener('resize', dismiss);
     return () => {
@@ -87,7 +99,7 @@ export function useMenuPopover() {
       node.removeEventListener('keydown', navigate);
       trigger.removeEventListener('keydown', openWithKeyboard);
       document.removeEventListener('focusin', blur);
-      document.removeEventListener('scroll', dismiss, true);
+      document.removeEventListener('scroll', scroll, true);
       window.removeEventListener('resize', dismiss);
       window.visualViewport?.removeEventListener('resize', dismiss);
     };

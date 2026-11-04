@@ -8,6 +8,9 @@ import {
   Settings,
   Trash2,
   MessageCircle,
+  ChevronLeft,
+  SquarePen,
+  Plus,
 } from 'lucide-react';
 import { IconButton, Modal } from '../../ui';
 import { MotionPresence, MotionList, useSidebarMotion, useContentMotion } from '../../motion';
@@ -48,7 +51,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
   const [chats, setChats] = useState<ChatSummary[]>([]),
     [selected, setSelected] = useState(''),
     [detail, setDetail] = useState<ChatDetail>();
-  const [sidebar, setSidebar] = useState(() => matchMedia('(min-width:761px)').matches),
+  const [sidebar, setSidebar] = useState(true),
     [settings, setSettings] = useState(false),
     [search, setSearch] = useState('');
   const [choices, setChoices] = useState<Record<string, Choice>>(() =>
@@ -299,8 +302,7 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
     };
     viewport?.addEventListener('resize', resize);
     resize();
-    document.documentElement.dataset.theme =
-      localStorage.getItem('agentdeck.web.theme') || 'system';
+    document.documentElement.dataset.theme = localStorage.getItem('agentdeck.web.theme') || 'dark';
     return () => viewport?.removeEventListener('resize', resize);
   }, []);
   useEffect(() => {
@@ -568,8 +570,20 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
       <aside className={`sidebar ${sidebar ? 'open' : ''}`} inert={!sidebar} aria-hidden={!sidebar}>
         <SidebarResizer open={sidebar} onClose={() => setSidebar(false)} />
         <div className="sidebar-brand">
+          <IconButton
+            className="sidebar-mobile-settings"
+            icon={Menu}
+            label={t('设置')}
+            onClick={() => setSettings(true)}
+          />
           {modeControl}
           <IconButton icon={Menu} label={t('收起会话列表')} onClick={() => setSidebar(false)} />
+          <IconButton
+            className="sidebar-mobile-search"
+            icon={Search}
+            label={t('搜索对话')}
+            onClick={() => document.getElementById('api-chat-search')?.focus()}
+          />
         </div>
         <div className="sidebar-primary">
           <button disabled={busy} onClick={() => select('')}>
@@ -625,21 +639,27 @@ export function ApiChat({ scope, modeControl }: { scope: string; modeControl: Re
             {t('设置')}
           </button>
         </div>
+        <button className="sidebar-quick-compose" disabled={busy} onClick={() => select('')}>
+          <Plus size={24} aria-hidden="true" />
+          <span>{t('新对话')}</span>
+          <SquarePen size={22} aria-hidden="true" />
+        </button>
       </aside>
       <section ref={sidebarMotion} className="conversation-layout">
         <section className="conversation">
           <header className="topbar">
             <IconButton
-              icon={Menu}
+              icon={matchMedia('(max-width:760px)').matches ? ChevronLeft : Menu}
               label={t('打开会话列表')}
               onClick={() => setSidebar(!sidebar)}
               className={sidebar ? 'rail-toggle' : ''}
             />
-            {!sidebar && modeControl}
+            {!sidebar && <span className="api-desktop-mode">{modeControl}</span>}
             <span className="api-top-title">
               {selected ? detail?.title || 'AgentChat' : t('新对话')}
             </span>
             <IconButton icon={Settings} label={t('设置')} onClick={() => setSettings(true)} />
+            <IconButton icon={SquarePen} label={t('新建会话')} onClick={() => select('')} />
           </header>
           <div
             className="timeline api-timeline"

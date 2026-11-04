@@ -16,6 +16,9 @@ import {
   Target,
   CornerDownLeft,
   FileText,
+  Mic,
+  Camera,
+  Image,
 } from 'lucide-react';
 import { IconButton, Modal } from '../ui';
 import { MotionPresence, usePopoverMotion, useExpansionMotion } from '../motion';
@@ -100,8 +103,12 @@ export function Composer({
   disabledReason,
   attachmentTotalBytes = 512 * 1024,
   panels,
+  placeholder,
+  contextControl,
 }: {
   panels?: string[];
+  placeholder?: string;
+  contextControl?: ReactNode;
   draft: Draft;
   status?: ReactNode;
   prompts?: ReactNode;
@@ -131,11 +138,14 @@ export function Composer({
   const feedbackId = useId();
   const [expanded, setExpanded] = useState(false),
     [addingAttachments, setAddingAttachments] = useState(false);
+  const [focused, setFocused] = useState(false);
   const expansion = useExpansionMotion(expanded);
   const [attachmentError, setAttachmentError] = useState(''),
     [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<{ url: string; attachment: Attachment }>();
   const file = useRef<HTMLInputElement>(null),
+    photos = useRef<HTMLInputElement>(null),
+    camera = useRef<HTMLInputElement>(null),
     textarea = useRef<HTMLTextAreaElement>(null);
   const beginSendMotion = useSendMotion(
     textarea,
@@ -285,7 +295,14 @@ export function Composer({
     return Array.from(event.dataTransfer.types).includes('Files');
   }
   return (
-    <div className="composer-wrap">
+    <div
+      className="composer-wrap"
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event) => {
+        if (document.querySelector('dialog[open], [popover]:popover-open')) return;
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+      }}
+    >
       {prompts && (
         <div className="composer-prompts" aria-label={t('待处理请求')}>
           {prompts}
@@ -308,7 +325,7 @@ export function Composer({
       ) : (
         <div
           ref={expansion}
-          className={`composer${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}`}
+          className={`composer${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}${!focused && !expanded && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent && !expanded ? ' is-empty' : ''}`}
           onDragEnter={(event) => {
             if (!isFileDrag(event)) return;
             event.preventDefault();
@@ -412,6 +429,15 @@ export function Composer({
             }
             value={draft.text}
             rows={1}
+            onFocus={() => {
+              if (speech.active) speech.cancel();
+            }}
+            onPointerDown={() => {
+              if (speech.active) speech.cancel();
+            }}
+            onBeforeInput={() => {
+              if (speech.active) speech.cancel();
+            }}
             onChange={(event) => {
               speech.cancel();
               changeText(event.target.value);
@@ -443,7 +469,7 @@ export function Composer({
                 ? disabledReason || (execution ? t('连接电脑后开始') : t('暂时无法发送'))
                 : chat
                   ? t('聊点什么…')
-                  : t('向 Codex 提问或描述任务…')
+                  : placeholder || t('向 Codex 提问或描述任务…')
             }
             disabled={disabled || busy}
           />
@@ -467,6 +493,13 @@ export function Composer({
             >
               <Plus size={20} />
             </button>
+            {execution && (
+              <PermissionPicker
+                permission={permission}
+                disabled={disabled || busy}
+                onConfirm={onPermission}
+              />
+            )}
             <div
               ref={menu}
               id={menuId}
@@ -502,17 +535,41 @@ export function Composer({
               }}
             >
               {supports('attachments') && (
-                <button
-                  role="menuitem"
-                  disabled={addingAttachments}
-                  onClick={() => {
-                    closeMenu(false);
-                    file.current?.click();
-                  }}
-                >
-                  <Paperclip size={17} />
-                  {t('添加文件或图片')}
-                </button>
+                <>
+                  <button
+                    role="menuitem"
+                    disabled={addingAttachments}
+                    onClick={() => {
+                      closeMenu(false);
+                      camera.current?.click();
+                    }}
+                  >
+                    <Camera size={21} />
+                    {t('相机')}
+                  </button>
+                  <button
+                    role="menuitem"
+                    disabled={addingAttachments}
+                    onClick={() => {
+                      closeMenu(false);
+                      photos.current?.click();
+                    }}
+                  >
+                    <Image size={21} />
+                    {t('照片')}
+                  </button>
+                  <button
+                    role="menuitem"
+                    disabled={addingAttachments}
+                    onClick={() => {
+                      closeMenu(false);
+                      file.current?.click();
+                    }}
+                  >
+                    <Paperclip size={21} />
+                    {t('文件')}
+                  </button>
+                </>
               )}
               {supports('composerSkills') && (
                 <button
@@ -552,7 +609,7 @@ export function Composer({
                         closeMenu();
                       }}
                     >
-                      <ListChecks size={17} />
+                      {id === 'goal' ? <Target size={21} /> : <ListChecks size={21} />}
                       <span>
                         {{ default: t('默认模式'), plan: t('计划'), goal: t('目标') }[id]}
                       </span>
@@ -586,6 +643,8 @@ export function Composer({
                 </button>
               )}
             </div>
+            <div className="composer-toolbar-spacer" />
+            {contextControl}
             <ModelPicker
               draft={draft}
               models={models}
@@ -594,13 +653,6 @@ export function Composer({
               allowDefault={execution}
             />
             <div className="composer-actions" role="group" aria-label={t('发送与执行控制')}>
-              {execution && (
-                <PermissionPicker
-                  permission={permission}
-                  disabled={disabled || busy}
-                  onConfirm={onPermission}
-                />
-              )}
               {expanded && (
                 <IconButton
                   icon={Minimize2}
@@ -611,39 +663,18 @@ export function Composer({
                   }}
                 />
               )}
-              {active && (
-                <IconButton
-                  className="composer-stop"
-                  icon={Square}
-                  label={t('停止')}
-                  disabled={busy || disabled}
-                  onClick={onStop}
-                />
-              )}
-              {speech.active || !hasContent ? (
-                <button
-                  type="button"
-                  className="icon-button send-button speech-button"
-                  aria-label={speech.active ? t('结束语音输入') : t('语音输入')}
-                  title={speech.active ? t('结束语音输入') : t('语音输入')}
-                  aria-pressed={speech.active}
-                  disabled={disabled || busy || speech.phase === 'stopping'}
-                  onClick={() => (speech.active ? speech.stop() : speech.start())}
-                >
-                  {speech.active ? (
-                    <Square size={17} aria-hidden="true" />
-                  ) : (
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M4 9v6M9 3v18M14 7v10M19 9v6"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  )}
-                </button>
-              ) : active && execution ? (
+              <button
+                type="button"
+                className="icon-button composer-mic"
+                aria-label={speech.active ? t('结束语音输入') : t('语音输入')}
+                title={speech.active ? t('结束语音输入') : t('语音输入')}
+                aria-pressed={speech.active}
+                disabled={disabled || busy || speech.phase === 'stopping'}
+                onClick={() => (speech.active ? speech.stop() : speech.start())}
+              >
+                {speech.active ? <Square size={20} /> : <Mic size={23} />}
+              </button>
+              {active && execution && hasContent ? (
                 <button
                   type="button"
                   className="icon-button send-button composer-queue"
@@ -654,7 +685,15 @@ export function Composer({
                 >
                   <ListPlus size={19} strokeWidth={1.6} aria-hidden="true" />
                 </button>
-              ) : !active ? (
+              ) : active ? (
+                <IconButton
+                  className="send-button composer-stop"
+                  icon={Square}
+                  label={t('停止')}
+                  disabled={busy || disabled}
+                  onClick={onStop}
+                />
+              ) : (
                 <IconButton
                   className="send-button"
                   icon={ArrowUp}
@@ -664,7 +703,16 @@ export function Composer({
                   disabled={!ready}
                   onClick={send}
                 />
-              ) : null}
+              )}
+              {active && execution && hasContent && (
+                <IconButton
+                  className="send-button composer-stop"
+                  icon={Square}
+                  label={t('停止')}
+                  disabled={busy || disabled}
+                  onClick={onStop}
+                />
+              )}
             </div>
           </div>
           {speech.message && (
@@ -692,6 +740,30 @@ export function Composer({
               {t('松开以添加文件或图片')}
             </div>
           )}
+          <input
+            hidden
+            multiple
+            type="file"
+            accept="image/*"
+            ref={photos}
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files || []);
+              event.currentTarget.value = '';
+              void addAttachments(files);
+            }}
+          />
+          <input
+            hidden
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={camera}
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files || []);
+              event.currentTarget.value = '';
+              void addAttachments(files);
+            }}
+          />
           <input
             hidden
             multiple

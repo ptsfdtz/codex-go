@@ -481,7 +481,9 @@ try {
   await page.screenshot({ path: fileURLToPath(new URL('tabs-320.png', out)) });
   await host.getByRole('button', { name: '关闭工具栏' }).click();
   assert.equal(await page.evaluate(() => window.sshClosed), 0);
-  await host.getByRole('button', { name: '打开工具', exact: true }).click();
+  await primary.getByRole('button', { name: '更多操作', exact: true }).click();
+  await primary.getByRole('menuitem', { name: '更多操作', exact: true }).click();
+  await primary.getByRole('menuitem', { name: '工具', exact: true }).click();
   await host.getByRole('button', { name: '关闭标签页：终端', exact: true }).click();
   await page.waitForFunction(() => window.sshClosed > 0);
   await host.getByRole('button', { name: '关闭工具栏' }).click();
@@ -603,9 +605,11 @@ try {
   await more.click();
   await topMenu.getByRole('menuitem', { name: '取消置顶', exact: true }).waitFor();
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
   await topMenu.getByRole('menuitem', { name: '复制会话标题', exact: true }).click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'Renamed main');
   await more.click();
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
   await topMenu.getByRole('menuitem', { name: '在右侧打开当前会话', exact: true }).click();
   await host
     .locator('.tool-tab-panel:not([hidden]) .side-chat')
@@ -613,6 +617,7 @@ try {
     .waitFor();
   assert.equal(await mainInput.inputValue(), 'PRIMARY-DRAFT');
   await more.click();
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
   await topMenu.getByRole('menuitem', { name: '新建侧边对话', exact: true }).click();
   assert.equal(
     await host
@@ -631,6 +636,7 @@ try {
     0,
   );
   await more.click();
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
   await topMenu.getByRole('menuitem', { name: '分叉会话', exact: true }).click();
   await page
     .getByRole('dialog', { name: '分叉会话', exact: true })
@@ -664,7 +670,9 @@ try {
   await page.waitForTimeout(220);
   await page.screenshot({ path: fileURLToPath(new URL('conversation-menu-mobile.png', out)) });
   await page.keyboard.press('End');
-  assert.equal(await page.evaluate(() => document.activeElement.textContent), '设置');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), '更多操作');
+  await page.keyboard.press('Enter');
+  await topMenu.getByRole('menuitem', { name: '设置', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await topMenu.waitFor({ state: 'hidden' });
   await page.evaluate(() => {
@@ -674,8 +682,10 @@ try {
   await more.click();
   await topMenu.getByRole('menuitem', { name: '重命名会话', exact: true }).waitFor();
   await page.waitForFunction(() => document.querySelector('.top-menu button').disabled);
-  for (const name of ['重命名会话', '取消置顶', '分叉会话', '归档会话'])
+  for (const name of ['重命名会话', '取消置顶', '归档会话'])
     assert(await topMenu.getByRole('menuitem', { name, exact: true }).isDisabled());
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
+  assert(await topMenu.getByRole('menuitem', { name: '分叉会话', exact: true }).isDisabled());
   await page.keyboard.press('Escape');
   checks.push(
     'conversation menu removes four obsolete entries; rename, pin, fork, archive cancellation, current/new side chats and mobile keyboard navigation work',

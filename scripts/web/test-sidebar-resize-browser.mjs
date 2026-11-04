@@ -6,7 +6,10 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const origin = process.env.SIDEBAR_RESIZE_TEST_ORIGIN || 'http://127.0.0.1:1512';
 const out = new URL('../../artifacts/sidebar-resize/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const checks = [],
   errors = [];
 async function isolate(context) {
@@ -163,38 +166,19 @@ try {
     const page = await mobile.newPage();
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(origin);
-    await reopen(page);
-    const cdp = await mobile.newCDPSession(page);
+    await page.locator('.sidebar-quick-compose').waitFor();
     const initial = await state(page);
-    const box = await page.locator('.sidebar-resizer').boundingBox();
-    const x = box.x + box.width / 2,
-      y = 400;
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-    await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [{ x: x + 240 - initial.width, y }],
-    });
-    let next = await state(page);
-    assert(Math.abs(next.width - 240) <= 1);
-    assert.equal(next.mainLeft, 0);
-    assert(Math.abs(next.scrimLeft - next.edge) <= 1);
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
-    assert.equal((await state(page)).width, initial.width);
-    assert(!(await state(page)).resizing);
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-    await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [{ x: x + 165 - initial.width, y }],
-    });
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    next = await state(page);
+    assert.equal(initial.width, width);
+    assert.equal(await page.locator('.sidebar-resizer').isVisible(), false);
+    await page.locator('.sidebar-quick-compose').click();
+    const next = await state(page);
     assert(!next.open && next.inert && !next.resizing && !next.overflow);
     assert.equal(next.mainLeft, 0);
     await reopen(page);
     assert.equal((await state(page)).width, initial.width);
     await page.screenshot({ path: fileURLToPath(new URL(`touch-${width}.png`, out)) });
     checks.push(
-      `${width}px: browser touch drag/cancel/collapse, scrim alignment, restored width and fixed conversation`,
+      `${width}px: full-page project list, hidden resize handle, new-conversation navigation and return preserve viewport width`,
     );
     await mobile.close();
   }

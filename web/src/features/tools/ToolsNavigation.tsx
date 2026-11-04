@@ -52,7 +52,15 @@ const tools = [
 ] as const;
 export function ToolsButton({ onOpen, open = false }: { onOpen: () => void; open?: boolean }) {
   useLocale();
-  return <IconButton icon={PanelRight} label={t('打开工具')} onClick={onOpen} pressed={open} />;
+  return (
+    <IconButton
+      className="header-tools"
+      icon={PanelRight}
+      label={t('打开工具')}
+      onClick={onOpen}
+      pressed={open}
+    />
+  );
 }
 
 export function ToolLauncher({

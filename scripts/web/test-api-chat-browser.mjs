@@ -116,7 +116,10 @@ const upstream = createServer(
 );
 await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
 const base = `https://127.0.0.1:${upstream.address().port}/v1`;
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 try {
   const context = await browser.newContext({
     locale: 'zh-CN',
@@ -379,7 +382,8 @@ try {
   await screenshot('expanded-editor.png');
   await page.getByRole('button', { name: '收起编辑器', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: '收起会话列表', exact: true }).click();
+  if (await page.locator('.api-chat.with-sidebar').count())
+    await page.locator('.api-chat-row.active > button:first-child').click();
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'dark';
   });
@@ -450,7 +454,7 @@ try {
     const { LocalStore } = await import('/src/features/api-chat/local.ts');
     return (await new LocalStore('local-chat-test').list('summary')).length === 1;
   });
-  assert.equal(await page.getByRole('button', { name: '切换工作模式', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '切换工作模式', exact: true }).count(), 1);
   await page.reload();
   await page.locator('.api-chat-row > button:first-child').filter({ hasText: '我想优化' }).click();
   assert.equal(await editor.inputValue(), '手机草稿\n');

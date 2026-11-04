@@ -1,4 +1,6 @@
 import { ConversationMenu } from './features/ConversationMenu';
+import { AgentTray } from './features/AgentTray';
+import { usePageDrafts } from './features/page-drafts';
 import { useToolTabs } from './features/tools/tool-tabs';
 const SettingsContents = deferred<
   React.ComponentProps<typeof import('./features/SettingsContents').SettingsContents>
@@ -59,7 +61,8 @@ import { Sidebar } from './features/Sidebar';
 import { useTaskAttention } from './features/notifications/use-task-attention';
 import './features/notifications/task-attention.css';
 import { messageQuestions, confirmedAnswers } from './features/question-replies';
-import type { WorkMode } from './features/ModeSwitcher';
+import { ModeSwitcher, type WorkMode } from './features/ModeSwitcher';
+import { Select } from './components/Select';
 import { deferred } from './deferred';
 const ApiChat = deferred<
   React.ComponentProps<typeof import('./features/api-chat/ApiChat').ApiChat>
@@ -131,6 +134,7 @@ import {
   Pencil,
   RotateCcw,
   GitFork,
+  SquarePen,
   X,
 } from 'lucide-react';
 import { ReconnectLoop, connectionLabels, connectionError } from './transport/reconnect';
@@ -185,12 +189,12 @@ import {
 
 export function App() {
   useLocale();
-  const [mode] = usePreference<WorkMode>(
+  const [mode, setMode] = usePreference<WorkMode>(
     'agentdeck.web.work-mode',
     'codex',
     (value): value is WorkMode => value === 'codex' || value === 'api',
   );
-  const modeControl = <span className="app-brand">AgentDeck</span>;
+  const modeControl = <ModeSwitcher mode={mode} onChange={setMode} />;
   return mode === 'api' ? (
     <ApiChatGate modeControl={modeControl} />
   ) : (
@@ -261,7 +265,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFailure, setHistoryFailure] = useState('');
   const [historyReady, setHistoryReady] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [drafts, setDrafts] = usePageDrafts(scope);
   const sending = useRef(false);
   const [sendFailure, setSendFailure] = useState<{ key: string; message: string }>();
   const [error, setError] = useState('');
@@ -276,7 +280,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const [connectionFailure, setConnectionFailure] = useState('');
   const [upstreamRetry, setUpstreamRetry] = useState('');
   const [capabilities, setCapabilities] = useState<Capabilities>({});
-  const [sidebarOpen, setSidebarOpen] = useState(() => matchMedia('(min-width:761px)').matches);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const conversationElement = useSidebarMotion(sidebarOpen);
   const [panel, setPanel] = useState('');
   const [manageSession, setManageSession] = useState<Session>();
@@ -286,7 +290,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     [filter, setFilter] = useState('all');
   const [find, setFind] = useState(''),
     [findIndex, setFindIndex] = useState(0);
-  const [theme, setTheme] = useState(() => localStorage.getItem('agentdeck.web.theme') || 'system');
+  const [theme, setTheme] = useState(() => localStorage.getItem('agentdeck.web.theme') || 'dark');
   const [preferences, setPreferences] = useState<Record<string, ComposerPreferences>>({});
   const [modelPreferences, setModelPreferences] = useState<
     Record<string, ComposerModelPreferences>
@@ -1757,6 +1761,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       <Sidebar
         key={JSON.stringify([scope, host?.hostId])}
         brand={modeControl}
+        hosts={hosts.map((item) => ({ ...item, displayName: hostName(item) }))}
+        onHost={(item) => {
+          if (item.hostId !== host?.hostId) void connect(item);
+        }}
         sessions={snapshot.sessions || []}
         unread={attention.unread}
         connected={connected}
@@ -1820,7 +1828,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         style={{ '--file-pane-width': `${filePaneWidth}%` } as React.CSSProperties}
       >
         <section
-          className="conversation"
+          className={`conversation${!session ? ' is-new-conversation' : ''}`}
           onPointerDownCapture={(event) => {
             if (session && (event.target as Element).closest('.timeline, .composer-wrap'))
               attention.read(session);
@@ -1839,10 +1847,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         >
           <header className="topbar">
             <IconButton
-              icon={Menu}
+              icon={session || matchMedia('(max-width:760px)').matches ? ChevronLeft : Menu}
               label={t('打开会话列表')}
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className={sidebarOpen ? 'rail-toggle' : ''}
+              className={`conversation-back${sidebarOpen ? ' rail-toggle' : ''}`}
               badge={Object.keys(attention.unread).length ? t('有未读任务提醒') : undefined}
             />
             <div className="workspace-anchor">
@@ -1861,6 +1869,19 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         t('选择项目')}
                 </span>
                 <ChevronDown size={16} />
+              </button>
+              <button className="conversation-subtitle" onClick={() => openPanel('computers')}>
+                <span>
+                  {chat
+                    ? t('普通聊天')
+                    : projects.find((p) => p.projectId === selectedProject)?.name}
+                </span>
+                {host && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>{hostName(host)}</span>
+                  </>
+                )}
               </button>
               <MotionPresence>
                 {workspaceMenu && (
@@ -1956,8 +1977,15 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             )}
             <IconButton
               icon={Computer}
+              className="header-computers"
               label={t('切换电脑')}
               onClick={() => openPanel('computers')}
+            />
+            <IconButton
+              icon={SquarePen}
+              label={t('新建会话')}
+              className="header-new-conversation"
+              onClick={newChat}
             />
             <div className="menu-anchor">
               <IconButton
@@ -1980,6 +2008,14 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     : undefined
                 }
                 onPanel={openPanel}
+                onTools={
+                  host
+                    ? () => {
+                        setMenu(false);
+                        openTools();
+                      }
+                    : undefined
+                }
                 onChanged={() => refresh(false)}
                 onSelect={chooseSession}
                 onError={setError}
@@ -2315,10 +2351,81 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               )}
             </div>
           </Timeline>
+          {!session && (
+            <div className="new-conversation-context">
+              <div className="new-context-row">
+                <Computer size={20} aria-hidden="true" />
+                {hosts.length ? (
+                  <Select
+                    aria-label={t('切换电脑')}
+                    value={host?.hostId || ''}
+                    onValueChange={(id) => {
+                      const next = hosts.find((item) => item.hostId === id);
+                      if (next && next.hostId !== host?.hostId) void connect(next);
+                    }}
+                  >
+                    {!host && <option value="">{t('选择电脑')}</option>}
+                    {hosts.map((item) => (
+                      <option key={item.hostId} value={item.hostId}>
+                        {hostName(item)}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <button onClick={() => openPanel('computers')}>{t('连接电脑')}</button>
+                )}
+              </div>
+              <div className="new-context-row">
+                <FolderOpen size={20} aria-hidden="true" />
+                <Select
+                  aria-label={t('切换项目')}
+                  value={selectedProject}
+                  disabled={!connected}
+                  onValueChange={(id) => {
+                    setSelectedProject(id);
+                    selectSession(undefined);
+                  }}
+                >
+                  {!selectedProject && <option value="">{t('选择项目')}</option>}
+                  {supports('projectlessChat') && (
+                    <option value={chatProject}>{t('普通聊天')}</option>
+                  )}
+                  {projects.map((item) => (
+                    <option key={item.projectId} value={item.projectId}>
+                      {item.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          )}
           {selectedProject && (
             <Composer
               key={draftKey}
               draft={draft}
+              placeholder={
+                activeTurn
+                  ? t('跟进')
+                  : host
+                    ? t('在 {{p0}} 上工作', { p0: hostName(host) })
+                    : undefined
+              }
+              contextControl={
+                session && host && supports('sessionTokenUsage') ? (
+                  <ComposerStatus
+                    key={`usage-${session}`}
+                    compact
+                    request={request}
+                    sessionId={session}
+                    goalSupported={false}
+                    usageSupported
+                    revision={statusRevision}
+                    observedUsage={observedUsage}
+                    onGoal={() => openPanel('goal')}
+                    enabled={connected}
+                  />
+                ) : undefined
+              }
               planConfirmation={
                 showPlanConfirmation && pendingPlan ? (
                   <PlanConfirmation
@@ -2398,19 +2505,26 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 ) : undefined
               }
               status={
-                session && host ? (
-                  <ComposerStatus
-                    key={session}
-                    request={request}
-                    sessionId={session}
-                    goalSupported={!chat && supports('sessionGoalView')}
-                    usageSupported={supports('sessionTokenUsage')}
-                    revision={statusRevision}
-                    observedUsage={observedUsage}
-                    onGoal={() => openPanel('goal')}
-                    enabled={connected}
+                <>
+                  <AgentTray
+                    entries={renderedHistory}
+                    sessions={snapshot.sessions || []}
+                    onSelect={openAgent}
                   />
-                ) : undefined
+                  {session && host ? (
+                    <ComposerStatus
+                      key={session}
+                      request={request}
+                      sessionId={session}
+                      goalSupported={!chat && supports('sessionGoalView')}
+                      usageSupported={false}
+                      revision={statusRevision}
+                      observedUsage={observedUsage}
+                      onGoal={() => openPanel('goal')}
+                      enabled={connected}
+                    />
+                  ) : undefined}
+                </>
               }
               onChange={updateDraft}
               models={models}

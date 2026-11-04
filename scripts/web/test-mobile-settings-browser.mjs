@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = new URL('../../artifacts/mobile-settings/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const checks = [],
   errors = [];
 try {
@@ -18,7 +21,9 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/api/**', async (route) => {
     const headers = {
-      'access-control-allow-origin': 'http://127.0.0.1:1495',
+      'access-control-allow-origin':
+        route.request().headers().origin ||
+        new URL(process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1495').origin,
       'access-control-allow-credentials': 'true',
       'access-control-allow-methods': 'GET,PUT,OPTIONS',
       'access-control-allow-headers': 'x-csrf-token,content-type',

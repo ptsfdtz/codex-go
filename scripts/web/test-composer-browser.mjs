@@ -151,7 +151,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await page.keyboard.press('End');
     assert.equal(await page.evaluate(() => document.activeElement.textContent), '展开编辑器');
     await page.keyboard.press('Home');
-    assert.equal(await page.evaluate(() => document.activeElement.textContent), '添加文件或图片');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), '相机');
     await page.keyboard.press('Escape');
     assert(await add.evaluate((el) => el === document.activeElement));
     await add.click();
@@ -225,7 +225,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     });
     await page.getByRole('button', { name: '预览图片 pasted.png' }).waitFor();
     await page.getByRole('button', { name: '移除附件 pasted.png' }).click();
-    await page.locator('input[type=file]').setInputFiles({
+    await page.locator('input[type=file]:not([accept])').setInputFiles({
       name: 'oversize.pdf',
       mimeType: 'application/pdf',
       buffer: Buffer.alloc(524289),
@@ -476,6 +476,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
       await page.evaluate(() => ({ model: window.draft.model, effort: window.draft.effort })),
       { model: 'wire-default', effort: 'high' },
     );
+    await page.locator('.model-picker-model-toggle').click();
     await page.getByRole('button', { name: 'Model B', exact: true }).click();
     await slider.fill('1');
     assert.deepEqual(

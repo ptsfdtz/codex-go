@@ -1,7 +1,7 @@
 import { positionPopover, useMenuPopover } from '../components/popover';
 import { t, useLocale } from '../i18n';
 import { useId, useState } from 'react';
-import { Check, ChevronDown, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown, RotateCcw, Gauge } from 'lucide-react';
 import type { Draft, Model } from '../workspace';
 import { resolveComposerModelPreferences } from './composer-preferences';
 import { Collapse } from '../motion';
@@ -39,7 +39,7 @@ export function ModelPicker({
   useLocale();
   const id = useId();
   const popup = useMenuPopover();
-  const [modelExpanded, setModelExpanded] = useState(true);
+  const [modelExpanded, setModelExpanded] = useState(false);
   const model =
     models.find((m) => m.model === draft.model || m.id === draft.model) ||
     (!draft.model ? models.find((m) => m.isDefault) : undefined);
@@ -53,7 +53,7 @@ export function ModelPicker({
     setModelExpanded(false);
   }
   function openPicker(trigger: HTMLButtonElement) {
-    setModelExpanded(true);
+    setModelExpanded(false);
     if (popup.current) positionPopover(trigger, popup.current, { width: 288, preferAbove: true });
   }
   return (
@@ -64,9 +64,10 @@ export function ModelPicker({
         disabled={disabled}
         popoverTarget={id}
         aria-label={t('切换模型')}
-        title={modelLabel(model) === t('Default') && draft.model ? draft.model : modelLabel(model)}
+        title={`${modelLabel(model) === t('Default') && draft.model ? draft.model : modelLabel(model)}${effort ? ` · ${effortLabel(effort)}` : ''}`}
         onClick={(event) => openPicker(event.currentTarget)}
       >
+        <Gauge className="model-gauge" size={24} aria-hidden="true" />
         <span>
           {model ? modelLabel(model) : draft.model || t('默认模型')}
           {effort ? ` · ${effortLabel(effort)}` : ''}
@@ -88,8 +89,8 @@ export function ModelPicker({
             onClick={() => setModelExpanded((value) => !value)}
           >
             <span>
-              {t('模型 · ')}
-              {model ? modelLabel(model) : t('默认')}
+              {model ? modelLabel(model) : t('默认模型')}
+              {effort ? ` ${effortLabel(effort)}` : ''}
             </span>
             <ChevronDown size={14} />
           </button>
@@ -148,7 +149,7 @@ export function ModelPicker({
                 className="effort-fill"
                 aria-hidden="true"
                 style={{
-                  width: `calc(${(index / (efforts.length - 1)) * 100}% + ${14 - (index / (efforts.length - 1)) * 28}px)`,
+                  width: `calc(${(index / (efforts.length - 1)) * 100}% + ${27 - (index / (efforts.length - 1)) * 54}px)`,
                 }}
               >
                 <span className="effort-ultra-glow" />

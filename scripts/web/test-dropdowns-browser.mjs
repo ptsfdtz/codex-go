@@ -5,7 +5,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = new URL('../../artifacts/dropdowns/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const checks = [];
 try {
   const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1100, height: 850 } });
@@ -277,8 +280,8 @@ try {
         bg: getComputedStyle(el).backgroundColor,
         radius: getComputedStyle(el).borderRadius,
       }));
-      assert.equal(colors.radius, '12px');
-      assert.equal(colors.bg, theme === 'dark' ? 'rgb(33, 33, 33)' : 'rgb(255, 255, 255)');
+      assert.equal(colors.radius, '20px');
+      assert.equal(colors.bg, theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
       await page.screenshot({
         path: fileURLToPath(new URL(`branches-${theme}-${width}.png`, out)),
       });
@@ -305,12 +308,14 @@ try {
   for (const [name, popupSelector] of [
     ['切换工作模式', '.mode-menu'],
     ['切换模型', '.model-picker-popup'],
-    ['执行权限：工作区权限', '.permission-popup'],
   ]) {
     await page.getByRole('button', { name, exact: true }).click();
     const popup = page.locator(`${popupSelector}:popover-open`);
     await popup.waitFor();
-    assert.equal(await popup.evaluate((el) => getComputedStyle(el).borderRadius), '12px');
+    assert.equal(
+      await popup.evaluate((el) => getComputedStyle(el).borderRadius),
+      popupSelector === '.model-picker-popup' ? '24px' : '20px',
+    );
     await page.waitForTimeout(180);
     if (popupSelector === '.mode-menu') {
       const anchor = await page.getByRole('button', { name, exact: true }).boundingBox();
@@ -322,11 +327,13 @@ try {
   }
   const modelTrigger = page.getByRole('button', { name: '切换模型', exact: true });
   await modelTrigger.click();
+  await page.locator('.model-picker-model-toggle').click();
   const models = page.getByRole('group', { name: '模型', exact: true });
   await models.getByRole('button', { name: 'Model B', exact: true }).click();
   assert.equal(await modelTrigger.innerText(), 'Model B');
   await page.keyboard.press('Escape');
   await modelTrigger.click();
+  await page.locator('.model-picker-model-toggle').click();
   assert.equal(
     await models.getByRole('button', { name: 'Model B', exact: true }).getAttribute('aria-pressed'),
     'true',
@@ -337,12 +344,10 @@ try {
     'model choices visible on each open; choosing a model updates the controlled draft and selected state',
   );
   // Anchored button menus use one keyboard contract and expose open state.
-  for (const [name, selector] of [
-    ['切换工作模式', '.mode-menu'],
-    ['执行权限：工作区权限', '.permission-popup'],
-  ]) {
+  for (const [name, selector] of [['切换工作模式', '.mode-menu']]) {
     const trigger = page.getByRole('button', { name, exact: true });
     await trigger.focus();
+    await page.waitForTimeout(100);
     await trigger.press('ArrowDown');
     const menu = page.locator(`${selector}:popover-open`);
     await menu.waitFor();
@@ -369,10 +374,7 @@ try {
   // Model/permission pickers also work when their trigger is near the top edge.
   for (const width of [320, 1100]) {
     await page.setViewportSize({ width, height: 480 });
-    for (const [name, selector] of [
-      ['切换模型', '.model-picker-popup'],
-      ['执行权限：工作区权限', '.permission-popup'],
-    ]) {
+    for (const [name, selector] of [['切换模型', '.model-picker-popup']]) {
       const trigger = page.getByRole('button', { name, exact: true });
       await trigger.click();
       await page.waitForTimeout(180);
@@ -383,6 +385,21 @@ try {
       );
       await page.keyboard.press('Escape');
     }
+  }
+  const permissionTrigger = page.getByRole('button', { name: '执行权限：工作区权限', exact: true });
+  for (const width of [320, 1100]) {
+    await page.setViewportSize({ width, height: 480 });
+    await permissionTrigger.click();
+    const sheet = page.getByRole('dialog', { name: '应如何批准 Codex 操作？' });
+    await sheet.waitFor();
+    await page.waitForTimeout(220);
+    const box = await sheet.boundingBox();
+    assert(box.x >= 0 && box.y >= 0 && box.x + box.width <= width + 1 && box.y + box.height <= 481);
+    await page.keyboard.press('Tab');
+    assert(await sheet.evaluate((node) => node.contains(document.activeElement)));
+    await page.keyboard.press('Escape');
+    await sheet.waitFor({ state: 'hidden' });
+    assert(await permissionTrigger.evaluate((node) => node === document.activeElement));
   }
   checks.push(
     'transparent dialog backdrop; menu keyboard focus/open state; short viewport picker bounds',
