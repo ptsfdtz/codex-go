@@ -1,10 +1,13 @@
-/* global window, document, localStorage */
+/* global window, document, localStorage, Event, PointerEvent, MouseEvent */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
-const out = new URL('../../artifacts/reference-design/', import.meta.url);
+const out = new URL(
+  `../../artifacts/${process.env.REFERENCE_ARTIFACT_DIR || 'reference-design'}/`,
+  import.meta.url,
+);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({
   headless: true,
@@ -19,15 +22,42 @@ try {
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 2,
     hasTouch: true,
+    isMobile: true,
     reducedMotion: 'reduce',
   });
   page.setDefaultTimeout(12000);
   activePage = page;
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.addInitScript(() => {
+  await page.addInitScript((nativeSpeech) => {
+    const NativeRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const DeniedRecognition = class {
+      start() {
+        window.deniedRecognition = this;
+        setTimeout(() => {
+          document.activeElement?.blur();
+          this.onerror?.({ error: 'not-allowed' });
+        }, 0);
+      }
+      abort() {
+        this.aborts = (this.aborts || 0) + 1;
+      }
+    };
+    const Recognition = nativeSpeech
+      ? function () {
+          const recognition = new NativeRecognition();
+          const abort = recognition.abort.bind(recognition);
+          recognition.abort = () => {
+            recognition.aborts = (recognition.aborts || 0) + 1;
+            abort();
+          };
+          window.deniedRecognition = recognition;
+          return recognition;
+        }
+      : DeniedRecognition;
+    window.SpeechRecognition = window.webkitSpeechRecognition = Recognition;
     localStorage.setItem('agentdeck.web.theme', 'dark');
     localStorage.setItem('agentdeck.web.work-mode', '"codex"');
-  });
+  }, process.env.REFERENCE_NATIVE_SPEECH === '1');
   let ready = false;
   await page.route(/^https?:\/\/(?!127\.0\.0\.1[:/]|localhost[:/])/, (route) => route.abort());
   await page.route('**/api/**', async (route) => {
@@ -253,7 +283,107 @@ try {
     .getByText('已保留项目授权、执行审批及重连恢复语义。现在可以继续下一步。', { exact: true })
     .waitFor();
   await shot('conversation-390-compact-dark');
+  const addBounds = await main
+    .getByRole('button', { name: '添加附件和操作', exact: true })
+    .boundingBox();
+  await page.touchscreen.tap(addBounds.x + addBounds.width / 2, addBounds.y + addBounds.height / 2);
+  await page.getByRole('menuitem', { name: '相机', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  checks.push('A first touch on the compact composer plus button opens its action menu');
+  await main.getByRole('button', { name: '语音输入', exact: true }).tap();
+  await main
+    .locator('.composer-speech-status')
+    .filter({ hasText: '请允许麦克风权限' })
+    .waitFor({ state: 'attached' });
+  assert.equal(await main.locator('.speech-error').count(), 0);
+  const cancelledPointer = await main.locator('.composer-add').evaluate((node) => {
+    const event = new PointerEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      pointerType: 'touch',
+    });
+    node.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  assert.equal(
+    cancelledPointer,
+    false,
+    'Composer must preserve the native touch sequence after permission denial',
+  );
+  assert.equal(await page.evaluate(() => window.deniedRecognition.aborts || 0), 0);
+  assert.equal(
+    await main.locator('.composer-add').evaluate((node) => {
+      const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      node.dispatchEvent(event);
+      return event.defaultPrevented;
+    }),
+    false,
+  );
+  await main.getByRole('button', { name: '添加附件和操作', exact: true }).tap();
+  await page.getByRole('menuitem', { name: '相机', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(
+    await main
+      .locator('.composer-speech-status')
+      .evaluate((node) => node.getBoundingClientRect().height),
+    1,
+  );
+  checks.push(
+    'Mobile microphone permission errors leave the compact action menu and dismissal usable',
+  );
   await main.getByRole('textbox', { name: '消息', exact: true }).focus();
+  await main.locator('.composer.is-compact').waitFor({ state: 'hidden' });
+  // Safari blurs the editor before its keyboard finishes closing. The app
+  // must stay in the visual viewport until the keyboard resize arrives.
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 480 });
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  await main.getByRole('button', { name: '添加附件和操作', exact: true }).tap();
+  await page.getByRole('menuitem', { name: '相机', exact: true }).waitFor();
+  await page.waitForTimeout(50);
+  assert.equal(await page.locator('html').getAttribute('data-keyboard'), 'open');
+  assert.equal(
+    await page.locator('html').evaluate((node) => node.style.getPropertyValue('--app-height')),
+    '480px',
+  );
+  await page.evaluate(() => {
+    delete window.visualViewport.height;
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  assert.equal(await page.locator('html').getAttribute('data-keyboard'), 'closed');
+  await shot('touch-actions-390-dark');
+  await page.keyboard.press('Escape');
+  checks.push(
+    'Focus transfer keeps the keyboard viewport until its actual resize; touch actions remain usable',
+  );
+  const editorAfterDenial = main.getByRole('textbox', { name: '消息', exact: true });
+  await main.getByRole('button', { name: '语音输入', exact: true }).tap();
+  await main
+    .locator('.composer-speech-status')
+    .filter({ hasText: '请允许麦克风权限' })
+    .waitFor({ state: 'attached' });
+  assert.equal(await main.locator('.speech-error').count(), 0);
+  assert.equal(
+    await main.locator('.composer.is-compact').count(),
+    0,
+    'Permission blur must not move composer actions',
+  );
+  await editorAfterDenial.tap();
+  await page.keyboard.type('取消权限后可继续输入');
+  assert.equal(await editorAfterDenial.inputValue(), '取消权限后可继续输入');
+  await main.getByRole('button', { name: '添加附件和操作', exact: true }).tap();
+  await page.getByRole('menuitem', { name: '相机', exact: true }).waitFor();
+  await shot('permission-denied-actions-390');
+  await page.keyboard.press('Escape');
+  await main.getByRole('button', { name: '切换模型', exact: true }).tap();
+  await page.locator('.model-picker-popup:popover-open').waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await main.locator('.speech-error').count(), 0);
+  await editorAfterDenial.fill('');
+  checks.push(
+    'Asynchronous microphone denial/null-focus preserves native pointer/mouse events, editor typing, add/model menus without visible error rows; no terminal abort',
+  );
   await shot('conversation-390-editing-dark');
   await main.getByRole('button', { name: '执行权限：工作区权限', exact: true }).click();
   const permission = page.getByRole('dialog', { name: '应如何批准 Codex 操作？' });
@@ -322,6 +452,10 @@ try {
   await shot('agents-390-dark');
   await page.keyboard.press('Escape');
   checks.push('Agent tray derives upstream identities and resolves authorized session titles');
+  if (process.env.REFERENCE_MOBILE_STRESS === '1') {
+    const { mobileComposerMatrix } = await import('./mobile-composer-matrix.mjs');
+    checks.push(await mobileComposerMatrix(page, main, out));
+  }
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
     for (const width of [320, 390, 768, 1440]) {
@@ -335,6 +469,29 @@ try {
         }));
         assert.equal(scrollStyle.scrollbar, 'none');
         assert(['auto', 'scroll'].includes(scrollStyle.overflow));
+        const targets = await main.locator('.composer-toolbar button').evaluateAll((nodes) =>
+          nodes
+            .filter((node) => node.getClientRects().length && !node.closest('[popover]'))
+            .map((node) => {
+              const box = node.getBoundingClientRect();
+              const points = [
+                [box.left + 2, box.top + box.height / 2],
+                [box.right - 2, box.top + box.height / 2],
+                [box.left + box.width / 2, box.top + 2],
+                [box.left + box.width / 2, box.bottom - 2],
+              ];
+              return {
+                label: node.getAttribute('aria-label'),
+                width: box.width,
+                height: box.height,
+                hit: points.every(([x, y]) => node.contains(document.elementFromPoint(x, y))),
+              };
+            }),
+        );
+        for (const target of targets) {
+          assert(target.width >= 44 && target.height >= 44, JSON.stringify(target));
+          assert(target.hit, JSON.stringify(target));
+        }
       }
       const toolbar = await main.locator('.composer').boundingBox();
       const send = await main.getByRole('button', { name: '发送', exact: true }).boundingBox();
@@ -350,7 +507,7 @@ try {
   await main.getByRole('combobox', { name: '切换项目', exact: true }).click();
   await page.getByRole('option', { name: 'AgentHub', exact: true }).click();
   assert.equal(
-    await main.getByRole('combobox', { name: '切换项目', exact: true }).innerText(),
+    (await main.getByRole('combobox', { name: '切换项目', exact: true }).innerText()).trim(),
     'AgentHub',
   );
   await shot('new-conversation-390-light');

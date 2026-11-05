@@ -149,12 +149,13 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await menu.waitFor();
     await page.waitForFunction(() => document.activeElement?.closest('[role=menu]'));
     await page.keyboard.press('End');
-    assert.equal(await page.evaluate(() => document.activeElement.textContent), '展开编辑器');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), '更多操作');
     await page.keyboard.press('Home');
     assert.equal(await page.evaluate(() => document.activeElement.textContent), '相机');
     await page.keyboard.press('Escape');
     assert(await add.evaluate((el) => el === document.activeElement));
     await add.click();
+    await menu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
     await menu.getByRole('menuitem', { name: '展开编辑器', exact: true }).click();
     assert((await editor.boundingBox()).height >= 280);
     await page
@@ -242,6 +243,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await page.getByRole('button', { name: '停止', exact: true }).click();
     assert.equal(await page.evaluate(() => window.stops), 1);
     await add.click();
+    await menu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
     await menu.getByRole('menuitem', { name: '立即补充到当前任务' }).click();
     assert.equal(await page.evaluate(() => window.sends.at(-1)), 'steer');
     await page.evaluate(() => {

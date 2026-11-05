@@ -378,6 +378,7 @@ try {
   mode = 'normal';
   // Shared composer UI and responsive settings remain unchanged.
   await page.getByRole('button', { name: '添加附件和操作', exact: true }).click();
+  await page.getByRole('menuitem', { name: '更多操作', exact: true }).click();
   await page.getByRole('menuitem', { name: '展开编辑器', exact: true }).click();
   await screenshot('expanded-editor.png');
   await page.getByRole('button', { name: '收起编辑器', exact: true }).click();

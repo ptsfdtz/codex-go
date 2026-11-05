@@ -324,15 +324,27 @@ try {
   ]) {
     await begin();
     await page.evaluate((code) => window.latestRecognition().onerror?.({ error: code }), code);
-    await main.getByText(new RegExp(expected)).waitFor();
+    await main
+      .locator('.composer-speech-status')
+      .filter({ hasText: expected })
+      .waitFor({ state: 'attached' });
+    assert.equal(await main.locator('.speech-error').count(), 0);
+    assert.equal(
+      await page.evaluate(() => window.latestRecognition().aborts || 0),
+      0,
+      'A terminal recognition error must not reenter native recognition with abort()',
+    );
     assert.equal(await input.inputValue(), '');
   }
   await page.evaluate(() => {
     window.throwOnStart = true;
   });
   await begin();
-  await main.getByText(/语音启动失败/).waitFor();
-  await main.getByRole('button', { name: '关闭语音提示' }).click();
+  await main
+    .locator('.composer-speech-status')
+    .filter({ hasText: '语音启动失败' })
+    .waitFor({ state: 'attached' });
+  assert.equal(await main.locator('.speech-error').count(), 0);
   checks.push('concise permission, network, capture and startup errors preserve drafts');
 
   await page.evaluate(() => {
@@ -341,7 +353,10 @@ try {
     window.renderSpeech();
   });
   await begin();
-  await main.getByText(/当前浏览器不支持语音输入/).waitFor();
+  await main
+    .locator('.composer-speech-status')
+    .filter({ hasText: '当前浏览器不支持语音输入' })
+    .waitFor({ state: 'attached' });
   await page.evaluate(() => {
     window.webkitSpeechRecognition = window.testRecognition;
     window.apiMode = true;
@@ -422,6 +437,7 @@ try {
     const queueStyle = await actionStyle(queue);
     assert.deepEqual(queueStyle, reference);
     await main.getByRole('button', { name: '添加附件和操作', exact: true }).click();
+    await main.getByRole('menuitem', { name: '更多操作', exact: true }).click();
     await main.getByRole('menuitem', { name: '展开编辑器', exact: true }).click();
     const collapse = main.getByRole('button', { name: '收起编辑器', exact: true });
     await collapse.waitFor();

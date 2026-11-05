@@ -3219,22 +3219,6 @@ small,
   fill: currentColor;
   stroke-width: 0;
 }
-.speech-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.speech-error > span {
-  flex: 1;
-}
-.speech-error > .icon-button {
-  width: 24px;
-  height: 24px;
-}
-.speech-error > .icon-button > svg {
-  width: 14px;
-  height: 14px;
-}
 .message-image {
   display: block;
   margin: 12px 0;

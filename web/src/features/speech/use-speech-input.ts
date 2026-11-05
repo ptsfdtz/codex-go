@@ -87,7 +87,7 @@ export function useSpeechInput({
       document.visibilityState === 'visible'
     );
   }
-  function release(session: Session, update = true) {
+  function release(session: Session, { update = true, abort = true } = {}) {
     if (current.current !== session) return;
     current.current = undefined;
     if (cancelCurrent === session.cancel) cancelCurrent = undefined;
@@ -99,10 +99,12 @@ export function useSpeechInput({
     recognition.onresult = null;
     recognition.onerror = null;
     recognition.onend = null;
-    try {
-      recognition.abort();
-    } catch {
-      /* Some engines throw after ending. */
+    if (abort) {
+      try {
+        recognition.abort();
+      } catch {
+        /* Some engines throw after ending. */
+      }
     }
     if (update) {
       setPhase('idle');
@@ -199,13 +201,16 @@ export function useSpeechInput({
     };
     recognition.onerror = (event) => {
       if (!allowed()) return;
-      release(session);
+      // Permission rejection and other terminal errors already stop native
+      // recognition. Only detach our session; don't reenter the native service
+      // with abort() while its permission UI is being dismissed.
+      release(session, { abort: false });
       if (event.error !== 'aborted' && event.error !== 'no-speech')
         setMessage(errors[event.error] || t('语音识别失败，请重试'));
     };
     recognition.onend = () => {
       if (current.current !== session) return;
-      release(session);
+      release(session, { abort: false });
     };
     const hidden = () => {
       if (!visible()) session.cancel();
@@ -241,7 +246,7 @@ export function useSpeechInput({
     try {
       recognition.start();
     } catch {
-      release(session);
+      release(session, { abort: false });
       setMessage(t('语音启动失败，请重试'));
     }
   }
@@ -254,7 +259,7 @@ export function useSpeechInput({
   useLayoutEffect(
     () => () => {
       const session = current.current;
-      if (session) release(session, false);
+      if (session) release(session, { update: false });
     },
     [],
   );
@@ -265,6 +270,5 @@ export function useSpeechInput({
     start,
     stop,
     cancel,
-    dismiss: () => setMessage(''),
   };
 }

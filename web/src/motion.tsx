@@ -438,7 +438,12 @@ export function useExpansionMotion(expanded: boolean) {
     });
     observer.observe(node);
     let animation: Animation | undefined;
-    if (before && before.expanded !== expanded && motionDuration(280) > 100) {
+    if (
+      before &&
+      before.expanded !== expanded &&
+      !matchMedia('(max-width: 760px)').matches &&
+      motionDuration(280) > 100
+    ) {
       animation = node.animate([{ height: `${before.height}px` }, { height: `${height}px` }], {
         duration: 280,
         easing: 'cubic-bezier(0.32, 0.72, 0, 1)',

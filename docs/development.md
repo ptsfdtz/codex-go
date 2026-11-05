@@ -93,6 +93,8 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 参考设计检查挂载真实 App 并替换传输，覆盖整页列表/会话/新建、长按与滚动取消、权限底部弹层、相机/照片/文件菜单、上下文摘要、智能体入口、模型强度、深浅主题与 Codex↔AgentChat 草稿保留。原图在 `docs/ui-references/2026-11-03/`。各浏览器脚本可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有 Chromium；Windows 的 `PLAYWRIGHT_MODULE` 使用 `file:///C:/.../playwright/index.mjs`。这些检查不代替 Safari、真实手机输入法、相机和 PWA 实机验收。
 
+手机输入区矩阵在同一脚本中启用：PowerShell 设置 `$env:REFERENCE_MOBILE_STRESS='1'` 后运行 `pnpm test:reference-design-browser`。每引擎覆盖 320/360/375/390/414/430px、844/480/320px 高度与深浅主题，共 36 个组合；逐项检查紧凑单行、编辑、两次异步麦克风拒绝、计划标签、权限/模型弹层、运行中队列及停止、展开与多行输入，并额外模拟键盘平移。使用正常动效，核对控件边缘命中、至少 44px 触控范围、菜单可视边界和错误不改变输入框高度。`REFERENCE_ARTIFACT_DIR` 可指定 `artifacts/` 下的独立输出目录，保存 `mobile-matrix.json`；跨引擎并行时必须使用不同目录。`REFERENCE_NATIVE_SPEECH=1` 额外使用隔离 Chromium 的原生语音 API 验证拒绝路径，不修改用户浏览器权限或连接真实 Host，不能代替 iPhone 原生权限弹窗实测。
+
 回执恢复回归复用上述 Playwright 与本地 Vite，在隔离 App 中使用真实 Bridge、Web Locks 和虚拟时钟，替换 HostSocket 并拦截账户/Host 外部请求；核对查询反馈、pending/unknown/notFound/拒绝/查询失败、显式人工确认、草稿保留、迟到响应、慢历史与发送并发、失活连接及真实双标签锁竞争。不会连接生产 Host 或调用模型。结果和 320/390/1100px 深浅主题截图在 `artifacts/recovery/`。Host 回执持久化与防重定向测试：`cargo test --locked --manifest-path desktop/core/Cargo.toml --lib request_outcome_tests`。
 
 语音输入回归复用上述 Playwright 环境，先启动指定端口的本地 Vite（如 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1498 --strictPort`）。脚本挂载真实 Composer，以浏览器识别接口替身检查实时写入与修正、选区插入、累积结果去重、手动发送、跨输入框独占、切换/隐藏/退出清理、简短错误和超时保留文字，以及右下角按钮统一样式与窄屏深浅主题；拦截外部/API 请求，不请求真实麦克风或识别服务。可用 `COMPOSER_TEST_FONT` 指定中文字体，结果及截图输出到 `artifacts/speech-input/`；受控通过不能替代真实语音识别、浏览器供应商网络和手机/PWA 验收。

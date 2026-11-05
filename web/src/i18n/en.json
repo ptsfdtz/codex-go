@@ -1148,5 +1148,7 @@
   "智能体": "Agents",
   "尚未同步的智能体": "Agent not synced yet",
   "已运行 {{p0}} 条命令": "Ran {{p0}} commands",
-  "已修改 {{p0}} 个文件": "Modified {{p0}} files"
+  "已修改 {{p0}} 个文件": "Modified {{p0}} files",
+  "方案模式": "Plan mode",
+  "追求目标": "Pursue a goal"
 }
