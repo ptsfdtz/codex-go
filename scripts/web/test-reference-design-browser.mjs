@@ -130,6 +130,7 @@ try {
     ];
     Bridge.prototype.connect = async function () {
       this.hostId = 'reference-host';
+      window.referenceBridge = this;
     };
     Bridge.prototype.probe = async () => undefined;
     Bridge.prototype.reconcile = async () => undefined;
@@ -335,6 +336,31 @@ try {
   );
   await shot('new-conversation-390-light');
   checks.push('New conversation context project selector changes actual project state');
+  await main.getByRole('textbox', { name: '消息', exact: true }).fill('重连保留的新对话草稿');
+  const snapshotReads = await page.evaluate(
+    () => window.calls.filter((call) => call.action === 'snapshot.get').length,
+  );
+  await page.evaluate(() => {
+    // Another tab can persist an old session while this tab is composing a new one.
+    localStorage.setItem('agentdeck.web.selection.reference-test:browser.reference-host', 'main');
+    window.referenceBridge.close();
+  });
+  await page.waitForFunction(
+    (before) => window.calls.filter((call) => call.action === 'snapshot.get').length > before,
+    snapshotReads,
+  );
+  await main.getByRole('textbox', { name: '消息', exact: true }).waitFor();
+  assert.equal(
+    await main.getByRole('textbox', { name: '消息', exact: true }).inputValue(),
+    '重连保留的新对话草稿',
+  );
+  assert.equal(
+    (await main.getByRole('combobox', { name: '切换项目', exact: true }).innerText()).trim(),
+    'AgentHub',
+  );
+  checks.push(
+    'Reconnect preserves the new conversation, project and unsent text despite another tab selecting an old session',
+  );
   await page.setViewportSize({ width: 390, height: 480 });
   await main.getByRole('textbox', { name: '消息', exact: true }).focus();
   const keyboardComposer = await main.locator('.composer').boundingBox();

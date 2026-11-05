@@ -432,6 +432,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     current?.archived !== 1;
   const bridge = useRef<Bridge | undefined>(undefined);
   const sessionRef = useRef<string | undefined>(undefined);
+  const draftProjectRef = useRef<string | undefined>(undefined);
+  if (!session && draftProjectRef.current !== undefined) draftProjectRef.current = selectedProject;
   const refreshTimer = useRef<number | undefined>(undefined);
   const historyResourceCache = useRef(new Map<string, HistoryEntry>());
   const timeline = useRef<Timeline>(null);
@@ -449,6 +451,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
 
   function selectSession(id?: string, persist = true) {
     if (id && id === sessionRef.current) return;
+    draftProjectRef.current = !id && persist ? selectedProject : undefined;
     historyVersion.current++;
     activityVersion.current++;
     uncertainBaseline.current.clear();
@@ -471,9 +474,17 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     if (persist && hostRef.current)
       localStorage.setItem(
         `agentdeck.web.selection.${scope}.${hostRef.current.hostId}`,
-        id || (chat ? 'new:chat' : ''),
+        id || `new:${selectedProject}`,
       );
   }
+
+  useEffect(() => {
+    if (host && !session && draftProjectRef.current !== undefined)
+      localStorage.setItem(
+        `agentdeck.web.selection.${scope}.${host.hostId}`,
+        `new:${selectedProject}`,
+      );
+  }, [host, session, selectedProject, scope]);
 
   function historyPage(connection: Bridge, sessionId: string, cursor?: string) {
     return readHistoryPage(connection, sessionId, cursor, historyResourceCache.current);
@@ -1161,17 +1172,22 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           setReceiptBlocked(value.awaitingReceipt);
           const saved =
             sessionRef.current ||
-            localStorage.getItem('agentdeck.web.selection.' + scope + '.' + next.hostId);
+            (draftProjectRef.current !== undefined
+              ? `new:${draftProjectRef.current}`
+              : localStorage.getItem('agentdeck.web.selection.' + scope + '.' + next.hostId));
+          const savedProject = saved?.startsWith('new:') ? saved.slice(4) : undefined;
           const chosen =
             snap.sessions?.find((s) => s.sessionId === saved) ||
             (!saved ? snap.sessions?.find((s) => s.archived !== 1) : undefined);
-          setSelectedProject(
+          const restoredProject =
             chosen?.projectId ||
-              (configuration.caps.features?.projectlessChat
-                ? chatProject
-                : snap.projects?.[0]?.projectId) ||
-              '',
-          );
+            snap.projects?.find((project) => project.projectId === savedProject)?.projectId ||
+            (configuration.caps.features?.projectlessChat
+              ? chatProject
+              : snap.projects?.[0]?.projectId) ||
+            '';
+          setSelectedProject(restoredProject);
+          if (!chosen && saved?.startsWith('new:')) draftProjectRef.current = restoredProject;
           if (chosen?.sessionId !== sessionRef.current) selectSession(chosen?.sessionId);
 
           let replay: Packet[] = [];
