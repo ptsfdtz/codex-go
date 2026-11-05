@@ -5,7 +5,11 @@ import { usePopoverMotion } from '../motion';
 export function positionPopover(
   trigger: HTMLElement,
   popup: HTMLElement,
-  { width, preferAbove = false }: { width: number; preferAbove?: boolean },
+  {
+    width,
+    preferAbove = false,
+    align = 'start',
+  }: { width: number; preferAbove?: boolean; align?: 'start' | 'center' },
 ) {
   const box = trigger.getBoundingClientRect();
   const viewport = window.visualViewport;
@@ -17,8 +21,9 @@ export function positionPopover(
   const below = Math.max(0, top + viewHeight - box.bottom - 18);
   const above = Math.max(0, box.top - top - 18);
   const up = preferAbove ? above >= 240 || above > below : below < 240 && above > below;
+  const panelLeft = align === 'center' ? left + (viewWidth - panelWidth) / 2 : box.left;
   popup.style.width = `${panelWidth}px`;
-  popup.style.left = `${Math.max(left + 12, Math.min(box.left, left + viewWidth - panelWidth - 12))}px`;
+  popup.style.left = `${Math.max(left + 12, Math.min(panelLeft, left + viewWidth - panelWidth - 12))}px`;
   popup.style.top = up ? 'auto' : `${box.bottom + 6}px`;
   popup.style.bottom = up ? `${window.innerHeight - box.top + 6}px` : 'auto';
   popup.style.maxHeight = `${up ? above : below}px`;

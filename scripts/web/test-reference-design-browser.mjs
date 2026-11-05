@@ -269,9 +269,20 @@ try {
   await main.getByRole('button', { name: '切换模型', exact: true }).click();
   const model = page.locator('.model-picker-popup:popover-open');
   await model.waitFor();
+  const modelBounds = await model.boundingBox();
+  assert(Math.abs(modelBounds.x + modelBounds.width / 2 - 195) <= 1);
+  const rail = await model.locator('.effort-slider').boundingBox();
+  const range = model.getByRole('slider');
+  const rangeBounds = await range.boundingBox();
+  assert(Math.abs(rangeBounds.height - rail.height) <= 1, 'Entire visible rail accepts input');
+  await page.mouse.click(rail.x + rail.width - 12, rail.y + rail.height - 8);
+  assert.equal(await range.inputValue(), await range.getAttribute('max'));
+  await page.mouse.click(rail.x + 12, rail.y + rail.height - 8);
+  assert.equal(await range.inputValue(), '0');
   await model.getByRole('slider').focus();
   await page.keyboard.press('ArrowRight');
   await shot('model-390-dark');
+  checks.push('Mobile model overlay is centered; lower-half taps reach both slider endpoints');
   await page.keyboard.press('Escape');
   await main.getByRole('button', { name: '添加附件和操作', exact: true }).click();
   await page.getByRole('menuitem', { name: '相机', exact: true }).waitFor();
@@ -317,6 +328,14 @@ try {
       await page.setViewportSize({ width, height: 844 });
       await page.waitForTimeout(150);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+      if (width <= 760) {
+        const scrollStyle = await main.locator('.timeline').evaluate((node) => ({
+          scrollbar: window.getComputedStyle(node).scrollbarWidth,
+          overflow: window.getComputedStyle(node).overflowY,
+        }));
+        assert.equal(scrollStyle.scrollbar, 'none');
+        assert(['auto', 'scroll'].includes(scrollStyle.overflow));
+      }
       const toolbar = await main.locator('.composer').boundingBox();
       const send = await main.getByRole('button', { name: '发送', exact: true }).boundingBox();
       assert(send.x + send.width <= toolbar.x + toolbar.width + 1, 'Composer controls must fit');

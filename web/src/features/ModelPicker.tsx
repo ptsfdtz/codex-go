@@ -18,10 +18,9 @@ const effortLabel = (value: string) =>
     ultra: t('Ultra'),
   })[value] || value;
 const modelLabel = (model?: Model) =>
-  (model?.displayName || model?.name || model?.id || model?.model || t('Default')).replace(
-    /^GPT-/i,
-    '',
-  );
+  (model?.displayName || model?.name || model?.id || model?.model || t('Default'))
+    .replace(/^GPT-/i, '')
+    .replace(/(\d)-(?=[A-Za-z])/g, '$1 ');
 
 export function ModelPicker({
   draft,
@@ -54,7 +53,13 @@ export function ModelPicker({
   }
   function openPicker(trigger: HTMLButtonElement) {
     setModelExpanded(false);
-    if (popup.current) positionPopover(trigger, popup.current, { width: 288, preferAbove: true });
+    const mobile = matchMedia('(max-width: 760px)').matches;
+    if (popup.current)
+      positionPopover(trigger, popup.current, {
+        width: mobile ? 320 : 288,
+        preferAbove: true,
+        align: mobile ? 'center' : 'start',
+      });
   }
   return (
     <div className="composer-model">
@@ -124,6 +129,15 @@ export function ModelPicker({
                   </button>
                 ) : null;
               })}
+              <button
+                type="button"
+                className="model-picker-option model-picker-mobile-reset"
+                disabled={disabled || !draft.effort}
+                onClick={() => onChange({ effort: '' })}
+              >
+                <span>{t('重置思维强度')}</span>
+                <RotateCcw size={17} />
+              </button>
             </div>
           </Collapse>
 
@@ -149,7 +163,7 @@ export function ModelPicker({
                 className="effort-fill"
                 aria-hidden="true"
                 style={{
-                  width: `calc(${(index / (efforts.length - 1)) * 100}% + ${27 - (index / (efforts.length - 1)) * 54}px)`,
+                  width: `calc(${(index / (efforts.length - 1)) * 100}% + var(--effort-inset) * ${1 - (index / (efforts.length - 1)) * 2} + var(--effort-thumb-size) / 2 + 4px - var(--effort-padding))`,
                 }}
               >
                 <span className="effort-ultra-glow" />

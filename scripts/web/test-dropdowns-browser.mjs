@@ -281,7 +281,9 @@ try {
         radius: getComputedStyle(el).borderRadius,
       }));
       assert.equal(colors.radius, '20px');
-      assert.equal(colors.bg, theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)');
+      const mobileBackground = theme === 'dark' ? 'rgb(34, 34, 34)' : 'rgb(244, 244, 244)';
+      const desktopBackground = theme === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)';
+      assert.equal(colors.bg, width <= 760 ? mobileBackground : desktopBackground);
       await page.screenshot({
         path: fileURLToPath(new URL(`branches-${theme}-${width}.png`, out)),
       });
