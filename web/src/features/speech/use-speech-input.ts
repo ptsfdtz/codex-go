@@ -26,10 +26,9 @@ type Phase = 'idle' | 'starting' | 'listening' | 'stopping';
 type Session = {
   recognition: Recognition;
   expected: string;
-  start: number;
-  end: number;
-  committed: Set<number>;
-  received: boolean;
+  before: string;
+  after: string;
+  committed: Map<number, string>;
   deadline?: ReturnType<typeof setTimeout>;
   finishing?: ReturnType<typeof setTimeout>;
   disconnect: () => void;
@@ -38,27 +37,21 @@ type Session = {
 
 // One microphone per page, including main chat, side chat and AgentChat.
 let cancelCurrent: (() => void) | undefined;
-const description = () => t('使用浏览器语音服务，可能需要联网；识别文字加入草稿，核对后手动发送。');
 const errors: Record<string, string> = {
   get 'not-allowed'() {
-    return t(
-      '麦克风或语音识别权限未获允许，请在浏览器的网站设置中检查权限。也可使用系统键盘听写。',
-    );
+    return t('请允许麦克风权限');
   },
   get 'service-not-allowed'() {
-    return t('浏览器未允许语音识别服务，请使用系统键盘听写或更换支持语音识别的浏览器。');
+    return t('语音服务不可用');
   },
   get 'audio-capture'() {
-    return t('无法使用麦克风，请检查设备是否可用、是否被其他应用占用。');
+    return t('麦克风不可用');
   },
   get network() {
-    return t('语音识别服务连接失败，请检查网络，或使用系统键盘听写。');
-  },
-  get 'no-speech'() {
-    return t('未识别到语音，请靠近麦克风后重试。');
+    return t('语音连接失败，请重试');
   },
   get 'language-not-supported'() {
-    return t('浏览器的语音服务暂不支持普通话，请使用系统键盘听写。');
+    return t('语音服务不支持当前语言');
   },
 };
 
@@ -74,7 +67,6 @@ export function useSpeechInput({
   onText: (text: string) => void;
 }) {
   const [phase, setPhase] = useState<Phase>('idle');
-  const [interim, setInterim] = useState('');
   const [message, setMessage] = useState('');
   const current = useRef<Session>(undefined);
   const latest = useRef({ value, disabled, onText });
@@ -82,9 +74,9 @@ export function useSpeechInput({
   const Constructor =
     (window as SpeechWindow).SpeechRecognition || (window as SpeechWindow).webkitSpeechRecognition;
   const unavailable = !window.isSecureContext
-    ? t('语音输入需要 HTTPS 或本机开发页面。也可使用系统键盘听写。')
+    ? t('语音输入需要 HTTPS')
     : !Constructor
-      ? t('当前浏览器未提供网页语音识别，请使用系统键盘的麦克风听写，或更换支持语音识别的浏览器。')
+      ? t('当前浏览器不支持语音输入')
       : '';
   function visible() {
     const node = input.current;
@@ -95,7 +87,7 @@ export function useSpeechInput({
       document.visibilityState === 'visible'
     );
   }
-  function release(session: Session, update = true) {
+  function release(session: Session, { update = true, abort = true } = {}) {
     if (current.current !== session) return;
     current.current = undefined;
     if (cancelCurrent === session.cancel) cancelCurrent = undefined;
@@ -107,14 +99,15 @@ export function useSpeechInput({
     recognition.onresult = null;
     recognition.onerror = null;
     recognition.onend = null;
-    try {
-      recognition.abort();
-    } catch {
-      /* Some engines throw after ending. */
+    if (abort) {
+      try {
+        recognition.abort();
+      } catch {
+        /* Some engines throw after ending. */
+      }
     }
     if (update) {
       setPhase('idle');
-      setInterim('');
     }
   }
   function cancel() {
@@ -130,14 +123,12 @@ export function useSpeechInput({
     session.finishing = setTimeout(() => {
       if (current.current === session) {
         release(session);
-        setMessage(t('语音识别已结束，未确认的片段已舍弃；请核对草稿。'));
       }
     }, 5000);
     try {
       session.recognition.stop();
     } catch {
       release(session);
-      setMessage(t('语音输入已停止，请核对草稿。'));
     }
   }
   function start() {
@@ -148,12 +139,11 @@ export function useSpeechInput({
     }
     cancelCurrent?.();
     setMessage('');
-    setInterim('');
     let recognition: Recognition;
     try {
       recognition = new Constructor();
     } catch {
-      setMessage(t('浏览器无法启动语音识别，请使用系统键盘听写。'));
+      setMessage(t('语音启动失败，请重试'));
       return;
     }
     const node = input.current!;
@@ -161,10 +151,9 @@ export function useSpeechInput({
     const session: Session = {
       recognition,
       expected: text,
-      start: node.selectionStart ?? text.length,
-      end: node.selectionEnd ?? text.length,
-      committed: new Set(),
-      received: false,
+      before: text.slice(0, node.selectionStart ?? text.length),
+      after: text.slice(node.selectionEnd ?? text.length),
+      committed: new Map(),
       disconnect: () => undefined,
       cancel: () => undefined,
     };
@@ -188,46 +177,40 @@ export function useSpeechInput({
     };
     recognition.onresult = (event) => {
       if (!allowed()) return;
-      let preview = '';
-      let text = session.expected;
+      let dictated = '';
       for (let index = 0; index < event.results.length; index++) {
         const result = event.results[index];
         const transcript = result?.[0]?.transcript || '';
-        if (!result?.isFinal) {
-          preview += transcript;
-          continue;
-        }
-        if (session.committed.has(index)) continue;
-        session.committed.add(index);
-        if (!transcript) continue;
-        text = text.slice(0, session.start) + transcript + text.slice(session.end);
-        session.start += transcript.length;
-        session.end = session.start;
-        session.received = true;
+        if (result?.isFinal && !session.committed.has(index))
+          session.committed.set(index, transcript);
+        dictated += session.committed.get(index) ?? transcript;
       }
+      // Replace this recording's insertion range on every revision, including
+      // interim text. Cumulative browser results must never duplicate words.
+      const text = session.before + dictated + session.after;
+      const caret = session.before.length + dictated.length;
       if (text !== session.expected) {
         session.expected = text;
         // Bypass slash commands: dictated words are always an editable draft.
         latest.current.onText(text);
         requestAnimationFrame(() => {
           if (current.current === session && input.current?.value === text)
-            input.current.setSelectionRange(session.start, session.start);
+            input.current.setSelectionRange(caret, caret);
         });
       }
-      setInterim(preview.slice(0, 12000));
     };
     recognition.onerror = (event) => {
       if (!allowed()) return;
-      release(session);
-      if (event.error !== 'aborted')
-        setMessage(
-          errors[event.error] || t('语音识别未完成，请核对草稿后重试或使用系统键盘听写。'),
-        );
+      // Permission rejection and other terminal errors already stop native
+      // recognition. Only detach our session; don't reenter the native service
+      // with abort() while its permission UI is being dismissed.
+      release(session, { abort: false });
+      if (event.error !== 'aborted' && event.error !== 'no-speech')
+        setMessage(errors[event.error] || t('语音识别失败，请重试'));
     };
     recognition.onend = () => {
       if (current.current !== session) return;
-      release(session);
-      if (!session.received) setMessage(t('未得到确认的识别文字，请重试或使用系统键盘听写。'));
+      release(session, { abort: false });
     };
     const hidden = () => {
       if (!visible()) session.cancel();
@@ -263,8 +246,8 @@ export function useSpeechInput({
     try {
       recognition.start();
     } catch {
-      release(session);
-      setMessage(t('语音识别启动失败，请检查麦克风权限或使用系统键盘听写。'));
+      release(session, { abort: false });
+      setMessage(t('语音启动失败，请重试'));
     }
   }
   // Typing, another draft edit, disconnect or a send state invalidates the
@@ -276,20 +259,16 @@ export function useSpeechInput({
   useLayoutEffect(
     () => () => {
       const session = current.current;
-      if (session) release(session, false);
+      if (session) release(session, { update: false });
     },
     [],
   );
   return {
     phase,
     active: phase !== 'idle',
-    interim,
     message,
-    description: description(),
-    unavailable,
     start,
     stop,
     cancel,
-    dismiss: () => setMessage(''),
   };
 }

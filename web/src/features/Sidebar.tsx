@@ -23,6 +23,7 @@ import {
   MoreHorizontal,
   Pin,
   PinOff,
+  Plus,
   RefreshCw,
   Search,
   Settings,
@@ -35,11 +36,15 @@ import { Collapse, MotionList } from '../motion';
 import type { Host, Project, Session } from '../workspace';
 import { canManage, isSessionWorking } from '../workspace';
 import './Sidebar.css';
+import { SidebarResizer } from './SidebarResizer';
+import { HostStrip } from './HostStrip';
 import { attentionLabels, type AttentionKind } from './notifications/task-attention';
 
 type SessionAction = 'pin' | 'archive' | 'restore';
 export function Sidebar({
   brand,
+  hosts = [],
+  onHost,
   sessions,
   projects,
   host,
@@ -65,6 +70,8 @@ export function Sidebar({
   unread = {},
 }: {
   brand?: ReactNode;
+  hosts?: Host[];
+  onHost?: (host: Host) => void;
   sessions: Session[];
   projects: Project[];
   host?: Host;
@@ -108,6 +115,15 @@ export function Sidebar({
   const [pending, setPending] = useState('');
   const pendingRef = useRef(false);
   const [error, setError] = useState('');
+  const touch = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | undefined>(
+    undefined,
+  );
+  const suppressSelection = useRef('');
+  function cancelTouch() {
+    if (touch.current) clearTimeout(touch.current.timer);
+    touch.current = undefined;
+  }
+  useEffect(() => cancelTouch, []);
   const toggle = (update: typeof setClosedProjects, id: string) =>
     update((previous) => {
       const next = new Set(previous);
@@ -234,6 +250,30 @@ export function Sidebar({
       className={`session-row desktop-session-row ${s.sessionId === sessionId ? 'selected' : ''} ${menuOpen && menuTrigger.current?.id === `${menuId}-${area}-${s.sessionId}` ? 'has-open-menu' : ''}`}
       data-session-id={s.sessionId}
       key={s.sessionId}
+      onPointerDown={(event) => {
+        cancelTouch();
+        suppressSelection.current = '';
+        if (event.pointerType !== 'touch' || !(event.target as Element).closest('.session')) return;
+        const target = event.currentTarget.querySelector<HTMLButtonElement>('.session');
+        if (!target) return;
+        touch.current = {
+          x: event.clientX,
+          y: event.clientY,
+          timer: setTimeout(() => {
+            suppressSelection.current = s.sessionId;
+            showMenu(s, target);
+          }, 500),
+        };
+      }}
+      onPointerMove={(event) => {
+        if (
+          touch.current &&
+          Math.hypot(event.clientX - touch.current.x, event.clientY - touch.current.y) > 8
+        )
+          cancelTouch();
+      }}
+      onPointerUp={cancelTouch}
+      onPointerCancel={cancelTouch}
       onContextMenu={(event) => contextMenu(event, s)}
       onKeyDown={(event) => {
         if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
@@ -244,7 +284,13 @@ export function Sidebar({
     >
       <button
         className="session"
-        onClick={() => onSelect(s)}
+        onClick={() => {
+          if (suppressSelection.current === s.sessionId) {
+            suppressSelection.current = '';
+            return;
+          }
+          onSelect(s);
+        }}
         title={s.title || t('未命名会话')}
         aria-current={s.sessionId === sessionId ? 'page' : undefined}
         aria-description={
@@ -287,6 +333,7 @@ export function Sidebar({
         </button>
         <IconButton
           icon={SquarePen}
+          className="sidebar-edit"
           label={t('编辑会话 {{p0}}', { p0: s.title || t('未命名会话') })}
           onClick={() => onManage(s)}
         />
@@ -305,7 +352,14 @@ export function Sidebar({
         inert={!open}
         aria-hidden={!open}
       >
+        <SidebarResizer open={open} onClose={onClose} />
         <div className="sidebar-brand">
+          <IconButton
+            icon={Menu}
+            label={t('设置')}
+            onClick={onSettings}
+            className="sidebar-mobile-settings"
+          />
           {brand || <strong>AgentDeck</strong>}
           <IconButton
             icon={Menu}
@@ -313,7 +367,21 @@ export function Sidebar({
             onClick={onClose}
             badge={Object.keys(unread).length ? t('有未读任务提醒') : undefined}
           />
+          <IconButton
+            icon={Search}
+            label={t('搜索会话')}
+            onClick={onSearch}
+            className="sidebar-mobile-search"
+          />
         </div>
+        {onHost && (
+          <HostStrip
+            hosts={hosts}
+            selected={host?.hostId}
+            onSelect={onHost}
+            onManage={onComputers}
+          />
+        )}
         <div className="sidebar-primary">
           <button onClick={onNew}>
             <SquarePen size={16} />
@@ -451,6 +519,10 @@ export function Sidebar({
             </div>
             <Collapse open={filters}>
               <div className="rail-filters">
+                <button type="button" className="sidebar-mobile-refresh" onClick={onRefresh}>
+                  <RefreshCw size={15} />
+                  {t('同步电脑已有对话')}
+                </button>
                 <Select
                   aria-label={t('会话筛选')}
                   value={filter}
@@ -504,6 +576,11 @@ export function Sidebar({
           </button>
           <IconButton icon={Settings} label={t('设置')} onClick={onSettings} />
         </div>
+        <button className="sidebar-quick-compose" onClick={onNew}>
+          <Plus size={24} aria-hidden="true" />
+          <span>{t('向 Codex 提问或描述任务…')}</span>
+          <SquarePen size={23} aria-hidden="true" />
+        </button>
         <div
           id={menuId}
           ref={menu}

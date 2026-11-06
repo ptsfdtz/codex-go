@@ -22,6 +22,7 @@
     "host:dev": "node scripts/host/dev.mjs",
     "host:package": "node scripts/host/package.mjs",
     "test:composer-browser": "node scripts/web/test-composer-browser.mjs",
+    "test:reference-design-browser": "node scripts/web/test-reference-design-browser.mjs",
     "test:recovery-browser": "node scripts/web/test-recovery-browser.mjs",
     "test:speech-input-browser": "node scripts/web/test-speech-input-browser.mjs",
     "test:message-images-browser": "node scripts/web/test-message-images-browser.mjs",
@@ -33,6 +34,9 @@
     "test:selection-quote-browser": "node scripts/web/test-selection-quote-browser.mjs",
     "test:file-references-browser": "node scripts/web/test-file-references-browser.mjs",
     "test:motion-browser": "node scripts/web/test-motion-browser.mjs",
+    "test:sidebar-motion-browser": "node scripts/web/test-sidebar-motion-browser.mjs",
+    "test:sidebar-resize-browser": "node scripts/web/test-sidebar-resize-browser.mjs",
+    "test:project-overview-browser": "node scripts/web/test-project-overview-browser.mjs",
     "test:performance-browser": "node scripts/web/test-performance-browser.mjs",
     "test:ui-browser": "node scripts/web/test-ui-browser.mjs",
     "test:project-settings-browser": "node scripts/web/test-project-settings-browser.mjs",
@@ -41,7 +45,8 @@
     "test:pwa-accessibility-browser": "node scripts/web/test-pwa-accessibility-browser.mjs",
     "test:katex-security": "node --test scripts/web/test-katex-security.mjs",
     "test:web-unit": "node --test scripts/web/test-composer-preferences.mjs scripts/web/test-file-workspace.mjs scripts/web/test-host-names.mjs scripts/web/test-session-working.mjs scripts/web/test-katex-security.mjs scripts/web/test-content-contracts.mjs",
-    "test:tls-bundle-browser": "node scripts/web/test-tls-bundle-browser.mjs"
+    "test:tls-bundle-browser": "node scripts/web/test-tls-bundle-browser.mjs",
+    "test:send-motion-browser": "node scripts/web/test-send-motion-browser.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",

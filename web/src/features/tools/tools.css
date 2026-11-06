@@ -1,84 +1,133 @@
-.popover.tools-menu {
-  top: calc(100% + 8px);
-  right: 0;
-  width: min(520px, calc(100vw - 24px));
-  padding: 18px;
-}
-.tools-menu h3 {
-  margin: 0 0 14px;
-  font-size: 14px;
-  font-weight: 550;
-}
-.tools-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.tools-grid > button {
-  display: flex;
-  min-width: 0;
-  justify-content: flex-start;
-  gap: 10px;
-  padding: 13px 12px;
-  background: var(--soft);
-  border: 1px solid transparent;
-}
-.tools-grid > button:hover {
-  border-color: var(--border);
-  background: var(--hover);
-}
-.tools-grid > button > span {
-  flex: 1;
-  white-space: nowrap;
-}
-.tools-grid kbd {
-  color: var(--muted);
-  font-size: 10px;
-  white-space: nowrap;
-}
+/* A workspace, not a floating menu. The launcher lives in an ordinary tab. */
 .tools-workspace {
   flex-shrink: 0;
   background: var(--bg);
 }
-.tools-workspace > .file-workspace {
-  width: 100%;
-  flex: 1;
-  border: 0;
-}
 .tools-header {
   display: flex;
   align-items: center;
-  min-height: 45px;
-  gap: 2px;
-  padding: 5px 6px;
+  gap: 4px;
+  padding: 6px;
+  min-height: 46px;
   border-bottom: 1px solid var(--border);
+  background: var(--rail);
+  --control-size: var(--control-compact);
 }
 .tools-header nav {
   display: flex;
   flex: 1;
   min-width: 0;
+  gap: 4px;
   overflow-x: auto;
-  gap: 2px;
-  scrollbar-width: none;
+  scrollbar-width: thin;
 }
-.tools-header nav > button {
+.tool-tab {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
-  gap: 5px;
-  border: 0;
+  flex: 0 0 auto;
+  max-width: 210px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+}
+.tool-tab[data-selected='true'] {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+.tool-tab > button {
   background: transparent;
-  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  min-height: var(--control-size);
+  padding: 5px 8px;
+  font-size: var(--font-size-sm);
+}
+.tool-tab > [role='tab'] {
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 7px;
+}
+.tool-tab > [role='tab'] span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-tab > .tool-tab-close {
+  width: 26px;
+  padding: 0;
+  flex-shrink: 0;
+}
+.tool-tab > button:hover {
+  background: var(--hover);
+}
+.tool-tab-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.tool-tab-panel[hidden] {
+  display: none;
+}
+.tools-workspace .tool-tab-panel > .file-workspace {
+  width: 100%;
+  flex: 1;
+  border: 0;
+  transition: none;
+}
+.tool-launcher {
+  padding: 32px 24px;
+  overflow-y: auto;
+}
+.tool-launcher h3 {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.tools-grid > button {
+  min-width: 0;
+  min-height: var(--control-size);
+  justify-content: flex-start;
+  padding: 8px 12px;
+  gap: 10px;
+  border: 1px solid transparent;
+  background: var(--soft);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-sm);
+}
+.tools-grid > button > span {
+  flex: 1;
+  text-align: left;
+}
+.tools-grid > button:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--border);
+}
+.tools-grid kbd {
+  font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
-  font-size: 12px;
 }
-.tools-header nav > button[aria-pressed='true'] {
-  color: var(--text);
-  background: var(--soft);
+@container tools (max-width: 540px) {
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
 }
-.tools-header nav > button:hover {
-  background: var(--hover);
+.tools-workspace {
+  container: tools / inline-size;
+}
+@media (max-width: 760px) {
+  .tool-launcher {
+    padding: 24px 16px;
+  }
 }
 .workspace-tool-body {
   display: flex;
@@ -116,7 +165,7 @@
   padding: 7px 4px;
 }
 .side-chat-header .icon-button {
-  flex: 0 0 30px;
+  flex: 0 0 var(--control-size);
 }
 .side-chat .timeline-content {
   padding: 16px 18px;
@@ -236,18 +285,7 @@
   padding: 8px;
   border-top: 1px solid #333;
 }
-@media (max-width: 1100px) {
-  .tools-header nav > button > span {
-    display: none;
-  }
-}
 @media (max-width: 760px) {
-  .tools-grid {
-    grid-template-columns: 1fr;
-  }
-  .popover.tools-menu {
-    padding: 14px;
-  }
   .tools-header nav > button > span {
     display: inline;
   }
@@ -258,14 +296,4 @@
   .ssh-connect {
     padding: 20px;
   }
-}
-/* The existing outer drawer animates by keeping a zero-width hidden panel.
-   Its embedded file view must leave the vertical flow when another tool opens. */
-.tools-workspace > .file-workspace[hidden] {
-  display: none;
-}
-.tools-workspace > .file-workspace,
-.file-workspace-wide .tools-workspace > .file-workspace {
-  width: 100%;
-  transition: none;
 }

@@ -8,7 +8,10 @@ await mkdir(out, { recursive: true });
 const fontPath = process.env.COMPOSER_TEST_FONT;
 const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+  });
   try {
     const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1200, height: 820 } });
     page.setDefaultTimeout(6000);
@@ -146,12 +149,13 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await menu.waitFor();
     await page.waitForFunction(() => document.activeElement?.closest('[role=menu]'));
     await page.keyboard.press('End');
-    assert.equal(await page.evaluate(() => document.activeElement.textContent), '展开编辑器');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), '更多操作');
     await page.keyboard.press('Home');
-    assert.equal(await page.evaluate(() => document.activeElement.textContent), '添加文件或图片');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), '相机');
     await page.keyboard.press('Escape');
     assert(await add.evaluate((el) => el === document.activeElement));
     await add.click();
+    await menu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
     await menu.getByRole('menuitem', { name: '展开编辑器', exact: true }).click();
     assert((await editor.boundingBox()).height >= 280);
     await page
@@ -222,7 +226,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     });
     await page.getByRole('button', { name: '预览图片 pasted.png' }).waitFor();
     await page.getByRole('button', { name: '移除附件 pasted.png' }).click();
-    await page.locator('input[type=file]').setInputFiles({
+    await page.locator('input[type=file]:not([accept])').setInputFiles({
       name: 'oversize.pdf',
       mimeType: 'application/pdf',
       buffer: Buffer.alloc(524289),
@@ -239,6 +243,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await page.getByRole('button', { name: '停止', exact: true }).click();
     assert.equal(await page.evaluate(() => window.stops), 1);
     await add.click();
+    await menu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
     await menu.getByRole('menuitem', { name: '立即补充到当前任务' }).click();
     assert.equal(await page.evaluate(() => window.sends.at(-1)), 'steer');
     await page.evaluate(() => {
@@ -473,7 +478,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
       await page.evaluate(() => ({ model: window.draft.model, effort: window.draft.effort })),
       { model: 'wire-default', effort: 'high' },
     );
-    await page.getByRole('button', { name: '模型 · Default Test', exact: true }).click();
+    await page.locator('.model-picker-model-toggle').click();
     await page.getByRole('button', { name: 'Model B', exact: true }).click();
     await slider.fill('1');
     assert.deepEqual(

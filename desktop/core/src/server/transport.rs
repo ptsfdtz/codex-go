@@ -563,7 +563,7 @@ async fn connection(
             if request.action=="system.hello"{hello=true;}
                 if !core.rates.lock().unwrap().take(format!("rpc:{device}"),60.,20.){if !send(&mut writer,Error::new("RATE_LIMITED","Request rate limit").packet(Some(&request.id))).await{break;}continue;}
                 let permit=local_slots.clone().try_acquire_owned();let global=core.rpc_slots.clone().try_acquire_owned();if permit.is_err()||global.is_err(){if !send(&mut writer,Error::new("RATE_LIMITED","Too many concurrent requests").packet(Some(&request.id))).await{break;}continue;}
-                let owner=core.clone();let tx=responses.clone();let device=device.clone();let ssh_owner=ssh_owner.clone();let ssh_alive=ssh_alive.clone();tokio::spawn(async move{let _permit=permit;let _global=global;let packet=if request.action.starts_with("ssh."){handle_ssh_request(owner,&request,&device,&ssh_owner,ssh_alive).await}else{handle_request(&owner,&request,&device).await};let _=tx.send(packet).await;});
+                let owner=core.clone();let tx=responses.clone();let device=device.clone();let ssh_owner=ssh_owner.clone();let ssh_alive=ssh_alive.clone();tokio::spawn(async move{let _permit=permit;let _global=global;let packet=if request.action.starts_with("ssh.") || request.action.starts_with("terminal.") {handle_ssh_request(owner,&request,&device,&ssh_owner,ssh_alive).await}else{handle_request(&owner,&request,&device).await};let _=tx.send(packet).await;});
             },Some(Ok(Message::Pong(_)))=>last_received=Instant::now(),Some(Ok(Message::Ping(bytes)))=>{last_received=Instant::now();if !matches!(tokio::time::timeout(Duration::from_secs(5),writer.send(Message::Pong(bytes))).await,Ok(Ok(()))){break;}},Some(Ok(Message::Binary(_)))|Some(Ok(Message::Close(_)))|Some(Err(_))|None=>break}},
             result=result_rx.recv()=>{if let Some(v)=result{if !send(&mut writer,v).await{break;}}},
             _=core.authorization_changed.notified()=>{
@@ -630,8 +630,19 @@ async fn handle_ssh_request(
     let owner = owner.to_owned();
     let device = device.to_owned();
     let result = tokio::task::spawn_blocking(move || {
-        host.ssh_terminals
-            .handle(&action, &payload, &owner, &device, &alive)
+        if action.starts_with("terminal.") {
+            host.ssh_terminals.handle_project(
+                &action,
+                &payload,
+                &owner,
+                &device,
+                &alive,
+                &host.store,
+            )
+        } else {
+            host.ssh_terminals
+                .handle(&action, &payload, &owner, &device, &alive)
+        }
     })
     .await;
     match result {

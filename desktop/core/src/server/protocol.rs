@@ -83,14 +83,15 @@ pub fn parse(v: Value) -> Result<Request> {
         | "settings.get"
         | "devices.revokeSelf" => (&[], &[]),
         "requests.status" => (&["requestId"], &[]),
+        "terminal.open" => (&["terminalId", "projectId", "cols", "rows"], &[]),
         "ssh.open" => (
             &["terminalId", "host", "cols", "rows"],
             &["user", "port", "identity"],
         ),
-        "ssh.read" => (&["terminalId", "offset"], &[]),
-        "ssh.write" => (&["terminalId", "sequence", "data"], &[]),
-        "ssh.resize" => (&["terminalId", "cols", "rows"], &[]),
-        "ssh.close" => (&["terminalId"], &[]),
+        "ssh.read" | "terminal.read" => (&["terminalId", "offset"], &[]),
+        "ssh.write" | "terminal.write" => (&["terminalId", "sequence", "data"], &[]),
+        "ssh.resize" | "terminal.resize" => (&["terminalId", "cols", "rows"], &[]),
+        "ssh.close" | "terminal.close" => (&["terminalId"], &[]),
         "system.updateInstall" => (&["version"], &[]),
         "system.updateApply" | "system.updateCancel" => (&["jobId"], &[]),
         "sessions.refreshIndex" => (&["contractVersion"], &[]),
@@ -193,7 +194,7 @@ pub fn parse(v: Value) -> Result<Request> {
         _ => return Err(Error::new("INVALID_REQUEST", "Unsupported action")),
     };
     fields(p, required, optional)?;
-    if r.action.starts_with("ssh.") {
+    if r.action.starts_with("ssh.") || r.action.starts_with("terminal.") {
         crate::ssh_terminal::validate(&r.action, p)?;
     }
     if ["git.compare", "git.compareDiff"].contains(&r.action.as_str()) {

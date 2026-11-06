@@ -17,6 +17,8 @@ import {
   Pencil,
   PinOff,
   ArchiveRestore,
+  LoaderCircle,
+  Check,
 } from 'lucide-react';
 import { DataFields, IconButton } from '../ui';
 import { MotionList, MotionPresence } from '../motion';
@@ -941,94 +943,131 @@ export function ConfigurationPanel({
     );
   }, [value]);
   const action = useAction();
+  const [saved, setSaved] = useState('');
   return (
-    <div className="panel-stack">
+    <div className="panel-stack configuration-panel">
       <LoadState {...{ error, loading, reload }} />
       {value && (
         <>
           {supports('modelDefaultsWrite') && (
             <form
-              className="panel-stack"
+              className="settings-inline-form"
+              onChange={() => setSaved('')}
               onSubmit={(e) => {
                 e.preventDefault();
-                void action.run(async () => {
-                  await request('settings.modelDefaults', {
-                    model,
-                    expectedUserRevision: value.userRevision,
-                    ...(effort ? { effort } : {}),
+                setSaved('');
+                void action
+                  .run(async () => {
+                    await request('settings.modelDefaults', {
+                      model,
+                      expectedUserRevision: value.userRevision,
+                      ...(effort ? { effort } : {}),
+                    });
+                    reload();
+                  })
+                  .then((success) => {
+                    if (success) setSaved('model');
                   });
-                  reload();
-                });
               }}
             >
               <h3>{t('默认模型')}</h3>
-              <Select
-                aria-label={t('默认模型')}
-                value={model}
-                onValueChange={(value) => {
-                  setModel(value);
-                  setEffort('');
-                }}
-              >
-                <option value="">{t('选择模型')}</option>
-                {model && !models.some((m) => (m.id || m.model) === model) && (
-                  <option value={model}>{model}</option>
-                )}
-                {models.map((m) => {
-                  const id = m.id || m.model;
-                  return id ? (
-                    <option value={id} key={id}>
-                      {m.displayName || m.name || id}
-                    </option>
-                  ) : null;
-                })}
-              </Select>
-              <Select
-                aria-label={t('默认推理强度')}
-                value={effort}
-                onValueChange={(value) => setEffort(value)}
-              >
-                <option value="">{t('模型默认')}</option>
-                {effort &&
-                  !models
-                    .find((m) => (m.id || m.model) === model)
-                    ?.supportedReasoningEfforts?.some(
-                      (e) => (typeof e === 'string' ? e : e.reasoningEffort) === effort,
-                    ) && <option value={effort}>{effort}</option>}
-                {models
-                  .find((m) => (m.id || m.model) === model)
-                  ?.supportedReasoningEfforts?.map((e) => {
-                    const id = typeof e === 'string' ? e : e.reasoningEffort;
-                    return <option key={id}>{id}</option>;
+              <div className="settings-control-row">
+                <Select
+                  aria-label={t('默认模型')}
+                  title={t('默认模型')}
+                  value={model}
+                  onValueChange={(value) => {
+                    setSaved('');
+                    setModel(value);
+                    setEffort('');
+                  }}
+                >
+                  <option value="">{t('选择模型')}</option>
+                  {model && !models.some((m) => (m.id || m.model) === model) && (
+                    <option value={model}>{model}</option>
+                  )}
+                  {models.map((m) => {
+                    const id = m.id || m.model;
+                    return id ? (
+                      <option value={id} key={id}>
+                        {m.displayName || m.name || id}
+                      </option>
+                    ) : null;
                   })}
-              </Select>
-              <button disabled={action.busy || !value.userRevision || !model}>
-                {t('保存模型默认值')}
-              </button>
+                </Select>
+                <Select
+                  aria-label={t('默认推理强度')}
+                  title={t('默认推理强度')}
+                  value={effort}
+                  onValueChange={(value) => {
+                    setSaved('');
+                    setEffort(value);
+                  }}
+                >
+                  <option value="">{t('模型默认')}</option>
+                  {effort &&
+                    !models
+                      .find((m) => (m.id || m.model) === model)
+                      ?.supportedReasoningEfforts?.some(
+                        (e) => (typeof e === 'string' ? e : e.reasoningEffort) === effort,
+                      ) && <option value={effort}>{effort}</option>}
+                  {models
+                    .find((m) => (m.id || m.model) === model)
+                    ?.supportedReasoningEfforts?.map((e) => {
+                      const id = typeof e === 'string' ? e : e.reasoningEffort;
+                      return <option key={id}>{id}</option>;
+                    })}
+                </Select>
+                <button
+                  type="submit"
+                  className="icon-button settings-save"
+                  title={t('保存模型默认值')}
+                  aria-label={t('保存模型默认值')}
+                  aria-busy={action.busy}
+                  disabled={action.busy || !value.userRevision || !model}
+                >
+                  {action.busy ? (
+                    <LoaderCircle size={18} className="pending-icon" />
+                  ) : saved === 'model' ? (
+                    <Check size={18} />
+                  ) : (
+                    <Save size={18} />
+                  )}
+                </button>
+              </div>
             </form>
           )}
           {supports('outputDefaultsWrite') && (
             <form
-              className="panel-stack"
+              className="settings-inline-form"
+              onChange={() => setSaved('')}
               onSubmit={(e) => {
                 e.preventDefault();
-                void action.run(async () => {
-                  await request('settings.outputDefaults', {
-                    verbosity,
-                    summary,
-                    expectedUserRevision: value.userRevision,
+                setSaved('');
+                void action
+                  .run(async () => {
+                    await request('settings.outputDefaults', {
+                      verbosity,
+                      summary,
+                      expectedUserRevision: value.userRevision,
+                    });
+                    reload();
+                  })
+                  .then((success) => {
+                    if (success) setSaved('output');
                   });
-                  reload();
-                });
               }}
             >
               <h3>{t('默认输出')}</h3>
-              <label>
-                {t('详细程度')}
+              <div className="settings-control-row">
                 <Select
                   aria-label={t('详细程度')}
+                  title={t('详细程度')}
                   value={verbosity}
-                  onValueChange={(value) => setVerbosity(value)}
+                  onValueChange={(value) => {
+                    setSaved('');
+                    setVerbosity(value);
+                  }}
                 >
                   {['default', 'low', 'medium', 'high'].map((v) => (
                     <option key={v} value={v}>
@@ -1047,13 +1086,14 @@ export function ConfigurationPanel({
                     </option>
                   ))}
                 </Select>
-              </label>
-              <label>
-                {t('思考摘要')}
                 <Select
                   aria-label={t('思考摘要')}
+                  title={t('思考摘要')}
                   value={summary}
-                  onValueChange={(value) => setSummary(value)}
+                  onValueChange={(value) => {
+                    setSaved('');
+                    setSummary(value);
+                  }}
                 >
                   {['default', 'auto', 'concise', 'detailed', 'none'].map((v) => (
                     <option key={v} value={v}>
@@ -1072,11 +1112,31 @@ export function ConfigurationPanel({
                     </option>
                   ))}
                 </Select>
-              </label>
-              <button disabled={action.busy || !value.userRevision}>{t('保存输出默认值')}</button>
+                <button
+                  type="submit"
+                  className="icon-button settings-save"
+                  title={t('保存输出默认值')}
+                  aria-label={t('保存输出默认值')}
+                  aria-busy={action.busy}
+                  disabled={action.busy || !value.userRevision}
+                >
+                  {action.busy ? (
+                    <LoaderCircle size={18} className="pending-icon" />
+                  ) : saved === 'output' ? (
+                    <Check size={18} />
+                  ) : (
+                    <Save size={18} />
+                  )}
+                </button>
+              </div>
             </form>
           )}
         </>
+      )}
+      {saved && (
+        <span className="visually-hidden" role="status">
+          {t('已保存')}
+        </span>
       )}
       {action.feedback}
     </div>
@@ -1097,7 +1157,7 @@ export function RetentionPanel({ request }: { request: Request }) {
   }, [value]);
   const action = useAction();
   return (
-    <div className="panel-stack">
+    <div className="settings-inline-form">
       <LoadState {...{ error, loading, reload }} />
       <label>
         {t('缓存保留天数')}
@@ -1168,7 +1228,7 @@ export function DiagnosticsPanel({ request }: { request: Request }) {
   );
   const action = useAction();
   return (
-    <div className="panel-stack">
+    <div className="settings-inline-form">
       <LoadState {...{ error, loading, reload }} />
       {value && (
         <>

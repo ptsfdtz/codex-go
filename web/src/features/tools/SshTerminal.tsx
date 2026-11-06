@@ -6,21 +6,35 @@ import type { Request } from '../../workspace';
 import '@xterm/xterm/css/xterm.css';
 
 type Output = { data: string; offset: number; truncated: boolean; eof: boolean };
-export function SshTerminal({ request, visible }: { request: Request; visible: boolean }) {
+export function SshTerminal({
+  request,
+  visible,
+  connected,
+  projectId,
+  directory,
+}: {
+  request: Request;
+  visible: boolean;
+  connected: boolean;
+  projectId: string;
+  directory: string;
+}) {
   useLocale();
-  const [host, setHost] = useState('');
-  const [user, setUser] = useState('');
-  const [port, setPort] = useState('');
-  const [identity, setIdentity] = useState('');
-  const [target, setTarget] = useState<Record<string, unknown>>();
-  const [phase, setPhase] = useState('idle');
+  const [generation, setGeneration] = useState(0);
+  const [active, setActive] = useState(connected);
+  const [phase, setPhase] = useState('connecting');
   const [error, setError] = useState('');
   const container = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal>(undefined);
   const fit = useRef<FitAddon>(undefined);
   const send = useRef<(data: string) => void>(() => undefined);
   useEffect(() => {
-    if (!target || !container.current) return;
+    if (!connected) {
+      setActive(false);
+      setPhase('closed');
+      return;
+    }
+    if (!active || !container.current) return;
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
@@ -43,7 +57,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
     let poll: ReturnType<typeof setTimeout> | undefined;
     let batch: ReturnType<typeof setTimeout> | undefined;
     let resize: ReturnType<typeof setTimeout> | undefined;
-    const close = () => request('ssh.close', { terminalId }).catch(() => undefined);
+    const close = () => request('terminal.close', { terminalId }).catch(() => undefined);
     const fail = (e: unknown) => {
       if (!live) return;
       open = false;
@@ -61,7 +75,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
       const data = chars.slice(0, 900).join('');
       pending = chars.slice(900).join('');
       try {
-        const result = await request<{ sequence: number }>('ssh.write', {
+        const result = await request<{ sequence: number }>('terminal.write', {
           terminalId,
           sequence,
           data,
@@ -88,7 +102,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
     async function read() {
       if (!live || !open) return;
       try {
-        const value = await request<Output>('ssh.read', { terminalId, offset });
+        const value = await request<Output>('terminal.read', { terminalId, offset });
         if (!live || !open) return;
         if (value.truncated) term.write(t('\r\n[较早的终端输出已超出缓冲区]\r\n'));
         if (value.data) {
@@ -99,7 +113,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
         if (value.eof) {
           open = false;
           setPhase('closed');
-          term.write(t('\r\n[SSH 连接已结束]\r\n'));
+          term.write(t('\r\n[终端已结束]\r\n'));
           void close();
         } else poll = setTimeout(() => void read(), 200);
       } catch (e) {
@@ -116,7 +130,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
     observer.observe(container.current);
     const resized = term.onResize(({ cols, rows }) => {
       if (live && open)
-        void request('ssh.resize', {
+        void request('terminal.resize', {
           terminalId,
           cols: Math.min(500, cols),
           rows: Math.min(200, rows),
@@ -125,8 +139,8 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
     setPhase('connecting');
     setError('');
     addon.fit();
-    void request('ssh.open', {
-      ...target,
+    void request('terminal.open', {
+      projectId,
       terminalId,
       cols: Math.min(500, Math.max(2, term.cols)),
       rows: Math.min(200, Math.max(1, term.rows)),
@@ -157,7 +171,7 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
       fit.current = undefined;
       void close();
     };
-  }, [request, target]);
+  }, [request, active, connected, projectId, generation]);
   useEffect(() => {
     if (visible)
       requestAnimationFrame(() => {
@@ -166,125 +180,58 @@ export function SshTerminal({ request, visible }: { request: Request; visible: b
       });
   }, [visible, phase]);
   return (
-    <section className="ssh-tool" aria-label={t('SSH 终端')}>
-      {!target ? (
-        <form
-          className="ssh-connect"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!host.trim()) return;
-            setTarget({
-              host: host.trim(),
-              ...(user.trim() ? { user: user.trim() } : {}),
-              ...(port ? { port: Number(port) } : {}),
-              ...(identity.trim() ? { identity: identity.trim() } : {}),
-            });
+    <section className="ssh-tool" aria-label={t('终端')}>
+      <div className="ssh-status">
+        <span title={directory}>
+          {directory} ·{' '}
+          {phase === 'connecting'
+            ? t('正在启动…')
+            : phase === 'open'
+              ? t('终端已启动')
+              : t('连接已结束')}
+        </span>
+        <button
+          disabled={!connected}
+          onClick={() => {
+            if (active && phase !== 'closed') {
+              setActive(false);
+              setPhase('closed');
+            } else {
+              setGeneration((value) => value + 1);
+              setActive(true);
+            }
           }}
         >
-          <h3>{t('连接 SSH 服务器')}</h3>
-          <p className="muted">
-            {t(
-              '由当前电脑发起连接，使用该电脑的 SSH 配置和密钥。密码与主机指纹确认会显示在终端中。',
-            )}
-          </p>
-          <label>
-            {t('主机 / SSH 别名')}
-            <input
-              required
-              autoComplete="off"
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              placeholder="example.com"
-              maxLength={253}
-            />
-          </label>
-          <div className="ssh-connect-row">
-            <label>
-              {t('用户名')}
-              <input
-                autoComplete="off"
-                value={user}
-                onChange={(e) => setUser(e.target.value)}
-                placeholder={t('使用 SSH 配置')}
-                maxLength={128}
-              />
-            </label>
-            <label>
-              {t('端口')}
-              <input
-                type="number"
-                min={1}
-                max={65535}
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-                placeholder={t('使用 SSH 配置')}
-              />
-            </label>
-          </div>
-          <label>
-            {t('私钥路径（可选）')}
-            <input
-              autoComplete="off"
-              value={identity}
-              onChange={(e) => setIdentity(e.target.value)}
-              placeholder={t('电脑上的绝对路径，留空使用默认密钥')}
-            />
-          </label>
-          <p className="muted">
-            {t('命令使用 SSH 账户的权限执行。关闭工具栏、刷新网页或断开电脑连接会结束终端。')}
-          </p>
-          <button type="submit">{t('连接')}</button>
-        </form>
-      ) : (
-        <>
-          <div className="ssh-status">
-            <span>
-              {String(target.host)} ·{' '}
-              {phase === 'connecting'
-                ? t('正在启动…')
-                : phase === 'open'
-                  ? t('终端已启动')
-                  : t('连接已结束')}
-            </span>
-            <button
-              onClick={() => {
-                setTarget(undefined);
-                setPhase('idle');
-                setError('');
-              }}
-            >
-              {phase === 'closed' ? t('返回连接') : t('断开连接')}
-            </button>
-          </div>
-          {error && (
-            <p className="error ssh-error" role="alert">
-              {errorText(error)}
-            </p>
-          )}
-          <div className="ssh-screen" ref={container} />
-          <div className="ssh-keys" aria-label={t('终端快捷键')}>
-            {[
-              ['Esc', '\x1b'],
-              ['Tab', '\t'],
-              ['Ctrl+C', '\x03'],
-              ['Ctrl+D', '\x04'],
-              ['↑', '\x1b[A'],
-              ['↓', '\x1b[B'],
-            ].map(([label, data]) => (
-              <button
-                key={label}
-                disabled={phase !== 'open'}
-                onClick={() => {
-                  send.current(data!);
-                  terminal.current?.focus();
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </>
+          {phase === 'closed' ? t('启动终端') : t('断开连接')}
+        </button>
+      </div>
+      {error && (
+        <p className="error ssh-error" role="alert">
+          {errorText(error)}
+        </p>
       )}
+      <div className="ssh-screen" ref={container} />
+      <div className="ssh-keys" aria-label={t('终端快捷键')}>
+        {[
+          ['Esc', '\x1b'],
+          ['Tab', '\t'],
+          ['Ctrl+C', '\x03'],
+          ['Ctrl+D', '\x04'],
+          ['↑', '\x1b[A'],
+          ['↓', '\x1b[B'],
+        ].map(([label, data]) => (
+          <button
+            key={label}
+            disabled={phase !== 'open'}
+            onClick={() => {
+              send.current(data!);
+              terminal.current?.focus();
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

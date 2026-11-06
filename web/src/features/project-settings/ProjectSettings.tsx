@@ -9,7 +9,6 @@ export function ProjectSettings({
   request,
   projects,
   connected,
-  hostName,
   currentProject,
   canSync,
   onChanged,
@@ -73,7 +72,6 @@ export function ProjectSettings({
             {t('项目 ')}
             <span className="project-settings-count">{connected ? projects.length : '—'}</span>
           </h3>
-          <p>{hostName ? t('来自 {{p0}}', { p0: hostName }) : t('管理已同步的项目')}</p>
         </div>
         <button
           type="button"

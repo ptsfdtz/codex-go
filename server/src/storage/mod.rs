@@ -21,6 +21,10 @@ impl Store {
         let config = database_url.parse().map_err(|_| Error::invalid())?;
         let pool = Pool::builder(Manager::new(config, NoTls))
             .max_size(16)
+            .runtime(deadpool_postgres::Runtime::Tokio1)
+            .wait_timeout(Some(std::time::Duration::from_secs(5)))
+            .create_timeout(Some(std::time::Duration::from_secs(5)))
+            .recycle_timeout(Some(std::time::Duration::from_secs(5)))
             .build()
             .map_err(|_| Error::unavailable())?;
         let store = Self { pool };

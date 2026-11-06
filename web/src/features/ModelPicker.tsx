@@ -1,9 +1,10 @@
+import { positionPopover, useMenuPopover } from '../components/popover';
 import { t, useLocale } from '../i18n';
 import { useId, useState } from 'react';
-import { Check, ChevronDown, RotateCcw } from 'lucide-react';
+import { Check, ChevronDown, RotateCcw, Gauge } from 'lucide-react';
 import type { Draft, Model } from '../workspace';
 import { resolveComposerModelPreferences } from './composer-preferences';
-import { Collapse, usePopoverMotion } from '../motion';
+import { Collapse } from '../motion';
 
 const effortLabel = (value: string) =>
   ({
@@ -17,10 +18,9 @@ const effortLabel = (value: string) =>
     ultra: t('Ultra'),
   })[value] || value;
 const modelLabel = (model?: Model) =>
-  (model?.displayName || model?.name || model?.id || model?.model || t('Default')).replace(
-    /^GPT-/i,
-    '',
-  );
+  (model?.displayName || model?.name || model?.id || model?.model || t('Default'))
+    .replace(/^GPT-/i, '')
+    .replace(/(\d)-(?=[A-Za-z])/g, '$1 ');
 
 export function ModelPicker({
   draft,
@@ -37,7 +37,7 @@ export function ModelPicker({
 }) {
   useLocale();
   const id = useId();
-  const popup = usePopoverMotion();
+  const popup = useMenuPopover();
   const [modelExpanded, setModelExpanded] = useState(false);
   const model =
     models.find((m) => m.model === draft.model || m.id === draft.model) ||
@@ -52,24 +52,27 @@ export function ModelPicker({
     setModelExpanded(false);
   }
   function openPicker(trigger: HTMLButtonElement) {
-    const box = trigger.getBoundingClientRect();
-    const node = popup.current;
-    if (node) {
-      node.style.left = `${Math.max(12, Math.min(box.left, window.innerWidth - 300))}px`;
-      node.style.bottom = `${window.innerHeight - box.top + 10}px`;
-      node.style.maxHeight = `${Math.max(120, box.top - 24)}px`;
-    }
+    setModelExpanded(false);
+    const mobile = matchMedia('(max-width: 760px)').matches;
+    if (popup.current)
+      positionPopover(trigger, popup.current, {
+        width: mobile ? 320 : 288,
+        preferAbove: true,
+        align: mobile ? 'center' : 'start',
+      });
   }
   return (
     <div className="composer-model">
       <button
+        type="button"
         className="model-picker-trigger model-name-trigger"
         disabled={disabled}
         popoverTarget={id}
         aria-label={t('切换模型')}
-        title={modelLabel(model) === t('Default') && draft.model ? draft.model : modelLabel(model)}
+        title={`${modelLabel(model) === t('Default') && draft.model ? draft.model : modelLabel(model)}${effort ? ` · ${effortLabel(effort)}` : ''}`}
         onClick={(event) => openPicker(event.currentTarget)}
       >
+        <Gauge className="model-gauge" size={24} aria-hidden="true" />
         <span>
           {model ? modelLabel(model) : draft.model || t('默认模型')}
           {effort ? ` · ${effortLabel(effort)}` : ''}
@@ -85,13 +88,14 @@ export function ModelPicker({
       >
         <div className="model-picker-view">
           <button
+            type="button"
             className="model-picker-caption model-picker-model-toggle"
             aria-expanded={modelExpanded}
             onClick={() => setModelExpanded((value) => !value)}
           >
             <span>
-              {t('模型 · ')}
-              {model ? modelLabel(model) : t('默认')}
+              {model ? modelLabel(model) : t('默认模型')}
+              {effort ? ` ${effortLabel(effort)}` : ''}
             </span>
             <ChevronDown size={14} />
           </button>
@@ -99,7 +103,9 @@ export function ModelPicker({
             <div role="group" aria-label={t('模型')}>
               {allowDefault && (
                 <button
+                  type="button"
                   className={`model-picker-option ${!draft.model ? 'selected' : ''}`}
+                  aria-pressed={!draft.model}
                   disabled={disabled}
                   onClick={() => choose('')}
                 >
@@ -111,8 +117,10 @@ export function ModelPicker({
                 const value = m.model || m.id;
                 return value ? (
                   <button
+                    type="button"
                     key={value}
                     className={`model-picker-option ${draft.model === value ? 'selected' : ''}`}
+                    aria-pressed={draft.model === value}
                     disabled={disabled}
                     onClick={() => choose(value)}
                   >
@@ -121,6 +129,15 @@ export function ModelPicker({
                   </button>
                 ) : null;
               })}
+              <button
+                type="button"
+                className="model-picker-option model-picker-mobile-reset"
+                disabled={disabled || !draft.effort}
+                onClick={() => onChange({ effort: '' })}
+              >
+                <span>{t('重置思维强度')}</span>
+                <RotateCcw size={17} />
+              </button>
             </div>
           </Collapse>
 
@@ -130,6 +147,7 @@ export function ModelPicker({
               <span>{effort ? effortLabel(effort) : t('默认')}</span>
             </strong>
             <button
+              type="button"
               className="icon-button"
               title={t('重置思维强度')}
               aria-label={t('重置思维强度')}
@@ -145,7 +163,7 @@ export function ModelPicker({
                 className="effort-fill"
                 aria-hidden="true"
                 style={{
-                  width: `calc(${(index / (efforts.length - 1)) * 100}% + ${14 - (index / (efforts.length - 1)) * 28}px)`,
+                  width: `calc(${(index / (efforts.length - 1)) * 100}% + var(--effort-inset) * ${1 - (index / (efforts.length - 1)) * 2} + var(--effort-thumb-size) / 2 + 4px - var(--effort-padding))`,
                 }}
               >
                 <span className="effort-ultra-glow" />

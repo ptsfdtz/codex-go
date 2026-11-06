@@ -1,11 +1,14 @@
 import { fileURLToPath } from 'node:url';
-/* global window, document, localStorage, TextEncoder, btoa, StorageEvent */
+/* global window, document, localStorage, TextEncoder, btoa, StorageEvent, getComputedStyle, navigator */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = new URL('../../artifacts/workspace-tools/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const checks = [],
   errors = [];
 let activePage;
@@ -61,7 +64,7 @@ try {
     const dom = await import('/node_modules/.vite/deps/react-dom_client.js');
     const { Bridge } = await import('/src/transport/bridge.ts');
     window.calls = [];
-    window.sshOutput = 'SSH test terminal\r\n';
+    window.sshOutput = 'Project test terminal\r\n';
     window.sshInput = '';
     window.sshClosed = 0;
     window.failNext = false;
@@ -126,11 +129,12 @@ try {
             projectTextPreview: true,
             gitRead: true,
             sessionManagement: true,
+            sessionFork: true,
             attachments: true,
             activeTurnSteering: true,
             externalThreadObservation: true,
             latestUpstreamTurn: true,
-            sshTerminal: window.sshSupported !== false,
+            projectTerminal: window.sshSupported !== false,
           },
         };
       if (action === 'models.list')
@@ -154,6 +158,25 @@ try {
         };
         window.testSnapshot.sessions.push(session);
         window.testHistory[session.sessionId] = [];
+        return { session };
+      }
+      if (
+        ['sessions.rename', 'sessions.pin', 'sessions.archive', 'sessions.restore'].includes(action)
+      ) {
+        const item = window.testSnapshot.sessions.find((s) => s.sessionId === payload.sessionId);
+        if (action === 'sessions.rename') item.title = payload.title;
+        if (action === 'sessions.pin') item.pinned = payload.pinned ? 1 : 0;
+        if (action === 'sessions.archive') item.archived = 1;
+        if (action === 'sessions.restore') item.archived = 0;
+        return {};
+      }
+      if (action === 'sessions.fork') {
+        const original = window.testSnapshot.sessions.find(
+          (s) => s.sessionId === payload.sessionId,
+        );
+        const session = { ...original, sessionId: 'forked', title: 'Forked conversation' };
+        window.testSnapshot.sessions.push(session);
+        window.testHistory.forked = structuredClone(window.testHistory[payload.sessionId]);
         return { session };
       }
       if (action === 'turn.start') {
@@ -187,11 +210,11 @@ try {
         return { turn: turn ? { ...turn, status: 'inProgress' } : null };
       }
       if (action === 'turn.active') return { upstreamTurnId: 'native-' + payload.sessionId };
-      if (action === 'ssh.open') {
+      if (action === 'terminal.open') {
         window.sshId = payload.terminalId;
         return { terminalId: payload.terminalId };
       }
-      if (action === 'ssh.read') {
+      if (action === 'terminal.read') {
         const bytes = new TextEncoder().encode(window.sshOutput);
         return {
           data: btoa(String.fromCharCode(...bytes.slice(payload.offset))),
@@ -200,16 +223,16 @@ try {
           eof: false,
         };
       }
-      if (action === 'ssh.write') {
+      if (action === 'terminal.write') {
         window.sshInput += payload.data;
         window.sshOutput += payload.data;
         return { sequence: payload.sequence + 1 };
       }
-      if (action === 'ssh.close') {
+      if (action === 'terminal.close') {
         window.sshClosed++;
         return { closed: true };
       }
-      if (action === 'ssh.resize') return { resized: true };
+      if (action === 'terminal.resize') return { resized: true };
       return {};
     };
     localStorage.setItem('agentdeck.web.selection.tools-test:browser.host-test', 'main');
@@ -228,7 +251,14 @@ try {
   await mainInput.fill('PRIMARY-DRAFT');
   await host.getByRole('button', { name: '打开工具', exact: true }).click();
   await host.getByRole('region', { name: '工具', exact: true }).waitFor();
+  await page.waitForTimeout(350);
+  assert.equal(await host.locator('.tools-menu').count(), 0);
+  assert(await host.getByRole('tab', { name: '新标签页', exact: true }).isVisible());
   await page.screenshot({ path: fileURLToPath(new URL('launcher.png', out)) });
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+  await page.waitForTimeout(180);
+  await page.screenshot({ path: fileURLToPath(new URL('launcher-dark.png', out)) });
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
   await host
     .locator('.tools-grid')
     .getByRole('button', { name: /侧边对话/ })
@@ -236,6 +266,17 @@ try {
   const side = host.getByRole('region', { name: '侧边对话', exact: true });
   const sideInput = side.getByRole('textbox', { name: '消息', exact: true });
   await sideInput.fill('NEW-SIDE-DRAFT');
+  const headerControls = await side.locator('.side-chat-header').evaluate((el) =>
+    [...el.querySelectorAll('button')].map((button) => ({
+      height: button.getBoundingClientRect().height,
+      radius: getComputedStyle(button).borderRadius,
+    })),
+  );
+  assert(
+    headerControls.every((control) => control.height === 32 && control.radius === '8px'),
+    JSON.stringify(headerControls),
+  );
+  checks.push('side header dropdowns and icon buttons share 32px height and 8px corners');
   async function choose(label, option, value) {
     const select = side.getByRole('combobox', { name: label, exact: true });
     if ((await select.evaluate((el) => el.tagName)) === 'SELECT') await select.selectOption(value);
@@ -291,18 +332,15 @@ try {
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'light';
   });
-  const nav = host.getByRole('navigation', { name: '工作区工具', exact: true });
-  await nav.getByRole('button', { name: '文件', exact: true }).click();
+  const nav = host.getByRole('tablist', { name: '工作区工具', exact: true });
+  await host.getByRole('button', { name: '新建工具标签页' }).click();
+  await host.locator('.tools-grid').getByRole('button', { name: /文件/ }).click();
   await host.getByRole('treeitem', { name: /README.md/ }).dblclick();
   await host.getByText('# File preview from Host', { exact: true }).waitFor();
-  await nav.getByRole('button', { name: '侧边对话', exact: true }).click();
+  await nav.getByRole('tab', { name: '侧边对话', exact: true }).click();
   assert.equal(await sideInput.inputValue(), 'SIDE-DRAFT');
   await host.getByRole('button', { name: '关闭工具栏' }).click();
   await host.getByRole('button', { name: '打开工具', exact: true }).click();
-  await host
-    .locator('.tools-grid')
-    .getByRole('button', { name: /侧边对话/ })
-    .click();
   assert.equal(await sideInput.inputValue(), 'SIDE-DRAFT');
   checks.push('file preview, tab switching and closing/reopening preserve side drafts');
   await side.getByRole('button', { name: '发送', exact: true }).click();
@@ -389,9 +427,9 @@ try {
   checks.push(
     'unknown sends retain drafts, block resending after receipt reconciliation and require explicit review',
   );
-  await nav.getByRole('button', { name: 'SSH 终端', exact: true }).click();
-  await host.getByLabel('主机 / SSH 别名').fill('server.test');
-  await host.getByRole('button', { name: '连接', exact: true }).click();
+  await host.getByRole('button', { name: '新建工具标签页' }).click();
+  await host.locator('.tools-grid').getByRole('button', { name: /终端/ }).click();
+  assert.equal(await host.getByLabel('主机 / SSH 别名').count(), 0);
   await host
     .locator('.ssh-status')
     .getByText(/终端已启动/)
@@ -404,19 +442,26 @@ try {
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.sshInput.includes('whoami\r'));
   const opens = await page.evaluate(
-    () => window.calls.filter((c) => c.action === 'ssh.open').length,
+    () => window.calls.filter((c) => c.action === 'terminal.open').length,
   );
-  await nav.getByRole('button', { name: '侧边对话', exact: true }).click();
-  await nav.getByRole('button', { name: 'SSH 终端', exact: true }).click();
+  await nav.getByRole('tab', { name: '侧边对话', exact: true }).click();
+  await nav.getByRole('tab', { name: '终端', exact: true }).click();
   assert.equal(
-    await page.evaluate(() => window.calls.filter((c) => c.action === 'ssh.open').length),
+    await page.evaluate(() => window.calls.filter((c) => c.action === 'terminal.open').length),
     opens,
   );
-  checks.push('SSH inputs, Ctrl+C and tool switching use one terminal without replay');
+  const opened = await page.evaluate(
+    () => window.calls.find((c) => c.action === 'terminal.open').payload,
+  );
+  assert.equal(opened.projectId, 'p1');
+  assert.equal('host' in opened, false);
+  checks.push(
+    'Project shell automatically opens without SSH configuration; inputs, Ctrl+C and tool switching use one terminal without replay',
+  );
   await page.setViewportSize({ width: 390, height: 844 });
   await host.locator('.ssh-status').waitFor();
   await page.waitForFunction(() =>
-    window.calls.some((c) => c.action === 'ssh.resize' && c.payload.cols < 70),
+    window.calls.some((c) => c.action === 'terminal.resize' && c.payload.cols < 70),
   );
   await page.screenshot({ path: fileURLToPath(new URL('ssh-mobile.png', out)) });
   assert.equal(await primary.isVisible(), false);
@@ -424,39 +469,227 @@ try {
     await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
     false,
   );
-  await nav.getByRole('button', { name: '侧边对话', exact: true }).click();
+  await nav.getByRole('tab', { name: '侧边对话', exact: true }).click();
   await page.screenshot({ path: fileURLToPath(new URL('side-chat-mobile.png', out)) });
   assert.equal(await side.isVisible(), true);
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.waitForTimeout(180);
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
+    false,
+  );
+  await page.screenshot({ path: fileURLToPath(new URL('tabs-320.png', out)) });
   await host.getByRole('button', { name: '关闭工具栏' }).click();
+  assert.equal(await page.evaluate(() => window.sshClosed), 0);
+  await primary.getByRole('button', { name: '更多操作', exact: true }).click();
+  await primary.getByRole('menuitem', { name: '更多操作', exact: true }).click();
+  await primary.getByRole('menuitem', { name: '工具', exact: true }).click();
+  await host.getByRole('button', { name: '关闭标签页：终端', exact: true }).click();
   await page.waitForFunction(() => window.sshClosed > 0);
+  await host.getByRole('button', { name: '关闭工具栏' }).click();
   assert.equal(await primary.isVisible(), true);
-  checks.push('390px layout switches between main and tools; closing tools closes SSH');
+  checks.push(
+    '390px layout switches between main and tools; hiding tools preserves SSH; closing its tab closes SSH',
+  );
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.evaluate(() => {
     window.sshSupported = false;
     window.testBridge.close();
   });
   await host.getByRole('button', { name: '打开工具', exact: true }).click();
+  await host.getByRole('button', { name: '新建工具标签页' }).click();
+  await host.locator('.tools-grid').getByRole('button', { name: /终端/ }).click();
+  await host
+    .getByText('当前 Host 尚不支持项目终端，请升级 Host 后使用。', { exact: true })
+    .waitFor();
+  // Two instances of the same tool have independent form state.
+  await host.getByRole('button', { name: '新建工具标签页' }).click();
   await host
     .locator('.tools-grid')
-    .getByRole('button', { name: /SSH 终端/ })
+    .getByRole('button', { name: /侧边对话/ })
     .click();
+  const secondSide = host.locator('.tool-tab-panel:not([hidden]) .side-chat');
+  await secondSide.getByRole('textbox', { name: '消息', exact: true }).fill('SECOND-TAB-DRAFT');
+  await host.getByRole('button', { name: '新建工具标签页' }).click();
   await host
-    .getByText('当前 Host 尚不支持 SSH 终端，请升级 Host 后使用。', { exact: true })
-    .waitFor();
+    .locator('.tools-grid')
+    .getByRole('button', { name: /侧边对话/ })
+    .click();
+  const thirdSide = host.locator('.tool-tab-panel:not([hidden]) .side-chat');
+  assert.equal(
+    await thirdSide.getByRole('textbox', { name: '消息', exact: true }).inputValue(),
+    '',
+  );
+  await thirdSide.getByRole('textbox', { name: '消息', exact: true }).fill('THIRD-TAB-DRAFT');
+  const chatTabs = nav.getByRole('tab', { name: '侧边对话', exact: true });
+  await chatTabs.nth(1).click();
+  assert.equal(
+    await host.locator('.tool-tab-panel:not([hidden]) textarea[aria-label="消息"]').inputValue(),
+    'SECOND-TAB-DRAFT',
+  );
+  await page.screenshot({ path: fileURLToPath(new URL('multiple-tabs.png', out)) });
+  await chatTabs.nth(2).click();
+  assert.equal(
+    await host.locator('.tool-tab-panel:not([hidden]) textarea[aria-label="消息"]').inputValue(),
+    'THIRD-TAB-DRAFT',
+  );
+  await nav.getByRole('tab', { name: '终端', exact: true }).click();
+  checks.push('multiple same-tool tabs preserve independent new conversation drafts');
   const openCount = await page.evaluate(
-    () => window.calls.filter((c) => c.action === 'ssh.open').length,
+    () => window.calls.filter((c) => c.action === 'terminal.open').length,
   );
   await page.evaluate(() => {
     window.sshSupported = true;
     window.testBridge.close();
   });
-  await host.getByLabel('主机 / SSH 别名').waitFor();
+  await host.getByRole('button', { name: '启动终端', exact: true }).waitFor();
   assert.equal(
-    await page.evaluate(() => window.calls.filter((c) => c.action === 'ssh.open').length),
+    await page.evaluate(() => window.calls.filter((c) => c.action === 'terminal.open').length),
     openCount,
   );
   checks.push('old Hosts show an upgrade message; reconnecting never restarts SSH');
+  await host.getByRole('button', { name: '新建工具标签页' }).click();
+  await host.locator('.tools-grid').getByRole('button', { name: /文件/ }).click();
+  const activeFileTab = await nav.getByRole('tab', { selected: true }).getAttribute('id');
+  await page.keyboard.press('Control+p');
+  assert.equal(await nav.getByRole('tab', { selected: true }).getAttribute('id'), activeFileTab);
+  assert.equal(await nav.getByRole('tab', { name: '文件', exact: true }).count(), 2);
+  checks.push('same-project file tabs remain independent; shortcuts reuse the active instance');
+  // Keyboard tabs and closing the final tab return to an actual launcher page.
+  const terminalTab = nav.getByRole('tab', { name: '终端', exact: true });
+  await terminalTab.focus();
+  await terminalTab.press('Home');
+  assert.equal(await nav.getByRole('tab').first().getAttribute('aria-selected'), 'true');
+  await page.keyboard.press('End');
+  assert.equal(await nav.getByRole('tab').last().getAttribute('aria-selected'), 'true');
+  while ((await nav.locator('.tool-tab-close').count()) > 1)
+    await nav.locator('.tool-tab-close').last().click();
+  await nav.locator('.tool-tab-close').last().click();
+  await host.getByRole('region', { name: '工具', exact: true }).waitFor();
+  assert.equal(await nav.getByRole('tab').count(), 1);
+  assert.equal(await nav.getByRole('tab').innerText(), '新标签页');
+  checks.push('tab keyboard navigation, individual closure and final-tab launcher');
+  await host.getByRole('button', { name: '关闭工具栏', exact: true }).click();
+  const more = primary.getByRole('button', { name: '更多操作', exact: true });
+  await more.click();
+  const topMenu = primary.getByRole('menu', { name: '更多操作', exact: true });
+  for (const name of ['会话历史', '待发送消息', '未发送草稿', '会话目标', '管理当前会话'])
+    assert.equal(await topMenu.getByRole('menuitem', { name, exact: true }).count(), 0);
+  await page.waitForTimeout(220);
+  const renameItem = topMenu.getByRole('menuitem', { name: '重命名会话', exact: true });
+  assert(
+    await renameItem.evaluate((node) => {
+      const r = node.getBoundingClientRect();
+      return node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    }),
+  );
+  await page.screenshot({ path: fileURLToPath(new URL('conversation-menu-desktop.png', out)) });
+  await topMenu.getByRole('menuitem', { name: '重命名会话', exact: true }).click();
+  const rename = page.getByRole('dialog', { name: '重命名会话', exact: true });
+  await rename.getByRole('textbox', { name: '对话名称' }).fill('Renamed main');
+  await rename.getByRole('button', { name: '保存名称' }).click();
+  await rename.waitFor({ state: 'hidden' });
+  assert(
+    await page.evaluate(() =>
+      window.calls.some(
+        (c) =>
+          c.action === 'sessions.rename' &&
+          c.payload.sessionId === 'main' &&
+          c.payload.title === 'Renamed main',
+      ),
+    ),
+  );
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '置顶会话', exact: true }).click();
+  await topMenu.waitFor({ state: 'hidden' });
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '取消置顶', exact: true }).waitFor();
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
+  await topMenu.getByRole('menuitem', { name: '复制会话标题', exact: true }).click();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'Renamed main');
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
+  await topMenu.getByRole('menuitem', { name: '在右侧打开当前会话', exact: true }).click();
+  await host
+    .locator('.tool-tab-panel:not([hidden]) .side-chat')
+    .getByText('PRIMARY-HISTORY-LIVE', { exact: true })
+    .waitFor();
+  assert.equal(await mainInput.inputValue(), 'PRIMARY-DRAFT');
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
+  await topMenu.getByRole('menuitem', { name: '新建侧边对话', exact: true }).click();
+  assert.equal(
+    await host
+      .locator('.tool-tab-panel:not([hidden]) .side-chat')
+      .getByRole('textbox', { name: '消息', exact: true })
+      .inputValue(),
+    '',
+  );
+  await host.getByRole('button', { name: '关闭工具栏', exact: true }).click();
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '归档会话', exact: true }).click();
+  const archive = page.getByRole('dialog', { name: '归档会话', exact: true });
+  await archive.getByRole('button', { name: '取消', exact: true }).click();
+  assert.equal(
+    await page.evaluate(() => window.calls.filter((c) => c.action === 'sessions.archive').length),
+    0,
+  );
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
+  await topMenu.getByRole('menuitem', { name: '分叉会话', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: '分叉会话', exact: true })
+    .getByRole('button', { name: '创建分叉' })
+    .click();
+  await primary.getByText('Forked conversation', { exact: true }).first().waitFor();
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '归档会话', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: '归档会话', exact: true })
+    .getByRole('button', { name: '归档', exact: true })
+    .click();
+  await page.getByRole('dialog', { name: '归档会话', exact: true }).waitFor({ state: 'hidden' });
+  assert(
+    await page.evaluate(() =>
+      window.calls.some((c) => c.action === 'sessions.archive' && c.payload.sessionId === 'forked'),
+    ),
+  );
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '恢复会话', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: '恢复会话', exact: true })
+    .getByRole('button', { name: '恢复', exact: true })
+    .click();
+  await page.getByRole('dialog', { name: '恢复会话', exact: true }).waitFor({ state: 'hidden' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await more.click();
+  await topMenu.waitFor();
+  const box = await topMenu.boundingBox();
+  assert(box.x >= 0 && box.x + box.width <= 391 && box.y + box.height <= 844);
+  await page.waitForTimeout(220);
+  await page.screenshot({ path: fileURLToPath(new URL('conversation-menu-mobile.png', out)) });
+  await page.keyboard.press('End');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), '更多操作');
+  await page.keyboard.press('Enter');
+  await topMenu.getByRole('menuitem', { name: '设置', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await topMenu.waitFor({ state: 'hidden' });
+  await page.evaluate(() => {
+    window.testSnapshot.sessions.find((s) => s.sessionId === 'forked').status = 'unknown';
+    window.emit({ action: 'session.updated', payload: {}, sessionId: 'forked' });
+  });
+  await more.click();
+  await topMenu.getByRole('menuitem', { name: '重命名会话', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('.top-menu button').disabled);
+  for (const name of ['重命名会话', '取消置顶', '归档会话'])
+    assert(await topMenu.getByRole('menuitem', { name, exact: true }).isDisabled());
+  await topMenu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
+  assert(await topMenu.getByRole('menuitem', { name: '分叉会话', exact: true }).isDisabled());
+  await page.keyboard.press('Escape');
+  checks.push(
+    'conversation menu removes four obsolete entries; rename, pin, fork, archive cancellation, current/new side chats and mobile keyboard navigation work',
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     new URL('verification.json', out),

@@ -1,9 +1,10 @@
 import { t, useLocale, getLocale } from '../i18n';
 import { MotionPresence } from '../motion';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Target, CircleGauge } from 'lucide-react';
 import { Modal } from '../ui';
 import type { Request } from '../workspace';
+import { positionPopover, useMenuPopover } from '../components/popover';
 type Usage = {
   last?: Record<string, number>;
   total?: Record<string, number>;
@@ -18,6 +19,7 @@ export function ComposerStatus({
   observedUsage,
   onGoal,
   enabled = true,
+  compact = false,
 }: {
   request: Request;
   sessionId: string;
@@ -27,8 +29,11 @@ export function ComposerStatus({
   observedUsage?: Usage;
   onGoal: () => void;
   enabled?: boolean;
+  compact?: boolean;
 }) {
   useLocale();
+  const usageId = useId();
+  const popup = useMenuPopover();
   const [goal, setGoal] = useState<{
       objective: string;
       status: string;
@@ -75,17 +80,90 @@ export function ComposerStatus({
   return (
     <>
       {usageSupported && (
-        <button className="context-usage" onClick={() => setDetail(true)}>
-          <CircleGauge size={14} />
-          <span>
-            {t('上下文 ')}
-            {percent !== undefined ? `${percent}%` : '—'}
-          </span>
-          <span>·</span>
-          <span>
-            {counters?.total?.totalTokens?.toLocaleString(getLocale()) || '—'} {t(' tokens')}
-          </span>
+        <button
+          className={`context-usage${compact ? ' context-ring' : ''}`}
+          popoverTarget={compact ? usageId : undefined}
+          onClick={(event) => {
+            if (!compact) setDetail(true);
+            else if (popup.current)
+              positionPopover(event.currentTarget, popup.current, {
+                width: 248,
+                preferAbove: true,
+              });
+          }}
+          aria-label={t('上下文已使用') + (percent !== undefined ? ` ${percent}%` : '')}
+          title={`${t('上下文已使用')} ${percent !== undefined ? `${percent}%` : '—'}`}
+        >
+          {compact ? (
+            <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+              <circle
+                cx="16"
+                cy="16"
+                r="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                opacity="0.2"
+              />
+              <circle
+                cx="16"
+                cy="16"
+                r="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                pathLength="100"
+                strokeDasharray={`${percent ?? 0} 100`}
+                transform="rotate(-90 16 16)"
+                strokeLinecap="round"
+              />
+            </svg>
+          ) : (
+            <CircleGauge size={14} />
+          )}
+          {!compact && (
+            <>
+              <span>
+                {t('上下文 ')}
+                {percent !== undefined ? `${percent}%` : '—'}
+              </span>
+              <span>·</span>
+              <span>
+                {counters?.total?.totalTokens?.toLocaleString(getLocale()) || '—'} {t(' tokens')}
+              </span>
+            </>
+          )}
         </button>
+      )}
+      {compact && usageSupported && (
+        <div
+          id={usageId}
+          ref={popup}
+          popover="auto"
+          className="context-usage-popup"
+          aria-label={t('上下文窗口')}
+        >
+          <strong>{t('上下文窗口')}</strong>
+          <p>
+            {percent !== undefined ? t('剩余 {{p0}}%', { p0: 100 - percent }) : t('暂无用量数据')}
+          </p>
+          {used !== undefined && window && (
+            <small>
+              {t('已用 {{p0}} / {{p1}}', {
+                p0: used.toLocaleString(getLocale()),
+                p1: window.toLocaleString(getLocale()),
+              })}
+            </small>
+          )}
+          <button
+            onClick={() => {
+              popup.current?.hidePopover();
+              setDetail(true);
+            }}
+          >
+            {t('查看用量详情')}
+          </button>
+        </div>
       )}
       {goal && (
         <button className="goal-composer" onClick={onGoal}>

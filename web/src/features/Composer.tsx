@@ -1,3 +1,4 @@
+import { useSendMotion } from './use-send-motion';
 import { errorText, t, useLocale } from '../i18n';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -5,25 +6,23 @@ import {
   Plus,
   X,
   Square,
-  Paperclip,
   Sparkles,
-  FolderOpen,
-  Expand,
   Minimize2,
   ListChecks,
   ListPlus,
   Target,
-  CornerDownLeft,
   FileText,
+  Mic,
 } from 'lucide-react';
 import { IconButton, Modal } from '../ui';
 import { MotionPresence, usePopoverMotion, useExpansionMotion } from '../motion';
 import type { Attachment, Draft, Model } from '../workspace';
 import { readAttachments } from './composer-input';
+import { ComposerMenu } from './ComposerMenu';
+import { positionPopover } from '../components/popover';
 import { PermissionPicker } from './PermissionPicker';
 import { ModelPicker } from './ModelPicker';
 import { useSpeechInput } from './speech/use-speech-input';
-import './speech/speech-input.css';
 
 function AttachmentCard({
   attachment,
@@ -100,8 +99,12 @@ export function Composer({
   disabledReason,
   attachmentTotalBytes = 512 * 1024,
   panels,
+  placeholder,
+  contextControl,
 }: {
   panels?: string[];
+  placeholder?: string;
+  contextControl?: ReactNode;
   draft: Draft;
   status?: ReactNode;
   prompts?: ReactNode;
@@ -129,16 +132,57 @@ export function Composer({
   useLocale();
   const menuId = useId();
   const feedbackId = useId();
+  const speechStatusId = useId();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const focusMenu = useRef(false);
   const [expanded, setExpanded] = useState(false),
     [addingAttachments, setAddingAttachments] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const composerRoot = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Safari buttons may blur the editor with no relatedTarget. Preserve the
+    // layout for actions inside the composer without canceling native touches
+    // (including the first touch after a system permission dialog).
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !composerRoot.current?.contains(event.target))
+        setFocused(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
+  }, []);
   const expansion = useExpansionMotion(expanded);
   const [attachmentError, setAttachmentError] = useState(''),
     [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<{ url: string; attachment: Attachment }>();
   const file = useRef<HTMLInputElement>(null),
+    photos = useRef<HTMLInputElement>(null),
+    camera = useRef<HTMLInputElement>(null),
     textarea = useRef<HTMLTextAreaElement>(null);
+  const beginSendMotion = useSendMotion(
+    textarea,
+    draft,
+    busy,
+    disabled || sendBlocked || !!feedback,
+  );
   const trigger = useRef<HTMLButtonElement>(null),
     menu = usePopoverMotion();
+  useEffect(() => {
+    const update = () => {
+      if (trigger.current && menu.current?.matches(':popover-open'))
+        positionPopover(trigger.current, menu.current, { width: 292, preferAbove: true });
+    };
+    window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('scroll', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('scroll', update);
+    };
+  }, [menu]);
+  useEffect(() => {
+    if (disabled || busy) menu.current?.hidePopover();
+  }, [disabled, busy, menu]);
   const latest = useRef(draft);
   latest.current = draft;
   const mounted = useRef(true),
@@ -159,33 +203,74 @@ export function Composer({
     const resize = () => {
       node.style.height = '0px';
       const viewport = window.visualViewport?.height || window.innerHeight;
-      const mobile = matchMedia('(max-width: 600px)').matches;
-      const max = expanded
+      const mobile = matchMedia('(max-width: 760px)').matches;
+      let max = expanded
         ? Math.min(420, viewport * 0.5)
         : mobile
           ? Math.min(220, viewport * 0.3)
           : 220;
       const min = expanded ? Math.min(280, viewport * 0.4) : 36;
+      const wrap = node.closest('.composer-wrap');
+      const conversation = wrap?.parentElement;
+      if (mobile && wrap && conversation?.classList.contains('conversation')) {
+        const occupiedHeight = (element: Element): number =>
+          getComputedStyle(element).display === 'contents'
+            ? Array.from(element.children).reduce((sum, child) => sum + occupiedHeight(child), 0)
+            : element.getBoundingClientRect().height;
+        const chrome = Array.from(conversation.children)
+          .filter((child) => child !== wrap && !child.classList.contains('timeline'))
+          .reduce((sum, child) => sum + occupiedHeight(child), 0);
+        const controls = wrap.getBoundingClientRect().height - node.getBoundingClientRect().height;
+        max = Math.min(max, conversation.clientHeight - chrome - controls - 8);
+      }
       const height = Math.min(Math.max(min, node.scrollHeight), Math.max(36, max));
       node.style.height = `${height}px`;
       node.style.overflowY = node.scrollHeight > height ? 'auto' : 'hidden';
     };
     resize();
+    let resizeFrame: number | undefined;
+    const scheduleResize = () => {
+      if (resizeFrame !== undefined) return;
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = undefined;
+        resize();
+      });
+    };
     let width = node.getBoundingClientRect().width;
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry || entry.contentRect.width === width) return;
-      width = entry.contentRect.width;
-      resize();
+      const measuredWidth = node.getBoundingClientRect().width;
+      if (!entry || measuredWidth === width) return;
+      width = measuredWidth;
+      scheduleResize();
     });
     observer.observe(node);
+    const chromeObserver = new ResizeObserver(scheduleResize);
+    node
+      .closest('.composer-wrap')
+      ?.querySelectorAll(
+        '.composer-toolbar, .composer-status, .composer-resources, .composer-prompts, .queued-messages',
+      )
+      .forEach((chrome) => chromeObserver.observe(chrome));
     window.addEventListener('resize', resize);
     window.visualViewport?.addEventListener('resize', resize);
     return () => {
       observer.disconnect();
+      chromeObserver.disconnect();
+      if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
       window.removeEventListener('resize', resize);
       window.visualViewport?.removeEventListener('resize', resize);
     };
-  }, [draft.text, expanded, planConfirmation]);
+  }, [
+    draft.text,
+    draft.mode,
+    draft.attachments,
+    draft.skills,
+    draft.references,
+    expanded,
+    focused,
+    active,
+    planConfirmation,
+  ]);
   const speech = useSpeechInput({
     value: draft.text,
     disabled: disabled || busy,
@@ -220,7 +305,7 @@ export function Composer({
     hasContent;
   function closeMenu(focus = true) {
     menu.current?.hidePopover();
-    if (focus) trigger.current?.focus();
+    if (focus) trigger.current?.focus({ preventScroll: true });
   }
   async function addAttachments(files: File[]) {
     if (!files.length || disabled || busy || reading.current) return;
@@ -269,13 +354,28 @@ export function Composer({
     }
   }
   function send() {
-    if (ready && !queueReason) onSend(active ? 'queue' : undefined);
+    if (ready && !queueReason) {
+      beginSendMotion();
+      onSend(active ? 'queue' : undefined);
+    }
   }
   function isFileDrag(event: React.DragEvent) {
     return Array.from(event.dataTransfer.types).includes('Files');
   }
   return (
-    <div className="composer-wrap">
+    <div
+      ref={composerRoot}
+      className="composer-wrap"
+      onFocusCapture={(event) => {
+        if (event.target instanceof HTMLTextAreaElement && event.target === textarea.current)
+          setFocused(true);
+      }}
+      onBlurCapture={(event) => {
+        if (document.querySelector('dialog[open], [popover]:popover-open')) return;
+        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node))
+          setFocused(false);
+      }}
+    >
       {prompts && (
         <div className="composer-prompts" aria-label={t('待处理请求')}>
           {prompts}
@@ -298,7 +398,7 @@ export function Composer({
       ) : (
         <div
           ref={expansion}
-          className={`composer${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}`}
+          className={`composer${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}${!focused && !expanded && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent && !expanded ? ' is-empty' : ''}`}
           onDragEnter={(event) => {
             if (!isFileDrag(event)) return;
             event.preventDefault();
@@ -402,6 +502,15 @@ export function Composer({
             }
             value={draft.text}
             rows={1}
+            onFocus={() => {
+              if (speech.active) speech.cancel();
+            }}
+            onPointerDown={() => {
+              if (speech.active) speech.cancel();
+            }}
+            onBeforeInput={() => {
+              if (speech.active) speech.cancel();
+            }}
             onChange={(event) => {
               speech.cancel();
               changeText(event.target.value);
@@ -433,148 +542,79 @@ export function Composer({
                 ? disabledReason || (execution ? t('连接电脑后开始') : t('暂时无法发送'))
                 : chat
                   ? t('聊点什么…')
-                  : t('向 Codex 提问或描述任务…')
+                  : placeholder || t('向 Codex 提问或描述任务…')
             }
             disabled={disabled || busy}
           />
           <div className="composer-toolbar">
             <button
+              type="button"
               ref={trigger}
               className="icon-button composer-add"
               aria-label={t('添加附件和操作')}
               popoverTarget={menuId}
+              aria-haspopup="menu"
+              aria-controls={menuId}
+              aria-expanded={menuOpen}
               disabled={disabled || busy}
               onClick={(event) => {
-                const node = menu.current;
-                if (!node) return;
-                const box = event.currentTarget.getBoundingClientRect();
-                const viewport = window.visualViewport;
-                const top = viewport?.offsetTop || 0;
-                node.style.left = `${Math.max(12, Math.min(box.left, window.innerWidth - 272))}px`;
-                node.style.bottom = `${window.innerHeight - box.top + 8}px`;
-                node.style.maxHeight = `${Math.max(40, box.top - top - 20)}px`;
+                focusMenu.current = event.detail === 0 || !matchMedia('(pointer: coarse)').matches;
+                if (menu.current)
+                  positionPopover(event.currentTarget, menu.current, {
+                    width: 292,
+                    preferAbove: true,
+                  });
               }}
             >
               <Plus size={20} />
             </button>
-            <div
-              ref={menu}
+            {execution && (
+              <PermissionPicker
+                permission={permission}
+                disabled={disabled || busy}
+                onConfirm={onPermission}
+              />
+            )}
+            <ComposerMenu
               id={menuId}
-              className="popover composer-menu"
-              popover="auto"
-              role="menu"
-              onToggle={(event) => {
-                if (event.newState === 'open')
-                  menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+              menu={menu}
+              disabled={disabled || busy}
+              addingAttachments={addingAttachments}
+              supports={supports}
+              mode={draft.mode}
+              execution={execution}
+              expanded={expanded}
+              steering={
+                !active || !supports('activeTurnSteering')
+                  ? 'hidden'
+                  : ready && !hasResources
+                    ? 'ready'
+                    : 'disabled'
+              }
+              onCamera={() => camera.current?.click()}
+              onPhotos={() => photos.current?.click()}
+              onFiles={() => file.current?.click()}
+              onPanel={onPanel}
+              onMode={(mode) => onChange({ mode })}
+              onExpand={() => {
+                setExpanded(!expanded);
+                textarea.current?.focus({ preventScroll: true });
               }}
-              aria-label={t('添加附件和操作')}
-              onKeyDown={(event) => {
-                const items = Array.from(
-                  event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
-                );
-                const index = items.indexOf(document.activeElement as HTMLButtonElement);
-                if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-                  event.preventDefault();
-                  const next =
-                    event.key === 'Home'
-                      ? 0
-                      : event.key === 'End'
-                        ? items.length - 1
-                        : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) %
-                          items.length;
-                  items[next]?.focus();
-                }
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  closeMenu();
-                }
+              onSteer={() => {
+                beginSendMotion();
+                onSend('steer');
               }}
-            >
-              {supports('attachments') && (
-                <button
-                  role="menuitem"
-                  disabled={addingAttachments}
-                  onClick={() => {
-                    closeMenu(false);
-                    file.current?.click();
-                  }}
-                >
-                  <Paperclip size={17} />
-                  {t('添加文件或图片')}
-                </button>
-              )}
-              {supports('composerSkills') && (
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    closeMenu(false);
-                    onPanel('skills');
-                  }}
-                >
-                  <Sparkles size={17} />
-                  {t('技能')}
-                </button>
-              )}
-              {supports('projectFileBrowser') && (
-                <button
-                  role="menuitem"
-                  onClick={() => {
-                    closeMenu(false);
-                    onPanel('files');
-                  }}
-                >
-                  <FolderOpen size={17} />
-                  {t('浏览项目文件')}
-                </button>
-              )}
-              {execution && <hr />}
-              {execution &&
-                (['default', 'plan', 'goal'] as const)
-                  .filter((id) => id === 'default' || supports(id))
-                  .map((id) => (
-                    <button
-                      role="menuitemradio"
-                      aria-checked={draft.mode === id}
-                      key={id}
-                      onClick={() => {
-                        onChange({ mode: id });
-                        closeMenu();
-                      }}
-                    >
-                      <ListChecks size={17} />
-                      <span>
-                        {{ default: t('默认模式'), plan: t('计划'), goal: t('目标') }[id]}
-                      </span>
-                      {draft.mode === id && <span>✓</span>}
-                    </button>
-                  ))}
-              {execution && <hr />}
-              <button
-                role="menuitem"
-                onClick={() => {
-                  setExpanded(!expanded);
-                  closeMenu(false);
-                  textarea.current?.focus();
-                }}
-              >
-                {expanded ? <Minimize2 size={17} /> : <Expand size={17} />}
-                {expanded ? t('收起编辑器') : t('展开编辑器')}
-              </button>
-              {active && supports('activeTurnSteering') && (
-                <button
-                  role="menuitem"
-                  disabled={!ready || hasResources}
-                  onClick={() => {
-                    closeMenu(false);
-                    onSend('steer');
-                  }}
-                >
-                  <CornerDownLeft size={17} />
-                  {t('立即补充到当前任务')}
-                </button>
-              )}
-            </div>
+              onClose={closeMenu}
+              onToggle={(open) => {
+                setMenuOpen(open);
+                if (open && focusMenu.current)
+                  menu.current
+                    ?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+                    ?.focus({ preventScroll: true });
+              }}
+            />
+            <div className="composer-toolbar-spacer" />
+            {contextControl}
             <ModelPicker
               draft={draft}
               models={models}
@@ -583,13 +623,6 @@ export function Composer({
               allowDefault={execution}
             />
             <div className="composer-actions" role="group" aria-label={t('发送与执行控制')}>
-              {execution && (
-                <PermissionPicker
-                  permission={permission}
-                  disabled={disabled || busy}
-                  onConfirm={onPermission}
-                />
-              )}
               {expanded && (
                 <IconButton
                   icon={Minimize2}
@@ -600,44 +633,19 @@ export function Composer({
                   }}
                 />
               )}
-              {active && (
-                <IconButton
-                  className="composer-stop"
-                  icon={Square}
-                  label={t('停止')}
-                  disabled={busy || disabled}
-                  onClick={onStop}
-                />
-              )}
-              {speech.active || !hasContent ? (
-                <button
-                  type="button"
-                  className="icon-button send-button speech-button"
-                  aria-label={speech.active ? t('结束语音输入') : t('语音输入')}
-                  title={
-                    speech.active
-                      ? t('结束语音输入，等待最后的识别文字')
-                      : speech.unavailable || speech.description
-                  }
-                  aria-description={speech.unavailable || speech.description}
-                  aria-pressed={speech.active}
-                  disabled={disabled || busy || speech.phase === 'stopping'}
-                  onClick={() => (speech.active ? speech.stop() : speech.start())}
-                >
-                  {speech.active ? (
-                    <Square size={17} aria-hidden="true" />
-                  ) : (
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M4 9v6M9 3v18M14 7v10M19 9v6"
-                        stroke="currentColor"
-                        strokeWidth="2.4"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  )}
-                </button>
-              ) : active && execution ? (
+              <button
+                type="button"
+                className="icon-button composer-mic"
+                aria-label={speech.active ? t('结束语音输入') : t('语音输入')}
+                title={speech.active ? t('结束语音输入') : t('语音输入')}
+                aria-pressed={speech.active}
+                aria-describedby={speech.message ? speechStatusId : undefined}
+                disabled={disabled || busy || speech.phase === 'stopping'}
+                onClick={() => (speech.active ? speech.stop() : speech.start())}
+              >
+                {speech.active ? <Square size={20} /> : <Mic size={23} />}
+              </button>
+              {active && execution && hasContent ? (
                 <button
                   type="button"
                   className="icon-button send-button composer-queue"
@@ -648,7 +656,15 @@ export function Composer({
                 >
                   <ListPlus size={19} strokeWidth={1.6} aria-hidden="true" />
                 </button>
-              ) : !active ? (
+              ) : active ? (
+                <IconButton
+                  className="send-button composer-stop"
+                  icon={Square}
+                  label={t('停止')}
+                  disabled={busy || disabled}
+                  onClick={onStop}
+                />
+              ) : (
                 <IconButton
                   className="send-button"
                   icon={ArrowUp}
@@ -658,29 +674,18 @@ export function Composer({
                   disabled={!ready}
                   onClick={send}
                 />
-              ) : null}
+              )}
+              {active && execution && hasContent && (
+                <IconButton
+                  className="send-button composer-stop"
+                  icon={Square}
+                  label={t('停止')}
+                  disabled={busy || disabled}
+                  onClick={onStop}
+                />
+              )}
             </div>
           </div>
-          {(speech.active || speech.message) && (
-            <div className="speech-feedback" role="status" aria-live="polite">
-              <div className="speech-feedback-heading">
-                <span>
-                  {speech.active
-                    ? speech.phase === 'starting'
-                      ? t('正在启动语音输入，请允许麦克风…')
-                      : speech.phase === 'stopping'
-                        ? t('正在完成识别…')
-                        : t('正在听，请说话…')
-                    : errorText(speech.message)}
-                </span>
-                <button type="button" onClick={speech.active ? speech.cancel : speech.dismiss}>
-                  {speech.active ? t('取消听写') : t('关闭语音提示')}
-                </button>
-              </div>
-              {speech.interim && <p className="speech-interim">{speech.interim}</p>}
-              {speech.active && <small>{speech.description}</small>}
-            </div>
-          )}
           {(addingAttachments ||
             attachmentError ||
             feedback ||
@@ -704,6 +709,30 @@ export function Composer({
             hidden
             multiple
             type="file"
+            accept="image/*"
+            ref={photos}
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files || []);
+              event.currentTarget.value = '';
+              void addAttachments(files);
+            }}
+          />
+          <input
+            hidden
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={camera}
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files || []);
+              event.currentTarget.value = '';
+              void addAttachments(files);
+            }}
+          />
+          <input
+            hidden
+            multiple
+            type="file"
             ref={file}
             onChange={(event) => {
               const files = Array.from(event.currentTarget.files || []);
@@ -713,6 +742,14 @@ export function Composer({
           />
         </div>
       )}
+      <span
+        id={speechStatusId}
+        className="visually-hidden composer-speech-status"
+        role="status"
+        aria-live="polite"
+      >
+        {speech.message ? errorText(speech.message) : ''}
+      </span>
       <MotionPresence>
         {preview && (
           <Modal title={preview.attachment.name} onClose={() => setPreview(undefined)}>

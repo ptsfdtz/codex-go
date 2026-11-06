@@ -1,11 +1,11 @@
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-drawer: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-press: 120ms;
   --motion-fast: 160ms;
   --motion-panel: 200ms;
-  --motion-drawer: 280ms;
+  --motion-drawer: 320ms;
 }
 
 /* The wrapper keeps exiting surfaces mounted without changing their layout. */
@@ -41,7 +41,7 @@ textarea,
 button:active:not(:disabled):not(.menu-scrim):not(.sidebar-scrim) {
   transform: scale(0.97);
 }
-.send-button:active:not(:disabled) {
+.composer-actions > .icon-button:active:not(:disabled) {
   transform: scale(0.94);
 }
 button:disabled {
@@ -57,7 +57,7 @@ button:disabled {
   transition: opacity var(--motion-fast) ease;
 }
 @media (hover: hover) and (pointer: fine) {
-  .send-button:hover:not(:disabled) {
+  .composer-actions > .icon-button:hover:not(:disabled) {
     transform: translateY(-1px);
   }
   .composer:focus-within {
@@ -65,7 +65,7 @@ button:disabled {
   }
 }
 
-/* One shared WAAPI timeline drives the drawer, scrim and desktop FLIP. */
+/* One shared WAAPI timeline drives the drawer, scrim and desktop gutter. */
 .sidebar {
   display: flex;
   position: absolute;
@@ -130,7 +130,7 @@ button:disabled {
     transform var(--motion-panel) var(--ease-out);
 }
 .modal::backdrop {
-  background: rgb(0 0 0 / 44%);
+  background: transparent;
   backdrop-filter: none;
   transition: background-color var(--motion-panel) ease;
 }
@@ -234,7 +234,7 @@ button:disabled {
   .sidebar-scrim.visible {
     display: block;
     position: fixed;
-    inset: 0 0 0 min(300px, 85vw);
+    inset: 0 0 0 min(var(--sidebar-width), 85vw);
     z-index: 31;
     border: 0;
     border-radius: 0;

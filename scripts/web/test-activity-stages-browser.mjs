@@ -5,7 +5,10 @@ import { mkdir } from 'node:fs/promises';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = new URL('../../artifacts/activity-stages/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 try {
   const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1100, height: 720 } });
   const errors = [];
@@ -101,15 +104,17 @@ try {
   assert.equal(grouping.empty, 0);
   const stage = page.locator('.activity-stage').first();
   await stage.waitFor();
-  assert.equal(await stage.getAttribute('open'), '');
+  assert.equal(await stage.getAttribute('open'), null);
+  await stage.locator('summary').first().click();
   assert.equal(await stage.locator('.tool-record').count(), 8);
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: fileURLToPath(new URL('desktop-running.png', out)) });
-  // A new assistant update ends a stage even while the task keeps running.
+  // Stream updates never change a disclosure the user explicitly opened.
   await page.evaluate(() =>
     window.renderActivity([...window.activityEntries, window.nextActivity], 't1'),
   );
-  await page.waitForFunction(() => !document.querySelector('.activity-stage').open);
+  assert.equal(await stage.evaluate((el) => el.open), true);
+  await stage.locator(':scope > summary').click();
   await stage.locator('.tool-record').first().waitFor({ state: 'hidden' });
   await page.screenshot({ path: fileURLToPath(new URL('desktop-collapsed.png', out)) });
   // Native disclosure supports keyboard and keeps manual expansion across updates.
@@ -122,7 +127,8 @@ try {
   assert.equal(await stage.evaluate((el) => el.open), true);
   await page.evaluate(() => window.renderActivity(window.activityEntries, 't1'));
   await page.evaluate(() => window.renderActivity(window.activityEntries, undefined));
-  await page.waitForFunction(() => !document.querySelector('.activity-stage').open);
+  assert.equal(await stage.evaluate((el) => el.open), true);
+  await stage.locator(':scope > summary').click();
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 720 });
     assert.equal(

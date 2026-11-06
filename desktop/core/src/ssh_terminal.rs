@@ -1,4 +1,4 @@
-//! Ephemeral, connection-owned OpenSSH PTYs. Input/output never enter the event
+//! Ephemeral, connection-owned project shell and legacy OpenSSH PTYs. Input/output never enter the event
 //! store, request receipts, diagnostics or the Codex runtime.
 use crate::{ensure, protocol, s, Error, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -20,7 +20,7 @@ const INPUT_BYTES: usize = 4096;
 fn failure() -> Error {
     Error::new(
         "SSH_ERROR",
-        "无法操作 SSH 终端；请确认 Host 已安装 OpenSSH 客户端",
+        "无法启动或操作终端；请确认 Host 上的 shell 或 SSH 客户端可用",
     )
 }
 fn size(p: &Value) -> PtySize {
@@ -73,14 +73,20 @@ pub(crate) fn validate(action: &str, p: &Value) -> Result<()> {
             )?;
         }
     }
-    if matches!(action, "ssh.open" | "ssh.resize") {
+    if action == "terminal.open" {
+        protocol::text(p, "projectId", 1, 160)?;
+    }
+    if matches!(
+        action,
+        "ssh.open" | "ssh.resize" | "terminal.open" | "terminal.resize"
+    ) {
         protocol::integer(p, "cols", 2, 500)?;
         protocol::integer(p, "rows", 1, 200)?;
     }
-    if action == "ssh.read" {
+    if matches!(action, "ssh.read" | "terminal.read") {
         protocol::integer(p, "offset", 0, 9_007_199_254_740_991)?;
     }
-    if action == "ssh.write" {
+    if matches!(action, "ssh.write" | "terminal.write") {
         protocol::integer(p, "sequence", 0, 9_007_199_254_740_991)?;
         protocol::text(p, "data", 1, INPUT_BYTES)?;
         ensure(
@@ -141,6 +147,34 @@ fn command(p: &Value) -> CommandBuilder {
     cmd.env("TERM", "xterm-256color");
     cmd.env_remove("SSH_ASKPASS");
     cmd.env("SSH_ASKPASS_REQUIRE", "never");
+    cmd
+}
+fn shell_command(root: &std::path::Path) -> CommandBuilder {
+    #[cfg(windows)]
+    let mut cmd = {
+        let pwsh = std::env::var_os("ProgramFiles")
+            .map(std::path::PathBuf::from)
+            .map(|p| p.join("PowerShell/7/pwsh.exe"))
+            .filter(|p| p.is_file());
+        let fallback = std::path::PathBuf::from(
+            std::env::var_os("SystemRoot").unwrap_or_else(|| "C:/Windows".into()),
+        )
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let mut cmd = CommandBuilder::new(pwsh.unwrap_or(fallback));
+        cmd.arg("-NoLogo");
+        cmd
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let shell = std::env::var_os("SHELL")
+            .filter(|s| std::path::Path::new(s).is_absolute())
+            .unwrap_or_else(|| "/bin/sh".into());
+        let mut cmd = CommandBuilder::new(shell);
+        cmd.arg("-i");
+        cmd
+    };
+    cmd.cwd(root);
+    cmd.env("TERM", "xterm-256color");
     cmd
 }
 #[derive(Default)]
@@ -307,6 +341,40 @@ impl Terminals {
         alive: &AtomicBool,
     ) -> Result<Value> {
         validate(action, p)?;
+        self.handle_inner(action, p, owner, device, alive, None)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn handle_project(
+        &self,
+        action: &str,
+        p: &Value,
+        owner: &str,
+        device: &str,
+        alive: &AtomicBool,
+        store: &crate::store::Store,
+    ) -> Result<Value> {
+        validate(action, p)?;
+        let cmd = if action == "terminal.open" {
+            Some(shell_command(&crate::paths::root(
+                store,
+                s(p, "projectId"),
+            )?))
+        } else {
+            None
+        };
+        let legacy = action.replacen("terminal.", "ssh.", 1);
+        self.handle_inner(&legacy, p, owner, device, alive, cmd)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn handle_inner(
+        &self,
+        action: &str,
+        p: &Value,
+        owner: &str,
+        device: &str,
+        alive: &AtomicBool,
+        cmd: Option<CommandBuilder>,
+    ) -> Result<Value> {
         let mut sessions = self.sessions.lock().unwrap();
         ensure(
             alive.load(Ordering::SeqCst) && !self.closed.load(Ordering::SeqCst),
@@ -324,11 +392,17 @@ impl Terminals {
             ensure(
                 sessions.len() < 4 && sessions.values().filter(|t| t.owner == owner).count() < 2,
                 "SSH_LIMIT",
-                "SSH 终端数量已达上限，请先关闭其他终端",
+                "终端数量已达上限，请先关闭其他终端",
             )?;
-            sessions.insert(id.into(), Terminal::start(owner, device, p)?);
+            sessions.insert(
+                id.into(),
+                match cmd {
+                    Some(cmd) => Terminal::spawn(owner, device, p, cmd)?,
+                    None => Terminal::start(owner, device, p)?,
+                },
+            );
         } else if action != "ssh.close" {
-            return Err(Error::new("SSH_NOT_FOUND", "SSH 终端已关闭，请重新连接"));
+            return Err(Error::new("SSH_NOT_FOUND", "终端已关闭，请重新连接"));
         }
         if action == "ssh.close" {
             sessions.remove(id);
@@ -353,6 +427,91 @@ mod tests {
     use super::*;
     fn open() -> Value {
         json!({"terminalId":uuid::Uuid::new_v4().to_string(),"host":"example.org","cols":80,"rows":24})
+    }
+    #[test]
+    fn project_protocol_accepts_only_project_identity_and_terminal_size() {
+        let p = json!({"terminalId":uuid::Uuid::new_v4().to_string(),"projectId":"project","cols":80,"rows":24});
+        let packet = |payload| json!({"v":1,"type":"request","id":"project-shell","action":"terminal.open","payload":payload});
+        assert!(protocol::parse(packet(p.clone())).is_ok());
+        for key in ["cwd", "command", "shell", "host"] {
+            let mut extra = p.clone();
+            extra[key] = json!("untrusted");
+            assert!(protocol::parse(packet(extra)).is_err());
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let store = crate::store::Store::open(&temp.path().join("test.db")).unwrap();
+        let terminals = Terminals::default();
+        assert!(terminals
+            .handle_project(
+                "terminal.open",
+                &p,
+                "tab",
+                "device",
+                &AtomicBool::new(true),
+                &store
+            )
+            .is_err());
+        assert!(!terminals.is_active());
+    }
+    #[test]
+    fn real_project_shell_starts_in_authorized_directory() {
+        use std::time::{Duration, Instant};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("project with spaces");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("terminal-marker.txt"), "PROJECT_SHELL_MARKER").unwrap();
+        let store = crate::store::Store::open(&temp.path().join("test.db")).unwrap();
+        let project = crate::paths::add_local(&store, &root).unwrap();
+        let root = crate::paths::root(&store, s(&project, "projectId")).unwrap();
+        let cmd = shell_command(&root);
+        #[cfg(windows)]
+        let cmd = {
+            let mut cmd = cmd;
+            cmd.arg("-NoProfile");
+            cmd
+        };
+        let mut p = open();
+        p["projectId"] = project["projectId"].clone();
+        let mut terminal = Terminal::spawn("tab", "device", &p, cmd).unwrap();
+        #[cfg(windows)]
+        let input = "Get-Content ./terminal-marker.txt\r";
+        #[cfg(not(windows))]
+        let input = "cat ./terminal-marker.txt\r";
+        let mut sent = false;
+        let start = Instant::now();
+        loop {
+            let bytes: Vec<u8> = terminal
+                .output
+                .lock()
+                .unwrap()
+                .bytes
+                .iter()
+                .copied()
+                .collect();
+            if !sent {
+                #[cfg(windows)]
+                let ready = bytes.windows(4).any(|w| w == b"\x1b[6n");
+                #[cfg(not(windows))]
+                let ready = true;
+                if ready {
+                    #[cfg(windows)]
+                    let data = format!("\x1b[1;1R{input}");
+                    #[cfg(not(windows))]
+                    let data = input.to_owned();
+                    terminal.write(&json!({"sequence":0,"data":data})).unwrap();
+                    sent = true;
+                }
+            }
+            if String::from_utf8_lossy(&bytes).contains("PROJECT_SHELL_MARKER") {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(20),
+                "shell did not read project-relative file: {}",
+                String::from_utf8_lossy(&bytes)
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
     #[test]
     fn rejects_options_commands_and_invalid_sizes() {

@@ -1,8 +1,11 @@
 FROM rust:1.90-bookworm AS build
 WORKDIR /build
-COPY server ./server
+COPY server/Cargo.toml server/Cargo.lock ./server/
+COPY server/src ./server/src
+COPY server/admin ./server/admin
 COPY web/src/i18n/*.json ./web/src/i18n/
-COPY packages/connection-protocol ./packages/connection-protocol
+COPY packages/connection-protocol/Cargo.toml ./packages/connection-protocol/
+COPY packages/connection-protocol/src ./packages/connection-protocol/src
 RUN cargo build --release --locked --manifest-path server/Cargo.toml
 
 FROM debian:bookworm-slim

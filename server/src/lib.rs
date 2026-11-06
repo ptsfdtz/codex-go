@@ -2,6 +2,7 @@ pub mod accounts;
 pub mod api;
 pub mod chat;
 pub mod config;
+mod http_security;
 pub mod relay;
 pub mod security;
 pub mod storage;

@@ -5,10 +5,10 @@
 .select-trigger {
   width: 100%;
   min-width: 0;
-  min-height: 38px;
+  min-height: var(--control-size);
   justify-content: space-between;
   gap: 14px;
-  padding: 8px 11px;
+  padding: 7px 11px;
   text-align: left;
   background: var(--bg);
 }
@@ -29,11 +29,22 @@
 .select-trigger[aria-expanded='true'] > svg {
   transform: rotate(180deg);
 }
+:root .select-control .select-trigger-icon {
+  width: var(--control-size);
+  padding: 0;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.select-trigger-icon[aria-expanded='true'] > svg {
+  transform: none;
+}
 .select-popup {
   position: fixed;
   inset: auto;
   margin: 0;
-  padding: 5px;
+  padding: 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius-popover);
   background: var(--bg);
@@ -62,9 +73,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 38px;
-  padding: 9px 10px;
-  border-radius: 8px;
+  min-height: var(--menu-row-height);
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   line-height: 1.5;
   cursor: pointer;

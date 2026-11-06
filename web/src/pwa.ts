@@ -21,7 +21,13 @@ export function initializePwa() {
         'textarea, input:not([type="checkbox"]):not([type="radio"]), [contenteditable="true"]',
       );
     const windowHeight = bounds.getBoundingClientRect().height || root.clientHeight;
-    const keyboard = !!viewport && editing && windowHeight - viewport.height > 120;
+    // Focus can move to a composer action or a native permission prompt before
+    // iOS finishes dismissing the keyboard. Keep the last keyboard viewport
+    // until its actual resize, otherwise the controls jump outside the hit area.
+    const keyboard =
+      !!viewport &&
+      windowHeight - viewport.height > 120 &&
+      (editing || root.dataset.keyboard === 'open');
     const installed =
       standalone.matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
     const safeTop = parseFloat(getComputedStyle(bounds).paddingTop) || 0;

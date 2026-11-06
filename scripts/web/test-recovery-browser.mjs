@@ -1,11 +1,15 @@
 /* global window, document, localStorage, StorageEvent, queueMicrotask */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const origin = process.env.RECOVERY_TEST_ORIGIN || 'http://127.0.0.1:1500/';
 const out = new URL('../../artifacts/recovery/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const checks = [],
   errors = [];
 async function installHost() {
@@ -257,7 +261,7 @@ try {
       }, theme);
       const box = await app.locator('.receipt-recovery').boundingBox();
       assert.ok(box.x >= 0 && box.x + box.width <= width + 1);
-      await page.screenshot({ path: new URL(`review-${width}-${theme}.png`, out).pathname });
+      await page.screenshot({ path: fileURLToPath(new URL(`review-${width}-${theme}.png`, out)) });
     }
   await review().check();
   await confirm().click();

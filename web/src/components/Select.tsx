@@ -55,6 +55,7 @@ export function Select({
   id,
   title,
   className = '',
+  triggerIcon,
   'aria-label': label,
   'aria-labelledby': labelledBy,
 }: {
@@ -66,6 +67,7 @@ export function Select({
   id?: string;
   title?: string;
   className?: string;
+  triggerIcon?: ReactNode;
   'aria-label'?: string;
   'aria-labelledby'?: string;
 }) {
@@ -250,7 +252,7 @@ export function Select({
         id={id}
         type="button"
         role="combobox"
-        className="select-trigger"
+        className={`select-trigger${triggerIcon ? ' select-trigger-icon' : ''}`}
         aria-label={label}
         aria-labelledby={labelledBy}
         aria-haspopup="listbox"
@@ -262,8 +264,12 @@ export function Select({
         onKeyDown={keydown}
         onClick={() => (open ? close(true) : show())}
       >
-        <span>{current?.label || value || t('请选择')}</span>
-        <ChevronDown size={15} aria-hidden="true" />
+        {triggerIcon || (
+          <>
+            <span>{current?.label || value || t('请选择')}</span>
+            <ChevronDown size={15} aria-hidden="true" />
+          </>
+        )}
       </button>
       <div
         id={popupId}

@@ -58,7 +58,7 @@ impl Config {
         let proxy_token = std::env::var("AGENTDECK_PROXY_TOKEN")
             .ok()
             .filter(|v| !v.is_empty());
-        if proxy_token.as_ref().is_some_and(|v| v.len() < 32) {
+        if proxy_token.as_ref().is_some_and(|v| !valid_proxy_secret(v)) {
             return Err(Error::invalid());
         }
         Ok(Self {
@@ -69,5 +69,29 @@ impl Config {
             max_tunnels,
             proxy_token,
         })
+    }
+}
+
+fn valid_proxy_secret(value: &str) -> bool {
+    value.len() >= 32
+        && value.len() <= 1024
+        && !value.chars().any(char::is_whitespace)
+        && !value.chars().any(char::is_control)
+        && !value.to_ascii_lowercase().starts_with("replace-with-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_public_example_proxy_secrets_and_invalid_headers() {
+        assert!(!valid_proxy_secret(
+            "replace-with-another-64-random-hex-characters"
+        ));
+        assert!(!valid_proxy_secret("short"));
+        assert!(!valid_proxy_secret(&format!("{}\r\n", "a".repeat(64))));
+        assert!(!valid_proxy_secret(&"x".repeat(1025)));
+        assert!(valid_proxy_secret(&crate::security::token()));
     }
 }
