@@ -52,7 +52,9 @@ agentdeck codex                       # 共享 CLI；也可追加 THREAD_ID 续�
 
 Windows 原版 Codex 桌面需预先安装，使用开始菜单“Codex shared”或 `agentdeck desktop` 打开共享实例；已有桌面先在任务空闲后退出再重开。普通原版图标独立启动不会自动切换到共享运行时。安装器创建快捷方式，直接解压或从源码构建的用户可用 `agentdeck desktop`。
 
-## 语言设置（源码新增，尚未发布）
+## 网页设置（简化版源码，尚未部署）
+
+主 Web/PWA 设置分为常规、项目和电脑。常规提供语言、外观、系统通知和退出 AgentDeck 账户。项目页用于选择、同步和管理已授权项目，电脑页用于连接、重连、重命名和解绑。会话模型与思维强度从输入区选择。
 
 Web/PWA 支持跟随系统、简体中文和英文；可在登录页或设置的通用页切换。偏好保存在本浏览器，并同步同源标签页。切换保留未发送草稿、用户内容和文件名；PWA 描述、安装清单和离线提示同步本地化。
 
@@ -117,7 +119,7 @@ Windows 自启使用当前用户的 `HKCU/Software/Microsoft/Windows/CurrentVers
 
 升级可重复运行安装命令，指定旧版本可回退程序：Windows 下载脚本后用 `-Version 版本号` 执行；Linux 在管道右侧使用 `AGENTDECK_VERSION=版本号 sh`。安装器使用独立版本目录并保留旧程序，不覆盖正在运行的二进制，不更改账户和项目状态；已运行的 Host 在显式 `agentdeck restart` 后切到新版本。回退程序不等同于回退数据库，跨不兼容数据迁移不能直接降级。
 
-更新入口（已上线）沿用 **yecaoyun / `https://agent.ptsfdtz.top`**，未迁移到 aly。Host 使用 `agentdeck update --check` 检查、`agentdeck update` 下载校验并安装；只执行程序内置的安装脚本，保留旧版本和正在运行的服务，空闲后显式 `agentdeck restart`。旧 Host 首次仍需重跑安装命令才能获得更新命令；更新源可用 `--origin HTTPS_ORIGIN` 或 `AGENTDECK_DOWNLOAD_ORIGIN` 指定，安装器保存来源和发布版本。网页/PWA 在“设置→常规”检查当前站点的新构建，提示手动重新加载，不自动丢弃草稿。
+更新入口（已上线）沿用 **yecaoyun / `https://agent.ptsfdtz.top`**，未迁移到 aly。Host 使用 `agentdeck update --check` 检查、`agentdeck update` 下载校验并安装；只执行程序内置的安装脚本，保留旧版本和正在运行的服务，空闲后显式 `agentdeck restart`。旧 Host 首次仍需重跑安装命令才能获得更新命令；更新源可用 `--origin HTTPS_ORIGIN` 或 `AGENTDECK_DOWNLOAD_ORIGIN` 指定，安装器保存来源和发布版本。
 
 ### 用户更新软件
 
@@ -133,7 +135,7 @@ agentdeck status --json
 
 “安装成功”只表示文件已安装；`restart` 返回也不表示 Codex 已就绪。首次启动可能正在下载和校验兼容运行时；待 `cloud.online`、`codexReady` 均为 `true` 且 `runtimeError` 为 `null`，再从 Web/PWA 打开会话核对历史和实际使用。持续未就绪时查看 `agentdeck logs`、`agentdeck doctor`；无需因初始化等待重新登录或添加项目。更新保留身份、账户、项目和会话状态。网页确认目标版本运行、云端连接与 Codex 就绪后，可点“更新完成”提示右侧 ×，或关闭已完成的详情弹窗，收起本次提示；当前浏览器会记住该电脑的这次关闭状态，新版本仍会提示。
 
-网页直接更新（0.4.2 已发布，完整升级链路验收待补）：发现新版后点“查看更新”，阅读版本与更新说明，再点“下载并安装更新”；安装不打断任务，完成后可选择“空闲后重启并完成更新”，等待期间可取消待重启。专用接口沿用电脑授权及操作回执，不依赖 Codex 或 AI 会话，不接收任意命令或下载 URL。Host 持久化更新状态，刷新、断线或更新进程异常后可重新核对；切换前阻止新操作进入并核对全部任务、审批及未知任务结果，重连后确认实际运行版本、云端连接和 Codex 就绪才标为完成。Linux systemd Host 使用独立用户更新服务下载安装和切换，保留原 Host 的隔离配置。旧 Host 显示一次性安装命令，必须在被控制电脑执行；开发版不自动替换。网页/PWA 自身更新仍在“设置→常规”重新加载。
+网页直接更新（0.4.2 已发布，完整升级链路验收待补）：发现新版后点“查看更新”，阅读版本与更新说明，再点“下载并安装更新”；安装不打断任务，完成后可选择“空闲后重启并完成更新”，等待期间可取消待重启。专用接口沿用电脑授权及操作回执，不依赖 Codex 或 AI 会话，不接收任意命令或下载 URL。Host 持久化更新状态，刷新、断线或更新进程异常后可重新核对；切换前阻止新操作进入并核对全部任务、审批及未知任务结果，重连后确认实际运行版本、云端连接和 Codex 就绪才标为完成。Linux systemd Host 使用独立用户更新服务下载安装和切换，保留原 Host 的隔离配置。旧 Host 显示一次性安装命令，必须在被控制电脑执行；开发版不自动替换。
 
 旧桌面实例仍运行时，先在任务空闲后从旧托盘“停止并退出”，再启动 Host。不会强杀原实例或生成另一套身份。已有 MSIX 私有数据需要沿用该实际目录，可显式设置 `AGENTDECK_DATA_DIR`；不再通过 `.tmp/desktop-dev-data-dir.txt` 隐式切换，不能仅凭云端账户恢复电脑证书。
 
@@ -141,7 +143,7 @@ agentdeck status --json
 
 0.4.2 若提示 `Codex is not ready`，先执行 `agentdeck status --json`。当 `runtimeError` 为 `UNSAFE_UPSTREAM_CONFIG: Workspace permission profile overridden` 时，检查 `${CODEX_HOME}/config.toml`（未设置 `CODEX_HOME` 时为 `$HOME/.codex/config.toml`）中的旧 `sandbox_mode`。已知 `sandbox_mode = "danger-full-access"` 会与 Host 工作区权限校验冲突；这个通用错误也可能表示默认权限名称或权限继承关系不符。
 
-针对已确认的旧 `sandbox_mode` 冲突，先备份文件，再移除或注释该配置项；0.4.2 Windows 改成 `workspace-write` 仍会被旧校验拒绝。保存工作并核对任务、审批与未知发送结果后重启电脑，使独立共享运行时重新加载配置；仅执行 `agentdeck restart` 会保留共享运行时，不能保证重载。启动 Host 后确认 `codexReady=true`、`runtimeError=null`，再执行 `agentdeck projects sync`。源码已增加进程内安全默认值覆盖和具体字段诊断，尚未发布，验收边界见[功能状态](status.md)。
+针对已确认的旧 `sandbox_mode` 冲突，先备份文件，再移除或注释该配置项；0.4.2 Windows 改成 `workspace-write` 仍会被旧校验拒绝。保存工作并核对任务、审批与未知发送结果后重启电脑，使独立共享运行时重新加载配置；仅执行 `agentdeck restart` 会保留共享运行时，不能保证重载。启动 Host 后确认 `codexReady=true`、`runtimeError=null`，再执行 `agentdeck projects sync`。0.4.3 已包含进程内安全默认值覆盖和具体字段诊断，实机验收边界见[功能状态](status.md)。
 
 ## Linux 运行时
 
