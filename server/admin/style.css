@@ -8,9 +8,11 @@
   --muted: #666;
   --ink: #202020;
   --contrast: #fff;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 * {
   box-sizing: border-box;
+  corner-shape: squircle;
 }
 body {
   margin: 0;
@@ -88,6 +90,14 @@ button {
   font: inherit;
   font-size: 14px;
   cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 120ms var(--ease-out);
+}
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 button.secondary,
 nav button {
@@ -177,9 +187,87 @@ dialog {
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 28px;
+  opacity: 0;
+  transform: scale(0.96);
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out),
+    display 200ms allow-discrete,
+    overlay 200ms allow-discrete;
+}
+dialog[open] {
+  opacity: 1;
+  transform: none;
+}
+dialog:not([open]) {
+  pointer-events: none;
 }
 dialog::backdrop {
+  background: transparent;
+  transition: background-color 200ms ease;
+}
+dialog[open]::backdrop {
   background: #0006;
+}
+@supports (clip-path: shape(from 0 0, line to 100% 100%, close)) and (not (corner-shape: squircle)) {
+  :where(.card, dialog, #notice, #secret-value, button, input:not([type='checkbox'])) {
+    --curve-size: min(16px, 50%);
+    --curve-end: calc(100% - var(--curve-size));
+    --curve-a: calc(var(--curve-size) * 0.2);
+    --curve-b: calc(var(--curve-size) * 0.4);
+    --curve-c: calc(var(--curve-size) * 0.54);
+    --curve-a-end: calc(100% - var(--curve-a));
+    --curve-b-end: calc(100% - var(--curve-b));
+    --curve-c-end: calc(100% - var(--curve-c));
+    clip-path: shape(
+      from var(--curve-size) 0,
+      hline to var(--curve-end),
+      curve to var(--curve-a-end) var(--curve-a) with var(--curve-c-end) 0 / var(--curve-b-end) 0,
+      curve to 100% var(--curve-size) with 100% var(--curve-b) / 100% var(--curve-c),
+      vline to var(--curve-end),
+      curve to var(--curve-a-end) var(--curve-a-end) with 100% var(--curve-c-end) / 100%
+        var(--curve-b-end),
+      curve to var(--curve-end) 100% with var(--curve-b-end) 100% / var(--curve-c-end) 100%,
+      hline to var(--curve-size),
+      curve to var(--curve-a) var(--curve-a-end) with var(--curve-c) 100% / var(--curve-b) 100%,
+      curve to 0 var(--curve-end) with 0 var(--curve-b-end) / 0 var(--curve-c-end),
+      vline to var(--curve-size),
+      curve to var(--curve-a) var(--curve-a) with 0 var(--curve-c) / 0 var(--curve-b),
+      curve to var(--curve-size) 0 with var(--curve-b) 0 / var(--curve-c) 0,
+      close
+    );
+  }
+
+  :is(.card, dialog) {
+    --curve-size: min(32px, 50%);
+  }
+  :is(button, input:not([type='checkbox'])):focus-visible {
+    outline-offset: -3px;
+  }
+}
+@starting-style {
+  dialog[open] {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  dialog[open]::backdrop {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog,
+  button:active:not(:disabled) {
+    transform: none;
+    transition-duration: 100ms;
+  }
+  @starting-style {
+    dialog[open] {
+      transform: none;
+    }
+  }
 }
 #editor-fields {
   display: grid;
