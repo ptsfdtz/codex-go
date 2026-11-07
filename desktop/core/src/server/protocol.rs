@@ -124,6 +124,7 @@ pub fn parse(v: Value) -> Result<Request> {
             &[
                 "model",
                 "effort",
+                "responseSpeed",
                 "permissionMode",
                 "mode",
                 "attachments",
@@ -170,7 +171,7 @@ pub fn parse(v: Value) -> Result<Request> {
                 "itemId",
                 "text",
             ],
-            &["model", "effort", "permissionMode", "mode"],
+            &["model", "effort", "permissionMode", "mode", "responseSpeed"],
         ),
         "sessions.compact" => (&["sessionId", "expectedLastTurnId"], &[]),
         "sessions.revert" => (&["sessionId", "beforeTurnId", "expectedLastTurnId"], &[]),
@@ -310,6 +311,13 @@ pub fn parse(v: Value) -> Result<Request> {
         if p.get(key).is_some() {
             text(p, key, 1, 160)?;
         }
+    }
+    if p.get("responseSpeed").is_some() {
+        ensure(
+            matches!(p["responseSpeed"].as_str(), Some("default" | "fast")),
+            "INVALID_REQUEST",
+            "Invalid response speed",
+        )?;
     }
     if ["settings.modelDefaults", "settings.outputDefaults"].contains(&r.action.as_str()) {
         text(p, "expectedUserRevision", 64, 64)?;

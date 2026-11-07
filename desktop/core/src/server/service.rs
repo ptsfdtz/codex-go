@@ -746,7 +746,7 @@ impl Core {
                 json!({"session":self.store.session(s(p,"sessionId"))?,"turns":self.store.turns(Some(s(p,"sessionId")))?,"events":self.store.history(s(p,"sessionId"),p["before"].as_str(),p["limit"].as_u64().unwrap_or(100) as usize)?}),
             ),
             "turn.start" => Ok(
-                json!({"turn":self.start_turn_with_references(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str(),p["permissionMode"].as_str().unwrap_or("workspace"),p["mode"].as_str().unwrap_or("default"),p.get("attachments"),p.get("skills"),p.get("references")).await?}),
+                json!({"turn":self.start_turn_with_references(s(p,"sessionId"),s(p,"text"),p["model"].as_str(),p["effort"].as_str(),p["permissionMode"].as_str().unwrap_or("workspace"),p["mode"].as_str().unwrap_or("default"),p.get("attachments"),p.get("skills"),p.get("references"),p["responseSpeed"].as_str()).await?}),
             ),
             "turn.interrupt" => self.interrupt(s(p, "sessionId"), s(p, "turnId")).await,
             "turn.active" => self.active_upstream_turn(s(p, "sessionId")).await,
