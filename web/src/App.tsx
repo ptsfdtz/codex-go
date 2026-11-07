@@ -123,10 +123,13 @@ import {
   Menu,
   ChevronDown,
   ChevronLeft,
+  ChevronsUpDown,
   Check,
   Computer,
+  LaptopMinimal,
   MoreHorizontal,
   FolderOpen,
+  Folder,
   Search,
   History,
   Copy,
@@ -1413,7 +1416,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       } else {
         const result = await connection.request<{ turn?: Turn }>('turn.start', {
           sessionId: id,
-          ...turnOptions(chat ? { ...source, mode: 'default', skills: [] } : source, permission),
+          ...turnOptions(
+            chat ? { ...source, mode: 'default', skills: [] } : source,
+            permission,
+            supports('turnResponseSpeed'),
+          ),
         });
         if (epoch === connectionEpoch.current && sessionRef.current === id) {
           activityVersion.current++;
@@ -1646,6 +1653,9 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             text: editText.trim(),
             permissionMode: permission,
             mode: draft.mode,
+            ...(supports('turnResponseSpeed') && draft.responseSpeed
+              ? { responseSpeed: draft.responseSpeed }
+              : {}),
             ...Object.fromEntries(
               Object.entries(resolveComposerModelPreferences(draft, models)).filter(
                 ([, value]) => value,
@@ -2370,10 +2380,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           {!session && (
             <div className="new-conversation-context">
               <div className="new-context-row">
-                <Computer size={20} aria-hidden="true" />
+                <LaptopMinimal size={20} aria-hidden="true" />
                 {hosts.length ? (
                   <Select
                     aria-label={t('切换电脑')}
+                    chevron={ChevronsUpDown}
                     value={host?.hostId || ''}
                     onValueChange={(id) => {
                       const next = hosts.find((item) => item.hostId === id);
@@ -2392,9 +2403,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 )}
               </div>
               <div className="new-context-row">
-                <FolderOpen size={20} aria-hidden="true" />
+                <Folder size={20} aria-hidden="true" />
                 <Select
                   aria-label={t('切换项目')}
+                  chevron={ChevronsUpDown}
                   value={selectedProject}
                   disabled={!connected}
                   onValueChange={(id) => {

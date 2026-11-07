@@ -183,6 +183,9 @@ try {
               'latestUpstreamTurn',
               'projectTerminal',
               'nativeQueue',
+              'hostUpdateCheck',
+              'hostUpdateManage',
+              'turnResponseSpeed',
               'sessionTokenUsage',
               'sessionGoalView',
               'plan',
@@ -199,6 +202,7 @@ try {
               model: 'gpt-6.1-sol',
               displayName: 'GPT-6.1 Sol',
               isDefault: true,
+              fastServiceTier: 'fast',
               defaultReasoningEffort: 'high',
               supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
             },
@@ -223,6 +227,15 @@ try {
           ],
         };
       if (action === 'queue.list') return { sessionId: payload.sessionId, data: [] };
+      if (action === 'system.updateStatus') return { job: null };
+      if (action === 'system.updateCheck')
+        return {
+          current: '0.4.3',
+          latest: '0.4.3',
+          platform: 'windows',
+          installation: 'release',
+          updateAvailable: false,
+        };
       if (action === 'turn.latest') return { turn: null };
       if (action === 'git.status') return { available: true, files: [] };
       if (action === 'files.list')
@@ -385,6 +398,7 @@ try {
     'Asynchronous microphone denial/null-focus preserves native pointer/mouse events, editor typing, add/model menus without visible error rows; no terminal abort',
   );
   await shot('conversation-390-editing-dark');
+  const sheet = page.locator('.permission-sheet');
   await main.getByRole('button', { name: '执行权限：工作区权限', exact: true }).click();
   const permission = page.getByRole('dialog', { name: '应如何批准 Codex 操作？' });
   await permission.waitFor();
@@ -403,17 +417,62 @@ try {
   assert(Math.abs(modelBounds.x + modelBounds.width / 2 - 195) <= 1);
   const rail = await model.locator('.effort-slider').boundingBox();
   const range = model.getByRole('slider');
+  const needle = main.locator('path.model-gauge-needle');
   const rangeBounds = await range.boundingBox();
+  assert.equal(Math.round(rail.height), 64);
+  assert(Math.abs(rail.y + rail.height - 840) <= 1, 'Capsule sits at the bottom of the viewport');
   assert(Math.abs(rangeBounds.height - rail.height) <= 1, 'Entire visible rail accepts input');
+  await page.mouse.click(rail.x + 32 + (rail.width - 64) * 0.4, rail.y + rail.height / 2);
+  await shot('model-390-dark');
   await page.mouse.click(rail.x + rail.width - 12, rail.y + rail.height - 8);
   assert.equal(await range.inputValue(), await range.getAttribute('max'));
+  assert.equal(await needle.evaluate((node) => node.style.transform), 'rotate(112deg)');
+  assert.equal(await needle.evaluate((node) => node.getAnimations().length), 0);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.mouse.click(rail.x + 12, rail.y + rail.height - 8);
   assert.equal(await range.inputValue(), '0');
+  assert.equal(await needle.evaluate((node) => node.style.transform), 'rotate(-112deg)');
+  await page.waitForFunction(() =>
+    document
+      .querySelector('path.model-gauge-needle')
+      ?.getAnimations()
+      .some((animation) => animation.transitionProperty === 'transform'),
+  );
   await model.getByRole('slider').focus();
   await page.keyboard.press('ArrowRight');
-  await shot('model-390-dark');
-  checks.push('Mobile model overlay is centered; lower-half taps reach both slider endpoints');
+  assert.equal(await needle.evaluate((node) => node.getAnimations().length), 0);
+  assert.equal(await model.getByRole('button', { name: '快速模式', exact: true }).count(), 0);
   await page.keyboard.press('Escape');
+  const fast = main.getByRole('button', { name: '快速模式', exact: true });
+  assert(await fast.isVisible());
+  assert.equal(await fast.getAttribute('aria-pressed'), 'false');
+  await fast.tap();
+  assert.equal(await fast.getAttribute('aria-pressed'), 'true');
+  await editorAfterDenial.fill('验证快速模式');
+  await shot('model-gauge-390-dark');
+  await main.getByRole('button', { name: '发送', exact: true }).tap();
+  await page.waitForFunction(() =>
+    window.calls.some(
+      (call) => call.action === 'turn.start' && call.payload.text === '验证快速模式',
+    ),
+  );
+  const speedRequest = await page.evaluate(
+    () =>
+      window.calls.find(
+        (call) => call.action === 'turn.start' && call.payload.text === '验证快速模式',
+      ).payload,
+  );
+  assert.equal(speedRequest.responseSpeed, 'fast');
+  assert.equal(speedRequest.model, 'gpt-6.1-sol');
+  assert.equal(speedRequest.effort, 'medium');
+  await editorAfterDenial.tap();
+  await fast.tap();
+  assert.equal(await fast.getAttribute('aria-pressed'), 'false');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  checks.push(
+    'Needle follows effort with pointer motion and updates immediately on keyboard/reduced motion; Fast reaches turn.start without changing effort',
+  );
+  checks.push('Mobile model overlay is centered; lower-half taps reach both slider endpoints');
   await main.getByRole('button', { name: '添加附件和操作', exact: true }).click();
   await page.getByRole('menuitem', { name: '相机', exact: true }).waitFor();
   const chooser = page.waitForEvent('filechooser');
@@ -512,6 +571,35 @@ try {
   );
   await shot('new-conversation-390-light');
   checks.push('New conversation context project selector changes actual project state');
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+  await page.setViewportSize({ width: 390, height: 530 });
+  await main.getByRole('textbox', { name: '消息', exact: true }).fill('选择模型的 icon 需要添加');
+  await main.getByRole('button', { name: '执行权限：工作区权限', exact: true }).tap();
+  await page.getByRole('button', { name: /完全访问计算机/ }).tap();
+  await sheet.waitFor({ state: 'detached' });
+  const toolbar = main.locator('.composer-toolbar');
+  const controls = await toolbar.locator('button:visible').evaluateAll((buttons) =>
+    buttons.map((button) => {
+      const box = button.getBoundingClientRect();
+      return {
+        label: button.getAttribute('aria-label'),
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2,
+      };
+    }),
+  );
+  assert.deepEqual(
+    controls.map(({ label }) => label),
+    ['添加附件和操作', '执行权限：完整访问', '快速模式', '切换模型', '语音输入', '发送'],
+  );
+  assert(controls.every(({ y }) => Math.abs(y - controls[0].y) < 1));
+  assert(controls.slice(3).every(({ x }, index) => Math.abs(x - controls[index + 2].x - 44) < 1));
+  assert.equal(await needle.evaluate((node) => node.style.transform), 'rotate(0deg)');
+  await shot('new-conversation-toolbar-390-dark');
+  await main.getByRole('button', { name: '执行权限：完整访问', exact: true }).tap();
+  await page.getByRole('button', { name: /在已授权项目内工作/ }).tap();
+  await sheet.waitFor({ state: 'detached' });
+  await page.setViewportSize({ width: 390, height: 844 });
   await main.getByRole('textbox', { name: '消息', exact: true }).fill('重连保留的新对话草稿');
   const snapshotReads = await page.evaluate(
     () => window.calls.filter((call) => call.action === 'snapshot.get').length,

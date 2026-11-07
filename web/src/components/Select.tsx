@@ -11,7 +11,7 @@ import {
   type ReactNode,
   type KeyboardEvent,
 } from 'react';
-import { Check, ChevronDown, Search } from 'lucide-react';
+import { Check, ChevronDown, Search, type LucideIcon } from 'lucide-react';
 import './select.css';
 
 type Option = { value: string; label: string; disabled: boolean; group?: string };
@@ -56,6 +56,7 @@ export function Select({
   title,
   className = '',
   triggerIcon,
+  chevron: Chevron = ChevronDown,
   'aria-label': label,
   'aria-labelledby': labelledBy,
 }: {
@@ -68,6 +69,7 @@ export function Select({
   title?: string;
   className?: string;
   triggerIcon?: ReactNode;
+  chevron?: LucideIcon;
   'aria-label'?: string;
   'aria-labelledby'?: string;
 }) {
@@ -267,7 +269,7 @@ export function Select({
         {triggerIcon || (
           <>
             <span>{current?.label || value || t('请选择')}</span>
-            <ChevronDown size={15} aria-hidden="true" />
+            <Chevron size={15} aria-hidden="true" />
           </>
         )}
       </button>

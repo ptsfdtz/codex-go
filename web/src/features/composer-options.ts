@@ -11,13 +11,14 @@ export function resources(draft: Draft) {
   };
 }
 
-export function turnOptions(draft: Draft, permissionMode: string) {
+export function turnOptions(draft: Draft, permissionMode: string, supportsResponseSpeed: boolean) {
   return {
     text: draft.text.trim(),
     mode: draft.mode,
     permissionMode,
     ...(draft.model ? { model: draft.model } : {}),
     ...(draft.effort ? { effort: draft.effort } : {}),
+    ...(supportsResponseSpeed && draft.responseSpeed ? { responseSpeed: draft.responseSpeed } : {}),
     ...resources(draft),
   };
 }

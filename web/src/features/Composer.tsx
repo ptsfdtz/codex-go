@@ -392,13 +392,14 @@ export function Composer({
               models={models}
               disabled={disabled || busy}
               onChange={onChange}
+              allowResponseSpeed={!active && supports('turnResponseSpeed')}
             />
           </div>
         </>
       ) : (
         <div
           ref={expansion}
-          className={`composer${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}${!focused && !expanded && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent && !expanded ? ' is-empty' : ''}`}
+          className={`composer${execution && active ? ' is-follow-up' : ''}${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}${!focused && !expanded && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent && !expanded ? ' is-empty' : ''}`}
           onDragEnter={(event) => {
             if (!isFileDrag(event)) return;
             event.preventDefault();
@@ -540,9 +541,11 @@ export function Composer({
             placeholder={
               disabled
                 ? disabledReason || (execution ? t('连接电脑后开始') : t('暂时无法发送'))
-                : chat
-                  ? t('聊点什么…')
-                  : placeholder || t('向 Codex 提问或描述任务…')
+                : execution && active
+                  ? t('跟进')
+                  : chat
+                    ? t('聊点什么…')
+                    : placeholder || t('向 Codex 提问或描述任务…')
             }
             disabled={disabled || busy}
           />
@@ -621,6 +624,7 @@ export function Composer({
               disabled={disabled || busy}
               onChange={onChange}
               allowDefault={execution}
+              allowResponseSpeed={!active && supports('turnResponseSpeed')}
             />
             <div className="composer-actions" role="group" aria-label={t('发送与执行控制')}>
               {expanded && (

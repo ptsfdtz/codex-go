@@ -369,7 +369,11 @@ export function SideChat({
       } else {
         const result = await request<{ turn?: Turn }>('turn.start', {
           sessionId: target,
-          ...turnOptions(chat ? { ...source, mode: 'default', skills: [] } : source, permission),
+          ...turnOptions(
+            chat ? { ...source, mode: 'default', skills: [] } : source,
+            permission,
+            supports('turnResponseSpeed'),
+          ),
         });
         if (transport === liveConnection.current && identity.current === target) {
           activityVersion.current++;

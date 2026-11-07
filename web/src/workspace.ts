@@ -16,6 +16,7 @@ export type Model = {
   displayName?: string;
   description?: string;
   defaultReasoningEffort?: string;
+  fastServiceTier?: 'fast' | 'priority' | null;
   isDefault?: boolean;
   supportedReasoningEfforts?: (string | { reasoningEffort: string; description?: string })[];
 };
@@ -92,6 +93,7 @@ export type Draft = {
   mode: string;
   model: string;
   effort: string;
+  responseSpeed?: 'default' | 'fast';
 };
 export const emptyDraft = (): Draft => ({
   text: '',

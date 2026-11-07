@@ -1,6 +1,15 @@
 import { errorText, t, useLocale } from '../../i18n';
-import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Trash2, Clock, RefreshCw, Paperclip } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import {
+  ArrowUp,
+  CornerDownRight,
+  Ellipsis,
+  Trash2,
+  Clock,
+  RefreshCw,
+  Paperclip,
+} from 'lucide-react';
+import { positionPopover, useMenuPopover } from '../../components/popover';
 import { IconButton } from '../../ui';
 import { contentText, FileReferences } from '../../RichContent';
 import type { Request } from '../../workspace';
@@ -13,6 +22,65 @@ export type QueuedMessage = {
   deliveryState?: string;
   deliveryMessage?: string;
 };
+
+function QueuedMessageMenu({
+  entryId,
+  disabled,
+  loading,
+  onDelete,
+  onRefresh,
+}: {
+  entryId: string;
+  disabled: boolean;
+  loading: boolean;
+  onDelete: () => void;
+  onRefresh: () => void;
+}) {
+  const id = useId();
+  const menu = useMenuPopover();
+  return (
+    <>
+      <button
+        type="button"
+        className="icon-button queued-more"
+        popoverTarget={id}
+        aria-label={t('更多操作 {{p0}}', { p0: entryId })}
+        onClick={(event) => {
+          if (menu.current)
+            positionPopover(event.currentTarget, menu.current, { width: 208, preferAbove: true });
+        }}
+      >
+        <Ellipsis size={17} aria-hidden="true" />
+      </button>
+      <div id={id} ref={menu} popover="auto" className="popover queued-menu">
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => {
+            menu.current?.hidePopover();
+            onRefresh();
+          }}
+        >
+          <RefreshCw size={16} aria-hidden="true" />
+          {t('刷新待发送消息')}
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={t('删除待发送消息 {{p0}}', { p0: entryId })}
+          onClick={() => {
+            menu.current?.hidePopover();
+            onDelete();
+          }}
+        >
+          <Trash2 size={16} aria-hidden="true" />
+          {t('删除')}
+        </button>
+      </div>
+    </>
+  );
+}
+
 export function QueuedMessages({
   request,
   sessionId,
@@ -137,25 +205,29 @@ export function QueuedMessages({
     }
   }
   if (!enabled || (!entries.length && !error && !readError)) return null;
+  const refresh = () => setReload((value) => value + 1);
+  const actionsDisabled = disabled || loading || !fresh || !!pending;
   return (
     <section
-      className="queued-messages"
+      className={`queued-messages${active ? ' is-steering' : ''}`}
       aria-label={t('待发送消息')}
       aria-busy={loading || !!pending}
     >
-      <div className="queued-heading">
-        <span>
-          <Clock size={13} />
-          {t('待发送 ')}
-          <small>{entries.length}</small>
-        </span>
-        <IconButton
-          icon={RefreshCw}
-          label={t('刷新待发送消息')}
-          disabled={!!pending || loading}
-          onClick={() => setReload((value) => value + 1)}
-        />
-      </div>
+      {(!active || !entries.length) && (
+        <div className="queued-heading">
+          <span>
+            <Clock size={13} />
+            {t('待发送 ')}
+            <small>{entries.length}</small>
+          </span>
+          <IconButton
+            icon={RefreshCw}
+            label={t('刷新待发送消息')}
+            disabled={!!pending || loading}
+            onClick={refresh}
+          />
+        </div>
+      )}
       <div className="queued-list">
         {entries.map((entry) => {
           const text = contentText(entry.input),
@@ -175,25 +247,28 @@ export function QueuedMessages({
                 : !active && !canStart
                   ? t('当前电脑不支持提前发送')
                   : '';
+          const content = (
+            <div className="queued-content">
+              <button
+                className={`queued-text${expanded.includes(entry.id) ? ' is-expanded' : ''}`}
+                aria-expanded={expanded.includes(entry.id)}
+                onClick={() =>
+                  setExpanded((values) =>
+                    values.includes(entry.id)
+                      ? values.filter((id) => id !== entry.id)
+                      : [...values, entry.id],
+                  )
+                }
+              >
+                {text || t('资源消息')}
+              </button>
+              {expanded.includes(entry.id) && <FileReferences parts={entry.input} />}
+              {entry.deliveryState && <small className="queued-reason">{reason}</small>}
+            </div>
+          );
           return (
             <div className="queued-message" key={entry.id}>
-              <div className="queued-content">
-                <button
-                  className={`queued-text${expanded.includes(entry.id) ? ' is-expanded' : ''}`}
-                  aria-expanded={expanded.includes(entry.id)}
-                  onClick={() =>
-                    setExpanded((values) =>
-                      values.includes(entry.id)
-                        ? values.filter((id) => id !== entry.id)
-                        : [...values, entry.id],
-                    )
-                  }
-                >
-                  {text || t('资源消息')}
-                </button>
-                {expanded.includes(entry.id) && <FileReferences parts={entry.input} />}
-                {entry.deliveryState && <small className="queued-reason">{reason}</small>}
-              </div>
+              {!active && content}
               <div className="queued-actions">
                 {resources && (
                   <span
@@ -212,20 +287,44 @@ export function QueuedMessages({
                   tabIndex={reason ? 0 : undefined}
                   aria-label={reason || undefined}
                 >
-                  <IconButton
-                    icon={ArrowUp}
-                    label={t('提前发送消息 {{p0}}', { p0: entry.id })}
-                    disabled={disabled || loading || !fresh || !!pending || !!reason}
-                    onClick={() => void mutate('send', entry)}
-                  />
+                  {active ? (
+                    <button
+                      type="button"
+                      className="queued-steer"
+                      aria-label={t('引导对话 {{p0}}', { p0: entry.id })}
+                      disabled={actionsDisabled || !!reason}
+                      onClick={() => void mutate('send', entry)}
+                    >
+                      <CornerDownRight size={15} aria-hidden="true" />
+                      {t('引导对话')}
+                    </button>
+                  ) : (
+                    <IconButton
+                      icon={ArrowUp}
+                      label={t('提前发送消息 {{p0}}', { p0: entry.id })}
+                      disabled={actionsDisabled || !!reason}
+                      onClick={() => void mutate('send', entry)}
+                    />
+                  )}
                 </span>
-                <IconButton
-                  icon={Trash2}
-                  label={t('删除待发送消息 {{p0}}', { p0: entry.id })}
-                  disabled={disabled || loading || !fresh || !!pending}
-                  onClick={() => void mutate('delete', entry)}
-                />
+                {active ? (
+                  <QueuedMessageMenu
+                    entryId={entry.id}
+                    disabled={actionsDisabled}
+                    loading={loading || !!pending}
+                    onDelete={() => void mutate('delete', entry)}
+                    onRefresh={refresh}
+                  />
+                ) : (
+                  <IconButton
+                    icon={Trash2}
+                    label={t('删除待发送消息 {{p0}}', { p0: entry.id })}
+                    disabled={actionsDisabled}
+                    onClick={() => void mutate('delete', entry)}
+                  />
+                )}
               </div>
+              {active && content}
             </div>
           );
         })}

@@ -179,10 +179,34 @@
   color: var(--accent);
 }
 .model-gauge {
-  display: none;
+  flex-shrink: 0;
 }
-.shell .composer-toolbar .model-gauge {
-  display: block;
+.model-gauge-track {
+  stroke: var(--muted);
+  opacity: 0.7;
+}
+.model-gauge-fill {
+  stroke: var(--accent);
+}
+.model-gauge-needle,
+.model-gauge-hub {
+  stroke: var(--text);
+}
+.model-gauge-needle {
+  transform-origin: 12px 13px;
+  transition: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-motion-input='pointer'] .model-gauge-needle[data-keyboard='false'] {
+    transition: transform var(--motion-fast) var(--ease-in-out);
+  }
+}
+.model-picker-trigger {
+  position: relative;
+}
+.composer-model > .model-fast-toggle,
+.model-picker-popup .model-picker-mobile-reset {
+  display: none;
 }
 .shell .composer-toolbar .model-picker-trigger > span,
 .shell .composer-toolbar .model-picker-trigger > .lucide-chevron-down {
@@ -251,9 +275,37 @@
   min-height: 24px;
 }
 .model-picker-popup .model-picker-model-toggle {
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 600;
   color: var(--text);
-  padding-block: 6px 12px;
+}
+.model-speed {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.model-speed > button {
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.15;
+  text-align: center;
+}
+.model-speed > button[aria-pressed='true'] {
+  color: var(--text);
+  background: var(--hover);
+}
+.model-speed > button[aria-pressed='true'] > svg {
+  color: var(--accent);
+  fill: currentColor;
 }
 .shell .composer-status {
   display: flex;
@@ -307,6 +359,76 @@
 }
 .shell .queued-actions {
   justify-content: flex-end;
+}
+.shell .queued-messages.is-steering {
+  margin: 0 0 24px;
+  padding: 0 clamp(12px, 5vw, 20px) 2px;
+  background: transparent;
+}
+.shell .is-steering .queued-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shell .is-steering .queued-message {
+  align-self: end;
+  align-items: flex-end;
+  gap: 2px;
+  max-width: 85%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.shell .is-steering .queued-content {
+  padding: 9px 15px;
+  border: 1px solid var(--border);
+  border-radius: 23px;
+  background: var(--soft);
+  max-width: 100%;
+}
+.shell .is-steering .queued-text {
+  display: -webkit-box;
+  height: auto;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  white-space: pre-wrap;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.shell .is-steering .queued-text.is-expanded {
+  display: block;
+}
+.queued-actions .queued-steer,
+.queued-actions .queued-more {
+  min-height: 44px;
+  color: var(--muted);
+}
+.queued-actions .queued-steer {
+  gap: 6px;
+  padding: 0 2px 0 8px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+}
+.queued-actions .queued-more {
+  width: 34px;
+}
+.queued-menu[popover] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  min-width: 0;
+  overflow: auto;
+}
+.queued-menu > button {
+  width: 100%;
+  justify-content: flex-start;
+  min-height: 44px;
+}
+.composer-stop > svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
 }
 .shell .is-new-conversation .empty-symbol,
 .shell .is-new-conversation .empty h1,
@@ -651,55 +773,9 @@
   color: var(--warning);
 }
 .model-picker-popup[popover] {
-  --effort-inset: 27px;
-  --effort-padding: 0px;
-  --effort-thumb-size: 40px;
-  background: var(--soft);
+  padding: 6px;
   border-radius: 24px;
-}
-.model-picker-mobile-reset {
-  display: none;
-}
-.model-picker-popup[popover]::backdrop {
-  background: color-mix(in srgb, var(--bg) 20%, transparent);
-  backdrop-filter: blur(4px);
-}
-.model-picker-popup .effort-slider {
-  height: 54px;
-  border-radius: 99px;
-  background: var(--faint);
-}
-.model-picker-popup .effort-fill {
-  inset: var(--effort-padding) auto var(--effort-padding) var(--effort-padding);
-  background: var(--accent);
-  border-radius: 99px;
-}
-.model-picker-popup .effort-thumb::after {
-  background: white;
-  width: var(--effort-thumb-size);
-  height: var(--effort-thumb-size);
-}
-.model-picker-popup .effort-thumb-track {
-  inset: 50% var(--effort-inset) auto;
-}
-.model-picker-popup .effort-ticks {
-  inset-inline: var(--effort-inset);
-}
-.model-picker-popup .effort-ticks i {
-  width: 7px;
-  height: 7px;
-}
-.model-picker-popup .effort-slider input {
-  height: 100%;
-  touch-action: pan-y;
-}
-.model-picker-popup .effort-slider input::-webkit-slider-thumb {
-  width: calc(var(--effort-inset) * 2);
-  height: calc(var(--effort-inset) * 2);
-}
-.model-picker-popup .effort-slider input::-moz-range-thumb {
-  width: calc(var(--effort-inset) * 2);
-  height: calc(var(--effort-inset) * 2);
+  background: var(--soft);
 }
 @media (max-width: 760px) {
   :root :is(.shell, .modal, [popover]),
@@ -722,60 +798,78 @@
   .select-search input {
     font-size: 16px;
   }
+  .model-picker-popup .model-picker-option {
+    min-height: 44px;
+    font-size: 15px;
+  }
   .model-picker-popup[popover] {
-    --effort-inset: 32px;
-    --effort-padding: 10px;
-    --effort-thumb-size: 36px;
-    padding: 0;
     border: 0;
     border-radius: 0;
+    padding: 0;
     background: transparent;
     box-shadow: none;
   }
   .model-picker-popup[popover]::backdrop {
-    background: color-mix(in srgb, var(--bg) 12%, transparent);
+    -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
+    mask-image: linear-gradient(to top, black 116px, transparent 205px);
   }
   .model-picker-popup .model-picker-model-toggle {
     justify-content: center;
     gap: 6px;
-    min-height: 44px;
-    padding: 0 8px 12px;
+    padding: 0 6px 12px;
     font-size: 20px;
     font-weight: 500;
-    text-align: center;
   }
-  .model-picker-popup .model-picker-view [role='group'] {
+  .model-picker-popup .model-picker-model-toggle > span {
+    flex: 0 1 auto;
+  }
+  .model-picker-popup .model-picker-model-toggle > small {
+    font: inherit;
+  }
+  .model-picker-popup .model-picker-models {
+    margin-bottom: 10px;
     padding: 6px;
-    margin-bottom: 12px;
     border-radius: 20px;
     background: var(--soft);
-  }
-  .model-picker-popup .model-picker-option {
-    min-height: 44px;
-    font-size: 16px;
-  }
-  .model-picker-popup .model-picker-option.selected {
-    background: var(--hover);
   }
   .model-picker-popup .model-picker-mobile-reset {
     display: flex;
     color: var(--muted);
   }
-  .model-picker-popup .effort-picker-heading {
+  .model-picker-popup .model-picker-desktop-reset,
+  .shell .composer-toolbar .model-speed {
     display: none;
   }
   .model-picker-popup .effort-slider {
+    --effort-inset: 32px;
+    --effort-fill-start: 44px;
     height: 64px;
     margin: 0;
-  }
-  .model-picker-popup .effort-slider:has(input:focus-visible) {
-    outline-offset: -2px;
-  }
-  .model-picker-popup .effort-unavailable {
-    padding: 12px;
-    border-radius: 24px;
+    border-radius: 99px;
     background: var(--soft);
+  }
+  .model-picker-popup .effort-rail {
+    inset: 10px;
+    height: auto;
+    border-radius: 99px;
+    background: transparent;
+  }
+  .model-picker-popup .effort-fill {
+    border-radius: 99px;
+  }
+  .model-picker-popup .effort-thumb::after {
+    width: 36px;
+    height: 36px;
+    background: white;
+  }
+  .model-picker-popup .effort-ticks {
+    inset-inline: calc(var(--effort-inset) - 5px);
+  }
+  .model-picker-popup .effort-ticks i {
+    width: 10px;
+    height: 10px;
+    background: color-mix(in srgb, var(--muted) 65%, transparent);
   }
   .shell .sidebar {
     width: calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right));
@@ -969,6 +1063,9 @@
     padding: 10px 14px;
     border-radius: 20px;
   }
+  :root[data-theme='dark'] .shell .user-turn > .message-content:not(.editing-message) {
+    background: #05085f;
+  }
   .shell .rich-content p {
     margin-bottom: 12px;
   }
@@ -1001,6 +1098,10 @@
   .shell .queued-text {
     font-size: 14px;
     line-height: 1.5;
+  }
+  .shell .is-steering .queued-more {
+    width: 44px;
+    margin-inline: -8px -12px;
   }
   .shell .composer-wrap {
     padding: 8px 11px 8px;
@@ -1062,9 +1163,20 @@
     field-sizing: fixed;
   }
   .shell .composer-toolbar {
-    gap: 1px;
+    gap: 0;
     min-height: 44px;
     flex-wrap: wrap;
+  }
+  .shell .composer:not(.is-compact) .composer-toolbar {
+    margin-inline: -6px;
+  }
+  .shell .composer-toolbar .model-fast-toggle {
+    display: inline-flex;
+    background: transparent;
+    color: var(--text);
+  }
+  .shell .composer-toolbar .model-fast-toggle[aria-pressed='true'] {
+    color: var(--accent);
   }
   .shell .composer.is-compact {
     position: relative;
@@ -1096,6 +1208,12 @@
     left: 6px;
     top: 1px;
   }
+  .shell .composer.is-follow-up.is-compact .composer-add {
+    left: 0;
+  }
+  .shell .composer.is-follow-up.is-compact .composer-toolbar {
+    margin-inline-end: -6px;
+  }
   .shell
     .composer.is-compact
     :is(.composer-model, .permission-picker, .context-ring, .composer-toolbar-spacer) {
@@ -1106,6 +1224,7 @@
   }
   .shell .composer-toolbar > .composer-add,
   .shell .composer-toolbar .permission,
+  .shell .composer-toolbar .model-fast-toggle,
   .shell .composer-toolbar .model-picker-trigger,
   .shell .context-ring,
   .shell .composer-actions > .composer-mic {
@@ -1121,7 +1240,6 @@
   .shell .composer-toolbar .permission,
   .shell .composer-toolbar .model-picker-trigger {
     touch-action: manipulation;
-    transform: none;
   }
   .shell .composer-add > svg {
     width: 24px;
@@ -1155,10 +1273,23 @@
     transform: scale(0.94);
   }
   .shell .new-conversation-context {
-    padding: 0 24px 14px;
+    padding: 0 24px;
   }
   .shell .new-context-row {
     min-height: 44px;
+    gap: 11px;
+  }
+  :root .new-context-row .select-trigger {
+    min-height: 44px;
+    gap: 5px;
+    padding-inline: 0;
+    font-size: 16px;
+  }
+  .new-context-row .select-trigger > svg {
+    opacity: 0.55;
+  }
+  .shell .is-new-conversation > .topbar > :is(.header-new-conversation, .menu-anchor) {
+    display: none;
   }
   .shell .top-menu > button {
     font-size: 16px;
