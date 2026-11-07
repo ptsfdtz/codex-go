@@ -139,12 +139,19 @@ export function Composer({
     [addingAttachments, setAddingAttachments] = useState(false);
   const [focused, setFocused] = useState(false);
   const composerRoot = useRef<HTMLDivElement>(null);
+  const modelInteraction = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Safari buttons may blur the editor with no relatedTarget. Preserve the
     // layout for actions inside the composer without canceling native touches
     // (including the first touch after a system permission dialog).
     const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !composerRoot.current?.contains(event.target))
+      const root = composerRoot.current;
+      if (
+        event.target instanceof Node &&
+        !root?.contains(event.target) &&
+        !modelInteraction.current?.isConnected &&
+        !root?.querySelector('.model-picker-popup:popover-open')
+      )
         setFocused(false);
     };
     document.addEventListener('pointerdown', outside, true);
@@ -366,12 +373,27 @@ export function Composer({
     <div
       ref={composerRoot}
       className="composer-wrap"
+      onMouseDownCapture={(event) => {
+        // Keep an active mobile keyboard when tapping composer controls. The
+        // native click, popover activation and range dragging still run.
+        if (
+          document.activeElement === textarea.current &&
+          matchMedia('(pointer: coarse)').matches &&
+          event.target instanceof Element &&
+          event.target.closest('.model-picker-trigger, .model-picker-popup button')
+        )
+          event.preventDefault();
+      }}
       onFocusCapture={(event) => {
         if (event.target instanceof HTMLTextAreaElement && event.target === textarea.current)
           setFocused(true);
       }}
       onBlurCapture={(event) => {
-        if (document.querySelector('dialog[open], [popover]:popover-open')) return;
+        if (
+          modelInteraction.current?.isConnected ||
+          document.querySelector('dialog[open], [popover]:popover-open')
+        )
+          return;
         if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node))
           setFocused(false);
       }}
@@ -625,6 +647,19 @@ export function Composer({
               onChange={onChange}
               allowDefault={execution}
               allowResponseSpeed={!active && supports('turnResponseSpeed')}
+              onOpenChange={(open, panel) => {
+                if (open) {
+                  modelInteraction.current = panel;
+                  setFocused(true);
+                } else {
+                  // WebKit may deliver focus changes while light dismissal is
+                  // still completing. Treat them as part of model selection.
+                  requestAnimationFrame(() => {
+                    if (modelInteraction.current === panel && !panel.matches(':popover-open'))
+                      modelInteraction.current = null;
+                  });
+                }
+              }}
             />
             <div className="composer-actions" role="group" aria-label={t('发送与执行控制')}>
               {expanded && (

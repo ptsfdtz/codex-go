@@ -277,6 +277,10 @@ Host 新增 `sshTerminal` 能力和连接归属的 OpenSSH PTY，支持现有配
 
 回退入口见 `/var/backups/agentdeck/codex-mobile-web-20261107T102129Z/previous-web.txt`，指向 `/opt/agentdeck/releases/web-badd902ced4c-20261105T001912Z/web`。上线前的范围授权、清单、回归与部署报告保存在同批本地证据目录。
 
+后续源码微调将模型仪表盘图标从 24px 放大至 28px。Chromium 参考设计回归通过，390px 工具栏截图见 `artifacts/model-gauge-size-20261107/`。此微调尚未部署。
+
+模型选择期间维持输入框的展开状态。手机点击模型按钮保留文本焦点，菜单随键盘可视区变化重新定位，点空白关闭后输入框仍展开。Chromium 与 Windows WebKit 定向回归通过，证据在 `artifacts/model-focus-speech/` 和 `artifacts/model-focus-speech-webkit/`。本次尚未部署，iPhone 实体键盘未测。
+
 ## 需要 Host 更新或专项验收的功能
 
 | 功能             | 源码能力与已验证范围                                                                                                                  | 未完成                                                          |

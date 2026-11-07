@@ -23,6 +23,23 @@ const modelLabel = (model?: Model) =>
     .replace(/^GPT-/i, '')
     .replace(/(\d)-(?=[A-Za-z])/g, '$1 ');
 
+function positionModelPicker(trigger: HTMLButtonElement, panel: HTMLElement) {
+  const mobile = matchMedia('(max-width: 760px)').matches;
+  positionPopover(trigger, panel, {
+    width: mobile ? 320 : 288,
+    preferAbove: true,
+    align: mobile ? 'center' : 'start',
+  });
+  if (mobile && trigger.closest('.shell .composer-toolbar')) {
+    const viewport = window.visualViewport;
+    const height = viewport?.height ?? window.innerHeight;
+    const inset = Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0));
+    panel.style.top = 'auto';
+    panel.style.bottom = `calc(${inset + 4}px + var(--app-safe-bottom))`;
+    panel.style.maxHeight = `calc(${Math.max(0, height - 16)}px - var(--app-safe-top) - var(--app-safe-bottom))`;
+  }
+}
+
 export function ModelPicker({
   draft,
   models,
@@ -30,6 +47,7 @@ export function ModelPicker({
   onChange,
   allowDefault = true,
   allowResponseSpeed = false,
+  onOpenChange,
 }: {
   draft: Draft;
   models: Model[];
@@ -37,10 +55,11 @@ export function ModelPicker({
   onChange: (change: Partial<Draft>) => void;
   allowDefault?: boolean;
   allowResponseSpeed?: boolean;
+  onOpenChange?: (open: boolean, panel: HTMLDivElement) => void;
 }) {
   useLocale();
   const id = useId();
-  const popup = useMenuPopover();
+  const popup = useMenuPopover(positionModelPicker);
   const [modelExpanded, setModelExpanded] = useState(false);
   const [keyboardSlider, setKeyboardSlider] = useState(false);
   const model =
@@ -73,22 +92,7 @@ export function ModelPicker({
   }
   function openPicker(trigger: HTMLButtonElement) {
     setModelExpanded(false);
-    const mobile = matchMedia('(max-width: 760px)').matches;
-    const panel = popup.current;
-    if (!panel) return;
-    positionPopover(trigger, panel, {
-      width: mobile ? 320 : 288,
-      preferAbove: true,
-      align: mobile ? 'center' : 'start',
-    });
-    if (mobile && trigger.closest('.shell .composer-toolbar')) {
-      const viewport = window.visualViewport;
-      const height = viewport?.height ?? window.innerHeight;
-      const inset = Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0));
-      panel.style.top = 'auto';
-      panel.style.bottom = `calc(${inset + 4}px + var(--app-safe-bottom))`;
-      panel.style.maxHeight = `calc(${Math.max(0, height - 16)}px - var(--app-safe-top) - var(--app-safe-bottom))`;
-    }
+    if (popup.current) positionModelPicker(trigger, popup.current);
   }
   return (
     <div className="composer-model">
@@ -120,8 +124,8 @@ export function ModelPicker({
       >
         <svg
           className="model-gauge"
-          width="24"
-          height="24"
+          width="28"
+          height="28"
           viewBox="0 0 24 24"
           fill="none"
           strokeWidth="1.8"
@@ -152,6 +156,9 @@ export function ModelPicker({
         popover="auto"
         className="model-picker-popup"
         aria-label={t('模型与思维强度')}
+        onToggle={(event) =>
+          onOpenChange?.(event.currentTarget.matches(':popover-open'), event.currentTarget)
+        }
       >
         <div className="model-picker-view">
           <button

@@ -31,7 +31,9 @@ export function positionPopover(
 }
 
 /** Shared dismissal, trigger state and keyboard behavior for button menus. */
-export function useMenuPopover() {
+export function useMenuPopover(
+  reposition?: (trigger: HTMLButtonElement, popup: HTMLElement) => void,
+) {
   const ref = usePopoverMotion();
   useLayoutEffect(() => {
     const node = ref.current;
@@ -92,22 +94,29 @@ export function useMenuPopover() {
       )
         dismiss(event);
     };
+    const viewportChanged = (event: Event) => {
+      if (!node.matches(':popover-open')) return;
+      if (reposition) reposition(trigger, node);
+      else dismiss(event);
+    };
     node.addEventListener('toggle', toggle);
     node.addEventListener('keydown', navigate);
     trigger.addEventListener('keydown', openWithKeyboard);
     document.addEventListener('focusin', blur);
     document.addEventListener('scroll', scroll, true);
-    window.addEventListener('resize', dismiss);
-    window.visualViewport?.addEventListener('resize', dismiss);
+    window.addEventListener('resize', viewportChanged);
+    window.visualViewport?.addEventListener('resize', viewportChanged);
+    if (reposition) window.visualViewport?.addEventListener('scroll', viewportChanged);
     return () => {
       node.removeEventListener('toggle', toggle);
       node.removeEventListener('keydown', navigate);
       trigger.removeEventListener('keydown', openWithKeyboard);
       document.removeEventListener('focusin', blur);
       document.removeEventListener('scroll', scroll, true);
-      window.removeEventListener('resize', dismiss);
-      window.visualViewport?.removeEventListener('resize', dismiss);
+      window.removeEventListener('resize', viewportChanged);
+      window.visualViewport?.removeEventListener('resize', viewportChanged);
+      window.visualViewport?.removeEventListener('scroll', viewportChanged);
     };
-  }, [ref]);
+  }, [ref, reposition]);
   return ref;
 }

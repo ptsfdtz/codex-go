@@ -371,6 +371,32 @@ try {
     'Focus transfer keeps the keyboard viewport until its actual resize; touch actions remain usable',
   );
   const editorAfterDenial = main.getByRole('textbox', { name: '消息', exact: true });
+  await editorAfterDenial.focus();
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 480 });
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  const pickerWhileEditing = main.getByRole('button', { name: '切换模型', exact: true });
+  const openPicker = main.locator('.model-picker-popup:popover-open');
+  await pickerWhileEditing.tap();
+  await openPicker.waitFor();
+  assert(await editorAfterDenial.evaluate((node) => document.activeElement === node));
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 430 });
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  assert.equal(await openPicker.count(), 1);
+  assert.equal(await main.locator('.composer.is-compact').count(), 0);
+  const resizedPicker = await openPicker.boundingBox();
+  assert(Math.abs(resizedPicker.y + resizedPicker.height - 426) <= 1);
+  await page.touchscreen.tap(12, 160);
+  await openPicker.waitFor({ state: 'hidden' });
+  assert.equal(await main.locator('.composer.is-compact').count(), 0);
+  await page.evaluate(() => {
+    delete window.visualViewport.height;
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  checks.push('Model picker keeps editor focus and stays open when the keyboard viewport changes');
   await main.getByRole('button', { name: '语音输入', exact: true }).tap();
   await main
     .locator('.composer-speech-status')
