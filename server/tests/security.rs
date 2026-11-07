@@ -82,11 +82,26 @@ async fn cloud_authentication_and_secret_boundaries() {
         .await
         .unwrap()
         .contains("do-not-reflect-this-password"));
+    // Fill the former quota without tripping the password attempt rate limit.
+    let web_account = state.store.find_login(&first).await.unwrap().unwrap();
+    let mut prior_web_sessions = Vec::new();
+    for _ in 0..16 {
+        let (tokens, revoked) = state
+            .store
+            .login(&web_account, &security::token(), "web", "prior browser")
+            .await
+            .unwrap();
+        assert!(revoked.is_empty());
+        prior_web_sessions.push(tokens.access_token);
+    }
     let web = http.post(format!("{base}/api/v1/web/login"))
         .header(header::ORIGIN, "https://security-test.invalid")
         .json(&json!({"username":first,"password":password,"installationId":security::token(),"deviceName":"security test web","kind":"desktop"}))
         .send().await.unwrap();
     assert_eq!(web.status(), StatusCode::OK);
+    for token in prior_web_sessions {
+        assert!(state.store.authenticate(&token).await.is_ok());
+    }
     let cookies = web
         .headers()
         .get_all(header::SET_COOKIE)
