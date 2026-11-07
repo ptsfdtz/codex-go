@@ -1338,3 +1338,85 @@
     padding-inline: 20px;
   }
 }
+
+.composer.is-dictating {
+  padding: 3px;
+  border-color: transparent;
+}
+.composer.is-dictating.is-empty {
+  border-radius: 99px;
+}
+.composer.is-dictating > textarea:placeholder-shown {
+  position: absolute;
+  inset-inline-start: 16px;
+  bottom: 14px;
+  width: 1px;
+  height: 1px !important;
+  min-height: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.composer-toolbar[hidden] {
+  display: none;
+}
+.composer-recording {
+  display: flex;
+  align-items: center;
+}
+.composer-recording .recording-control {
+  position: relative;
+  isolation: isolate;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  color: var(--text);
+  background: transparent;
+  touch-action: manipulation;
+}
+.recording-control::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--hover);
+}
+.composer-recording .recording-send:not(:disabled) {
+  color: var(--accent-text);
+}
+.recording-send:not(:disabled)::before {
+  background: var(--accent);
+}
+.recording-stop > svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+.recording-dots {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  margin-inline: 10px;
+  color: var(--muted);
+  background: radial-gradient(circle, currentColor 1.25px, transparent 1.65px) 0 center / 6px 6px
+    repeat-x;
+  mask-image: linear-gradient(to right, #0008 70%, #000);
+  opacity: 0.65;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .recording-dots[data-listening='true'] {
+    animation: recording-indicator calc(var(--motion-panel) * 6) var(--ease-in-out) infinite
+      alternate;
+  }
+}
+@keyframes recording-indicator {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 0.85;
+  }
+}

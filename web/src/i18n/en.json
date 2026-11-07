@@ -258,6 +258,8 @@
   "发送与执行控制": "Send and execution controls",
   "停止": "Stop",
   "结束语音输入": "End voice input",
+  "取消本次听写": "Cancel dictation",
+  "正在听写": "Dictating",
   "语音输入": "Voice input",
   "加入队列": "Add to queue",
   "正在读取或压缩附件…": "Reading or compressing attachments…",

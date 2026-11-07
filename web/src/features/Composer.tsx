@@ -140,6 +140,7 @@ export function Composer({
   const [focused, setFocused] = useState(false);
   const composerRoot = useRef<HTMLDivElement>(null);
   const modelInteraction = useRef<HTMLDivElement>(null);
+  const keyboardDictation = useRef(false);
   useEffect(() => {
     // Safari buttons may blur the editor with no relatedTarget. Preserve the
     // layout for actions inside the composer without canceling native touches
@@ -284,6 +285,14 @@ export function Composer({
     input: textarea,
     onText: (text) => onChange({ text }),
   });
+  useLayoutEffect(() => {
+    if (!keyboardDictation.current) return;
+    const selector = speech.active ? '.recording-stop' : '.composer-mic';
+    composerRoot.current
+      ?.querySelector<HTMLButtonElement>(selector)
+      ?.focus({ preventScroll: true });
+    if (!speech.active) keyboardDictation.current = false;
+  }, [speech.active]);
   const hasResources = !!(
     draft.attachments.length ||
     draft.skills.length ||
@@ -307,7 +316,6 @@ export function Composer({
     !busy &&
     !addingAttachments &&
     !sendBlocked &&
-    !speech.active &&
     (!active || execution) &&
     hasContent;
   function closeMenu(focus = true) {
@@ -360,11 +368,12 @@ export function Composer({
       else onChange({ text });
     }
   }
+  function submit() {
+    beginSendMotion();
+    onSend(active ? 'queue' : undefined);
+  }
   function send() {
-    if (ready && !queueReason) {
-      beginSendMotion();
-      onSend(active ? 'queue' : undefined);
-    }
+    if (ready && !queueReason && !speech.active) submit();
   }
   function isFileDrag(event: React.DragEvent) {
     return Array.from(event.dataTransfer.types).includes('Files');
@@ -380,7 +389,9 @@ export function Composer({
           document.activeElement === textarea.current &&
           matchMedia('(pointer: coarse)').matches &&
           event.target instanceof Element &&
-          event.target.closest('.model-picker-trigger, .model-picker-popup button')
+          event.target.closest(
+            '.model-picker-trigger, .model-picker-popup button, .composer-mic, .composer-recording button',
+          )
         )
           event.preventDefault();
       }}
@@ -421,7 +432,7 @@ export function Composer({
       ) : (
         <div
           ref={expansion}
-          className={`composer${execution && active ? ' is-follow-up' : ''}${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}${!focused && !expanded && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent && !expanded ? ' is-empty' : ''}`}
+          className={`composer${execution && active ? ' is-follow-up' : ''}${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}${speech.active ? ' is-dictating' : ''}${!speech.active && !focused && !expanded && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent && !expanded ? ' is-empty' : ''}`}
           onDragEnter={(event) => {
             if (!isFileDrag(event)) return;
             event.preventDefault();
@@ -571,7 +582,39 @@ export function Composer({
             }
             disabled={disabled || busy}
           />
-          <div className="composer-toolbar">
+          {speech.active && (
+            <div className="composer-recording" role="group" aria-label={t('正在听写')}>
+              <IconButton
+                icon={X}
+                label={t('取消本次听写')}
+                className="recording-control"
+                onClick={speech.discard}
+              />
+              <span
+                className="recording-dots"
+                data-listening={speech.phase === 'listening'}
+                aria-hidden="true"
+              />
+              <IconButton
+                icon={Square}
+                label={t('结束语音输入')}
+                className="recording-control recording-stop"
+                disabled={speech.phase === 'stopping'}
+                onClick={speech.stop}
+              />
+              <IconButton
+                icon={ArrowUp}
+                label={execution && active ? t('加入队列') : t('发送')}
+                className="recording-control recording-send"
+                disabled={!ready || !!queueReason || speech.phase === 'stopping'}
+                onClick={() => {
+                  speech.cancel();
+                  submit();
+                }}
+              />
+            </div>
+          )}
+          <div className="composer-toolbar" hidden={speech.active}>
             <button
               type="button"
               ref={trigger}
@@ -675,14 +718,16 @@ export function Composer({
               <button
                 type="button"
                 className="icon-button composer-mic"
-                aria-label={speech.active ? t('结束语音输入') : t('语音输入')}
-                title={speech.active ? t('结束语音输入') : t('语音输入')}
-                aria-pressed={speech.active}
+                aria-label={t('语音输入')}
+                title={t('语音输入')}
                 aria-describedby={speech.message ? speechStatusId : undefined}
-                disabled={disabled || busy || speech.phase === 'stopping'}
-                onClick={() => (speech.active ? speech.stop() : speech.start())}
+                disabled={disabled || busy}
+                onClick={(event) => {
+                  keyboardDictation.current = event.detail === 0;
+                  speech.start();
+                }}
               >
-                {speech.active ? <Square size={20} /> : <Mic size={23} />}
+                <Mic size={23} />
               </button>
               {active && execution && hasContent ? (
                 <button
@@ -787,7 +832,11 @@ export function Composer({
         role="status"
         aria-live="polite"
       >
-        {speech.message ? errorText(speech.message) : ''}
+        {speech.message
+          ? errorText(speech.message)
+          : speech.phase === 'listening'
+            ? t('正在听写')
+            : ''}
       </span>
       <MotionPresence>
         {preview && (

@@ -178,6 +178,7 @@ try {
   );
   await begin();
   await finish.waitFor();
+  assert(await send.isDisabled(), 'an empty recording has nothing to send');
   assert.equal(await main.locator('.speech-feedback, .speech-error').count(), 0);
   assert.equal(await page.evaluate(() => window.latestRecognition().lang), 'zh-CN');
   await page.evaluate(() => window.emitResult([['临时文字', false]]));
@@ -188,7 +189,7 @@ try {
   await page.waitForFunction(
     () => document.querySelector('#speech-main textarea')?.value === '临时修正',
   );
-  assert(await send.isDisabled(), 'sending stays blocked during recognition');
+  assert(await send.isEnabled(), 'the recording bar can send the visible draft');
   await page.evaluate(() =>
     window.emitResult([
       ['语音', true],
@@ -234,6 +235,25 @@ try {
   assert.deepEqual(await page.evaluate(() => window.sends), ['main']);
   checks.push(
     'live draft transcription, interim revisions, cumulative final deduplication and manual sending',
+  );
+  await input.fill('原有草稿');
+  await input.evaluate((node) => node.setSelectionRange(node.value.length, node.value.length));
+  await mic.click();
+  await page.evaluate(() => window.emitResult([['本次听写', false]]));
+  await page.waitForFunction(() => window.drafts.main.text === '原有草稿本次听写');
+  await main.getByRole('button', { name: '取消本次听写', exact: true }).click();
+  assert.equal(await input.inputValue(), '原有草稿');
+  await begin();
+  await page.evaluate(() => window.emitResult([['直接发送', false]]));
+  await page.waitForFunction(() => window.drafts.main.text === '直接发送');
+  await main
+    .locator('.composer-recording')
+    .getByRole('button', { name: '发送', exact: true })
+    .click();
+  assert.deepEqual(await page.evaluate(() => window.sends), ['main', 'main']);
+  assert.ok(await page.evaluate(() => window.latestRecognition().aborts > 0));
+  checks.push(
+    'Cancel restores the prior draft; Send during recording submits only the visible transcription',
   );
 
   await begin();
@@ -417,7 +437,9 @@ try {
     assert.equal(reference.height, '34px');
     await mic.click();
     await finish.waitFor();
-    assert.deepEqual(await actionStyle(finish), reference);
+    const recordingStyle = await actionStyle(finish);
+    assert.equal(recordingStyle.width, '44px');
+    assert.equal(recordingStyle.height, '44px');
     await page.evaluate(() => window.emitResult([['按钮样式', false]]));
     await page.waitForFunction(
       () => document.querySelector('#speech-main textarea')?.value === '按钮样式',
@@ -461,6 +483,12 @@ try {
     document.documentElement.dataset.theme = 'dark';
   });
   await begin();
+  const recording = main.locator('.composer-recording');
+  await recording.waitFor();
+  const recordingBounds = await recording.boundingBox();
+  assert.equal(Math.round(recordingBounds.height), 44);
+  assert.equal(await recording.locator('.recording-dots').count(), 1);
+  await page.screenshot({ path: fileURLToPath(new URL('mobile-recording-capsule.png', out)) });
   await page.evaluate(() => window.emitResult([['手机语音识别中的预览文字', false]]));
   await page.waitForFunction(
     () => document.querySelector('#speech-main textarea')?.value === '手机语音识别中的预览文字',
