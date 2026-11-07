@@ -1,7 +1,10 @@
 /* global window, document, getComputedStyle */
 import assert from 'node:assert/strict';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 try {
   const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1280, height: 850 } });
   await page.route('**/api/**', (route) => route.abort());
@@ -12,7 +15,7 @@ try {
     const React = (await import('/node_modules/.vite/deps/react.js')).default;
     const dom = await import('/node_modules/.vite/deps/react-dom_client.js');
     const { FileWorkspace } = await import('/src/features/files/FileWorkspace.tsx');
-    const { MotionList, Collapse } = await import('/src/motion.tsx');
+    const { MotionList, Collapse, useContentMotion } = await import('/src/motion.tsx');
     const { ModeSwitcher } = await import('/src/features/ModeSwitcher.tsx');
     const { deferred } = await import('/src/deferred.tsx');
     document.getElementById('root').style.display = 'none';
@@ -35,6 +38,7 @@ try {
       const [fold, setFold] = React.useState(true);
       const [reverse, setReverse] = React.useState(false);
       const [retry, setRetry] = React.useState(false);
+      const content = useContentMotion(String(reverse));
       window.setPane = setOpen;
       window.setFold = setFold;
       window.reverseList = () => setReverse((value) => !value);
@@ -42,6 +46,11 @@ try {
         React.Fragment,
         null,
         React.createElement(ModeSwitcher, { mode: 'codex', onChange: () => {} }),
+        React.createElement(
+          'section',
+          { ref: content, className: 'navigation-motion-test' },
+          '内容',
+        ),
         React.createElement('button', { onClick: () => setRetry(true) }, '测试模块失败'),
         retry && React.createElement(Recoverable),
         React.createElement(
@@ -133,21 +142,81 @@ try {
     0,
   );
   await page.getByRole('button', { name: '切换工作模式' }).click();
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(240);
   assert.equal(
     await page.locator('.mode-menu').evaluate((node) => getComputedStyle(node).opacity),
     '1',
   );
   await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(240);
   assert.equal(
     await page.locator('.mode-menu').evaluate((node) => node.matches(':popover-open')),
     false,
   );
+  // Menus with the shared .popover class used to inherit opacity: 1 while
+  // closed. Inspect real intermediate frames, not only their final visibility.
+  const menuFrames = await page.locator('.mode-menu').evaluate(async (node) => {
+    node.classList.add('popover');
+    node.showPopover();
+    await new Promise(window.requestAnimationFrame);
+    await new Promise(window.requestAnimationFrame);
+    for (const animation of node.getAnimations()) animation.finish();
+    getComputedStyle(node).getPropertyValue('opacity');
+    node.hidePopover();
+    const animations = node.getAnimations();
+    for (const animation of animations) {
+      animation.pause();
+      animation.currentTime = 80;
+    }
+    const sample = {
+      count: animations.length,
+      opacity: Number(getComputedStyle(node).opacity),
+      display: getComputedStyle(node).display,
+    };
+    for (const animation of animations) animation.finish();
+    return sample;
+  });
+  assert(menuFrames.count > 0 && menuFrames.opacity > 0 && menuFrames.opacity < 1);
+  assert.notEqual(menuFrames.display, 'none', 'closing menu remains painted during its fade');
+  const content = page.locator('.navigation-motion-test');
+  await page.mouse.click(1200, 800);
+  await page.evaluate(() => window.reverseList());
+  await page.waitForFunction(
+    () => document.querySelector('.navigation-motion-test').getAnimations().length > 0,
+  );
+  const reveal = await content.evaluate((node) => {
+    const animation = node.getAnimations()[0];
+    animation.pause();
+    animation.currentTime = 30;
+    const opacity = Number(getComputedStyle(node).opacity);
+    animation.finish();
+    return opacity;
+  });
+  assert(reveal > 0 && reveal < 0.85, 'navigation has a perceptible intermediate fade');
+  await page.keyboard.press('Tab');
+  await page.evaluate(() => window.reverseList());
+  await page.waitForTimeout(30);
+  assert.equal(await content.evaluate((node) => node.getAnimations().length), 0);
   await page.getByRole('button', { name: '测试模块失败' }).click();
   await page.getByRole('button', { name: '重试', exact: true }).click();
   await page.getByText('模块重试成功').waitFor();
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.mouse.click(1200, 800);
+  await page.evaluate(() => window.reverseList());
+  await page.waitForFunction(
+    () => document.querySelector('.navigation-motion-test').getAnimations().length > 0,
+  );
+  assert(
+    await content.evaluate((node) =>
+      node
+        .getAnimations()
+        .every(
+          (animation) =>
+            animation.effect.getTiming().duration <= 100 &&
+            animation.effect.getKeyframes().every((frame) => !frame.transform),
+        ),
+    ),
+  );
   await page.evaluate(() => window.setPane(true));
   await page.waitForTimeout(120);
   assert.equal(

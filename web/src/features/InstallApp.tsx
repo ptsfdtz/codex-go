@@ -61,7 +61,7 @@ export function InstallProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function InstallApp({ iconOnly = false }: { iconOnly?: boolean }) {
+export function InstallApp() {
   useLocale();
   const { standalone, added, prompt, install } = useContext(InstallContext);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -75,47 +75,26 @@ export function InstallApp({ iconOnly = false }: { iconOnly?: boolean }) {
       <li>{t('电脑：在浏览器地址栏或菜单中选择“安装 AgentDeck”。')}</li>
     </ul>
   );
-  if (iconOnly)
-    return (
-      <>
-        <IconButton
-          icon={added ? Check : Download}
-          label={t('安装 AgentDeck')}
-          onClick={() => (prompt && !added ? void install() : setGuideOpen(true))}
-        />
-        <MotionPresence>
-          {guideOpen && (
-            <Modal title={t('安装 AgentDeck')} compact onClose={() => setGuideOpen(false)}>
-              <div className="pwa-install">
-                {added ? (
-                  <p role="status">{t('已添加到主屏幕，请从 AgentDeck 图标打开。')}</p>
-                ) : (
-                  guide
-                )}
-              </div>
-            </Modal>
-          )}
-        </MotionPresence>
-      </>
-    );
   return (
-    <div className="pwa-install">
-      {added ? (
-        <p role="status">{t('已添加到主屏幕，请从 AgentDeck 图标打开。')}</p>
-      ) : (
-        <>
-          {prompt && (
-            <button type="button" onClick={() => void install()}>
-              <Download size={17} />
-              {t('安装 AgentDeck')}
-            </button>
-          )}
-          <details>
-            <summary>{t('添加到主屏幕')}</summary>
-            {guide}
-          </details>
-        </>
-      )}
-    </div>
+    <>
+      <IconButton
+        icon={added ? Check : Download}
+        label={t('安装 AgentDeck')}
+        onClick={() => (prompt && !added ? void install() : setGuideOpen(true))}
+      />
+      <MotionPresence>
+        {guideOpen && (
+          <Modal title={t('安装 AgentDeck')} compact onClose={() => setGuideOpen(false)}>
+            <div className="pwa-install">
+              {added ? (
+                <p role="status">{t('已添加到主屏幕，请从 AgentDeck 图标打开。')}</p>
+              ) : (
+                guide
+              )}
+            </div>
+          </Modal>
+        )}
+      </MotionPresence>
+    </>
   );
 }

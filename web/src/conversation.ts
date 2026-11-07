@@ -53,7 +53,12 @@ export function applyProgress(entries: HistoryEntry[], packet: Packet): HistoryE
       entries,
       [
         {
+          ...old,
           turnId,
+          ...(typeof payload.startedAtMs === 'number' ? { startedAtMs: payload.startedAtMs } : {}),
+          ...(typeof payload.completedAtMs === 'number'
+            ? { completedAtMs: payload.completedAtMs }
+            : {}),
           item: {
             ...item,
             status:
@@ -127,6 +132,5 @@ export function applyProgress(entries: HistoryEntry[], packet: Packet): HistoryE
     item.type = 'fileChange';
     item.changes = payload.changes;
   } else return entries;
-  entry.item = item;
-  return mergeHistory(entries, [entry], 'latest');
+  return mergeHistory(entries, [{ ...previous, ...entry, item }], 'latest');
 }

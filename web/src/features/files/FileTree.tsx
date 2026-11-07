@@ -1,7 +1,6 @@
 import { errorText, t, useLocale } from '../../i18n';
 import { useState } from 'react';
 import {
-  ChevronDown,
   ChevronRight,
   File,
   FileCode2,
@@ -150,11 +149,7 @@ export function FileTree({
                   onClick={() => (folder ? onToggle(entry.path, !open) : onOpen(entry.path))}
                 >
                   {folder ? (
-                    open ? (
-                      <ChevronDown size={12} />
-                    ) : (
-                      <ChevronRight size={12} />
-                    )
+                    <ChevronRight className="file-tree-chevron" size={12} />
                   ) : (
                     <span className="file-tree-spacer" />
                   )}
@@ -166,7 +161,11 @@ export function FileTree({
                     </small>
                   )}
                 </button>
-                {folder && open && depth < 31 && branch(entry.path, depth + 1)}
+                {folder && open && depth < 31 && (
+                  <div className="file-tree-branch" role="group">
+                    {branch(entry.path, depth + 1)}
+                  </div>
+                )}
                 {folder && open && depth >= 31 && (
                   <p className="file-tree-message">{t('目录层级过深，请通过路径打开文件。')}</p>
                 )}

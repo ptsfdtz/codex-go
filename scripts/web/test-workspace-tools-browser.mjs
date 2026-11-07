@@ -464,7 +464,7 @@ try {
     window.calls.some((c) => c.action === 'terminal.resize' && c.payload.cols < 70),
   );
   await page.screenshot({ path: fileURLToPath(new URL('ssh-mobile.png', out)) });
-  assert.equal(await primary.isVisible(), false);
+  assert.equal(await primary.getAttribute('inert'), '');
   assert.equal(
     await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1),
     false,
@@ -480,6 +480,19 @@ try {
   );
   await page.screenshot({ path: fileURLToPath(new URL('tabs-320.png', out)) });
   await host.getByRole('button', { name: '关闭工具栏' }).click();
+  const toolExit = await host.locator('.tools-workspace').evaluate((node) => {
+    const slide = node
+      .getAnimations()
+      .find((animation) => animation.transitionProperty === 'transform');
+    if (!slide) return null;
+    slide.pause();
+    slide.currentTime = 100;
+    const x = node.getBoundingClientRect().x;
+    const contentVisible = !!node.querySelector('.tool-tab-panel:not([hidden])');
+    slide.finish();
+    return { x, contentVisible, inert: node.inert };
+  });
+  assert(toolExit?.x > 0 && toolExit.x < 320 && toolExit.inert && toolExit.contentVisible);
   assert.equal(await page.evaluate(() => window.sshClosed), 0);
   await primary.getByRole('button', { name: '更多操作', exact: true }).click();
   await primary.getByRole('menuitem', { name: '更多操作', exact: true }).click();
@@ -487,9 +500,9 @@ try {
   await host.getByRole('button', { name: '关闭标签页：终端', exact: true }).click();
   await page.waitForFunction(() => window.sshClosed > 0);
   await host.getByRole('button', { name: '关闭工具栏' }).click();
-  assert.equal(await primary.isVisible(), true);
+  assert.equal(await primary.getAttribute('inert'), null);
   checks.push(
-    '390px layout switches between main and tools; hiding tools preserves SSH; closing its tab closes SSH',
+    '320/390px layout slides tools out with their content; hiding tools preserves SSH; closing its tab closes SSH',
   );
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.evaluate(() => {
@@ -665,8 +678,12 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await more.click();
   await topMenu.waitFor();
+  await page.waitForFunction(() => {
+    const menu = document.querySelector('.top-menu');
+    return menu?.parentElement?.dataset.motion === 'open' && !menu.getAnimations().length;
+  });
   const box = await topMenu.boundingBox();
-  assert(box.x >= 0 && box.x + box.width <= 391 && box.y + box.height <= 844);
+  assert(box.x >= 0 && box.x + box.width <= 391 && box.y + box.height <= 844, JSON.stringify(box));
   await page.waitForTimeout(220);
   await page.screenshot({ path: fileURLToPath(new URL('conversation-menu-mobile.png', out)) });
   await page.keyboard.press('End');

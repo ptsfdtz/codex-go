@@ -42,7 +42,6 @@ body:has(.shell) {
 .menu-scrim,
 .composer-toolbar > button,
 .composer-toolbar > .menu-anchor > button,
-.composer-hint,
 .empty-symbol {
   touch-action: pinch-zoom;
 }
@@ -191,10 +190,6 @@ small,
   font-size: 13px;
   line-height: 1.6;
 }
-.pwa-install summary {
-  cursor: pointer;
-  padding-block: 8px;
-}
 .pwa-install p {
   margin: 8px 0;
 }
@@ -309,27 +304,6 @@ small,
 }
 .rail-heading > .rotate {
   transform: rotate(180deg);
-}
-.project-list {
-  padding: 0 4px 12px;
-}
-.project-list > button {
-  display: flex;
-  justify-content: flex-start;
-  gap: 9px;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  padding: 8px;
-  font-size: 13px;
-}
-.project-list > button > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-list > button.active {
-  background: var(--hover);
 }
 .rail-filters {
   display: flex;
@@ -571,6 +545,18 @@ small,
   max-width: 85%;
   width: fit-content;
 }
+.user-turn > .message-content:not(.editing-message) {
+  background: var(--outgoing-bubble, var(--soft));
+}
+.user-turn > .message-content[tabindex] {
+  -webkit-touch-callout: none;
+}
+@media (pointer: coarse) {
+  .user-turn > .message-content[tabindex] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
 .user-turn .rich-content {
   font-size: 15px;
 }
@@ -676,6 +662,9 @@ small,
   width: 15px;
   height: 15px;
 }
+.answer-actions {
+  align-items: center;
+}
 .turn:hover > .message-actions,
 .turn:focus-within > .message-actions {
   opacity: 1;
@@ -751,6 +740,9 @@ small,
   white-space: pre;
 }
 .rich-content :not(pre) > code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 2px 5px;
   background: var(--soft);
   border-radius: 5px;
@@ -938,8 +930,7 @@ small,
       .permission,
       button.rail-heading,
       .tool-record > summary,
-      .technical-details > summary,
-      .pwa-install > summary
+      .technical-details > summary
     ):hover:not(:disabled):not(.danger):not(.error) {
     color: var(--text);
   }
@@ -947,10 +938,8 @@ small,
       .workspace-title,
       .sidebar-primary > button:first-child,
       .sidebar-footer > button:first-child,
-      .project-list > button,
       .session-row > .session,
       .popover > button,
-      .panel-list > button,
       .file-list > button,
       .skill-info,
       .project-setting > button:first-child,
@@ -1053,18 +1042,19 @@ small,
   max-height: none;
 }
 .composer {
-  border: 1px solid transparent;
+  --composer-border-color: transparent;
+  border: 1px solid var(--composer-border-color);
   background: var(--soft);
   border-radius: 25px;
   padding: 12px 12px 9px;
   box-shadow: 0 2px 6px #00000003;
 }
 .composer.is-expanded {
-  border-color: var(--border);
+  --composer-border-color: var(--border);
 }
 
 .composer:focus-within {
-  border-color: var(--border);
+  --composer-border-color: var(--border);
 }
 .composer > textarea {
   width: 100%;
@@ -1122,7 +1112,7 @@ small,
   position: fixed;
   inset: auto;
   margin: 0;
-  width: min(288px, calc(100vw - 24px));
+  width: min(320px, calc(100vw - 24px));
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -1185,11 +1175,6 @@ small,
   display: flex;
   align-items: center;
   gap: 4px;
-}
-.model-effort > .icon-button {
-  flex: 0 0 44px;
-  height: 44px;
-  color: var(--muted);
 }
 .effort-slider {
   --effort-inset: 14px;
@@ -1372,13 +1357,6 @@ small,
   color: var(--muted);
   gap: 5px;
   padding: 4px;
-}
-.composer-hint {
-  font-size: 10px;
-  color: var(--muted);
-  text-align: center;
-  line-height: 1.5;
-  margin: 8px 0 0;
 }
 .composer-resources {
   display: flex;
@@ -1696,19 +1674,6 @@ small,
 .panel-stack > button {
   align-self: flex-start;
 }
-.panel-list {
-  border-top: 1px solid var(--faint);
-  padding-top: 10px;
-}
-.panel-list > button {
-  display: flex;
-  justify-content: flex-start;
-  border: 0;
-  background: transparent;
-  width: 100%;
-  padding: 12px 8px;
-  font-size: 13px;
-}
 .confirmation {
   display: flex;
   flex-wrap: wrap;
@@ -1726,12 +1691,6 @@ small,
 .confirmation > button {
   margin: 0;
   font-size: 12px;
-}
-.eyebrow {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--muted);
 }
 .data-fields {
   margin: 0;
@@ -1769,16 +1728,6 @@ small,
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 300px;
-}
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.breadcrumb > span {
-  flex: 1;
 }
 .file-list > button {
   display: flex;
@@ -1975,9 +1924,9 @@ small,
 .settings-modal[open] {
   display: flex;
   flex-direction: column;
-  width: min(860px, calc(100vw - 48px));
+  width: min(580px, calc(100vw - 48px));
   height: min(
-    640px,
+    460px,
     calc(var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 48px)
   );
   max-height: calc(var(--app-height, 100dvh) - var(--app-safe-top) - var(--app-safe-bottom) - 48px);
@@ -1997,38 +1946,52 @@ small,
 }
 .settings-layout {
   display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 0;
 }
 .settings-nav {
-  width: 184px;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
   gap: 4px;
-  padding: 12px 10px;
+  padding: 6px 12px;
   background: var(--rail);
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-  overscroll-behavior: none;
+  border-bottom: 1px solid var(--border);
+}
+.settings-selection {
+  position: absolute;
+  z-index: -1;
+  top: 6px;
+  bottom: 6px;
+  left: 12px;
+  width: calc((100% - 32px) / 3);
+  border-radius: var(--radius-control);
+  background: var(--hover);
+  box-shadow: 0 1px 3px #00000012;
+  pointer-events: none;
+  transition: transform 240ms var(--ease-drawer);
+}
+:root[data-motion-input='keyboard'] .settings-selection {
+  transition: none;
 }
 .settings-nav > button {
   min-height: 44px;
-  justify-content: flex-start;
-  flex-shrink: 0;
-  gap: 12px;
+  justify-content: center;
+  gap: 8px;
   border: 0;
   background: transparent;
   color: var(--muted);
   font-size: 13px;
-  padding: 10px;
-  text-align: left;
+  padding: 8px;
 }
 .settings-nav > button svg {
   flex-shrink: 0;
 }
 .settings-nav > .active {
-  background: var(--hover);
+  background: transparent;
   color: var(--text);
   font-weight: 500;
 }
@@ -2036,7 +1999,7 @@ small,
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 28px 32px 36px;
+  padding: 16px 24px 24px;
   overflow-y: auto;
   overscroll-behavior: none;
   scrollbar-width: thin;
@@ -2082,46 +2045,12 @@ small,
 .settings-body .panel-stack > button {
   align-self: flex-start;
 }
-.settings-body .panel-stack > .settings-action {
-  align-self: stretch;
-  justify-content: flex-start;
-  text-align: left;
-  padding: 14px 12px;
-  border: 0;
-  border-bottom: 1px solid var(--faint);
-  border-radius: 0;
-  background: transparent;
-}
-.settings-action strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 500;
-}
-.settings-action small {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 5px;
-}
 .settings-logout {
   flex-shrink: 0;
   color: var(--danger);
 }
-.settings-installed {
-  display: none;
-}
-.settings-section:not(:has(.pwa-install)) > .settings-installed {
-  display: block;
-}
 
 /* Mobile settings: compact navigation and grouped cards. */
-.host-device-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 0;
-  border-top: 1px solid var(--border);
-}
 .host-device-icon {
   display: grid;
   width: 36px;
@@ -2131,21 +2060,6 @@ small,
   border-radius: 10px;
   background: var(--hover);
   color: var(--muted);
-}
-.host-device-info {
-  display: grid;
-  flex: 1;
-  min-width: 0;
-  gap: 2px;
-}
-.host-device-info strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-}
-.host-device-info small {
-  font-size: 12px;
 }
 .settings-section {
   margin: 0;
@@ -2223,14 +2137,10 @@ small,
   min-width: 0;
   gap: 3px;
 }
-.computer-name > span,
-.computer-name > .computer-original-name {
+.computer-name > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.computer-original-name {
-  color: var(--muted);
 }
 .computer-actions {
   display: flex;
@@ -2286,7 +2196,6 @@ small,
   font-size: 11px;
   padding: 5px 8px;
 }
-.draft-entry,
 .search-result {
   display: flex;
   flex-direction: column;
@@ -2297,10 +2206,6 @@ small,
   font-size: 12px;
   padding: 13px;
   border-color: var(--faint);
-}
-.draft-entry > span {
-  color: var(--muted);
-  font-size: 12px;
 }
 .message-reader {
   font-size: 14px;
@@ -2396,25 +2301,6 @@ small,
 .approval .question input {
   font-size: 12px;
   width: 100%;
-}
-.pair-panel h2 {
-  display: none;
-}
-.pair-panel p {
-  font-size: 13px;
-}
-.pair-panel textarea {
-  width: 100%;
-  min-height: 100px;
-}
-.pair-panel button {
-  margin: 12px 8px 0 0;
-  font-size: 12px;
-}
-.pair-code {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: 0.18em;
 }
 @media (hover: none) {
   .message-actions {
@@ -2514,10 +2400,6 @@ small,
     font-size: 16px;
     min-height: 62px;
   }
-  .composer-hint {
-    font-size: 9px;
-    margin-top: 6px;
-  }
   .composer-toolbar {
     gap: 1px;
   }
@@ -2588,31 +2470,15 @@ small,
     padding: 0;
     max-height: none;
   }
-  .settings-layout {
-    flex-direction: column;
-  }
   .settings-nav {
-    display: flex;
-    flex-direction: row;
-    gap: 2px;
-    width: 100%;
     padding: 6px 8px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-    max-height: 36%;
+  }
+  .settings-selection {
+    left: 8px;
+    width: calc((100% - 24px) / 3);
   }
   .settings-nav > button {
-    flex-direction: row;
-    justify-content: center;
     gap: 4px;
-    font-size: 11px;
-    padding: 8px 12px;
-    min-height: 44px;
-    width: auto;
-    flex: 0 0 auto;
-    white-space: nowrap;
   }
   .settings-body {
     padding: 14px 14px 28px;
@@ -2831,12 +2697,6 @@ small,
   font-size: inherit;
   overflow-wrap: anywhere;
 }
-.host-label {
-  font-size: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 .async-questions {
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -3027,6 +2887,13 @@ small,
 .composer-resources .mode-chip > span {
   display: inline;
 }
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
 .composer-attachment {
   display: flex;
   align-items: center;
@@ -3096,7 +2963,7 @@ small,
   color: var(--danger);
 }
 .composer.is-dragging {
-  border-color: var(--text);
+  --composer-border-color: var(--text);
 }
 .composer-drop-hint {
   position: absolute;
@@ -3477,21 +3344,6 @@ small,
 .modal-compact {
   width: min(440px, calc(100vw - 32px));
 }
-.modal-navigation {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.modal-navigation h2 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.settings-subpage {
-  overflow-y: auto;
-  padding: var(--space-6);
-}
 .modal-compact .button-row {
   justify-content: flex-end;
   margin-top: var(--space-6);
@@ -3505,31 +3357,6 @@ small,
 }
 .settings-general .setting-row {
   min-height: 52px;
-}
-.app-updates {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-}
-.app-updates > h3 {
-  grid-column: 1;
-  grid-row: 1;
-}
-.app-updates > button:first-of-type {
-  grid-column: 2;
-  grid-row: 1;
-}
-.app-updates > :not(h3):not(button:first-of-type) {
-  grid-column: 1 / -1;
-}
-.panel-empty {
-  display: grid;
-  place-items: center;
-  min-height: 160px;
-  padding: 24px;
-  color: var(--muted);
-  text-align: center;
 }
 .setting-row input[type='checkbox'] {
   appearance: none;
@@ -3613,10 +3440,6 @@ small,
 }
 .activity-stage > summary > svg {
   flex-shrink: 0;
-}
-.activity-stage-count {
-  font-size: 12px;
-  opacity: 0.65;
 }
 .activity-stage[open] > summary > .activity-stage-chevron {
   transform: rotate(90deg);
@@ -3714,12 +3537,7 @@ small,
   }
 }
 
-:is(
-  .model-picker-trigger,
-  .permission,
-  .mode-trigger,
-  .tools-anchor > button
-)[aria-expanded='true'] {
+:is(.model-picker-trigger, .permission, .mode-trigger)[aria-expanded='true'] {
   background: var(--hover);
   color: var(--text);
 }
@@ -3794,8 +3612,7 @@ small,
   --settings-control-width: clamp(112px, 40vw, 160px);
 }
 .settings-general .setting-row > .select-control,
-.settings-general .settings-logout,
-.settings-general .app-updates > button:first-of-type {
+.settings-general .settings-logout {
   width: var(--settings-control-width);
   min-width: var(--settings-control-width);
   max-width: none;
@@ -3804,24 +3621,8 @@ small,
   border-radius: var(--radius-control);
   font-size: var(--font-size-sm);
 }
-.settings-general .app-updates > button:first-of-type {
-  padding-block: 0;
-}
-.configuration-panel {
-  gap: 8px;
-}
-.settings-inline-form {
-  display: grid;
-  gap: 8px;
-  padding-block: 4px;
-}
-.settings-inline-form h3 {
-  font-size: 14px;
-  margin: 0;
-}
 .settings-control-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) var(--control-size);
   align-items: center;
   gap: 8px;
   min-width: 0;

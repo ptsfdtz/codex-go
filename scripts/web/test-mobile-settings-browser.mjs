@@ -54,33 +54,6 @@ try {
     document.getElementById('root').style.display = 'none';
     const root = document.createElement('div');
     document.body.append(root);
-    window.settingsCalls = [];
-    window.settingsFail = false;
-    let revision = 1;
-    const values = {
-      model: 'gpt-6.1-sol',
-      model_reasoning_effort: 'low',
-      model_verbosity: 'low',
-      model_reasoning_summary: 'none',
-    };
-    const request = async (action, payload) => {
-      window.settingsCalls.push({ action, payload });
-      if (action === 'settings.execution')
-        return { values: { ...values }, userRevision: String(revision) };
-      if (action.startsWith('settings.')) {
-        if (window.settingsFail) throw new Error('SAVE-TEST-ERROR');
-        if (action === 'settings.modelDefaults')
-          Object.assign(values, { model: payload.model, model_reasoning_effort: payload.effort });
-        if (action === 'settings.outputDefaults')
-          Object.assign(values, {
-            model_verbosity: payload.verbosity,
-            model_reasoning_summary: payload.summary,
-          });
-        revision++;
-        return {};
-      }
-      return {};
-    };
     function Test() {
       const [tab, setTab] = React.useState('general');
       const [theme, setTheme] = React.useState('dark');
@@ -106,20 +79,9 @@ try {
           setNotification: () => {},
           setError: () => {},
           connected: true,
-          request,
-          models: [
-            {
-              id: 'gpt-6.1-sol',
-              displayName: 'GPT-6.1-Sol',
-              supportedReasoningEfforts: ['low', 'medium', 'high'],
-            },
-          ],
+          request: async () => ({}),
           supports: () => true,
-          setFilter: () => {},
-          setSidebarOpen: () => {},
           setPanel: () => {},
-          openPanel: () => {},
-          syncIndex: async () => {},
           host,
           hosts: [host],
           hostName: (item) => item.displayName,
@@ -133,7 +95,6 @@ try {
           selectSession: () => {},
           directoryFailure: '',
           connectionFailure: '',
-          connectionState: 'connected',
           connect: async () => {},
           setHosts: () => {},
           busy: false,
@@ -155,11 +116,7 @@ try {
       await select('外观', theme === 'dark' ? '深色' : '浅色');
       await page.waitForTimeout(250);
       const metrics = await page.locator('.settings-general').evaluate((root) =>
-        [
-          ...root.querySelectorAll(
-            '.select-trigger, .settings-logout, .app-updates > button:first-of-type',
-          ),
-        ].map((el) => {
+        [...root.querySelectorAll('.select-trigger, .settings-logout')].map((el) => {
           const box = el.getBoundingClientRect();
           return {
             x: box.right,
@@ -178,13 +135,10 @@ try {
       }
       await page.screenshot({ path: fileURLToPath(new URL(`general-${theme}-${width}.png`, out)) });
       for (const [tab, name] of [
-        ['configuration', 'configuration'],
         ['conversations', 'projects'],
         ['computers', 'computer'],
       ]) {
         await page.evaluate((tab) => window.settingsTab(tab), tab);
-        if (tab === 'configuration')
-          await page.getByRole('combobox', { name: '默认模型', exact: true }).waitFor();
         if (tab === 'conversations') await page.getByRole('region', { name: '项目管理' }).waitFor();
         if (tab === 'computers')
           await page.getByRole('textbox', { name: '电脑显示名称' }).waitFor();
@@ -192,21 +146,6 @@ try {
         assert(
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
         );
-        if (tab === 'configuration') {
-          assert.equal(await page.locator('.settings-control-row').count(), 2);
-          for (const form of await page.locator('.settings-control-row').all()) {
-            const boxes = await form
-              .locator(':scope > .select-control > button, :scope > button')
-              .evaluateAll((nodes) =>
-                nodes.map((el) => {
-                  const b = el.getBoundingClientRect();
-                  return { y: b.y, h: b.height };
-                }),
-              );
-            assert.equal(boxes.length, 3);
-            assert(boxes.every((b) => b.y === boxes[0].y && b.h === 44));
-          }
-        }
         if (tab === 'conversations') {
           assert.equal(await page.locator('.project-settings-heading p').count(), 0);
           const rows = await page
@@ -241,26 +180,8 @@ try {
     }
   }
   checks.push(
-    '320/390px touch: aligned equal-size general controls; one-line model/output/name controls; no redundant project source or name help; light/dark screenshots',
+    '320/390px touch: aligned equal-size general controls; one-line computer name controls; no redundant project source or name help; light/dark screenshots',
   );
-  await page.evaluate(() => window.settingsTab('configuration'));
-  await page.getByRole('button', { name: '保存模型默认值', exact: true }).click();
-  await page.getByRole('status').filter({ hasText: '已保存' }).waitFor();
-  assert.equal(
-    await page.evaluate(
-      () =>
-        window.settingsCalls.find((call) => call.action === 'settings.modelDefaults').payload.model,
-    ),
-    'gpt-6.1-sol',
-  );
-  await select('详细程度', '详细');
-  await page.evaluate(() => (window.settingsFail = true));
-  await page.getByRole('button', { name: '保存输出默认值', exact: true }).click();
-  await page.getByRole('alert').filter({ hasText: 'SAVE-TEST-ERROR' }).waitFor();
-  assert.equal(await page.getByRole('combobox', { name: '详细程度' }).innerText(), '详细');
-  await page.evaluate(() => (window.settingsFail = false));
-  await page.getByRole('button', { name: '保存输出默认值', exact: true }).click();
-  await page.getByRole('status').filter({ hasText: '已保存' }).waitFor();
   await page.evaluate(() => window.settingsTab('computers'));
   const name = page.getByRole('textbox', { name: '电脑显示名称' });
   await name.fill('我的电脑');
@@ -271,9 +192,7 @@ try {
   await page.getByRole('button', { name: '保存名称', exact: true }).click();
   await page.getByRole('status').filter({ hasText: '已保存' }).waitFor();
   assert.equal(await name.inputValue(), '');
-  checks.push(
-    'model/output save protocol and revision preserved; failed save retains selection; name saves via Enter/icon and empty value restores default',
-  );
+  checks.push('name saves via Enter/icon and empty value restores default');
   assert.deepEqual(errors, []);
   await writeFile(
     new URL('verification.json', out),

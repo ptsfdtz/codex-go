@@ -1,7 +1,7 @@
 import { contentText, fileReferencePart } from './content-text';
 export { contentText, fileReferencePart } from './content-text';
 import { errorText, t, useLocale } from './i18n';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { deferred } from './deferred';
 import type { HistoryEntry } from './history';
 import type { Bridge } from './transport/bridge';
@@ -34,24 +34,38 @@ function SavedImage({
   sessionId,
   entry,
   index,
+  lazy = false,
 }: {
   connection?: Bridge;
   sessionId: string;
   entry: HistoryEntry;
   index: number;
+  lazy?: boolean;
 }) {
   useLocale();
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [requested, setRequested] = useState(1);
+  const [visible, setVisible] = useState(!lazy);
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (visible || !container.current) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      setVisible(true);
+      observer.disconnect();
+    });
+    observer.observe(container.current);
+    return () => observer.disconnect();
+  }, [visible]);
   useEffect(() => {
     let active = true,
       objectUrl = '';
     setLoading(!!connection);
     setError('');
     setUrl('');
-    if (!connection || !requested) return;
+    if (!connection || !visible) return;
     void readHistoryImage(
       connection,
       sessionId,
@@ -75,9 +89,9 @@ function SavedImage({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [connection, sessionId, entry.turnId, entry.item?.id, index, requested]);
+  }, [connection, sessionId, entry.turnId, entry.item?.id, index, requested, visible]);
   return (
-    <div className="saved-image">
+    <div className="saved-image" ref={container}>
       {url ? (
         <ImagePreview key={url} src={url} alt={t('会话历史图片')} />
       ) : error ? (
@@ -118,6 +132,39 @@ function ImageDisclosure({ children }: { children: ReactNode }) {
   );
 }
 
+function imageParts(item: HistoryEntry['item']) {
+  const parts = Array.isArray(item?.content) ? (item.content as Record<string, unknown>[]) : [];
+  return parts.flatMap((part, index) =>
+    ['localImage', 'image'].includes(String(part.type)) ? [{ part, index }] : [],
+  );
+}
+
+export function UserMessageImages({
+  entry,
+  connection,
+  sessionId,
+}: {
+  entry: HistoryEntry;
+  connection?: Bridge;
+  sessionId: string;
+}) {
+  const images = imageParts(entry.item).filter(({ part }) => part.type === 'localImage');
+  return images.length > 0 ? (
+    <div className="user-message-images">
+      {images.map(({ index }) => (
+        <SavedImage
+          key={index}
+          connection={connection}
+          sessionId={sessionId}
+          entry={entry}
+          index={index}
+          lazy
+        />
+      ))}
+    </div>
+  ) : null;
+}
+
 export function questionAnswers(body: string): { question: string; answer: string }[] | undefined {
   const match =
     /^\s*<send_user_message_question_reply>\s*([\s\S]+?)\s*<\/send_user_message_question_reply>\s*$/.exec(
@@ -146,6 +193,7 @@ export function RichContent({
   onAgent,
   images: projectImages,
   sessionImages = false,
+  separateLocalImages = false,
 }: {
   entry: HistoryEntry;
   connection?: Bridge;
@@ -154,6 +202,7 @@ export function RichContent({
   onAgent?: (id: string) => void;
   images?: MessageImageSource;
   sessionImages?: boolean;
+  separateLocalImages?: boolean;
 }) {
   useLocale();
   const item = entry.item || {};
@@ -173,8 +222,8 @@ export function RichContent({
       : projectImages;
 
   const parts = Array.isArray(item.content) ? (item.content as Record<string, unknown>[]) : [];
-  const images = parts.flatMap((part, index) =>
-    ['localImage', 'image'].includes(String(part.type)) ? [{ part, index }] : [],
+  const images = imageParts(item).filter(
+    ({ part }) => !separateLocalImages || part.type !== 'localImage',
   );
   const tool =
     !['userMessage', 'agentMessage', 'assistantMessage', 'reasoning', 'plan'].includes(

@@ -1,0 +1,49 @@
+/* The shared Lisse mask changes the paint without shrinking the hit target. */
+:where([data-continuous-corners]:not(.composer)) {
+  -webkit-mask-image: var(--continuous-corner-mask);
+  mask-image: var(--continuous-corner-mask);
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+}
+
+:where([data-continuous-corners]):focus-visible {
+  outline-offset: -3px;
+}
+
+@media (max-width: 760px) {
+  .permission-sheet.modal::before {
+    -webkit-mask-image: var(--continuous-sheet-grip);
+    mask-image: var(--continuous-sheet-grip);
+  }
+}
+
+/* Keep the editor, focus, and anchored menus outside the composer's mask. */
+.composer[data-continuous-corners] {
+  isolation: isolate;
+  background-clip: text;
+  border-color: transparent;
+}
+
+.composer[data-continuous-corners]::before,
+.composer[data-continuous-corners]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+}
+
+.composer[data-continuous-corners]::before {
+  z-index: -1;
+  background: var(--composer-border-color);
+  -webkit-mask-image: var(--continuous-corner-rim);
+  mask-image: var(--continuous-corner-rim);
+}
+
+.composer[data-continuous-corners]::after {
+  z-index: -2;
+  background: var(--soft);
+  -webkit-mask-image: var(--continuous-corner-mask);
+  mask-image: var(--continuous-corner-mask);
+}

@@ -1,17 +1,18 @@
-/* global window, document, localStorage, Event, PointerEvent, MouseEvent */
+/* global window, document, localStorage, Event, PointerEvent, MouseEvent, getComputedStyle, Image, DOMParser */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium, webkit } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const browserType = process.env.REFERENCE_BROWSER === 'webkit' ? webkit : chromium;
 const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
 const out = new URL(
   `../../artifacts/${process.env.REFERENCE_ARTIFACT_DIR || 'reference-design'}/`,
   import.meta.url,
 );
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({
+const browser = await browserType.launch({
   headless: true,
-  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+  executablePath: browserType === chromium ? process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE : undefined,
 });
 const errors = [],
   checks = [];
@@ -296,6 +297,44 @@ try {
     .getByText('已保留项目授权、执行审批及重连恢复语义。现在可以继续下一步。', { exact: true })
     .waitFor();
   await shot('conversation-390-compact-dark');
+  const inputBox = main.locator('.composer[data-continuous-corners]');
+  const readCornerPaint = () =>
+    inputBox.evaluate(async (node) => {
+      const mask = getComputedStyle(node, '::after').maskImage;
+      const source = mask.slice(5, -2);
+      const svg = new DOMParser().parseFromString(
+        decodeURIComponent(source.slice(source.indexOf(',') + 1)),
+        'image/svg+xml',
+      ).documentElement;
+      const canvas = document.createElement('canvas');
+      const width = (canvas.width = Math.round(Number(svg.getAttribute('width'))));
+      const height = (canvas.height = Math.round(Number(svg.getAttribute('height'))));
+      const image = new Image();
+      image.src = source;
+      await image.decode();
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, width, height);
+      const rgba = context.getImageData(0, 0, width, height).data;
+      const edge = (y, right) => {
+        for (let offset = 0; offset < width; offset++) {
+          const x = right ? width - 1 - offset : offset;
+          if (rgba[(y * width + x) * 4 + 3] > 127) return offset;
+        }
+        return width;
+      };
+      return {
+        mask,
+        width,
+        height,
+        corners: Array.from({ length: 22 }, (_, y) => [
+          edge(y, false),
+          edge(y, true),
+          edge(height - 1 - y, false),
+          edge(height - 1 - y, true),
+        ]).flat(),
+      };
+    });
+  const compactPaint = await readCornerPaint();
   const addBounds = await main
     .getByRole('button', { name: '添加附件和操作', exact: true })
     .boundingBox();
@@ -344,8 +383,22 @@ try {
   checks.push(
     'Mobile microphone permission errors leave the compact action menu and dismissal usable',
   );
-  await main.getByRole('textbox', { name: '消息', exact: true }).focus();
+  await main.getByRole('textbox', { name: '消息', exact: true }).tap();
   await main.locator('.composer.is-compact').waitFor({ state: 'hidden' });
+  await page.waitForFunction((compact) => {
+    const composer = document.querySelector('#reference-app .conversation .composer');
+    return getComputedStyle(composer, '::after').maskImage !== compact;
+  }, compactPaint.mask);
+  const expandedPaint = await readCornerPaint();
+  assert(expandedPaint.width > compactPaint.width && expandedPaint.height > compactPaint.height);
+  assert(
+    compactPaint.corners.every(
+      (edge, index) => edge < 50 && Math.abs(edge - expandedPaint.corners[index]) <= 1,
+    ),
+  );
+  checks.push(
+    'A tap widens and heightens the composer with the same four rasterized Lisse corners',
+  );
   // Safari blurs the editor before its keyboard finishes closing. The app
   // must stay in the visual viewport until the keyboard resize arrives.
   await page.evaluate(() => {
@@ -424,18 +477,79 @@ try {
     'Asynchronous microphone denial/null-focus preserves native pointer/mouse events, editor typing, add/model menus without visible error rows; no terminal abort',
   );
   await shot('conversation-390-editing-dark');
-  const sheet = page.locator('.permission-sheet');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await main.getByRole('button', { name: '执行权限：工作区权限', exact: true }).click();
   const permission = page.getByRole('dialog', { name: '应如何批准 Codex 操作？' });
   await permission.waitFor();
+  const sheet = page.locator('.permission-sheet');
+  await page.waitForFunction(() =>
+    document
+      .querySelector('.permission-sheet')
+      ?.getAnimations()
+      .some((a) => a.transitionProperty === 'transform'),
+  );
+  const midSlide = () =>
+    sheet.evaluate((node) => {
+      const slide = node.getAnimations().find((a) => a.transitionProperty === 'transform');
+      slide.pause();
+      slide.currentTime = 100;
+      const bounds = node.getBoundingClientRect();
+      const offset = bounds.bottom - window.innerHeight;
+      slide.finish();
+      return offset > 0 && offset < bounds.height;
+    });
+  assert(await midSlide(), 'The mobile sheet enters from below the viewport');
   const box = await permission.boundingBox();
   assert.equal(Math.round(box.x), 0);
   assert.equal(Math.round(box.y + box.height), 844);
+  await page.waitForFunction(() =>
+    [
+      '.permission-sheet',
+      '.permission-options',
+      '#reference-app .composer',
+      '#reference-app .host-chip',
+    ].every((selector) =>
+      document.querySelector(selector)?.hasAttribute('data-continuous-corners'),
+    ),
+  );
+  assert(
+    await permission.evaluate((node) => {
+      const composer = document.querySelector('#reference-app .conversation .composer');
+      const masked = (surface, pseudo) =>
+        getComputedStyle(surface, pseudo)
+          .getPropertyValue('mask-image')
+          .includes('data:image/svg+xml');
+      return (
+        masked(node) &&
+        masked(node.querySelector('.permission-options')) &&
+        masked(document.querySelector('#reference-app .host-chip')) &&
+        masked(composer, '::after') &&
+        getComputedStyle(composer).maskImage === 'none' &&
+        getComputedStyle(composer).clipPath === 'none' &&
+        getComputedStyle(node).borderBottomLeftRadius === '0px' &&
+        !document
+          .querySelector('#reference-app .send-button')
+          .hasAttribute('data-continuous-corners')
+      );
+    }),
+    'Shared Lisse masks cover the sheet and capsules while the editor and circles retain their hit areas',
+  );
+  checks.push(
+    'Lisse 0.65 masks cover permission surfaces, capsules and composer paint with square sheet bottoms',
+  );
   await shot('permissions-390-dark');
   await page.keyboard.press('Escape');
-  await permission.waitFor({ state: 'hidden' });
+  await page.waitForFunction(() =>
+    document
+      .querySelector('.permission-sheet')
+      ?.getAnimations()
+      .some((a) => a.transitionProperty === 'transform'),
+  );
+  assert(await midSlide(), 'The inert mobile sheet exits through the bottom edge');
+  await sheet.waitFor({ state: 'detached' });
   assert(await main.locator('.permission').evaluate((node) => document.activeElement === node));
-  checks.push('Permission sheet bottom alignment, Escape and focus restoration');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  checks.push('Permission sheet enters and exits from the bottom; Escape restores focus');
   await main.getByRole('button', { name: '切换模型', exact: true }).click();
   const model = page.locator('.model-picker-popup:popover-open');
   await model.waitFor();
@@ -467,13 +581,16 @@ try {
   await model.getByRole('slider').focus();
   await page.keyboard.press('ArrowRight');
   assert.equal(await needle.evaluate((node) => node.getAnimations().length), 0);
-  assert.equal(await model.getByRole('button', { name: '快速模式', exact: true }).count(), 0);
-  await page.keyboard.press('Escape');
-  const fast = main.getByRole('button', { name: '快速模式', exact: true });
+  const fast = model.locator('.model-picker-heading > .model-fast-toggle');
   assert(await fast.isVisible());
+  const mobileHeading = await model.locator('.model-picker-model-toggle').boundingBox();
+  const mobileFast = await fast.boundingBox();
+  assert(mobileFast.x >= mobileHeading.x + mobileHeading.width - 1);
+  assert(mobileFast.width >= 44 && mobileFast.height >= 44);
   assert.equal(await fast.getAttribute('aria-pressed'), 'false');
   await fast.tap();
   assert.equal(await fast.getAttribute('aria-pressed'), 'true');
+  await page.keyboard.press('Escape');
   await editorAfterDenial.fill('验证快速模式');
   await shot('model-gauge-390-dark');
   await main.getByRole('button', { name: '发送', exact: true }).tap();
@@ -492,8 +609,10 @@ try {
   assert.equal(speedRequest.model, 'gpt-6.1-sol');
   assert.equal(speedRequest.effort, 'medium');
   await editorAfterDenial.tap();
+  await main.getByRole('button', { name: '切换模型', exact: true }).tap();
   await fast.tap();
   assert.equal(await fast.getAttribute('aria-pressed'), 'false');
+  await page.keyboard.press('Escape');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   checks.push(
     'Needle follows effort with pointer motion and updates immediately on keyboard/reduced motion; Fast reaches turn.start without changing effort',
@@ -578,13 +697,50 @@ try {
           assert(target.hit, JSON.stringify(target));
         }
       }
-      const toolbar = await main.locator('.composer').boundingBox();
+      const composerBox = await main.locator('.composer').boundingBox();
       const send = await main.getByRole('button', { name: '发送', exact: true }).boundingBox();
-      assert(send.x + send.width <= toolbar.x + toolbar.width + 1, 'Composer controls must fit');
+      assert(
+        send.x + send.width <= composerBox.x + composerBox.width + 1,
+        'Composer controls must fit',
+      );
       await shot(`conversation-${width}-${theme}`);
+      if (width === 1440) {
+        const trigger = main.getByRole('button', { name: '切换模型', exact: true });
+        await trigger.press('ArrowDown');
+        await model.waitFor();
+        await shot(`model-desktop-${theme}`);
+        const panel = await model.boundingBox();
+        const slider = await model.locator('.effort-slider').boundingBox();
+        assert(Math.abs(panel.x + panel.width - composerBox.x - composerBox.width) <= 1);
+        assert(Math.abs(panel.y + panel.height - composerBox.y + 6) <= 1);
+        assert.equal(panel.width, 264);
+        assert.equal(slider.height, 64);
+        assert.equal(
+          await model.evaluate((node) => getComputedStyle(node).backgroundColor),
+          'rgba(0, 0, 0, 0)',
+        );
+        const heading = model.locator('.model-picker-model-toggle');
+        assert(await heading.evaluate((node) => node === document.activeElement));
+        assert.equal(await main.locator('.composer-model > .model-fast-toggle').count(), 0);
+        const shortcut = model.locator('.model-picker-heading > .model-fast-toggle');
+        const headingBox = await heading.boundingBox();
+        const shortcutBox = await shortcut.boundingBox();
+        assert(shortcutBox && shortcutBox.x >= headingBox.x + headingBox.width - 1);
+        const pressed = await shortcut.getAttribute('aria-pressed');
+        await shortcut.click();
+        assert.equal(await shortcut.getAttribute('aria-pressed'), String(pressed !== 'true'));
+        await shortcut.click();
+        await heading.press('Enter');
+        await model.getByRole('group', { name: '模型', exact: true }).waitFor();
+        await page.keyboard.press('Escape');
+        await model.waitFor({ state: 'hidden' });
+      }
     }
   }
   checks.push('320/390/768/1440px light/dark: no document overflow, composer actions fit');
+  checks.push(
+    'Desktop model picker opens above the right edge with the capsule slider and the working speed toggle beside its heading',
+  );
   await main.getByRole('textbox', { name: '消息', exact: true }).fill('跨模式保留的草稿');
   await page.setViewportSize({ width: 390, height: 844 });
   await main.getByRole('button', { name: '新建会话', exact: true }).click();
@@ -616,7 +772,7 @@ try {
   );
   assert.deepEqual(
     controls.map(({ label }) => label),
-    ['添加附件和操作', '执行权限：完整访问', '快速模式', '切换模型', '语音输入', '发送'],
+    ['添加附件和操作', '执行权限：完整访问', '切换模型', '语音输入', '发送'],
   );
   assert(controls.every(({ y }) => Math.abs(y - controls[0].y) < 1));
   assert(controls.slice(3).every(({ x }, index) => Math.abs(x - controls[index + 2].x - 44) < 1));
@@ -669,7 +825,7 @@ try {
   await shot('settings-390-dark');
   await settings
     .getByRole('navigation', { name: '设置分类' })
-    .getByRole('button', { name: '对话', exact: true })
+    .getByRole('button', { name: '项目', exact: true })
     .click();
   await page.setViewportSize({ width: 320, height: 700 });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
@@ -697,7 +853,7 @@ try {
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
   await api.getByRole('button', { name: '打开会话列表', exact: true }).click();
   await api.locator('.sidebar').getByRole('button', { name: '切换工作模式', exact: true }).click();
-  await page.getByRole('button', { name: 'Codex', exact: true }).click();
+  await page.getByRole('button', { name: 'AgentDeck', exact: true }).click();
   await app.locator('.host-chip').filter({ hasText: 'Laptop' }).click();
   await app
     .locator('.sidebar-project-sessions .session')

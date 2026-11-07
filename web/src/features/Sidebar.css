@@ -130,7 +130,7 @@
   position: relative;
   min-height: 30px;
   margin: 1px 0;
-  border-radius: 8px;
+  border-radius: 999px;
 }
 .desktop-sidebar .desktop-session-row > .session {
   gap: 6px;
@@ -168,14 +168,8 @@
   background: var(--rail);
   border-radius: 7px;
 }
-.desktop-session-row.selected .sidebar-session-actions {
-  background: var(--hover);
-}
-.desktop-session-row:hover .sidebar-session-actions {
-  background: var(--soft);
-}
-.desktop-session-row.selected:hover .sidebar-session-actions {
-  background: var(--hover);
+.desktop-session-row:is(.selected, :hover) .sidebar-session-actions {
+  background: transparent;
 }
 .desktop-session-row:is(:hover, :focus-within, .selected, .has-open-menu) .sidebar-session-actions {
   opacity: 1;

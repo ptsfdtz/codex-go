@@ -1,9 +1,15 @@
 import { t } from './i18n';
 import { Component, createRef, type ReactNode } from 'react';
 import { ArrowDown } from 'lucide-react';
-import { motionDuration, MotionPresence } from './motion';
+import { animateContentChange, motionDuration, MotionPresence } from './motion';
 
-type Position = { bottom: boolean; key?: string; top: number; scrollTop: number };
+type Position = {
+  bottom: boolean;
+  key?: string;
+  anchor?: HTMLElement;
+  top: number;
+  scrollTop: number;
+};
 type Props = {
   identity: string;
   children: ReactNode;
@@ -23,17 +29,18 @@ export class Timeline extends Component<
   private content = createRef<HTMLDivElement>();
   private position: Position | null = null;
   private observer?: ResizeObserver;
+  private itemsObserver?: MutationObserver;
   private transition?: Animation;
   private following = true;
   private userIntent = false;
   private touchY?: number;
   private olderRequested = false;
   private knownItems = new WeakSet<Element>();
-  private revealNewItems(animate: boolean) {
+  private revealNewItems(animate: boolean, items: Iterable<HTMLElement>) {
     const node = this.element.current;
     if (!node) return;
     const viewport = node.getBoundingClientRect();
-    for (const item of node.querySelectorAll<HTMLElement>('[data-history-key]')) {
+    for (const item of items) {
       if (this.knownItems.has(item)) continue;
       this.knownItems.add(item);
       if (!animate) continue;
@@ -50,13 +57,32 @@ export class Timeline extends Component<
     this.position = this.readPosition();
   }
   componentDidMount() {
-    this.revealNewItems(false);
+    this.revealNewItems(
+      false,
+      this.element.current!.querySelectorAll<HTMLElement>('[data-history-key]'),
+    );
+    this.itemsObserver = new MutationObserver((records) => {
+      const items = new Set<HTMLElement>();
+      for (const record of records)
+        for (const added of record.addedNodes) {
+          if (!(added instanceof HTMLElement)) continue;
+          if (added.matches('[data-history-key]')) items.add(added);
+          for (const item of added.querySelectorAll<HTMLElement>('[data-history-key]'))
+            items.add(item);
+        }
+      this.revealNewItems(
+        this.following && this.props.animateNewItems === true && !this.props.loadingOlder,
+        items,
+      );
+    });
+    this.itemsObserver.observe(this.content.current!, { childList: true, subtree: true });
     this.position = this.readPosition();
     this.observer = new ResizeObserver(() => this.restore(this.position));
     if (this.content.current) this.observer.observe(this.content.current);
   }
   componentWillUnmount() {
     this.observer?.disconnect();
+    this.itemsObserver?.disconnect();
     this.transition?.cancel();
   }
   getSnapshotBeforeUpdate(previous: Readonly<Props>): Position | null {
@@ -66,13 +92,34 @@ export class Timeline extends Component<
   private readPosition(): Position | null {
     const node = this.element.current;
     if (!node) return null;
+    // Streaming while following the end needs no history traversal or layout
+    // measurements for offscreen messages.
+    if (this.following) return { bottom: true, top: 0, scrollTop: node.scrollTop };
     const top = node.getBoundingClientRect().top;
-    const anchor = [...node.querySelectorAll<HTMLElement>('[data-history-key]')].find(
-      (item) => item.getBoundingClientRect().bottom > top,
-    );
+    let anchor = this.position?.anchor;
+    if (
+      !anchor ||
+      !node.contains(anchor) ||
+      anchor.getBoundingClientRect().top > top ||
+      anchor.getBoundingClientRect().bottom <= top
+    ) {
+      anchor = undefined;
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT, {
+        acceptNode(element) {
+          const item = element as HTMLElement;
+          return item.matches('[data-history-key]') &&
+            item.getClientRects().length &&
+            item.getBoundingClientRect().bottom > top
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_SKIP;
+        },
+      });
+      anchor = walker.nextNode() as HTMLElement | undefined;
+    }
     return {
       bottom: this.following,
       key: anchor?.dataset.historyKey,
+      anchor,
       top: anchor?.getBoundingClientRect().top || 0,
       scrollTop: node.scrollTop,
     };
@@ -80,10 +127,9 @@ export class Timeline extends Component<
   componentDidUpdate(previous: Readonly<Props>, _state: unknown, position: Position | null) {
     if (previous.identity !== this.props.identity) {
       this.transition?.cancel();
-      this.transition = this.content.current?.animate([{ opacity: 0.7 }, { opacity: 1 }], {
-        duration: motionDuration(180),
-        easing: 'ease-out',
-      });
+      this.transition = this.content.current
+        ? animateContentChange(this.content.current)
+        : undefined;
       this.userIntent = false;
       this.olderRequested = false;
       if (this.state.away || this.state.unread) this.setState({ away: false, unread: false });
@@ -91,13 +137,6 @@ export class Timeline extends Component<
       this.setState({ unread: true });
     }
     this.restore(position);
-    this.revealNewItems(
-      previous.identity === this.props.identity &&
-        previous.animateNewItems === true &&
-        this.props.animateNewItems === true &&
-        this.following &&
-        !this.props.loadingOlder,
-    );
   }
   private older() {
     const node = this.element.current;
@@ -121,9 +160,12 @@ export class Timeline extends Component<
       if (!position) this.following = true;
       node.scrollTop = node.scrollHeight;
     } else {
-      const anchor = [...node.querySelectorAll<HTMLElement>('[data-history-key]')].find(
-        (item) => item.dataset.historyKey === position.key,
-      );
+      const anchor =
+        position.anchor && node.contains(position.anchor)
+          ? position.anchor
+          : position.key
+            ? node.querySelector<HTMLElement>(`[data-history-key="${CSS.escape(position.key)}"]`)
+            : null;
       node.scrollTop =
         position.scrollTop + (anchor ? anchor.getBoundingClientRect().top - position.top : 0);
     }

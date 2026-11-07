@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { positionPopover, useMenuPopover } from '../../components/popover';
 import { IconButton } from '../../ui';
+import { MotionList } from '../../motion';
 import { contentText, FileReferences } from '../../RichContent';
 import type { Request } from '../../workspace';
 
@@ -228,7 +229,7 @@ export function QueuedMessages({
           />
         </div>
       )}
-      <div className="queued-list">
+      <MotionList className="queued-list">
         {entries.map((entry) => {
           const text = contentText(entry.input),
             resources = entry.input.some(
@@ -267,7 +268,7 @@ export function QueuedMessages({
             </div>
           );
           return (
-            <div className="queued-message" key={entry.id}>
+            <div className="queued-message" data-motion-item key={entry.id}>
               {!active && content}
               <div className="queued-actions">
                 {resources && (
@@ -328,7 +329,7 @@ export function QueuedMessages({
             </div>
           );
         })}
-      </div>
+      </MotionList>
       {(error || readError) && (
         <p className="queued-error" role="alert">
           {errorText(error || readError)}

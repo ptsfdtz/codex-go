@@ -37,15 +37,16 @@ function AttachmentCard({
 }) {
   useLocale();
   const [url, setUrl] = useState('');
+  const image = /^image\/(png|jpeg|webp|gif|bmp)$/i.test(attachment.mime);
   useEffect(() => {
-    if (!/^image\/(png|jpeg|webp|gif|bmp)$/i.test(attachment.mime)) return;
+    if (!image) return;
     const bytes = Uint8Array.from(atob(attachment.data), (c) => c.charCodeAt(0));
     const value = URL.createObjectURL(new Blob([bytes], { type: attachment.mime }));
     setUrl(value);
     return () => URL.revokeObjectURL(value);
-  }, [attachment]);
+  }, [attachment, image]);
   return (
-    <div className="composer-attachment">
+    <div className="composer-attachment" data-image={image || undefined}>
       {url ? (
         <button
           className="attachment-thumbnail"
@@ -66,6 +67,7 @@ function AttachmentCard({
       </span>
       <IconButton
         icon={X}
+        className="attachment-remove"
         label={t('移除附件 {{p0}}', { p0: attachment.name })}
         disabled={disabled}
         onClick={onRemove}
@@ -462,6 +464,21 @@ export function Composer({
         >
           {(hasResources || draft.mode !== 'default') && (
             <div className="composer-resources">
+              {draft.attachments.length > 0 && (
+                <div className="composer-attachments">
+                  {draft.attachments.map((attachment, index) => (
+                    <AttachmentCard
+                      key={`${index}:${attachment.name}`}
+                      attachment={attachment}
+                      disabled={busy || addingAttachments}
+                      onRemove={() =>
+                        onChange({ attachments: draft.attachments.filter((_, i) => i !== index) })
+                      }
+                      onPreview={(url) => setPreview({ url, attachment })}
+                    />
+                  ))}
+                </div>
+              )}
               {draft.mode !== 'default' && (
                 <button
                   className="resource-chip mode-chip"
@@ -476,17 +493,6 @@ export function Composer({
                   <X size={12} />
                 </button>
               )}
-              {draft.attachments.map((attachment, index) => (
-                <AttachmentCard
-                  key={`${index}:${attachment.name}`}
-                  attachment={attachment}
-                  disabled={busy || addingAttachments}
-                  onRemove={() =>
-                    onChange({ attachments: draft.attachments.filter((_, i) => i !== index) })
-                  }
-                  onPreview={(url) => setPreview({ url, attachment })}
-                />
-              ))}
               {(draft.references || []).map((reference) => (
                 <span
                   className="resource-chip file-reference-chip"

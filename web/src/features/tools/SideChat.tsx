@@ -1,3 +1,4 @@
+import { useHistory } from '../use-history';
 import { errorText, t, useLocale } from '../../i18n';
 import { Select } from '../../components/Select';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -65,9 +66,7 @@ export function SideChat({
   const [project, setProject] = useState(initialProject);
   const [sessionId, setSessionId] = useState(initialSession);
   const [permission, setPermission] = useState('workspace');
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
-  const history = useRef(entries);
-  history.current = entries;
+  const { entries, current: history, update: setEntries } = useHistory();
   const [cursor, setCursor] = useState<string>();
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);

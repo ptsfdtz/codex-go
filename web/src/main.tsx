@@ -4,8 +4,10 @@ import { App } from './App';
 import { InstallProvider } from './features/InstallApp';
 import { initializePwa } from './pwa';
 import { initializeMotion } from './motion';
+import { initializeContinuousCorners } from './continuous-corners';
 import './motion.css';
 import './reference-ui.css';
+import './continuous-corners.css';
 
 // Apply the persisted palette before React mounts to avoid a light flash.
 try {
@@ -16,6 +18,7 @@ try {
 
 initializePwa();
 initializeMotion();
+initializeContinuousCorners();
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

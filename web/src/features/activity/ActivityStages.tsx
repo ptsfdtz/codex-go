@@ -1,5 +1,5 @@
 import { t, useLocale } from '../../i18n';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ChevronRight,
   Layers,
@@ -117,27 +117,42 @@ export function ActivityStages({
       const index = stage.indices[0]!;
       return children(entries[index]!, index);
     }
-    const { icon: Icon, label } = stageSummary(
-      stage.indices.map((index) => entries[index]!),
-      stage.active,
-    );
-    return (
-      <details
-        className="activity-stage"
-        key={stage.key}
-        data-history-key={stage.key}
-        data-active={stage.active || undefined}
-      >
-        <summary>
-          <Icon size={17} aria-hidden="true" />
-          <span>{label}</span>
-          {stage.active && <span className="activity-dot" aria-label={t('执行中')} />}
-          <ChevronRight className="activity-stage-chevron" size={14} aria-hidden="true" />
-        </summary>
-        <div className="activity-stage-items">
-          {stage.indices.map((index) => children(entries[index]!, index))}
-        </div>
-      </details>
-    );
+    return <ActivityGroup key={stage.key} stage={stage} entries={entries} renderEntry={children} />;
   });
+}
+
+function ActivityGroup({
+  stage,
+  entries,
+  renderEntry,
+}: {
+  stage: ReturnType<typeof activityStages>[number];
+  entries: HistoryEntry[];
+  renderEntry: (entry: HistoryEntry, index: number) => ReactNode;
+}) {
+  const [visited, setVisited] = useState(false);
+  const { icon: Icon, label } = stageSummary(
+    stage.indices.map((index) => entries[index]!),
+    stage.active,
+  );
+  return (
+    <details
+      className="activity-stage"
+      data-history-key={stage.key}
+      data-active={stage.active || undefined}
+      onToggle={(event) => {
+        if (event.target === event.currentTarget && event.currentTarget.open) setVisited(true);
+      }}
+    >
+      <summary>
+        <Icon size={17} aria-hidden="true" />
+        <span>{label}</span>
+        {stage.active && <span className="activity-dot" aria-label={t('执行中')} />}
+        <ChevronRight className="activity-stage-chevron" size={14} aria-hidden="true" />
+      </summary>
+      <div className="activity-stage-items">
+        {visited && stage.indices.map((index) => renderEntry(entries[index]!, index))}
+      </div>
+    </details>
+  );
 }

@@ -187,7 +187,7 @@
 .api-message-user .api-message-body {
   max-width: 88%;
   border-radius: 22px;
-  background: var(--soft);
+  background: var(--outgoing-bubble, var(--soft));
   padding: 8px 18px;
 }
 .api-message-body > :first-child {

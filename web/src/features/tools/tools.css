@@ -29,6 +29,10 @@
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   color: var(--muted);
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
 .tool-tab[data-selected='true'] {
   background: var(--bg);
@@ -71,6 +75,22 @@
 }
 .tool-tab-panel[hidden] {
   display: none;
+}
+.tool-tab-panel,
+.tool-launcher,
+.workspace-tool-body {
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+@starting-style {
+  .tool-tab,
+  .tool-tab-panel:not([hidden]),
+  .tool-launcher,
+  .workspace-tool-body:not([hidden]) {
+    opacity: 0;
+  }
+}
+:root[data-motion-input='keyboard'] .tool-tab-panel {
+  transition-duration: 0s;
 }
 .tools-workspace .tool-tab-panel > .file-workspace {
   width: 100%;
@@ -125,8 +145,47 @@
   container: tools / inline-size;
 }
 @media (max-width: 760px) {
+  .conversation-layout {
+    position: relative;
+  }
+  .conversation-layout > .tools-workspace,
+  .conversation-layout > .tools-workspace[hidden] {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    z-index: 29;
+    transform: translateX(0);
+    transition:
+      opacity var(--motion-panel) var(--ease-out),
+      transform 280ms var(--ease-drawer),
+      visibility 280ms allow-discrete;
+  }
+  .conversation-layout > .tools-workspace[hidden] {
+    visibility: hidden;
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  @starting-style {
+    .conversation-layout > .tools-workspace:not([hidden]) {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+  }
   .tool-launcher {
     padding: 24px 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversation-layout > .tools-workspace,
+  .conversation-layout > .tools-workspace[hidden] {
+    transition-property: opacity, visibility !important;
+    transform: none;
+  }
+  @starting-style {
+    .conversation-layout > .tools-workspace:not([hidden]) {
+      transform: none;
+    }
   }
 }
 .workspace-tool-body {

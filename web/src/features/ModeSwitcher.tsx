@@ -26,14 +26,14 @@ export function ModeSwitcher({
           positionPopover(event.currentTarget, node, { width: 264 });
         }}
       >
-        {mode === 'codex' ? 'Codex' : 'AgentChat'}
+        AgentDeck
         <ChevronDown size={14} />
       </button>
       <div id={id} ref={menu} popover="auto" className="mode-menu" aria-label={t('工作模式')}>
         {(
           [
             ['api', 'AgentChat', MessageCircle],
-            ['codex', 'Codex', Code2],
+            ['codex', 'AgentDeck', Code2],
           ] as const
         ).map(([value, label, Icon]) => (
           <button

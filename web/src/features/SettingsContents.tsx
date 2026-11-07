@@ -3,14 +3,12 @@ import { t, useLocale } from '../i18n';
 import { Select } from '../components/Select';
 import { api } from '../cloud';
 import { LanguageSelect } from '../i18n/LanguageSelect';
-import { InstallApp } from './InstallApp';
-import { IconButton, DataFields } from '../ui';
+import { IconButton } from '../ui';
 import { MotionList } from '../motion';
 import { LogOut, RefreshCw } from 'lucide-react';
 import { deferred } from '../deferred';
-import type { Host, Project, Model, Request } from '../workspace';
+import type { Host, Project, Request } from '../workspace';
 import type { HostName } from './host-names';
-import { connectionLabels, type ConnectionState } from '../transport/reconnect';
 const DeleteDevice = deferred<React.ComponentProps<typeof import('./AccountDevices').DeleteDevice>>(
   () => import('./AccountDevices').then((module) => ({ default: module.DeleteDevice })),
 );
@@ -24,21 +22,6 @@ const ProjectSettings = deferred<
     default: module.ProjectSettings,
   })),
 );
-const ConfigurationPanel = deferred<
-  React.ComponentProps<typeof import('./Panels').ConfigurationPanel>
->(() => import('./Panels').then((module) => ({ default: module.ConfigurationPanel })));
-const RetentionPanel = deferred<React.ComponentProps<typeof import('./Panels').RetentionPanel>>(
-  () => import('./Panels').then((module) => ({ default: module.RetentionPanel })),
-);
-const DiagnosticsPanel = deferred<React.ComponentProps<typeof import('./Panels').DiagnosticsPanel>>(
-  () => import('./Panels').then((module) => ({ default: module.DiagnosticsPanel })),
-);
-const AccountPanel = deferred<React.ComponentProps<typeof import('./Panels').AccountPanel>>(() =>
-  import('./Panels').then((module) => ({ default: module.AccountPanel })),
-);
-const AppUpdates = deferred<Record<string, never>>(() =>
-  import('./AppUpdates').then((module) => ({ default: module.AppUpdates })),
-);
 const SettingsLayout = deferred<
   React.ComponentProps<typeof import('./SettingsLayout').SettingsLayout>
 >(() => import('./SettingsLayout').then((module) => ({ default: module.SettingsLayout })));
@@ -47,18 +30,15 @@ type Props = {
   setSettingsTab: (value: string) => void;
   theme: string;
   setTheme: (value: string) => void;
+  bubbleColor: string;
+  setBubbleColor: (value: string) => void;
   notification: boolean;
   setNotification: (value: boolean) => void;
   setError: (value: string) => void;
   connected: boolean;
   request: Request;
-  models: Model[];
   supports: (feature: string) => boolean;
-  setFilter: (value: string) => void;
-  setSidebarOpen: (value: boolean) => void;
   setPanel: (value: string) => void;
-  openPanel: (value: string) => void;
-  syncIndex: () => Promise<void>;
   host?: Host;
   projects: Project[];
   hostName: (host: Host) => string;
@@ -67,7 +47,6 @@ type Props = {
   setSelectedProject: (id: string) => void;
   selectSession: (id: string | undefined) => void;
   directoryFailure: string;
-  connectionState: ConnectionState;
   connectionFailure: string;
   hosts: Host[];
   connect: (host: Host) => Promise<void>;
@@ -81,18 +60,15 @@ export function SettingsContents({
   setSettingsTab,
   theme,
   setTheme,
+  bubbleColor,
+  setBubbleColor,
   notification,
   setNotification,
   setError,
   connected,
   request,
-  models,
   supports,
-  setFilter,
-  setSidebarOpen,
   setPanel,
-  openPanel,
-  syncIndex,
   host,
   projects,
   hostName,
@@ -101,7 +77,6 @@ export function SettingsContents({
   setSelectedProject,
   selectSession,
   directoryFailure,
-  connectionState,
   connectionFailure,
   hosts,
   connect,
@@ -115,8 +90,8 @@ export function SettingsContents({
     <SettingsLayout active={settingsTab} onChange={setSettingsTab}>
       {settingsTab === 'general' && (
         <div className="settings-general">
-          <LanguageSelect />
           <section className="settings-section panel-stack">
+            <LanguageSelect />
             <label className="setting-row">
               <span>{t('外观')}</span>
               <Select
@@ -130,10 +105,21 @@ export function SettingsContents({
               </Select>
             </label>
             <label className="setting-row">
-              <span>
-                {t('系统通知')}
-                <small>{t('页面后台时提醒；应用内卡片和蓝点始终显示')}</small>
-              </span>
+              <span>{t('发送气泡颜色')}</span>
+              <Select
+                aria-label={t('发送气泡颜色')}
+                value={bubbleColor}
+                onValueChange={setBubbleColor}
+              >
+                <option value="default">{t('默认')}</option>
+                <option value="blue">{t('蓝色')}</option>
+                <option value="green">{t('绿色')}</option>
+                <option value="purple">{t('紫色')}</option>
+                <option value="gray">{t('灰色')}</option>
+              </Select>
+            </label>
+            <label className="setting-row">
+              <span>{t('系统通知')}</span>
               <input
                 type="checkbox"
                 checked={notification}
@@ -159,14 +145,6 @@ export function SettingsContents({
                 </p>
               )}
           </section>
-          <section className="settings-section panel-stack">
-            <h3>{t('安装应用')}</h3>
-            <InstallApp />
-            <p className="settings-installed">{t('已安装')}</p>
-          </section>
-          <section className="settings-section">
-            <AppUpdates />
-          </section>
           <section className="settings-section setting-row">
             <div>
               <h3>{t('AgentDeck 账户')}</h3>
@@ -185,66 +163,8 @@ export function SettingsContents({
           </section>
         </div>
       )}
-      {settingsTab === 'configuration' &&
-        (connected ? (
-          <ConfigurationPanel request={request} models={models} supports={supports} />
-        ) : (
-          <p>{t('连接电脑后查看模型与输出配置。')}</p>
-        ))}
-      {settingsTab === 'data' &&
-        (connected ? <RetentionPanel request={request} /> : <p>{t('连接电脑后管理缓存。')}</p>)}
-      {settingsTab === 'diagnostics' &&
-        (connected ? <DiagnosticsPanel request={request} /> : <p>{t('连接电脑后读取诊断。')}</p>)}
-      {settingsTab === 'account' &&
-        (connected && supports('accountSummary') ? (
-          <AccountPanel request={request} />
-        ) : (
-          <p>{t('连接支持账户摘要的电脑后查看。')}</p>
-        ))}
-      {settingsTab === 'shortcuts' && (
-        <DataFields
-          value={{
-            'Ctrl + K': t('搜索会话'),
-            'Ctrl + F': t('查找已加载消息'),
-            'Alt + ← / →': t('切换上一条 / 下一条会话'),
-            Enter: t('发送 / 加入队列'),
-            'Shift + Enter': t('换行'),
-            'Ctrl + Enter': t('发送'),
-            Escape: t('关闭菜单或弹窗'),
-            '/plan /goal /default': t('切换模式'),
-            '/skills /mention': t('技能 / 项目文件'),
-            '/queue /history /compact /new': t('队列 / 历史 / 整理 / 新对话'),
-          }}
-        />
-      )}
       {settingsTab === 'conversations' && (
         <div className="panel-stack">
-          <button
-            className="settings-action"
-            onClick={() => {
-              setFilter('archived');
-              setSidebarOpen(true);
-              setPanel('');
-            }}
-          >
-            <span>
-              <strong>{t('查看归档对话')}</strong>
-            </span>
-          </button>
-          <button className="settings-action" onClick={() => openPanel('drafts')}>
-            <span>
-              <strong>{t('未发送草稿')}</strong>
-            </span>
-          </button>
-          <button
-            className="settings-action"
-            disabled={!connected}
-            onClick={() => void syncIndex()}
-          >
-            <span>
-              <strong>{t('同步电脑已有对话')}</strong>
-            </span>
-          </button>
           <ProjectSettings
             key={host?.hostId || 'disconnected'}
             request={request}
@@ -267,12 +187,6 @@ export function SettingsContents({
           {directoryFailure && (
             <p className="error" role="status">
               {directoryFailure}
-            </p>
-          )}
-          {host && (
-            <p role="status">
-              {t('浏览器连接：')}
-              {connectionLabels[connectionState]}
             </p>
           )}
           {connectionFailure && (

@@ -1,5 +1,5 @@
 import { errorText, t, useLocale } from '../../i18n';
-import { useContentMotion } from '../../motion';
+import { MotionPresence, useContentMotion } from '../../motion';
 import type { FileReference } from '../../workspace';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -588,104 +588,110 @@ export function FileWorkspace({
               </>
             )}
           </section>
-          {treeOpen && (
-            <aside className="file-explorer" aria-label={t('文件目录侧栏')}>
-              <form
-                className="file-filter"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (query.trim()) open(query.trim());
-                }}
-              >
-                <Search size={14} />
-                <input
-                  id="file-filter"
-                  aria-label={t('筛选文件或打开路径')}
-                  placeholder={t('筛选文件 / 输入路径')}
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                />
-                {query && (
-                  <button type="button" aria-label={t('清除文件筛选')} onClick={() => setQuery('')}>
-                    <X size={13} />
-                  </button>
-                )}
-              </form>
-              {query && (
-                <div className="file-filter-hint">
-                  {t('筛选已加载目录；按 Enter 打开完整相对路径。')}
-                </div>
-              )}
-              <div className="file-explorer-scroll">
-                {gitRead && (
-                  <>
-                    <button className="file-section-button" onClick={() => open('', 'changes')}>
-                      <FileDiff size={14} />
-                      {t('全部变更')}
-                      <small>{changes.length || ''}</small>
-                    </button>
-                    <details className="file-tree-section">
-                      <summary>
-                        {t('已更改的文件 ')}
-                        <small>{changes.length || ''}</small>
-                      </summary>
-                      {git.loading && (
-                        <p className="file-tree-message" role="status">
-                          {t('核对变更中…')}
-                        </p>
-                      )}
-                      {git.error && (
-                        <div className="file-tree-message error" role="alert">
-                          {errorText(git.error)}
-                          <button onClick={() => setRevision((value) => value + 1)}>
-                            {t('重试')}
-                          </button>
-                        </div>
-                      )}
-                      {git.value && !git.value.available && (
-                        <p className="file-tree-message">{t('不是可用的 Git 工作区')}</p>
-                      )}
-                      {git.value?.available && !changes.length && (
-                        <p className="file-tree-message">{t('没有改动')}</p>
-                      )}
-                      {changes
-                        .filter((file) => file.path.toLowerCase().includes(query.toLowerCase()))
-                        .map((file) => (
-                          <button
-                            className={`file-tree-row ${active?.path === file.path && active.view === 'diff' ? 'selected' : ''}`}
-                            key={file.fileId}
-                            title={file.path}
-                            onClick={() => open(file.path, 'diff')}
-                          >
-                            <FileIcon path={file.path} />
-                            <span>{file.path}</span>
-                            <small className={`file-git-status status-${gitLabel(file)}`}>
-                              {gitLabel(file)}
-                            </small>
-                          </button>
-                        ))}
-                      {git.value?.truncated && (
-                        <p className="file-tree-message">{t('变更列表已截断。')}</p>
-                      )}
-                    </details>
-                  </>
-                )}
-                <details className="file-tree-section" open>
-                  <summary>{t('所有文件')}</summary>
-                  <FileTree
-                    directories={directories}
-                    expanded={expanded}
-                    query={query}
-                    selected={active?.path}
-                    changes={changes}
-                    onToggle={toggleDirectory}
-                    onOpen={(path) => open(path)}
-                    onRetry={retryDirectory}
+          <MotionPresence>
+            {treeOpen && (
+              <aside className="file-explorer" aria-label={t('文件目录侧栏')}>
+                <form
+                  className="file-filter"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (query.trim()) open(query.trim());
+                  }}
+                >
+                  <Search size={14} />
+                  <input
+                    id="file-filter"
+                    aria-label={t('筛选文件或打开路径')}
+                    placeholder={t('筛选文件 / 输入路径')}
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
                   />
-                </details>
-              </div>
-            </aside>
-          )}
+                  {query && (
+                    <button
+                      type="button"
+                      aria-label={t('清除文件筛选')}
+                      onClick={() => setQuery('')}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </form>
+                {query && (
+                  <div className="file-filter-hint">
+                    {t('筛选已加载目录；按 Enter 打开完整相对路径。')}
+                  </div>
+                )}
+                <div className="file-explorer-scroll">
+                  {gitRead && (
+                    <>
+                      <button className="file-section-button" onClick={() => open('', 'changes')}>
+                        <FileDiff size={14} />
+                        {t('全部变更')}
+                        <small>{changes.length || ''}</small>
+                      </button>
+                      <details className="file-tree-section">
+                        <summary>
+                          {t('已更改的文件 ')}
+                          <small>{changes.length || ''}</small>
+                        </summary>
+                        {git.loading && (
+                          <p className="file-tree-message" role="status">
+                            {t('核对变更中…')}
+                          </p>
+                        )}
+                        {git.error && (
+                          <div className="file-tree-message error" role="alert">
+                            {errorText(git.error)}
+                            <button onClick={() => setRevision((value) => value + 1)}>
+                              {t('重试')}
+                            </button>
+                          </div>
+                        )}
+                        {git.value && !git.value.available && (
+                          <p className="file-tree-message">{t('不是可用的 Git 工作区')}</p>
+                        )}
+                        {git.value?.available && !changes.length && (
+                          <p className="file-tree-message">{t('没有改动')}</p>
+                        )}
+                        {changes
+                          .filter((file) => file.path.toLowerCase().includes(query.toLowerCase()))
+                          .map((file) => (
+                            <button
+                              className={`file-tree-row ${active?.path === file.path && active.view === 'diff' ? 'selected' : ''}`}
+                              key={file.fileId}
+                              title={file.path}
+                              onClick={() => open(file.path, 'diff')}
+                            >
+                              <FileIcon path={file.path} />
+                              <span>{file.path}</span>
+                              <small className={`file-git-status status-${gitLabel(file)}`}>
+                                {gitLabel(file)}
+                              </small>
+                            </button>
+                          ))}
+                        {git.value?.truncated && (
+                          <p className="file-tree-message">{t('变更列表已截断。')}</p>
+                        )}
+                      </details>
+                    </>
+                  )}
+                  <details className="file-tree-section" open>
+                    <summary>{t('所有文件')}</summary>
+                    <FileTree
+                      directories={directories}
+                      expanded={expanded}
+                      query={query}
+                      selected={active?.path}
+                      changes={changes}
+                      onToggle={toggleDirectory}
+                      onOpen={(path) => open(path)}
+                      onRetry={retryDirectory}
+                    />
+                  </details>
+                </div>
+              </aside>
+            )}
+          </MotionPresence>
         </div>
       )}
     </aside>

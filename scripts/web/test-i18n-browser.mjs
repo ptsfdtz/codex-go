@@ -6,7 +6,10 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const origin = process.env.I18N_TEST_ORIGIN || 'http://127.0.0.1:1434/';
 const out = new URL('../../artifacts/i18n/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const errors = [],
   checks = [];
 async function observe(page) {
@@ -140,7 +143,12 @@ try {
     window.testRoot.render(React.createElement(App));
   });
   const input = page.getByRole('textbox', { name: 'Message', exact: true });
-  await input.waitFor();
+  await input.waitFor().catch(async (error) => {
+    console.log(await page.locator('body').innerText());
+    console.log(await page.evaluate(() => window.calls));
+    console.log(errors);
+    throw error;
+  });
   await page
     .waitForFunction(
       () => [...document.querySelectorAll('textarea')].some((node) => !node.disabled),
@@ -251,7 +259,7 @@ try {
     .waitFor();
   await page
     .locator('#lazy-language-test')
-    .getByRole('button', { name: 'Keyboard shortcuts', exact: true })
+    .getByRole('button', { name: 'Projects', exact: true })
     .waitFor();
   await page.evaluate(() => document.getElementById('lazy-language-test').remove());
   assert.equal(

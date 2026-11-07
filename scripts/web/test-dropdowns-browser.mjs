@@ -125,10 +125,12 @@ try {
             draft,
             disabled: false,
             allowDefault: true,
+            allowResponseSpeed: true,
             onChange: (change) => setDraft((old) => ({ ...old, ...change })),
             models: ['a', 'b', 'c'].map((id) => ({
               id: `model-${id}`,
               displayName: `Model ${id.toUpperCase()}`,
+              fastServiceTier: 'fast',
               supportedReasoningEfforts: ['low', 'medium', 'high'],
             })),
           }),
@@ -316,7 +318,7 @@ try {
     await popup.waitFor();
     assert.equal(
       await popup.evaluate((el) => getComputedStyle(el).borderRadius),
-      popupSelector === '.model-picker-popup' ? '24px' : '20px',
+      popupSelector === '.model-picker-popup' ? '0px' : '20px',
     );
     await page.waitForTimeout(180);
     if (popupSelector === '.mode-menu') {
@@ -329,7 +331,14 @@ try {
   }
   const modelTrigger = page.getByRole('button', { name: '切换模型', exact: true });
   await modelTrigger.click();
+  const speed = page.getByRole('group', { name: '响应速度' });
+  assert.equal(await speed.count(), 0);
   await page.locator('.model-picker-model-toggle').click();
+  for (const name of ['标准模式', '快速模式', '跟随会话']) {
+    const button = speed.getByRole('button', { name, exact: true });
+    await button.click();
+    assert.equal(await button.getAttribute('aria-pressed'), 'true');
+  }
   const models = page.getByRole('group', { name: '模型', exact: true });
   await models.getByRole('button', { name: 'Model B', exact: true }).click();
   assert.equal(await modelTrigger.innerText(), 'Model B');
@@ -343,7 +352,7 @@ try {
   assert(await models.getByRole('button', { name: 'Model A', exact: true }).isVisible());
   await page.keyboard.press('Escape');
   checks.push(
-    'model choices visible on each open; choosing a model updates the controlled draft and selected state',
+    'model choices and response speeds stay accessible in the expanded list and update the controlled draft',
   );
   // Anchored button menus use one keyboard contract and expose open state.
   for (const [name, selector] of [['切换工作模式', '.mode-menu']]) {
@@ -394,7 +403,12 @@ try {
     await permissionTrigger.click();
     const sheet = page.getByRole('dialog', { name: '应如何批准 Codex 操作？' });
     await sheet.waitFor();
-    await page.waitForTimeout(220);
+    await page.waitForFunction(() => {
+      const dialog = document.querySelector('.permission-sheet[open][data-motion="open"]');
+      return (
+        dialog && !dialog.getAnimations().some((animation) => animation.playState === 'running')
+      );
+    });
     const box = await sheet.boundingBox();
     assert(box.x >= 0 && box.y >= 0 && box.x + box.width <= width + 1 && box.y + box.height <= 481);
     await page.keyboard.press('Tab');

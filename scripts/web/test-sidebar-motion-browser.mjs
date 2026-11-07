@@ -6,7 +6,10 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const out = new URL('../../artifacts/sidebar-motion/', import.meta.url);
 await mkdir(out, { recursive: true });
 const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1495';
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const checks = [],
   errors = [];
 async function isolate(context) {
@@ -31,6 +34,7 @@ try {
   await page.goto(origin);
   await page.locator('.sidebar-brand').waitFor();
   const close = () => page.getByRole('button', { name: '收起会话列表', exact: true }).click();
+  const mobileForward = () => page.locator('.sidebar-quick-compose').click();
   const open = () => page.getByRole('button', { name: '打开会话列表', exact: true }).click();
   const sample = (time) =>
     page.evaluate((time) => {
@@ -47,11 +51,13 @@ try {
       return {
         x: rect.x,
         sidebarWidth: rect.width,
+        sidebarOpacity: Number(getComputedStyle(sidebar).opacity),
         left: main.left,
         width: main.width,
         visibility: getComputedStyle(sidebar).visibility,
         display: getComputedStyle(sidebar).display,
         opacity: Number(getComputedStyle(scrim).opacity),
+        scrimDisplay: getComputedStyle(scrim).display,
         inert: sidebar.inert,
         durations: animations.map((animation) => animation.effect.getTiming().duration),
       };
@@ -111,14 +117,16 @@ try {
     await open();
     const initial = await sample(0),
       opening = await sample(160);
-    assert(initial.x < -100 && opening.x > initial.x && opening.x < 0);
-    assert.equal(opening.left, 0);
-    assert(opening.opacity > 0 && opening.opacity < 1);
+    assert(initial.x < 0 && opening.x > initial.x && opening.x < 0);
+    assert(Math.abs(initial.x + initial.sidebarWidth / 3) < 1);
+    assert(opening.sidebarOpacity > 0.8 && opening.sidebarOpacity < 1);
+    assert(Math.abs(initial.left) < 1 && opening.left > 0 && opening.left < width);
+    assert.equal(opening.scrimDisplay, 'none');
     await finish();
-    await close();
+    await mobileForward();
     const closing = await sample(160);
     assert(closing.x < 0 && closing.x > -closing.sidebarWidth && closing.visibility === 'visible');
-    assert.equal(closing.left, 0);
+    assert(closing.left > 0 && closing.left < width);
     await page.screenshot({ path: fileURLToPath(new URL(`mobile-${width}-mid-close.png`, out)) });
     // Resizing during motion cancels stale desktop/mobile offsets.
     await page.setViewportSize({ width: width + 1, height: 844 });
@@ -126,7 +134,7 @@ try {
     assert.equal(await page.locator('.sidebar').evaluate((node) => node.getAnimations().length), 0);
   }
   checks.push(
-    '320/390px: opening/closing drawer remains visible, scrim fades, conversation stays fixed; resize clears stale motion',
+    '320/390px: conversation pushes in and pops out over the project list; resize clears stale motion',
   );
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await open();
@@ -134,7 +142,7 @@ try {
   assert(reduced.durations.every((duration) => duration <= 100));
   assert.equal(reduced.x, 0);
   await finish();
-  await close();
+  await mobileForward();
   assert((await sample(50)).visibility === 'visible');
   await finish();
   checks.push('reduced motion uses a short fade without sliding');

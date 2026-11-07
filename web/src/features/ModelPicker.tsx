@@ -2,7 +2,6 @@ import { positionPopover, useMenuPopover } from '../components/popover';
 import { t, useLocale } from '../i18n';
 import { useId, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, RotateCcw, Zap } from 'lucide-react';
-import { IconButton } from '../ui';
 import type { Draft, Model } from '../workspace';
 import { resolveComposerModelPreferences } from './composer-preferences';
 import { Collapse } from '../motion';
@@ -25,18 +24,26 @@ const modelLabel = (model?: Model) =>
 
 function positionModelPicker(trigger: HTMLButtonElement, panel: HTMLElement) {
   const mobile = matchMedia('(max-width: 760px)').matches;
+  const toolbar = trigger.closest<HTMLElement>('.shell .composer-toolbar');
+  const composer = toolbar?.closest<HTMLElement>('.composer');
+  if (!mobile && composer) {
+    positionPopover(composer, panel, { width: 264, preferAbove: true, align: 'end' });
+    panel.style.transformOrigin = panel.style.top === 'auto' ? 'right bottom' : 'right top';
+    return;
+  }
   positionPopover(trigger, panel, {
-    width: mobile ? 320 : 288,
+    width: 320,
     preferAbove: true,
-    align: mobile ? 'center' : 'start',
+    align: 'center',
   });
-  if (mobile && trigger.closest('.shell .composer-toolbar')) {
+  if (mobile && toolbar) {
     const viewport = window.visualViewport;
     const height = viewport?.height ?? window.innerHeight;
     const inset = Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0));
     panel.style.top = 'auto';
     panel.style.bottom = `calc(${inset + 4}px + var(--app-safe-bottom))`;
     panel.style.maxHeight = `calc(${Math.max(0, height - 16)}px - var(--app-safe-top) - var(--app-safe-bottom))`;
+    panel.style.transformOrigin = 'center bottom';
   }
 }
 
@@ -96,22 +103,6 @@ export function ModelPicker({
   }
   return (
     <div className="composer-model">
-      {showSpeed && (
-        <button
-          type="button"
-          className="icon-button model-fast-toggle"
-          aria-label={t('快速模式')}
-          aria-pressed={fast}
-          title={t('快速模式')}
-          disabled={disabled}
-          onClick={() => {
-            if (fast) onChange({ responseSpeed: 'default' });
-            else enableFast();
-          }}
-        >
-          <Zap size={22} fill="currentColor" aria-hidden="true" />
-        </button>
-      )}
       <button
         type="button"
         className="model-picker-trigger model-name-trigger"
@@ -161,16 +152,34 @@ export function ModelPicker({
         }
       >
         <div className="model-picker-view">
-          <button
-            type="button"
-            className="model-picker-model-toggle"
-            aria-expanded={modelExpanded}
-            onClick={() => setModelExpanded((value) => !value)}
-          >
-            <span>{name}</span>
-            {effort && <small>{effortLabel(effort)}</small>}
-            <ChevronRight size={15} aria-hidden="true" />
-          </button>
+          <div className="model-picker-heading">
+            <button
+              type="button"
+              className="model-picker-model-toggle"
+              aria-expanded={modelExpanded}
+              onClick={() => setModelExpanded((value) => !value)}
+            >
+              <span>{name}</span>
+              {effort && <small>{effortLabel(effort)}</small>}
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+            {showSpeed && (
+              <button
+                type="button"
+                className="icon-button model-fast-toggle"
+                aria-label={t('快速模式')}
+                aria-pressed={fast}
+                title={t('快速模式')}
+                disabled={disabled}
+                onClick={() => {
+                  if (fast) onChange({ responseSpeed: 'default' });
+                  else enableFast();
+                }}
+              >
+                <Zap size={22} fill="currentColor" aria-hidden="true" />
+              </button>
+            )}
+          </div>
           <Collapse open={modelExpanded}>
             <div className="model-picker-models" role="group" aria-label={t('模型')}>
               {allowDefault && (
@@ -203,13 +212,42 @@ export function ModelPicker({
               })}
               <button
                 type="button"
-                className="model-picker-option model-picker-mobile-reset"
+                className="model-picker-option model-picker-reset"
                 disabled={disabled || !draft.effort}
                 onClick={() => onChange({ effort: '' })}
               >
                 <span>{t('重置思维强度')}</span>
                 <RotateCcw size={17} aria-hidden="true" />
               </button>
+              {showSpeed && (
+                <div className="model-speed" role="group" aria-label={t('响应速度')}>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={draft.responseSpeed === undefined}
+                    onClick={() => onChange({ responseSpeed: undefined })}
+                  >
+                    {t('跟随会话')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={draft.responseSpeed === 'default'}
+                    onClick={() => onChange({ responseSpeed: 'default' })}
+                  >
+                    {t('标准模式')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={fast}
+                    onClick={enableFast}
+                  >
+                    <Zap size={14} aria-hidden="true" />
+                    {t('快速模式')}
+                  </button>
+                </div>
+              )}
             </div>
           </Collapse>
 
@@ -260,41 +298,10 @@ export function ModelPicker({
               ) : (
                 <span className="effort-unavailable">{t('推理强度')}</span>
               )}
-              <IconButton
-                icon={RotateCcw}
-                className="model-picker-desktop-reset"
-                label={t('重置思维强度')}
-                disabled={disabled || !draft.effort}
-                onClick={() => onChange({ effort: '' })}
-              />
             </div>
           )}
           {!efforts.length && !effort && (
             <p className="effort-unavailable">{t('此模型使用默认思维强度')}</p>
-          )}
-          {showSpeed && (
-            <div className="model-speed" role="group" aria-label={t('响应速度')}>
-              <button
-                type="button"
-                disabled={disabled}
-                aria-pressed={draft.responseSpeed === undefined}
-                onClick={() => onChange({ responseSpeed: undefined })}
-              >
-                {t('跟随会话')}
-              </button>
-              <button
-                type="button"
-                disabled={disabled}
-                aria-pressed={draft.responseSpeed === 'default'}
-                onClick={() => onChange({ responseSpeed: 'default' })}
-              >
-                {t('标准模式')}
-              </button>
-              <button type="button" disabled={disabled} aria-pressed={fast} onClick={enableFast}>
-                <Zap size={14} aria-hidden="true" />
-                {t('快速模式')}
-              </button>
-            </div>
           )}
         </div>
       </div>

@@ -1,9 +1,5 @@
 import { t } from './i18n';
 import type { Bridge } from './transport/bridge';
-import { compressAttachment, MAX_ATTACHMENT_BYTES } from './features/attachment-compression';
-
-export type Attachment = { name: string; data: string; mime: string; bytes: number };
-export const MAX_ATTACHMENTS = 4 * MAX_ATTACHMENT_BYTES;
 
 export function imageMime(bytes: Uint8Array): string | undefined {
   if ([137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => bytes[i] === v)) return 'image/png';
@@ -12,31 +8,6 @@ export function imageMime(bytes: Uint8Array): string | undefined {
   if (header.startsWith('GIF87a') || header.startsWith('GIF89a')) return 'image/gif';
   if (header.startsWith('RIFF') && header.slice(8) === 'WEBP') return 'image/webp';
 }
-export async function attachmentsFromFiles(
-  files: File[],
-  current: Attachment[],
-): Promise<Attachment[]> {
-  if (files.length + current.length > 4) throw new Error(t('最多选择 4 张图片'));
-  if (current.some((file) => file.bytes > MAX_ATTACHMENT_BYTES))
-    throw new Error(t('单文件最大 512 KiB，请重新添加超限图片'));
-  const additions: Attachment[] = [];
-  for (const original of files) {
-    const file = await compressAttachment(original);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const mime = imageMime(bytes);
-    if (!mime) throw new Error(t('仅支持 PNG、JPEG、GIF 和 WebP 图片'));
-    let binary = '';
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    additions.push({
-      name: `image-${crypto.randomUUID()}.${mime.split('/')[1]}`,
-      data: btoa(binary),
-      mime,
-      bytes: bytes.length,
-    });
-  }
-  return [...current, ...additions];
-}
-
 type ImageChunk = {
   sessionId: string;
   turnId: string;
