@@ -1,3 +1,4 @@
+import { TaskProgress } from '../TaskProgress';
 import { useHistory } from '../use-history';
 import { LoadingPlaceholder } from '../LoadingPlaceholder';
 import { errorText, t, useLocale } from '../../i18n';
@@ -462,6 +463,12 @@ export function SideChat({
             </option>
           ))}
         </Select>
+        <TaskProgress
+          entries={entries}
+          active={!!activeTurn}
+          turnId={active?.upstreamTurnId || activeTurn}
+          stale={!connected}
+        />
         <IconButton
           icon={Plus}
           label={t('新建侧边对话')}

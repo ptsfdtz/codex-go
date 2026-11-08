@@ -1505,3 +1505,23 @@
     opacity: 0.85;
   }
 }
+
+/* Execution stays in the navigation bar, without an extra timeline row. */
+.task-running-indicator {
+  display: inline-block;
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: breathe 1.5s ease-in-out infinite;
+}
+.task-running-indicator[data-stale] {
+  background: var(--muted);
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-running-indicator {
+    animation: none;
+  }
+}

@@ -153,7 +153,10 @@ import { connectionLabels, type ReconnectLoop } from './transport/reconnect';
 import type { ConnectionState } from './transport/reconnect';
 const TaskProgress = deferred<
   React.ComponentProps<typeof import('./features/TaskProgress').TaskProgress>
->(() => import('./features/TaskProgress').then((m) => ({ default: m.TaskProgress })));
+>(
+  () => import('./features/TaskProgress').then((m) => ({ default: m.TaskProgress })),
+  () => null,
+);
 const MessageEditor = deferred<
   React.ComponentProps<typeof import('./features/MessageEditor').MessageEditor>
 >(() => import('./features/MessageEditor').then((module) => ({ default: module.MessageEditor })));
@@ -1713,6 +1716,17 @@ function CodexApp({
                 )}
               </MotionPresence>
             </div>
+            {activeTurn && (
+              <TaskProgress
+                entries={renderedHistory}
+                active={!!activeTurn}
+                turnId={
+                  snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
+                  activeTurn
+                }
+                stale={!connected}
+              />
+            )}
             <span
               className={`connection ${connected ? 'online-text' : ''}`}
               data-connection-state={connectionState}
@@ -1896,17 +1910,6 @@ function CodexApp({
               </div>
             )}
           </MotionPresence>
-          {activeTurn && (
-            <TaskProgress
-              entries={renderedHistory}
-              active={!!activeTurn}
-              turnId={
-                snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
-                activeTurn
-              }
-              stale={!connected}
-            />
-          )}
           {renderedHistory.length > 0 && (
             <SelectionQuote
               key={draftKey}
