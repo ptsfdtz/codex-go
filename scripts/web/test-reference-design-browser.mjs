@@ -585,7 +585,7 @@ try {
   assert(await fast.isVisible());
   const mobileHeading = await model.locator('.model-picker-model-toggle').boundingBox();
   const mobileFast = await fast.boundingBox();
-  assert(mobileFast.x >= mobileHeading.x + mobileHeading.width - 1);
+  assert(mobileFast.x + mobileFast.width <= mobileHeading.x + 1);
   assert(mobileFast.width >= 44 && mobileFast.height >= 44);
   assert.equal(await fast.getAttribute('aria-pressed'), 'false');
   await fast.tap();
