@@ -95,7 +95,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
-          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.AGENTDECK_DEPLOY_HOST }}
           DEPLOY_KEY: ${{ secrets.AGENTDECK_DEPLOY_KEY }}
           KNOWN_HOSTS: ${{ secrets.AGENTDECK_DEPLOY_KNOWN_HOSTS }}
         run: |

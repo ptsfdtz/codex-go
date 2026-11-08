@@ -67,7 +67,7 @@ jobs:
       - name: Deploy exact authorized artifacts to VPS
         id: vps
         env:
-          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.AGENTDECK_DEPLOY_HOST }}
           DEPLOY_KEY: ${{ secrets.AGENTDECK_DEPLOY_KEY }}
           KNOWN_HOSTS: ${{ secrets.AGENTDECK_DEPLOY_KNOWN_HOSTS }}
         run: |
@@ -108,7 +108,7 @@ jobs:
       - name: Open stable updates after both deployments
         id: stable
         env:
-          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.AGENTDECK_DEPLOY_HOST }}
         run: ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" "sh '$DEPLOY_UPLOAD/finalize.sh' '$DEPLOY_UPLOAD'"
       - name: Publish official GitHub release without rebuilding
         id: official

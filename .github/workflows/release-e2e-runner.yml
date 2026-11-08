@@ -45,7 +45,7 @@ jobs:
           retention-days: 1
       - name: Keep private operator connection available for real E2E
         env:
-          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          DEPLOY_HOST: ${{ secrets.AGENTDECK_DEPLOY_HOST }}
           TUNNEL_KEY: ${{ secrets.AGENTDECK_E2E_TUNNEL_KEY }}
           KNOWN_HOSTS: ${{ secrets.AGENTDECK_DEPLOY_KNOWN_HOSTS }}
         run: |
