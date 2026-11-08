@@ -4,6 +4,12 @@
 
 以下命令均从仓库根目录执行。按改动选择定向检查，受控浏览器回归不代替真实 Host、模型或真机验收。
 
+## CI 触发与打包
+
+日常自动检查只在 PR 与 main 推送运行；release/功能分支没有 PR 时不自动跑 CI，可手动运行 AgentDeck CI / Cloud service。PR 更新会取消同一 PR 的旧检查，main 连续推送会取消该分支旧检查；手动与候选构建不自动取消。main 保留合并后的检查，避免仅验证分支而漏掉合并结果。
+
+日常 AgentDeck CI 保留 Windows、Linux x64/ARM64、macOS ARM64 的现有 Clippy/测试，以及 Windows 上的 Web 类型、格式、协议、单元、双语、依赖审计与构建，但不生成 Host 发布压缩包。手动 AgentDeck CI 会完整打包四平台 Host；Prepare candidate 继续通过 version 输入完整生成 Host、Web/Pages 和云端产物，原有发布门禁不变。Cloud service 日常保留数据库安全测试、审计和 Docker 构建，仅手动/候选构建生成独立云端二进制附件。
+
 ## 开发与验证
 
 AgentChat 需同时更新 Web 和云端，Host 无需更新。云端设置 `AGENTDECK_CHAT_ENCRYPTION_KEY` 为 **32 个随机字节的标准 Base64 编码**（如 `openssl rand -base64 32`），Compose 已透传；未设置时配置/发送禁用，格式错误拒绝启动。持久保存并备份该密钥，不可提交真实值；直接更换会导致已存 API Key 无法解密。云端只写 `chat_keys`（随机 ID、账户归属、密文），不创建聊天记录表；旧候选版本已存在的表不主动删除。兼容接口 Base URL 填到 `/v1` 等前缀，供应商必须允许网页来源的 CORS 与 Authorization/Content-Type 请求头；浏览器不携带本站 Cookie/CSRF 或 Referer 到供应商，不跟随重定向。清除浏览器数据会丢失本地聊天及接口配置，其他设备不会自动获得历史；关闭页面无法继续生成。

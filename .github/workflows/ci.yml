@@ -1,7 +1,7 @@
 name: AgentDeck CI
 on:
   push:
-    branches: ['**']
+    branches: [main]
     paths-ignore: ['README.md', 'docs/**']
   pull_request:
   workflow_dispatch:
@@ -12,6 +12,10 @@ on:
         default: ''
 permissions:
   contents: read
+# Superseded checks can stop; explicit/candidate builds must finish intact.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.version || 'checks' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && inputs.version == '' }}
 jobs:
   host-windows:
     runs-on: windows-latest
@@ -45,6 +49,7 @@ jobs:
         env:
           VITE_CLOUD_ORIGIN: ${{ vars.AGENTDECK_CLOUD_ORIGIN }}
       - run: tar -czf web.tar.gz -C web/dist .
+        if: inputs.version != ''
       - name: Build Pages candidate
         if: inputs.version != ''
         shell: bash
@@ -67,9 +72,11 @@ jobs:
             pages.tar.gz
           if-no-files-found: error
       - run: pnpm host:package
+        if: inputs.version != '' || github.event_name == 'workflow_dispatch'
         env:
           AGENTDECK_RELEASE_VERSION: ${{ inputs.version || format('host-{0}', github.sha) }}
       - uses: actions/upload-artifact@v4
+        if: inputs.version != '' || github.event_name == 'workflow_dispatch'
         with:
           name: release-windows
           path: artifacts/host-downloads/
@@ -97,9 +104,11 @@ jobs:
       - run: cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -D warnings
       - run: 'cargo test --locked --manifest-path desktop/core/Cargo.toml --lib host::'
       - run: node scripts/host/package.mjs
+        if: inputs.version != '' || github.event_name == 'workflow_dispatch'
         env:
           AGENTDECK_RELEASE_VERSION: ${{ inputs.version || format('host-{0}', github.sha) }}
       - uses: actions/upload-artifact@v4
+        if: inputs.version != '' || github.event_name == 'workflow_dispatch'
         with:
           name: release-linux-${{ matrix.arch }}
           path: artifacts/host-downloads/
@@ -120,9 +129,11 @@ jobs:
       - run: cargo clippy --locked --manifest-path desktop/core/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path desktop/core/Cargo.toml
       - run: node scripts/host/package.mjs
+        if: inputs.version != '' || github.event_name == 'workflow_dispatch'
         env:
           AGENTDECK_RELEASE_VERSION: ${{ inputs.version || format('host-{0}', github.sha) }}
       - uses: actions/upload-artifact@v4
+        if: inputs.version != '' || github.event_name == 'workflow_dispatch'
         with:
           name: release-macos-arm64
           path: artifacts/host-downloads/
