@@ -651,8 +651,6 @@ small,
   gap: 2px;
   color: var(--muted);
   margin: 8px 0 -8px;
-  opacity: 0;
-  transition: opacity 0.1s;
 }
 .message-actions .icon-button {
   width: 29px;
@@ -664,10 +662,6 @@ small,
 }
 .answer-actions {
   align-items: center;
-}
-.turn:hover > .message-actions,
-.turn:focus-within > .message-actions {
-  opacity: 1;
 }
 .activity-turn {
   margin-top: -8px;
@@ -2360,9 +2354,6 @@ small,
   width: 100%;
 }
 @media (hover: none) {
-  .message-actions {
-    opacity: 1;
-  }
   .session-row > .icon-button {
     opacity: 1;
   }
@@ -2485,9 +2476,6 @@ small,
   }
   .activity-turn {
     margin-bottom: 12px;
-  }
-  .message-actions {
-    opacity: 1;
   }
   .empty h1 {
     font-size: 25px;
