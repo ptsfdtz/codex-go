@@ -1401,6 +1401,46 @@ small,
   width: 12px;
   height: 12px;
 }
+.composer-resources .composer-tag {
+  gap: 5px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 2px 0 9px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 8%, var(--hover));
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+}
+.composer-tag > svg {
+  flex: none;
+  color: var(--accent);
+}
+.composer-resources .composer-tag-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-resources .composer-tag-remove {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 28px;
+  min-width: 30px;
+  min-height: 28px;
+  border-radius: 50%;
+  color: var(--muted);
+}
+@media (pointer: coarse) {
+  .composer-resources .composer-tag-remove {
+    width: 36px;
+    height: 32px;
+  }
+}
 .menu-anchor {
   position: relative;
 }
@@ -2895,14 +2935,6 @@ small,
   max-height: min(220px, 25dvh);
   overflow-y: auto;
   scrollbar-width: thin;
-}
-.composer-resources .mode-chip {
-  padding: 7px 9px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-}
-.composer-resources .mode-chip > span {
-  display: inline;
 }
 .composer-attachments {
   display: flex;

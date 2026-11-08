@@ -515,7 +515,7 @@ export function Composer({
               )}
               {draft.mode !== 'default' && (
                 <button
-                  className="resource-chip mode-chip"
+                  className="resource-chip mode-chip composer-tag"
                   disabled={busy}
                   aria-label={t('移除 {{p0}} 模式', {
                     p0: draft.mode === 'goal' ? t('目标') : t('计划'),
@@ -523,8 +523,12 @@ export function Composer({
                   onClick={() => onChange({ mode: 'default' })}
                 >
                   {draft.mode === 'goal' ? <Target size={14} /> : <ListChecks size={14} />}
-                  <span>{draft.mode === 'goal' ? t('目标') : t('计划')}</span>
-                  <X size={12} />
+                  <span className="composer-tag-name">
+                    {draft.mode === 'goal' ? t('目标') : t('计划')}
+                  </span>
+                  <span className="composer-tag-remove" aria-hidden="true">
+                    <X size={12} />
+                  </span>
                 </button>
               )}
               {(draft.references || []).map((reference) => (
@@ -548,10 +552,13 @@ export function Composer({
                 </span>
               ))}
               {draft.skills.map((skill) => (
-                <span className="resource-chip" key={skill.id}>
-                  <Sparkles size={14} />
-                  {skill.displayName || skill.name}
+                <span className="resource-chip composer-tag" key={skill.id}>
+                  <Sparkles size={14} aria-hidden="true" />
+                  <span className="composer-tag-name" title={skill.displayName || skill.name}>
+                    {skill.displayName || skill.name}
+                  </span>
                   <IconButton
+                    className="composer-tag-remove"
                     icon={X}
                     label={t('移除技能 {{p0}}', { p0: skill.name })}
                     disabled={busy}
