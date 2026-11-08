@@ -459,13 +459,8 @@ try {
     const queueStyle = await actionStyle(queue);
     assert.deepEqual(queueStyle, reference);
     await main.getByRole('button', { name: '添加附件和操作', exact: true }).click();
-    await main.getByRole('menuitem', { name: '更多操作', exact: true }).click();
-    await main.getByRole('menuitem', { name: '展开编辑器', exact: true }).click();
-    const collapse = main.getByRole('button', { name: '收起编辑器', exact: true });
-    await collapse.waitFor();
-    assert.deepEqual(await actionStyle(collapse), reference);
+    await page.keyboard.press('Escape');
     await page.screenshot({ path: fileURLToPath(new URL(`desktop-actions-${theme}.png`, out)) });
-    await collapse.click();
     await page.evaluate(() => {
       window.active = false;
       window.renderSpeech();

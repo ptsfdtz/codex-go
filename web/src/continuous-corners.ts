@@ -5,7 +5,7 @@ import { APPLE_SMOOTHING, generatePath } from '@lisse/core/path';
 const surfaces = `
   button, .icon-button, input:not([type='hidden'], [type='file'], [type='range'], [type='radio']),
   textarea, select, summary, progress, pre, code, mark, [popover],
-  .composer, .modal, .modal-wide, .popover, .card, .permission-options, .model-picker-models,
+  .composer-suggestions, .task-banner, .composer, .modal, .modal-wide, .popover, .card, .permission-options, .model-picker-models,
   .select-popup, .select-option, .mode-menu, .permission-popup, .sidebar-context-menu,
   .approval, .async-questions, .plan-content, .plan-decision, .plan-decision-checkbox,
   .confirmation, .connection-error, .history-error, .receipt-recovery, .device-delete-confirmation,

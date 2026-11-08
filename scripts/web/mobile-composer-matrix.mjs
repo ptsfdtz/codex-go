@@ -167,12 +167,8 @@ export async function mobileComposerMatrix(page, main, out) {
             active.buttons.some((b) => b.label === '停止'),
         );
         await running(false);
-        await add.tap();
-        await menu.getByRole('menuitem', { name: '更多操作', exact: true }).tap();
-        await menu.getByRole('menuitem', { name: '展开编辑器', exact: true }).tap();
-        await main.locator('.composer.is-expanded').waitFor();
-        await inspect(label + ' expanded');
-        await main.getByRole('button', { name: '收起编辑器', exact: true }).tap();
+        await editor.tap();
+        await inspect(label + ' focused');
         await editor.fill('多行输入与滚动检查\n'.repeat(25));
         await inspect(label + ' multiline');
         if (width === 390 && height === 844) {

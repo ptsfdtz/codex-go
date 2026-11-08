@@ -234,8 +234,6 @@
   "添加附件和操作": "Add attachments and actions",
   "添加文件或图片": "Add files or images",
   "默认模式": "Default mode",
-  "收起编辑器": "Collapse editor",
-  "展开编辑器": "Expand editor",
   "立即补充到当前任务": "Send to the running task",
   "引导对话": "Steer conversation",
   "引导对话 {{p0}}": "Steer conversation with {{p0}}",
@@ -1154,5 +1152,16 @@
   "没有可显示的返回内容": "No displayable result",
   "工具返回了 {{p0}} 个媒体内容": "The tool returned {{p0}} media items",
   "已完成": "Completed",
-  "状态未知": "Status unknown"
+  "状态未知": "Status unknown",
+  "切换快速模式": "Toggle fast mode",
+  "切换计划模式": "Toggle plan mode",
+  "为 Codex 设定持续处理的目标": "Set an ongoing goal for Codex",
+  "查看会话状态": "View session status",
+  "查看会话历史": "View session history",
+  "开始新的对话": "Start a new conversation",
+  "没有可用的匹配项": "No available matches",
+  "快速": "Fast",
+  "不打断当前任务，另开对话提个小问题": "Ask a question in a separate conversation without interrupting the task",
+  "历史": "History",
+  "Codex {{status}}": "Codex {{status}}"
 }

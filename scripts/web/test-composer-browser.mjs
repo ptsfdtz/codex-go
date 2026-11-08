@@ -149,19 +149,11 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await menu.waitFor();
     await page.waitForFunction(() => document.activeElement?.closest('[role=menu]'));
     await page.keyboard.press('End');
-    assert.equal(await page.evaluate(() => document.activeElement.textContent), '更多操作');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), '追求目标');
     await page.keyboard.press('Home');
     assert.equal(await page.evaluate(() => document.activeElement.textContent), '相机');
     await page.keyboard.press('Escape');
     assert(await add.evaluate((el) => el === document.activeElement));
-    await add.click();
-    await menu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
-    await menu.getByRole('menuitem', { name: '展开编辑器', exact: true }).click();
-    assert((await editor.boundingBox()).height >= 280);
-    await page
-      .locator('.composer-wrap')
-      .screenshot({ animations: 'disabled', path: out + 'expanded.png' });
-    await page.getByRole('button', { name: '收起编辑器', exact: true }).click();
     await editor.fill('请参考这张界面截图优化布局。');
     await page.evaluate(() => {
       const canvas = document.createElement('canvas');
@@ -243,7 +235,6 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     await page.getByRole('button', { name: '停止', exact: true }).click();
     assert.equal(await page.evaluate(() => window.stops), 1);
     await add.click();
-    await menu.getByRole('menuitem', { name: '更多操作', exact: true }).click();
     await menu.getByRole('menuitem', { name: '立即补充到当前任务' }).click();
     assert.equal(await page.evaluate(() => window.sends.at(-1)), 'steer');
     await page.evaluate(() => {
@@ -599,7 +590,7 @@ const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
     }
     assert.deepEqual(errors, []);
     console.log(
-      'PASS: auto-height/expand, Enter/IME/touch, menu keys/focus, thumbnail/preview/remove/revoke, drop/paste, oversized file, compression typing and cross-chat race, queue/steer/stop/capability guards, 320/390 layouts and keyboard viewport; inline edit layout, shortcuts, IME, busy guards and error preservation. Screenshots: ' +
+      'PASS: auto-height, Enter/IME/touch, menu keys/focus, thumbnail/preview/remove/revoke, drop/paste, oversized file, compression typing and cross-chat race, queue/steer/stop/capability guards, 320/390 layouts and keyboard viewport; inline edit layout, shortcuts, IME, busy guards and error preservation. Screenshots: ' +
         out,
     );
   } finally {

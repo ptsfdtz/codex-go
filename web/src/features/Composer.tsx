@@ -7,7 +7,6 @@ import {
   X,
   Square,
   Sparkles,
-  Minimize2,
   ListChecks,
   ListPlus,
   Target,
@@ -15,9 +14,11 @@ import {
   Mic,
 } from 'lucide-react';
 import { IconButton, Modal } from '../ui';
-import { MotionPresence, usePopoverMotion, useExpansionMotion } from '../motion';
+import { MotionPresence, usePopoverMotion } from '../motion';
 import type { Attachment, Draft, Model } from '../workspace';
 import { readAttachments } from './composer-input';
+import { ComposerSuggestions } from './ComposerSuggestions';
+import type { Request } from '../workspace';
 import { ComposerMenu } from './ComposerMenu';
 import { positionPopover } from '../components/popover';
 import { PermissionPicker } from './PermissionPicker';
@@ -103,7 +104,13 @@ export function Composer({
   panels,
   placeholder,
   contextControl,
+  request,
+  projectId,
+  sessionId,
 }: {
+  request?: Request;
+  projectId?: string;
+  sessionId?: string;
   panels?: string[];
   placeholder?: string;
   contextControl?: ReactNode;
@@ -133,13 +140,23 @@ export function Composer({
 }) {
   useLocale();
   const menuId = useId();
+  const suggestionId = useId();
+  const [caret, setCaret] = useState(0);
+  const [dismissedSuggestion, setDismissedSuggestion] = useState<string>();
   const feedbackId = useId();
   const speechStatusId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const focusMenu = useRef(false);
-  const [expanded, setExpanded] = useState(false),
-    [addingAttachments, setAddingAttachments] = useState(false);
+  const [addingAttachments, setAddingAttachments] = useState(false);
   const [focused, setFocused] = useState(false);
+  const suggestionOpen =
+    execution &&
+    focused &&
+    !disabled &&
+    !busy &&
+    dismissedSuggestion !== draft.text &&
+    /(?:^|\s)[@/][^\s@/]*$/.test(draft.text.slice(0, caret));
+
   const composerRoot = useRef<HTMLDivElement>(null);
   const modelInteraction = useRef<HTMLDivElement>(null);
   const keyboardDictation = useRef(false);
@@ -160,7 +177,6 @@ export function Composer({
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
   }, []);
-  const expansion = useExpansionMotion(expanded);
   const [attachmentError, setAttachmentError] = useState(''),
     [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<{ url: string; attachment: Attachment }>();
@@ -214,12 +230,8 @@ export function Composer({
       node.style.height = '0px';
       const viewport = window.visualViewport?.height || window.innerHeight;
       const mobile = matchMedia('(max-width: 760px)').matches;
-      let max = expanded
-        ? Math.min(420, viewport * 0.5)
-        : mobile
-          ? Math.min(220, viewport * 0.3)
-          : 220;
-      const min = expanded ? Math.min(280, viewport * 0.4) : 36;
+      let max = mobile ? Math.min(220, viewport * 0.3) : 220;
+      const min = 36;
       const wrap = node.closest('.composer-wrap');
       const conversation = wrap?.parentElement;
       if (mobile && wrap && conversation?.classList.contains('conversation')) {
@@ -276,7 +288,6 @@ export function Composer({
     draft.attachments,
     draft.skills,
     draft.references,
-    expanded,
     focused,
     active,
     planConfirmation,
@@ -380,6 +391,12 @@ export function Composer({
   function isFileDrag(event: React.DragEvent) {
     return Array.from(event.dataTransfer.types).includes('Files');
   }
+  const canSteer = active && supports('activeTurnSteering');
+  const hasMenuActions =
+    supports('attachments') ||
+    supports('composerSkills') ||
+    (execution && (supports('plan') || supports('goal'))) ||
+    canSteer;
   return (
     <div
       ref={composerRoot}
@@ -411,6 +428,24 @@ export function Composer({
           setFocused(false);
       }}
     >
+      {suggestionOpen && (
+        <ComposerSuggestions
+          id={suggestionId}
+          draft={draft}
+          caret={caret}
+          supports={(key) => (key !== 'turnResponseSpeed' || !active) && supports(key)}
+          request={request}
+          projectId={projectId}
+          sessionId={sessionId}
+          onChange={onChange}
+          onPanel={onPanel}
+          onNew={onNew}
+          onClose={() => {
+            setDismissedSuggestion(draft.text);
+            textarea.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       {prompts && (
         <div className="composer-prompts" aria-label={t('待处理请求')}>
           {prompts}
@@ -433,8 +468,7 @@ export function Composer({
         </>
       ) : (
         <div
-          ref={expansion}
-          className={`composer${execution && active ? ' is-follow-up' : ''}${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}${speech.active ? ' is-dictating' : ''}${!speech.active && !focused && !expanded && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent && !expanded ? ' is-empty' : ''}`}
+          className={`composer${execution && active ? ' is-follow-up' : ''}${dragging ? ' is-dragging' : ''}${speech.active ? ' is-dictating' : ''}${!speech.active && !focused && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent ? ' is-empty' : ''}`}
           onDragEnter={(event) => {
             if (!isFileDrag(event)) return;
             event.preventDefault();
@@ -542,6 +576,9 @@ export function Composer({
             }
             value={draft.text}
             rows={1}
+            aria-controls={suggestionOpen ? suggestionId : undefined}
+            aria-autocomplete={execution ? 'list' : undefined}
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
             onFocus={() => {
               if (speech.active) speech.cancel();
             }}
@@ -553,6 +590,8 @@ export function Composer({
             }}
             onChange={(event) => {
               speech.cancel();
+              setCaret(event.target.selectionStart);
+              setDismissedSuggestion(undefined);
               changeText(event.target.value);
             }}
             onKeyDown={(event) => {
@@ -621,27 +660,30 @@ export function Composer({
             </div>
           )}
           <div className="composer-toolbar" hidden={speech.active}>
-            <button
-              type="button"
-              ref={trigger}
-              className="icon-button composer-add"
-              aria-label={t('添加附件和操作')}
-              popoverTarget={menuId}
-              aria-haspopup="menu"
-              aria-controls={menuId}
-              aria-expanded={menuOpen}
-              disabled={disabled || busy}
-              onClick={(event) => {
-                focusMenu.current = event.detail === 0 || !matchMedia('(pointer: coarse)').matches;
-                if (menu.current)
-                  positionPopover(event.currentTarget, menu.current, {
-                    width: 292,
-                    preferAbove: true,
-                  });
-              }}
-            >
-              <Plus size={20} />
-            </button>
+            {hasMenuActions && (
+              <button
+                type="button"
+                ref={trigger}
+                className="icon-button composer-add"
+                aria-label={t('添加附件和操作')}
+                popoverTarget={menuId}
+                aria-haspopup="menu"
+                aria-controls={menuId}
+                aria-expanded={menuOpen}
+                disabled={disabled || busy}
+                onClick={(event) => {
+                  focusMenu.current =
+                    event.detail === 0 || !matchMedia('(pointer: coarse)').matches;
+                  if (menu.current)
+                    positionPopover(event.currentTarget, menu.current, {
+                      width: 292,
+                      preferAbove: true,
+                    });
+                }}
+              >
+                <Plus size={20} />
+              </button>
+            )}
             {execution && (
               <PermissionPicker
                 permission={permission}
@@ -657,23 +699,12 @@ export function Composer({
               supports={supports}
               mode={draft.mode}
               execution={execution}
-              expanded={expanded}
-              steering={
-                !active || !supports('activeTurnSteering')
-                  ? 'hidden'
-                  : ready && !hasResources
-                    ? 'ready'
-                    : 'disabled'
-              }
+              steering={!canSteer ? 'hidden' : ready && !hasResources ? 'ready' : 'disabled'}
               onCamera={() => camera.current?.click()}
               onPhotos={() => photos.current?.click()}
               onFiles={() => file.current?.click()}
               onPanel={onPanel}
               onMode={(mode) => onChange({ mode })}
-              onExpand={() => {
-                setExpanded(!expanded);
-                textarea.current?.focus({ preventScroll: true });
-              }}
               onSteer={() => {
                 beginSendMotion();
                 onSend('steer');
@@ -694,7 +725,6 @@ export function Composer({
               models={models}
               disabled={disabled || busy}
               onChange={onChange}
-              allowDefault={execution}
               allowResponseSpeed={!active && supports('turnResponseSpeed')}
               onOpenChange={(open, panel) => {
                 if (open) {
@@ -711,16 +741,6 @@ export function Composer({
               }}
             />
             <div className="composer-actions" role="group" aria-label={t('发送与执行控制')}>
-              {expanded && (
-                <IconButton
-                  icon={Minimize2}
-                  label={t('收起编辑器')}
-                  onClick={() => {
-                    setExpanded(false);
-                    textarea.current?.focus();
-                  }}
-                />
-              )}
               <button
                 type="button"
                 className="icon-button composer-mic"

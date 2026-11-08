@@ -1,0 +1,76 @@
+.composer-wrap {
+  position: relative;
+}
+.composer-suggestions {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 16px);
+  left: 32px;
+  right: 32px;
+  max-height: min(228px, calc(var(--app-height, 100dvh) * 0.38));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border-radius: 16px;
+  background: var(--soft);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 20px #0005;
+  scrollbar-width: thin;
+}
+.composer-suggestions > button {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 8px;
+  min-height: 49px;
+}
+.composer-suggestions > button[aria-selected='true'] {
+  background: var(--hover);
+}
+.composer-suggestions button > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.composer-suggestions button > span {
+  flex: 1;
+  min-width: 0;
+}
+.composer-suggestions strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 21px;
+}
+.composer-suggestions small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-suggestions em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.suggestion-empty {
+  padding: 16px;
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .composer-suggestions {
+    left: 11px;
+    right: 11px;
+  }
+}

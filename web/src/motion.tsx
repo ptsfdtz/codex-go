@@ -488,39 +488,3 @@ export function useContentMotion<T extends HTMLElement = HTMLElement>(identity: 
   }, [identity]);
   return ref;
 }
-
-// One bounded height transition for an explicit composer expansion. Ordinary
-// typing and streamed content do not trigger measurements or delayed input.
-export function useExpansionMotion(expanded: boolean) {
-  const ref = useRef<HTMLDivElement>(null);
-  const previous = useRef<{ expanded: boolean; height: number } | undefined>(undefined);
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const before = previous.current;
-    const height = node.getBoundingClientRect().height;
-    previous.current = { expanded, height };
-    const observer = new ResizeObserver(() => {
-      if (previous.current?.expanded === expanded)
-        previous.current.height = node.getBoundingClientRect().height;
-    });
-    observer.observe(node);
-    let animation: Animation | undefined;
-    if (
-      before &&
-      before.expanded !== expanded &&
-      !matchMedia('(max-width: 760px)').matches &&
-      motionDuration(280) > 100
-    ) {
-      animation = node.animate([{ height: `${before.height}px` }, { height: `${height}px` }], {
-        duration: 280,
-        easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
-      });
-    }
-    return () => {
-      observer.disconnect();
-      animation?.cancel();
-    };
-  }, [expanded]);
-  return ref;
-}

@@ -66,6 +66,7 @@ import type {
 import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { LoadingPlaceholder } from './features/LoadingPlaceholder';
+import { TaskBanners } from './features/notifications/TaskBanners';
 import { useTaskAttention } from './features/notifications/use-task-attention';
 import './features/notifications/task-attention.css';
 import { messageQuestions, confirmedAnswers } from './features/question-replies';
@@ -1339,6 +1340,10 @@ function CodexApp({
     else setError(t('此代理会话尚未同步或不在授权项目中'));
   }
   function openPanel(name: string) {
+    if (name === 'side') {
+      showTool('chat');
+      return;
+    }
     if (chat && ['files', 'git', 'skills', 'goal'].includes(name)) {
       setError(t('普通聊天不使用项目文件、技能或任务目标。请先切换到项目。'));
       return;
@@ -1629,6 +1634,12 @@ function CodexApp({
             if (session) attention.read(session);
           }}
         >
+          <TaskBanners
+            notices={attention.notices.filter((notice) => notice.sessionId !== session)}
+            sessions={snapshot.sessions || []}
+            onOpen={chooseSession}
+            onDismiss={attention.dismiss}
+          />
           <header className="topbar">
             <IconButton
               icon={session || matchMedia('(max-width:760px)').matches ? ChevronLeft : Menu}
@@ -2217,6 +2228,9 @@ function CodexApp({
           {selectedProject && (
             <Composer
               key={draftKey}
+              request={request}
+              projectId={selectedProject}
+              sessionId={session}
               draft={draft}
               placeholder={
                 activeTurn

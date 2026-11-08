@@ -132,7 +132,6 @@
 .shell .composer:focus-within {
   --composer-border-color: transparent;
 }
-.shell .composer.is-expanded,
 .shell .composer.is-dragging {
   --composer-border-color: var(--muted);
 }
@@ -689,15 +688,6 @@
   padding: 9px;
   background: color-mix(in srgb, var(--text) 9%, transparent);
   border-radius: 50%;
-}
-.popover.composer-menu > .composer-menu-secondary {
-  min-height: 44px;
-  color: var(--muted);
-  font-size: 14px;
-}
-.popover.composer-menu > .composer-menu-secondary > svg:first-child {
-  padding: 0 9px;
-  background: transparent;
 }
 .composer-menu-check {
   margin-left: auto;
@@ -1290,9 +1280,6 @@
     --radius-composer: 23px;
     padding: 8px 6px 4px;
   }
-  .shell .composer.is-expanded {
-    --composer-border-color: transparent;
-  }
   .shell .composer > textarea {
     font-size: 16px;
     padding: 4px 8px;
@@ -1319,7 +1306,7 @@
   }
   .shell .composer.is-compact > textarea {
     grid-area: 1 / 2;
-    padding: 4px 0;
+    padding: 6px 0;
     height: 36px !important;
     min-height: 36px;
     max-height: 36px;
@@ -1426,10 +1413,6 @@
   .popover.composer-menu > button {
     min-height: 60px;
     font-size: 17px;
-  }
-  .popover.composer-menu > .composer-menu-secondary {
-    min-height: 44px;
-    font-size: 14px;
   }
   .shell .context-usage-popup {
     font-size: 14px;

@@ -1070,10 +1070,6 @@ small,
   box-shadow: 0 2px 6px #00000003;
 }
 
-.composer.is-expanded {
-  --composer-border-color: var(--border);
-}
-
 .composer:focus-within {
   --composer-border-color: var(--border);
 }
