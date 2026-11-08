@@ -81,7 +81,7 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 会话图片路径授权       | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`                                         |
 | 输入发送动效与改动标签 | `pnpm test:send-motion-browser`，复用 `COMPOSER_TEST_ORIGIN`（默认 1497）及 Playwright；截图和结果在 `artifacts/send-motion/`        |
 | 动效与设置             | `pnpm test:ui-browser`、`pnpm test:motion-browser`、`pnpm test:sidebar-motion-browser`                                               |
-| iOS 风格弹层与分类切换 | `pnpm test:ios-motion-browser`，复用 Playwright 和 `COMPOSER_TEST_ORIGIN`（默认 1542）；证据在 `artifacts/ios-motion/` |
+| iOS 风格弹层与分类切换 | `pnpm test:ios-motion-browser`，复用 Playwright 和 `COMPOSER_TEST_ORIGIN`（默认 1542）；证据在 `artifacts/ios-motion/`               |
 | 侧边栏拖动与自动隐藏   | `pnpm test:sidebar-resize-browser`，`SIDEBAR_RESIZE_TEST_ORIGIN` 默认 `http://127.0.0.1:1512`                                        |
 | 手机侧栏与紧凑设置     | `node scripts/web/test-mobile-settings-browser.mjs`，复用 `COMPOSER_TEST_ORIGIN` / Playwright；效果图在 `artifacts/mobile-settings/` |
 | 下拉选择与菜单         | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                                                  |

@@ -335,7 +335,10 @@ try {
   assert.equal(await speed.count(), 0);
   await page.locator('.model-picker-model-toggle').click();
   assert.equal(await speed.count(), 0);
-  assert.equal(await page.getByRole('button', { name: '跟随电脑默认模型', exact: true }).count(), 0);
+  assert.equal(
+    await page.getByRole('button', { name: '跟随电脑默认模型', exact: true }).count(),
+    0,
+  );
   const fast = page.locator('.model-fast-toggle');
   await fast.click();
   assert.equal(await fast.getAttribute('aria-pressed'), 'true');
