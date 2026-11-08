@@ -235,6 +235,8 @@ Codex 侧栏的选中与悬停会话行使用整行 Lisse 0.65 胶囊，操作�
 
 ## 项目终端（2026-11-02 源码调整）
 
+2026-11-08 Web 源码调整：正常运行及启动期间不再显示顶部项目路径、启动状态和“断开连接”栏；结束后保留手动启动入口，错误提示、标签关闭清理及不自动重连语义保持。类型检查、定向 ESLint 和隔离终端组件浏览器检查通过（运行时无状态栏、断线后显式重启）；整页工具回归在连接替身初始化阶段超时，未计为通过。组件检查脚本见 `artifacts/workspace-tools/check-terminal-chrome.mjs`；未提交或部署。
+
 终端入口已改为直接打开当前设备的项目 shell，自动进入标签绑定的授权项目根目录，不再填写 SSH 服务器。Windows 优先 PowerShell 7、回退系统 PowerShell；Linux/macOS 使用 Host 的 `$SHELL`。保留多标签、隐藏连接、关闭清理、断线后手动重新启动与输入防重；无项目提示选择项目，旧 Host 提示升级。新增 `projectTerminal` 与固定 `terminal.*` 操作，旧 SSH 协议保留兼容，无数据库迁移。终端以 Host 系统用户权限执行；Codex 审批与沙箱逻辑不变。
 
 本批尚未提交、打包、安装或部署。Windows 本批 `pnpm check`、1115 条双语提取检查、Web 生产构建及受控工具浏览器回归通过；Host 全目标严格 Clippy 和 6 项 Rust 终端定向测试通过，包括临时授权目录内真实 PowerShell PTY 读取相对文件、协议字段拒绝与未授权项目拒绝。浏览器使用已有 Chromium，验证自动启动时传递项目 ID、不出现 SSH 表单、输入/Ctrl+C、隐藏保留、关闭清理及断线不自动重启；截图与结果在 `artifacts/workspace-tools/`。真实云端到 Host 项目终端、Linux/macOS shell 和手机/PWA 软键盘尚未验收；此前 SSH 验证不替代本次项目 shell 验收。

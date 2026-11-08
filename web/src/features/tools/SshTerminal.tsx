@@ -11,13 +11,11 @@ export function SshTerminal({
   visible,
   connected,
   projectId,
-  directory,
 }: {
   request: Request;
   visible: boolean;
   connected: boolean;
   projectId: string;
-  directory: string;
 }) {
   useLocale();
   const [generation, setGeneration] = useState(0);
@@ -180,31 +178,21 @@ export function SshTerminal({
       });
   }, [visible, phase]);
   return (
-    <section className="ssh-tool" aria-label={t('终端')}>
-      <div className="ssh-status">
-        <span title={directory}>
-          {directory} ·{' '}
-          {phase === 'connecting'
-            ? t('正在启动…')
-            : phase === 'open'
-              ? t('终端已启动')
-              : t('连接已结束')}
-        </span>
-        <button
-          disabled={!connected}
-          onClick={() => {
-            if (active && phase !== 'closed') {
-              setActive(false);
-              setPhase('closed');
-            } else {
+    <section className="ssh-tool" aria-label={t('终端')} data-phase={phase}>
+      {phase === 'closed' && (
+        <div className="ssh-status">
+          <span>{t('连接已结束')}</span>
+          <button
+            disabled={!connected}
+            onClick={() => {
               setGeneration((value) => value + 1);
               setActive(true);
-            }
-          }}
-        >
-          {phase === 'closed' ? t('启动终端') : t('断开连接')}
-        </button>
-      </div>
+            }}
+          >
+            {t('启动终端')}
+          </button>
+        </div>
+      )}
       {error && (
         <p className="error ssh-error" role="alert">
           {errorText(error)}

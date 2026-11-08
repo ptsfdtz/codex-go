@@ -2596,10 +2596,6 @@ function CodexApp({
                           visible={toolsVisible && visible}
                           connected={connected && supports('projectTerminal')}
                           projectId={tab.projectId}
-                          directory={
-                            snapshot.projects?.find((p) => p.projectId === tab.projectId)
-                              ?.canonicalPath || tab.projectId
-                          }
                         />
                       )}
                     </div>

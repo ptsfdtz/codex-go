@@ -430,10 +430,9 @@ try {
   await host.getByRole('button', { name: '新建工具标签页' }).click();
   await host.locator('.tools-grid').getByRole('button', { name: /终端/ }).click();
   assert.equal(await host.getByLabel('主机 / SSH 别名').count(), 0);
-  await host
-    .locator('.ssh-status')
-    .getByText(/终端已启动/)
-    .waitFor();
+  await host.locator('.ssh-tool[data-phase="open"]').waitFor();
+  assert.equal(await host.locator('.ssh-status').count(), 0);
+  assert.equal(await host.getByRole('button', { name: '断开连接', exact: true }).count(), 0);
   await host.getByRole('button', { name: 'Ctrl+C', exact: true }).click();
   await page.waitForFunction(() => window.sshInput.includes('\x03'));
   const ssh = host.locator('.ssh-screen textarea');
@@ -459,7 +458,7 @@ try {
     'Project shell automatically opens without SSH configuration; inputs, Ctrl+C and tool switching use one terminal without replay',
   );
   await page.setViewportSize({ width: 390, height: 844 });
-  await host.locator('.ssh-status').waitFor();
+  await host.locator('.ssh-tool[data-phase="open"]').waitFor();
   await page.waitForFunction(() =>
     window.calls.some((c) => c.action === 'terminal.resize' && c.payload.cols < 70),
   );
