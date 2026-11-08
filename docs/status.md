@@ -10,7 +10,7 @@ PR #12 的 Windows 失败来自开发文档与下拉框脚本的 Prettier 检查
 
 [0.4.4 候选构建](https://github.com/ptsfdtz/codex-go/actions/runs/42448091939) 全部成功，绑定上述源码。归档 SHA-256 为 `892322dc492cea7adf4e3513f1f290e131859901e3d32f081bd333fc590ad10d`，完整候选验证通过；Web 版本 `58e0a32c2073d1ca51d967276f0c39e88b2062e199cfcd167c8cc162084f429c`。四平台 Host 包已上传候选下载路径，公开校验文件与清单一致，本机候选 CLI 报告 0.4.4。证据与归档在 `artifacts/release-0.4.4/`。
 
-尚未完成本批 Windows x64、Linux x64/ARM64、macOS ARM64 真实端到端验收。已询问用户本批是否豁免，未将 CI 或 CLI 版本检查记作实机通过；未切换生产 Web、云端或 Host 稳定指针，稳定版本仍为 0.4.3。
+尚未完成本批 Windows x64、Linux x64/ARM64、macOS ARM64 真实端到端验收。用户已明确授权“豁免 合并到main分支并且发布0.4.4”，授权记录在 `scripts/release/waivers/0.4.4.json`。未将 CI 或 CLI 版本检查记作实机通过；未切换生产 Web、云端或 Host 稳定指针，稳定版本仍为 0.4.3。
 
 ## 当前生产 Web（2026-11-08）
 

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "version": "0.4.4",
+  "commit": "8b037af4c85e131d676c33d502801d9b26033014",
+  "candidateSha256": "1c974e4bdfb23fc2a85d7d3dccb169dcc08f811563ccbaef608bdc77834ea371",
+  "archiveSha256": "892322dc492cea7adf4e3513f1f290e131859901e3d32f081bd333fc590ad10d",
+  "authorizedBy": "repository owner in the release conversation",
+  "authorizedOn": "2026-11-08",
+  "authorization": "豁免 合并到main分支并且发布0.4.4",
+  "observed": "Candidate workflow 42448091939 completed all platform builds and CI. Candidate integrity and public download hashes verified. No same-candidate real-device E2E attestation.",
+  "waived": [
+    "complete same-candidate real E2E on Windows x64, Linux x64, Linux ARM64 and macOS ARM64, including installation, upgrade, real model tasks, continuation, sandbox/approval regression and restart/reconnect"
+  ],
+  "retained": [
+    "exact candidate source and all artifact hashes",
+    "no downgrade of stable release",
+    "production backup and deployment health checks",
+    "complete public Web and download hash verification"
+  ],
+  "scope": "Only this immutable 0.4.4 candidate. Future releases retain the normal full-platform E2E gate. Untested checks remain untested."
+}
