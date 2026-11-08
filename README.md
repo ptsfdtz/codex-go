@@ -63,3 +63,7 @@ Web 更新与 Host 更新分别进行。重启 Host 前先核对任务、审批�
 | [功能状态与验证](docs/status.md)       | 当前版本、验证证据、未完成项和下一步            |
 
 管理入口：[管理端](https://agent.ptsfdtz.top/admin)。备用 Web：[GitHub Pages](https://ptsfdtz.github.io/codex-go/)；备用站点不代表与生产站版本一致。
+
+## 许可证
+
+本项目原创代码采用 [MIT 许可证](LICENSE)。第三方代码和依赖遵循各自许可证；NextChat 改编部分保留 [原始版权与许可](third_party/nextchat/LICENSE)。
