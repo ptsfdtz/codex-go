@@ -34,6 +34,7 @@
     "test:selection-quote-browser": "node scripts/web/test-selection-quote-browser.mjs",
     "test:file-references-browser": "node scripts/web/test-file-references-browser.mjs",
     "test:motion-browser": "node scripts/web/test-motion-browser.mjs",
+    "test:ios-motion-browser": "node scripts/web/test-ios-motion-browser.mjs",
     "test:sidebar-motion-browser": "node scripts/web/test-sidebar-motion-browser.mjs",
     "test:sidebar-resize-browser": "node scripts/web/test-sidebar-resize-browser.mjs",
     "test:project-overview-browser": "node scripts/web/test-project-overview-browser.mjs",

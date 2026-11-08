@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { IconButton } from '../ui';
 import { Collapse, MotionList } from '../motion';
+import { LoadingPlaceholder } from './LoadingPlaceholder';
 import type { Host, Project, Session } from '../workspace';
 import { canManage, isSessionWorking } from '../workspace';
 import './Sidebar.css';
@@ -49,6 +50,7 @@ export function Sidebar({
   projects,
   host,
   connected,
+  loading = false,
   sessionId,
   projectId,
   open,
@@ -76,6 +78,7 @@ export function Sidebar({
   projects: Project[];
   host?: Host;
   connected: boolean;
+  loading?: boolean;
   sessionId?: string;
   projectId: string;
   open: boolean;
@@ -488,7 +491,8 @@ export function Sidebar({
                   </div>
                 );
               })}
-              {!projects.length && <p className="rail-empty">{t('暂无项目')}</p>}
+              {!projects.length &&
+                (loading ? <LoadingPlaceholder /> : <p className="rail-empty">{t('暂无项目')}</p>)}
             </Collapse>
           </section>
           <section className="sidebar-recents" aria-label={t('最近对话')}>
@@ -551,7 +555,12 @@ export function Sidebar({
             <Collapse open={recentsOpen}>
               <MotionList as="nav" label={t('最近对话列表')}>
                 {unmarked.slice(0, recentLimit).map((s) => row(s, 'recent'))}
-                {!unmarked.length && <p className="rail-empty">{t('暂无会话')}</p>}
+                {!unmarked.length &&
+                  (loading ? (
+                    <LoadingPlaceholder />
+                  ) : (
+                    <p className="rail-empty">{t('暂无会话')}</p>
+                  ))}
                 {unmarked.length > recentLimit && (
                   <button
                     className="sidebar-show-more"

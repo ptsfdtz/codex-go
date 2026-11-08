@@ -44,7 +44,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
     <main className="login-page">
       <div className="login-utilities">
         <LanguageSelect iconOnly />
-        <InstallApp iconOnly />
+        <InstallApp />
       </div>
       <section className="login-panel" aria-label={t('登录')}>
         <div className="login-brand">

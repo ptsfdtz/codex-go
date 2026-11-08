@@ -5,7 +5,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = new URL('../../artifacts/task-notifications/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const checks = [],
   errors = [];
 let page;
@@ -138,6 +141,8 @@ try {
     }),
   );
   const notices = page.locator('.task-notifications');
+  await page.locator('.task-banner').waitFor();
+  assert.match(await page.locator('.task-banner').innerText(), /任务已完成/);
   await page.locator('.notification-dot').first().waitFor();
   assert.equal(await notices.count(), 0);
   assert(await input.evaluate((el) => el === document.activeElement));
@@ -163,7 +168,7 @@ try {
   assert.equal(await row.locator('.session-unread-dot').count(), 0);
   assert.equal(await toggle.locator('.notification-dot').count(), 0);
   checks.push(
-    'background completion keeps hamburger/session blue dots without popup cards or focus theft, native/local dedup, opening clears unread',
+    'background completion keeps hamburger/session blue dots with a completion banner and without focus theft, native/local dedup, opening clears unread',
   );
 
   await page.evaluate(() => {
@@ -262,12 +267,15 @@ try {
       });
     }
   }
+  await page.setViewportSize({ width: 1200, height: 850 });
   await page.evaluate(() => window.remount());
   await page.waitForFunction(() => !!window.testBridge);
   await page
     .locator('#attention-test [data-connection-state=connected]')
     .waitFor({ state: 'attached' });
   await input.waitFor();
+  if (await page.getByRole('button', { name: '收起会话列表', exact: true }).count())
+    await page.getByRole('button', { name: '收起会话列表', exact: true }).click();
   assert.equal(await notices.locator('.task-notification').count(), 0);
   assert.equal(await toggle.locator('.notification-dot').count(), 1);
   await page.evaluate(() =>

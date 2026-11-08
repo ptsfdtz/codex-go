@@ -1,6 +1,5 @@
 import { t, useLocale } from '../i18n';
 import type { HistoryEntry } from '../history';
-import { MotionPresence } from '../motion';
 
 export function TaskProgress({
   entries,
@@ -31,25 +30,15 @@ export function TaskProgress({
     )[String(item?.type)] || t('任务正在执行');
   const plan = latest.find((entry) => entry.item?.type === 'plan' && Array.isArray(entry.item.plan))
     ?.item?.plan as { status?: string }[] | undefined;
+  if (!active) return null;
+  const description = `${stale ? t('上次进度 · ') : ''}${label}${plan?.length ? ` · ${t('plan.progress', { done: plan.filter((step) => step.status === 'completed').length, total: plan.length })}` : ''}`;
   return (
-    <MotionPresence>
-      {active && (
-        <div className="task-progress" role="status">
-          <span className="dot online" />
-          <span>
-            {stale ? t('上次进度 · ') : ''}
-            {label}
-          </span>
-          {plan?.length ? (
-            <span className="muted">
-              {t('plan.progress', {
-                done: plan.filter((step) => step.status === 'completed').length,
-                total: plan.length,
-              })}
-            </span>
-          ) : null}
-        </div>
-      )}
-    </MotionPresence>
+    <span
+      className="task-running-indicator"
+      data-stale={stale || undefined}
+      role="status"
+      aria-label={description}
+      title={description}
+    />
   );
 }

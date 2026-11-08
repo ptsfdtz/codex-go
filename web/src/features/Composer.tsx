@@ -7,7 +7,6 @@ import {
   X,
   Square,
   Sparkles,
-  Minimize2,
   ListChecks,
   ListPlus,
   Target,
@@ -15,9 +14,11 @@ import {
   Mic,
 } from 'lucide-react';
 import { IconButton, Modal } from '../ui';
-import { MotionPresence, usePopoverMotion, useExpansionMotion } from '../motion';
+import { MotionPresence, usePopoverMotion } from '../motion';
 import type { Attachment, Draft, Model } from '../workspace';
 import { readAttachments } from './composer-input';
+import { ComposerSuggestions } from './ComposerSuggestions';
+import type { Request } from '../workspace';
 import { ComposerMenu } from './ComposerMenu';
 import { positionPopover } from '../components/popover';
 import { PermissionPicker } from './PermissionPicker';
@@ -37,15 +38,16 @@ function AttachmentCard({
 }) {
   useLocale();
   const [url, setUrl] = useState('');
+  const image = /^image\/(png|jpeg|webp|gif|bmp)$/i.test(attachment.mime);
   useEffect(() => {
-    if (!/^image\/(png|jpeg|webp|gif|bmp)$/i.test(attachment.mime)) return;
+    if (!image) return;
     const bytes = Uint8Array.from(atob(attachment.data), (c) => c.charCodeAt(0));
     const value = URL.createObjectURL(new Blob([bytes], { type: attachment.mime }));
     setUrl(value);
     return () => URL.revokeObjectURL(value);
-  }, [attachment]);
+  }, [attachment, image]);
   return (
-    <div className="composer-attachment">
+    <div className="composer-attachment" data-image={image || undefined}>
       {url ? (
         <button
           className="attachment-thumbnail"
@@ -66,6 +68,7 @@ function AttachmentCard({
       </span>
       <IconButton
         icon={X}
+        className="attachment-remove"
         label={t('移除附件 {{p0}}', { p0: attachment.name })}
         disabled={disabled}
         onClick={onRemove}
@@ -101,7 +104,13 @@ export function Composer({
   panels,
   placeholder,
   contextControl,
+  request,
+  projectId,
+  sessionId,
 }: {
+  request?: Request;
+  projectId?: string;
+  sessionId?: string;
   panels?: string[];
   placeholder?: string;
   contextControl?: ReactNode;
@@ -131,26 +140,43 @@ export function Composer({
 }) {
   useLocale();
   const menuId = useId();
+  const suggestionId = useId();
+  const [caret, setCaret] = useState(0);
+  const [dismissedSuggestion, setDismissedSuggestion] = useState<string>();
   const feedbackId = useId();
   const speechStatusId = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const focusMenu = useRef(false);
-  const [expanded, setExpanded] = useState(false),
-    [addingAttachments, setAddingAttachments] = useState(false);
+  const [addingAttachments, setAddingAttachments] = useState(false);
   const [focused, setFocused] = useState(false);
+  const suggestionOpen =
+    execution &&
+    focused &&
+    !disabled &&
+    !busy &&
+    dismissedSuggestion !== draft.text &&
+    /(?:^|\s)[@/][^\s@/]*$/.test(draft.text.slice(0, caret));
+
   const composerRoot = useRef<HTMLDivElement>(null);
+  const modelInteraction = useRef<HTMLDivElement>(null);
+  const keyboardDictation = useRef(false);
   useEffect(() => {
     // Safari buttons may blur the editor with no relatedTarget. Preserve the
     // layout for actions inside the composer without canceling native touches
     // (including the first touch after a system permission dialog).
     const outside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !composerRoot.current?.contains(event.target))
+      const root = composerRoot.current;
+      if (
+        event.target instanceof Node &&
+        !root?.contains(event.target) &&
+        !modelInteraction.current?.isConnected &&
+        !root?.querySelector('.model-picker-popup:popover-open')
+      )
         setFocused(false);
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
   }, []);
-  const expansion = useExpansionMotion(expanded);
   const [attachmentError, setAttachmentError] = useState(''),
     [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<{ url: string; attachment: Attachment }>();
@@ -204,12 +230,8 @@ export function Composer({
       node.style.height = '0px';
       const viewport = window.visualViewport?.height || window.innerHeight;
       const mobile = matchMedia('(max-width: 760px)').matches;
-      let max = expanded
-        ? Math.min(420, viewport * 0.5)
-        : mobile
-          ? Math.min(220, viewport * 0.3)
-          : 220;
-      const min = expanded ? Math.min(280, viewport * 0.4) : 36;
+      let max = mobile ? Math.min(220, viewport * 0.3) : 220;
+      const min = 36;
       const wrap = node.closest('.composer-wrap');
       const conversation = wrap?.parentElement;
       if (mobile && wrap && conversation?.classList.contains('conversation')) {
@@ -266,7 +288,6 @@ export function Composer({
     draft.attachments,
     draft.skills,
     draft.references,
-    expanded,
     focused,
     active,
     planConfirmation,
@@ -277,6 +298,14 @@ export function Composer({
     input: textarea,
     onText: (text) => onChange({ text }),
   });
+  useLayoutEffect(() => {
+    if (!keyboardDictation.current) return;
+    const selector = speech.active ? '.recording-stop' : '.composer-mic';
+    composerRoot.current
+      ?.querySelector<HTMLButtonElement>(selector)
+      ?.focus({ preventScroll: true });
+    if (!speech.active) keyboardDictation.current = false;
+  }, [speech.active]);
   const hasResources = !!(
     draft.attachments.length ||
     draft.skills.length ||
@@ -300,7 +329,6 @@ export function Composer({
     !busy &&
     !addingAttachments &&
     !sendBlocked &&
-    !speech.active &&
     (!active || execution) &&
     hasContent;
   function closeMenu(focus = true) {
@@ -353,29 +381,71 @@ export function Composer({
       else onChange({ text });
     }
   }
+  function submit() {
+    beginSendMotion();
+    onSend(active ? 'queue' : undefined);
+  }
   function send() {
-    if (ready && !queueReason) {
-      beginSendMotion();
-      onSend(active ? 'queue' : undefined);
-    }
+    if (ready && !queueReason && !speech.active) submit();
   }
   function isFileDrag(event: React.DragEvent) {
     return Array.from(event.dataTransfer.types).includes('Files');
   }
+  const canSteer = active && supports('activeTurnSteering');
+  const hasMenuActions =
+    supports('attachments') ||
+    supports('composerSkills') ||
+    (execution && (supports('plan') || supports('goal'))) ||
+    canSteer;
   return (
     <div
       ref={composerRoot}
       className="composer-wrap"
+      onMouseDownCapture={(event) => {
+        // Keep an active mobile keyboard when tapping composer controls. The
+        // native click, popover activation and range dragging still run.
+        if (
+          document.activeElement === textarea.current &&
+          matchMedia('(pointer: coarse)').matches &&
+          event.target instanceof Element &&
+          event.target.closest(
+            '.model-picker-trigger, .model-picker-popup button, .composer-mic, .composer-recording button',
+          )
+        )
+          event.preventDefault();
+      }}
       onFocusCapture={(event) => {
         if (event.target instanceof HTMLTextAreaElement && event.target === textarea.current)
           setFocused(true);
       }}
       onBlurCapture={(event) => {
-        if (document.querySelector('dialog[open], [popover]:popover-open')) return;
+        if (
+          modelInteraction.current?.isConnected ||
+          document.querySelector('dialog[open], [popover]:popover-open')
+        )
+          return;
         if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node))
           setFocused(false);
       }}
     >
+      {suggestionOpen && (
+        <ComposerSuggestions
+          id={suggestionId}
+          draft={draft}
+          caret={caret}
+          supports={(key) => (key !== 'turnResponseSpeed' || !active) && supports(key)}
+          request={request}
+          projectId={projectId}
+          sessionId={sessionId}
+          onChange={onChange}
+          onPanel={onPanel}
+          onNew={onNew}
+          onClose={() => {
+            setDismissedSuggestion(draft.text);
+            textarea.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       {prompts && (
         <div className="composer-prompts" aria-label={t('待处理请求')}>
           {prompts}
@@ -392,13 +462,13 @@ export function Composer({
               models={models}
               disabled={disabled || busy}
               onChange={onChange}
+              allowResponseSpeed={!active && supports('turnResponseSpeed')}
             />
           </div>
         </>
       ) : (
         <div
-          ref={expansion}
-          className={`composer${expanded ? ' is-expanded' : ''}${dragging ? ' is-dragging' : ''}${!focused && !expanded && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent && !expanded ? ' is-empty' : ''}`}
+          className={`composer${execution && active ? ' is-follow-up' : ''}${dragging ? ' is-dragging' : ''}${speech.active ? ' is-dictating' : ''}${!speech.active && !focused && !hasResources && draft.mode === 'default' && !draft.text.includes('\n') ? ' is-compact' : ''}${!hasContent ? ' is-empty' : ''}`}
           onDragEnter={(event) => {
             if (!isFileDrag(event)) return;
             event.preventDefault();
@@ -428,9 +498,24 @@ export function Composer({
         >
           {(hasResources || draft.mode !== 'default') && (
             <div className="composer-resources">
+              {draft.attachments.length > 0 && (
+                <div className="composer-attachments">
+                  {draft.attachments.map((attachment, index) => (
+                    <AttachmentCard
+                      key={`${index}:${attachment.name}`}
+                      attachment={attachment}
+                      disabled={busy || addingAttachments}
+                      onRemove={() =>
+                        onChange({ attachments: draft.attachments.filter((_, i) => i !== index) })
+                      }
+                      onPreview={(url) => setPreview({ url, attachment })}
+                    />
+                  ))}
+                </div>
+              )}
               {draft.mode !== 'default' && (
                 <button
-                  className="resource-chip mode-chip"
+                  className="resource-chip mode-chip composer-tag"
                   disabled={busy}
                   aria-label={t('移除 {{p0}} 模式', {
                     p0: draft.mode === 'goal' ? t('目标') : t('计划'),
@@ -438,21 +523,14 @@ export function Composer({
                   onClick={() => onChange({ mode: 'default' })}
                 >
                   {draft.mode === 'goal' ? <Target size={14} /> : <ListChecks size={14} />}
-                  <span>{draft.mode === 'goal' ? t('目标') : t('计划')}</span>
-                  <X size={12} />
+                  <span className="composer-tag-name">
+                    {draft.mode === 'goal' ? t('目标') : t('计划')}
+                  </span>
+                  <span className="composer-tag-remove" aria-hidden="true">
+                    <X size={12} />
+                  </span>
                 </button>
               )}
-              {draft.attachments.map((attachment, index) => (
-                <AttachmentCard
-                  key={`${index}:${attachment.name}`}
-                  attachment={attachment}
-                  disabled={busy || addingAttachments}
-                  onRemove={() =>
-                    onChange({ attachments: draft.attachments.filter((_, i) => i !== index) })
-                  }
-                  onPreview={(url) => setPreview({ url, attachment })}
-                />
-              ))}
               {(draft.references || []).map((reference) => (
                 <span
                   className="resource-chip file-reference-chip"
@@ -474,10 +552,13 @@ export function Composer({
                 </span>
               ))}
               {draft.skills.map((skill) => (
-                <span className="resource-chip" key={skill.id}>
-                  <Sparkles size={14} />
-                  {skill.displayName || skill.name}
+                <span className="resource-chip composer-tag" key={skill.id}>
+                  <Sparkles size={14} aria-hidden="true" />
+                  <span className="composer-tag-name" title={skill.displayName || skill.name}>
+                    {skill.displayName || skill.name}
+                  </span>
                   <IconButton
+                    className="composer-tag-remove"
                     icon={X}
                     label={t('移除技能 {{p0}}', { p0: skill.name })}
                     disabled={busy}
@@ -502,6 +583,9 @@ export function Composer({
             }
             value={draft.text}
             rows={1}
+            aria-controls={suggestionOpen ? suggestionId : undefined}
+            aria-autocomplete={execution ? 'list' : undefined}
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
             onFocus={() => {
               if (speech.active) speech.cancel();
             }}
@@ -513,6 +597,8 @@ export function Composer({
             }}
             onChange={(event) => {
               speech.cancel();
+              setCaret(event.target.selectionStart);
+              setDismissedSuggestion(undefined);
               changeText(event.target.value);
             }}
             onKeyDown={(event) => {
@@ -540,34 +626,71 @@ export function Composer({
             placeholder={
               disabled
                 ? disabledReason || (execution ? t('连接电脑后开始') : t('暂时无法发送'))
-                : chat
-                  ? t('聊点什么…')
-                  : placeholder || t('向 Codex 提问或描述任务…')
+                : execution && active
+                  ? t('跟进')
+                  : chat
+                    ? t('聊点什么…')
+                    : placeholder || t('向 Codex 提问或描述任务…')
             }
             disabled={disabled || busy}
           />
-          <div className="composer-toolbar">
-            <button
-              type="button"
-              ref={trigger}
-              className="icon-button composer-add"
-              aria-label={t('添加附件和操作')}
-              popoverTarget={menuId}
-              aria-haspopup="menu"
-              aria-controls={menuId}
-              aria-expanded={menuOpen}
-              disabled={disabled || busy}
-              onClick={(event) => {
-                focusMenu.current = event.detail === 0 || !matchMedia('(pointer: coarse)').matches;
-                if (menu.current)
-                  positionPopover(event.currentTarget, menu.current, {
-                    width: 292,
-                    preferAbove: true,
-                  });
-              }}
-            >
-              <Plus size={20} />
-            </button>
+          {speech.active && (
+            <div className="composer-recording" role="group" aria-label={t('正在听写')}>
+              <IconButton
+                icon={X}
+                label={t('取消本次听写')}
+                className="recording-control"
+                onClick={speech.discard}
+              />
+              <span
+                className="recording-dots"
+                data-listening={speech.phase === 'listening'}
+                aria-hidden="true"
+              />
+              <IconButton
+                icon={Square}
+                label={t('结束语音输入')}
+                className="recording-control recording-stop"
+                disabled={speech.phase === 'stopping'}
+                onClick={speech.stop}
+              />
+              <IconButton
+                icon={ArrowUp}
+                label={execution && active ? t('加入队列') : t('发送')}
+                className="recording-control recording-send"
+                disabled={!ready || !!queueReason || speech.phase === 'stopping'}
+                onClick={() => {
+                  speech.cancel();
+                  submit();
+                }}
+              />
+            </div>
+          )}
+          <div className="composer-toolbar" hidden={speech.active}>
+            {hasMenuActions && (
+              <button
+                type="button"
+                ref={trigger}
+                className="icon-button composer-add"
+                aria-label={t('添加附件和操作')}
+                popoverTarget={menuId}
+                aria-haspopup="menu"
+                aria-controls={menuId}
+                aria-expanded={menuOpen}
+                disabled={disabled || busy}
+                onClick={(event) => {
+                  focusMenu.current =
+                    event.detail === 0 || !matchMedia('(pointer: coarse)').matches;
+                  if (menu.current)
+                    positionPopover(event.currentTarget, menu.current, {
+                      width: 292,
+                      preferAbove: true,
+                    });
+                }}
+              >
+                <Plus size={20} />
+              </button>
+            )}
             {execution && (
               <PermissionPicker
                 permission={permission}
@@ -583,23 +706,12 @@ export function Composer({
               supports={supports}
               mode={draft.mode}
               execution={execution}
-              expanded={expanded}
-              steering={
-                !active || !supports('activeTurnSteering')
-                  ? 'hidden'
-                  : ready && !hasResources
-                    ? 'ready'
-                    : 'disabled'
-              }
+              steering={!canSteer ? 'hidden' : ready && !hasResources ? 'ready' : 'disabled'}
               onCamera={() => camera.current?.click()}
               onPhotos={() => photos.current?.click()}
               onFiles={() => file.current?.click()}
               onPanel={onPanel}
               onMode={(mode) => onChange({ mode })}
-              onExpand={() => {
-                setExpanded(!expanded);
-                textarea.current?.focus({ preventScroll: true });
-              }}
               onSteer={() => {
                 beginSendMotion();
                 onSend('steer');
@@ -620,30 +732,35 @@ export function Composer({
               models={models}
               disabled={disabled || busy}
               onChange={onChange}
-              allowDefault={execution}
+              allowResponseSpeed={!active && supports('turnResponseSpeed')}
+              onOpenChange={(open, panel) => {
+                if (open) {
+                  modelInteraction.current = panel;
+                  setFocused(true);
+                } else {
+                  // WebKit may deliver focus changes while light dismissal is
+                  // still completing. Treat them as part of model selection.
+                  requestAnimationFrame(() => {
+                    if (modelInteraction.current === panel && !panel.matches(':popover-open'))
+                      modelInteraction.current = null;
+                  });
+                }
+              }}
             />
             <div className="composer-actions" role="group" aria-label={t('发送与执行控制')}>
-              {expanded && (
-                <IconButton
-                  icon={Minimize2}
-                  label={t('收起编辑器')}
-                  onClick={() => {
-                    setExpanded(false);
-                    textarea.current?.focus();
-                  }}
-                />
-              )}
               <button
                 type="button"
                 className="icon-button composer-mic"
-                aria-label={speech.active ? t('结束语音输入') : t('语音输入')}
-                title={speech.active ? t('结束语音输入') : t('语音输入')}
-                aria-pressed={speech.active}
+                aria-label={t('语音输入')}
+                title={t('语音输入')}
                 aria-describedby={speech.message ? speechStatusId : undefined}
-                disabled={disabled || busy || speech.phase === 'stopping'}
-                onClick={() => (speech.active ? speech.stop() : speech.start())}
+                disabled={disabled || busy}
+                onClick={(event) => {
+                  keyboardDictation.current = event.detail === 0;
+                  speech.start();
+                }}
               >
-                {speech.active ? <Square size={20} /> : <Mic size={23} />}
+                <Mic size={23} />
               </button>
               {active && execution && hasContent ? (
                 <button
@@ -748,7 +865,11 @@ export function Composer({
         role="status"
         aria-live="polite"
       >
-        {speech.message ? errorText(speech.message) : ''}
+        {speech.message
+          ? errorText(speech.message)
+          : speech.phase === 'listening'
+            ? t('正在听写')
+            : ''}
       </span>
       <MotionPresence>
         {preview && (

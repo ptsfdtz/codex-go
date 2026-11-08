@@ -1,6 +1,13 @@
 import { api, cloudEndpoint } from '../cloud';
 import type { BinaryTransport, TlsChannel } from './tls';
 
+export type HostGrant = {
+  hostId: string;
+  fingerprint: string;
+  credential: string;
+  endpoints?: string[];
+};
+
 const encode = (text: string) => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 const MAX_MESSAGE = 4 * 1024 * 1024;
@@ -234,50 +241,6 @@ async function socketTls(
     );
   } finally {
     clearTimeout(timer);
-  }
-}
-
-export async function hostPost<T>(
-  hostId: string,
-  fingerprint: string,
-  path: '/api/v1/pair/request' | '/api/v1/pair/claim',
-  payload: unknown,
-): Promise<T> {
-  const channel = await openHostTls(hostId, fingerprint);
-  const timeout = setTimeout(() => channel.close(), 15000);
-  try {
-    const reader = new ByteReader(channel);
-    const body = encode(JSON.stringify(payload));
-    await channel.write(
-      join(
-        encode(
-          `POST ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\n\r\n`,
-        ),
-        body,
-      ),
-    );
-    const response = await responseHeaders(reader);
-    let content: Uint8Array;
-    const length = response.headers.get('content-length');
-    if (length && /^\d+$/.test(length)) content = await reader.exact(Number(length));
-    else if (response.headers.get('transfer-encoding') === 'chunked') {
-      content = new Uint8Array();
-      for (;;) {
-        const size = await reader.line();
-        if (!/^[0-9a-f]+$/i.test(size)) throw new Error('Invalid HTTP chunk');
-        const count = Number.parseInt(size, 16);
-        if (!count) break;
-        if (content.length + count > MAX_MESSAGE) throw new Error('Host response too large');
-        content = join(content, await reader.exact(count));
-        if ((await reader.line()) !== '') throw new Error('Invalid HTTP chunk terminator');
-      }
-    } else throw new Error('Host response has no bounded length');
-    const value = JSON.parse(decode(content));
-    if (response.status !== 200) throw new Error(value.message || value.code || 'Pairing failed');
-    return value;
-  } finally {
-    clearTimeout(timeout);
-    channel.close();
   }
 }
 

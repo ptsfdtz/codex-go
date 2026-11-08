@@ -1,16 +1,7 @@
 import { t, useLocale } from '../i18n';
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { motionDuration } from '../motion';
-import {
-  Settings,
-  SlidersHorizontal,
-  History,
-  Keyboard,
-  Computer,
-  Database,
-  FileText,
-  UserRound,
-} from 'lucide-react';
+import { Settings, Folder, Computer } from 'lucide-react';
 
 const categories = [
   {
@@ -21,25 +12,11 @@ const categories = [
     icon: Settings,
   },
   {
-    id: 'configuration',
-    get name() {
-      return t('模型与输出');
-    },
-    icon: SlidersHorizontal,
-  },
-  {
     id: 'conversations',
     get name() {
-      return t('对话');
+      return t('项目');
     },
-    icon: History,
-  },
-  {
-    id: 'shortcuts',
-    get name() {
-      return t('快捷键');
-    },
-    icon: Keyboard,
+    icon: Folder,
   },
   {
     id: 'computers',
@@ -47,27 +24,6 @@ const categories = [
       return t('电脑');
     },
     icon: Computer,
-  },
-  {
-    id: 'data',
-    get name() {
-      return t('数据');
-    },
-    icon: Database,
-  },
-  {
-    id: 'diagnostics',
-    get name() {
-      return t('诊断');
-    },
-    icon: FileText,
-  },
-  {
-    id: 'account',
-    get name() {
-      return t('Codex 账户');
-    },
-    icon: UserRound,
   },
 ];
 
@@ -82,23 +38,40 @@ export function SettingsLayout({
 }) {
   useLocale();
   const category = categories.find(({ id }) => id === active) || categories[0]!;
+  const index = categories.indexOf(category);
   const body = useRef<HTMLElement>(null);
-  const nav = useRef<HTMLElement>(null);
+  const previous = useRef(index);
   useLayoutEffect(() => {
     const node = body.current;
     if (!node) return;
     node.scrollTop = 0;
-    const selected = nav.current?.querySelector<HTMLElement>('[aria-current="page"]');
-    selected?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    const animation = node.animate([{ opacity: 0.65 }, { opacity: 1 }], {
-      duration: motionDuration(180),
-      easing: 'ease-out',
-    });
+    const direction = Math.sign(index - previous.current);
+    previous.current = index;
+    if (!direction || document.documentElement.dataset.motionInput === 'keyboard') return;
+    const duration = motionDuration(240);
+    const animation = node.animate(
+      [
+        {
+          opacity: duration <= 100 ? 0.7 : 0,
+          transform: `translateX(${duration <= 100 ? 0 : direction * 12}px)`,
+        },
+        { opacity: 1, transform: 'translateX(0)' },
+      ],
+      {
+        duration,
+        easing: getComputedStyle(document.documentElement).getPropertyValue('--ease-drawer').trim(),
+      },
+    );
     return () => animation.cancel();
-  }, [active]);
+  }, [index]);
   return (
     <div className="settings-layout">
-      <nav ref={nav} className="settings-nav" aria-label={t('设置分类')}>
+      <nav className="settings-nav" aria-label={t('设置分类')}>
+        <span
+          className="settings-selection"
+          aria-hidden="true"
+          style={{ transform: `translateX(calc(${index * 100}% + ${index * 4}px))` }}
+        />
         {categories.map(({ id, name, icon: Icon }) => (
           <button
             key={id}

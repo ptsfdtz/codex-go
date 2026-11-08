@@ -1,4 +1,3 @@
-import i18next from 'i18next';
 import { useSyncExternalStore } from 'react';
 import en from './en.json';
 import zhCN from './zh-CN.json';
@@ -31,18 +30,7 @@ const resolve = (): Locale =>
       : 'en'
     : preference;
 let locale = resolve();
-const instance = i18next.createInstance();
-void instance.init({
-  lng: locale,
-  fallbackLng: 'en',
-  supportedLngs: ['zh-CN', 'en'],
-  resources: { en: { translation: en }, 'zh-CN': { translation: chinese } },
-  initAsync: false,
-  keySeparator: false,
-  nsSeparator: false,
-  interpolation: { escapeValue: false },
-  returnNull: false,
-});
+const plurals = { en: new Intl.PluralRules('en'), 'zh-CN': new Intl.PluralRules('zh-CN') };
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -58,11 +46,28 @@ export function useLocale() {
 export const getLocale = (): Locale => locale;
 export const getLanguagePreference = () => preference;
 export function t(key: string, values?: Record<string, unknown>): string {
-  return String(instance.t(key, values || {}));
+  const catalog: Record<string, string> = locale === 'en' ? en : chinese;
+  const fallback: Record<string, string> = en;
+  if (typeof values?.count === 'number') {
+    const suffix =
+      values.count === 0 && Object.hasOwn(catalog, `${key}_zero`)
+        ? 'zero'
+        : plurals[locale].select(values.count);
+    if (Object.hasOwn(catalog, `${key}_${suffix}`)) key = `${key}_${suffix}`;
+  }
+  const template = Object.hasOwn(catalog, key)
+    ? catalog[key]!
+    : Object.hasOwn(fallback, key)
+      ? fallback[key]!
+      : key;
+  // Catalogs intentionally support literal keys and {{name}} only. Replacement
+  // is one pass: user values cannot introduce nested translations or markup.
+  return template.replace(/\{\{(\w+)\}\}/g, (placeholder, name: string) =>
+    values && Object.hasOwn(values, name) ? String(values[name] ?? '') : placeholder,
+  );
 }
 function apply() {
   locale = resolve();
-  void instance.changeLanguage(locale);
   if (typeof document === 'undefined') return;
   document.documentElement.lang = locale;
   document.querySelector('meta[name="description"]')?.setAttribute('content', t('app.description'));

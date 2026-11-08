@@ -52,6 +52,18 @@
   --control-line: 20px;
   --control-padding-x: 12px;
 }
+:root[data-bubble-color='blue'] {
+  --outgoing-bubble: light-dark(#dbe8ff, #05085f);
+}
+:root[data-bubble-color='green'] {
+  --outgoing-bubble: light-dark(#d9f1e3, #123f2b);
+}
+:root[data-bubble-color='purple'] {
+  --outgoing-bubble: light-dark(#eee2ff, #372059);
+}
+:root[data-bubble-color='gray'] {
+  --outgoing-bubble: light-dark(#e8e8e8, #303030);
+}
 :root[data-theme='dark'] {
   --bg: #000;
   --rail: #080808;

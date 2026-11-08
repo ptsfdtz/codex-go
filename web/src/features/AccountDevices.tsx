@@ -1,8 +1,7 @@
 import { errorText, t, useLocale } from '../i18n';
-import { useEffect, useId, useRef, useState } from 'react';
-import { Computer, Trash2, RefreshCw } from 'lucide-react';
-import { IconButton } from '../ui';
-import { MotionList, usePopoverMotion } from '../motion';
+import { useId, useRef, useState } from 'react';
+import { Trash2 } from 'lucide-react';
+import { usePopoverMotion } from '../motion';
 import { api } from '../cloud';
 import type { Device } from '../workspace';
 
@@ -106,67 +105,5 @@ export function DeleteDevice({ device, onDeleted }: { device: Device; onDeleted?
         { p0: device.displayName },
       )}
     />
-  );
-}
-
-export function AccountDevices() {
-  useLocale();
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-  async function load() {
-    setLoading(true);
-    setError('');
-    try {
-      const result = await api<{ devices: Device[] }>('/api/v1/devices');
-      setDevices(result.devices.filter((device) => device.kind === 'desktop'));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => {
-    void load();
-  }, []);
-  return (
-    <section className="settings-section panel-stack">
-      <div className="setting-row">
-        <div>
-          <h3>{t('已登记电脑')}</h3>
-        </div>
-        <IconButton
-          icon={RefreshCw}
-          label={t('刷新 Host 设备')}
-          pending={loading}
-          onClick={() => void load()}
-        />
-      </div>
-      {error && (
-        <p className="error" role="alert">
-          {errorText(error)}
-        </p>
-      )}
-      {!loading && !error && !devices.length && <p className="muted">{t('暂无 Host 设备。')}</p>}
-      <MotionList>
-        {devices.map((device) => (
-          <div className="host-device-card" data-motion-item key={device.deviceId}>
-            <span className="host-device-icon" aria-hidden="true">
-              <Computer size={18} />
-            </span>
-            <div className="host-device-info">
-              <strong>{device.displayName}</strong>
-              <small className="muted">{device.revoked ? t('已撤销') : t('已登记')}</small>
-            </div>
-            <DeleteDevice
-              device={device}
-              onDeleted={() =>
-                setDevices((current) => current.filter((item) => item.deviceId !== device.deviceId))
-              }
-            />
-          </div>
-        ))}
-      </MotionList>
-    </section>
   );
 }

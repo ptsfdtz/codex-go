@@ -20,3 +20,51 @@
 .desktop-session-row:has(.session-unread-dot) > .session {
   color: var(--text);
 }
+
+.conversation {
+  position: relative;
+}
+.task-banner-region {
+  position: absolute;
+  top: 64px;
+  left: 16px;
+  right: 16px;
+  z-index: 45;
+  pointer-events: none;
+}
+.task-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 13px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--soft);
+  color: var(--text);
+  text-align: left;
+  box-shadow: 0 6px 20px #0003;
+  pointer-events: auto;
+}
+.task-banner span {
+  min-width: 0;
+}
+.task-banner strong {
+  display: block;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+}
+.task-banner small {
+  display: block;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.task-banner svg {
+  flex-shrink: 0;
+}

@@ -1,0 +1,164 @@
+name: Publish authorized 0.4.4
+
+on:
+  workflow_dispatch:
+
+env:
+  VERSION: '0.4.4'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download immutable candidate and owner waiver
+        env:
+          VERSION: 0.4.4
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/release
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release download "candidate-$VERSION" --pattern candidate.tar.gz
+          echo '892322dc492cea7adf4e3513f1f290e131859901e3d32f081bd333fc590ad10d  candidate.tar.gz' | sha256sum -c -
+          mkdir candidate evidence
+          python3 scripts/release/extract.py candidate.tar.gz candidate
+          cp scripts/release/waivers/0.4.4.json evidence/release-waiver-0.4.4.json
+      - name: Enforce pinned 0.4.4 identity and four-platform owner waiver
+        id: verify
+        env:
+          VERSION: 0.4.4
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release/waiver_044.py verify candidate --evidence evidence
+          commit=$(python3 -c 'import json; print(json.load(open("candidate/candidate.json"))["commit"])')
+          version=$(python3 -c 'import json; print(json.load(open("candidate/candidate.json"))["version"])')
+          test "$version" = "$VERSION"
+          test "$(git rev-parse "refs/tags/candidate-$VERSION^{commit}")" = "$commit"
+          git merge-base --is-ancestor "$commit" origin/main
+          if git rev-parse --verify "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            test "$(git rev-parse "refs/tags/v$VERSION^{commit}")" = "$commit"
+            if gh release view "v$VERSION" >/dev/null 2>&1; then
+              mkdir previous-release
+              gh release download "v$VERSION" --pattern candidate.json --dir previous-release
+              cmp candidate/candidate.json previous-release/candidate.json
+            fi
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          cp -R evidence candidate/evidence
+      - name: Deploy exact authorized artifacts to VPS
+        id: vps
+        env:
+          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.AGENTDECK_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.AGENTDECK_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+          tar -czf tested-candidate.tar.gz -C candidate .
+          remote_dir=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" 'mktemp -d /var/tmp/agentdeck-publish.XXXXXXXX')
+          [[ "$remote_dir" =~ ^/var/tmp/agentdeck-publish\.[a-zA-Z0-9]+$ ]]
+          mkdir publication-tools
+          cp scripts/release/waiver_044.py publication-tools/gate.py
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes tested-candidate.tar.gz scripts/release/deploy.sh scripts/release/finalize.sh scripts/release/extract.py publication-tools/gate.py scripts/release/verify-web.py scripts/host/publish-downloads.sh "$DEPLOY_HOST:$remote_dir/"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" "sh '$remote_dir/deploy.sh' '$remote_dir'"
+          echo "DEPLOY_UPLOAD=$remote_dir" >> "$GITHUB_ENV"
+      - name: Prepare previously built Pages files
+        run: |
+          mkdir pages
+          python3 scripts/release/extract.py candidate/pages.tar.gz pages
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+      - uses: actions/deploy-pages@v4
+        id: pages
+      - name: Verify every public Pages asset before opening updates
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if python3 scripts/release/verify-web.py pages https://ptsfdtz.github.io/codex-go --static; then
+              exit 0
+            fi
+            test "$attempt" -lt 5 || exit 1
+            sleep 10
+          done
+      - name: Open stable updates after both deployments
+        id: stable
+        env:
+          DEPLOY_HOST: ${{ vars.AGENTDECK_DEPLOY_HOST }}
+        run: ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_HOST" "sh '$DEPLOY_UPLOAD/finalize.sh' '$DEPLOY_UPLOAD'"
+      - name: Publish official GitHub release without rebuilding
+        id: official
+        env:
+          VERSION: 0.4.4
+          SOURCE_SHA: ${{ steps.verify.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tar -czf agentdeck-downloads.tar.gz -C candidate install.sh install.ps1 install-codex.ps1 release-gate.py candidate.json codex-runtime-manifests verify-shared-runtime.py evidence releases web.tar.gz pages.tar.gz agentdeck-cloud
+          cp "candidate/releases/$VERSION/"*.zip "candidate/releases/$VERSION/"*.tar.gz .
+          cp candidate/candidate.json candidate/evidence/release-waiver-0.4.4.json .
+          sha256sum agentdeck-downloads.tar.gz agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-macos-arm64.tar.gz candidate.json release-waiver-0.4.4.json > SHA256SUMS.txt
+          cat > release-notes.md <<'NOTES'
+          AgentDeck 0.4.4
+
+          原样晋升 candidate-0.4.4，未重新构建产物。
+          源码：8b037af4c85e131d676c33d502801d9b26033014（已合并 main）。
+
+          统一 Lisse 连续圆角，精简输入区和模型选择，完善输入联想、加载占位与工具调用展示。任务执行状态改为导航栏呼吸绿点，修复移动端快速模式位置和 PR 检查。
+
+          四平台构建、候选完整性及公开下载校验通过。用户明确豁免本批 Windows x64、Linux x64/ARM64、macOS ARM64 实机端到端验收；未测范围仍记为未测，详见 release-waiver-0.4.4.json。本次豁免仅适用于上述精确候选，后续发布保留默认门槛。
+
+          保留生产备份、禁止降级、健康及全量公开文件校验。
+          更新：`agentdeck update`，确认任务空闲后 `agentdeck restart`。发布版本 0.4.4，core 版本维持 0.3.0。
+          NOTES
+          cat "candidate/releases/$VERSION/notes.txt" >> release-notes.md
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            test "$(gh release view "v$VERSION" --json targetCommitish --jq .targetCommitish)" = "$SOURCE_SHA"
+          else
+            gh release create "v$VERSION" --target "$SOURCE_SHA" --latest --title "AgentDeck $VERSION" --notes-file release-notes.md agentdeck-downloads.tar.gz candidate/candidate.json agentdeck-windows-x64.zip agentdeck-linux-x64.tar.gz agentdeck-linux-arm64.tar.gz agentdeck-macos-arm64.tar.gz candidate/evidence/release-waiver-0.4.4.json SHA256SUMS.txt
+          fi
+      - name: Report actual publication results
+        if: always()
+        env:
+          VERSION: 0.4.4
+          SOURCE_SHA: ${{ steps.verify.outputs.commit }}
+          VPS_RESULT: ${{ steps.vps.outcome }}
+          PAGES_RESULT: ${{ steps.pages.outcome }}
+          STABLE_RESULT: ${{ steps.stable.outcome }}
+          OFFICIAL_RESULT: ${{ steps.official.outcome }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          lines = [f"AgentDeck {os.environ['VERSION']}", f"Commit: {os.environ['SOURCE_SHA']}", "", "| Component | Result |", "| --- | --- |"]
+          for label, field in (("VPS", "VPS_RESULT"), ("Pages", "PAGES_RESULT"), ("Stable update pointer", "STABLE_RESULT"), ("GitHub Release", "OFFICIAL_RESULT")):
+              lines.append(f"| {label} | {os.environ[field]} |")
+          if any(os.environ[field] != "success" for field in ("VPS_RESULT", "PAGES_RESULT", "STABLE_RESULT", "OFFICIAL_RESULT")):
+              lines += ["", "Publication is incomplete. Inspect successful steps and VPS backups before retrying; do not assume production is unchanged."]
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8') as stream:
+              stream.write('\n'.join(lines) + '\n')
+          PY
+      - name: Remove temporary deployment credentials
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519

@@ -62,6 +62,7 @@ pub fn describe_profile(
         "automationManagement": false
     });
     features["projectTerminal"] = json!(true);
+    features["turnResponseSpeed"] = Value::Bool(true);
     features["nativeQueueStart"] =
         Value::Bool(protocol == crate::rpc::ProtocolVersion::DesktopBaseline);
     features["nativeQueueSteer"] =

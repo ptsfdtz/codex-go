@@ -7,6 +7,44 @@ fn goal_revision(goal: &Value) -> String {
     format!("{:x}", Sha256::digest(goal.to_string().as_bytes()))
 }
 
+fn fast_service_tier(model: &Value) -> Option<&'static str> {
+    if let Some(tiers) = model["serviceTiers"]
+        .as_array()
+        .filter(|tiers| !tiers.is_empty())
+    {
+        ["fast", "priority"]
+            .into_iter()
+            .find(|id| tiers.iter().any(|tier| tier["id"] == *id))
+    } else {
+        let tiers = model["additionalSpeedTiers"].as_array()?;
+        ["fast", "priority"]
+            .into_iter()
+            .find(|id| tiers.iter().any(|tier| tier == *id))
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn fast_service_tier_uses_advertised_speed() {
+    assert_eq!(
+        fast_service_tier(&json!({"serviceTiers":[{"id":"priority"},{"id":"fast"}]})),
+        Some("fast")
+    );
+    assert_eq!(
+        fast_service_tier(&json!({"serviceTiers":[{"id":"priority"}]})),
+        Some("priority")
+    );
+    assert_eq!(
+        fast_service_tier(&json!({"serviceTiers":[],"additionalSpeedTiers":["fast"]})),
+        Some("fast")
+    );
+    assert_eq!(
+        fast_service_tier(&json!({"serviceTiers":[{"id":"flex"}],"additionalSpeedTiers":["fast"]})),
+        None
+    );
+    assert_eq!(fast_service_tier(&json!({})), None);
+}
+
 impl Core {
     pub async fn session_goal(&self, id: &str) -> Result<Value> {
         use std::sync::atomic::Ordering;
@@ -224,7 +262,16 @@ impl Core {
             rpc.validate("v2/ModelListResponse", &result)?;
             for model in result["data"].as_array().unwrap() {
                 if model["hidden"] == false {
-                    models.push(json!({"model":model["model"],"displayName":model["displayName"],"description":model["description"].as_str().unwrap_or(""),"inputModalities":model["inputModalities"].as_array().cloned().unwrap_or_default(),"isDefault":model["isDefault"],"defaultReasoningEffort":model["defaultReasoningEffort"],"supportedReasoningEfforts":model["supportedReasoningEfforts"]}));
+                    models.push(json!({
+                        "model": model["model"],
+                        "displayName": model["displayName"],
+                        "description": model["description"].as_str().unwrap_or(""),
+                        "inputModalities": model["inputModalities"].as_array().cloned().unwrap_or_default(),
+                        "isDefault": model["isDefault"],
+                        "defaultReasoningEffort": model["defaultReasoningEffort"],
+                        "supportedReasoningEfforts": model["supportedReasoningEfforts"],
+                        "fastServiceTier": fast_service_tier(model),
+                    }));
                 }
             }
             cursor = result["nextCursor"].clone();
@@ -243,10 +290,17 @@ impl Core {
         ))
     }
     pub async fn check_model(&self, model: &str, effort: &str) -> Result<()> {
-        let models = self.models().await?;
-        let selected = models.iter().find(|v| v["model"] == model).ok_or_else(|| {
-            Error::new("INVALID_REQUEST", "Model is not available to this account")
-        })?;
+        self.checked_model(model, effort).await.map(|_| ())
+    }
+    async fn checked_model(&self, model: &str, effort: &str) -> Result<Value> {
+        let selected = self
+            .models()
+            .await?
+            .into_iter()
+            .find(|v| v["model"] == model)
+            .ok_or_else(|| {
+                Error::new("INVALID_REQUEST", "Model is not available to this account")
+            })?;
         ensure(
             effort.is_empty()
                 || selected["supportedReasoningEfforts"]
@@ -256,7 +310,36 @@ impl Core {
                     .any(|v| v["reasoningEffort"] == effort),
             "INVALID_REQUEST",
             "Reasoning effort is not supported by this model",
-        )
+        )?;
+        Ok(selected)
+    }
+    pub(crate) async fn check_turn_model(
+        &self,
+        model: &str,
+        effort: &str,
+        speed: Option<&str>,
+    ) -> Result<Option<&'static str>> {
+        let standard = (speed == Some("default")).then_some("default");
+        if model.is_empty() {
+            ensure(
+                effort.is_empty() && speed != Some("fast"),
+                "INVALID_REQUEST",
+                "Select a model before setting reasoning effort or fast mode",
+            )?;
+            return Ok(standard);
+        }
+        let selected = self.checked_model(model, effort).await?;
+        if speed == Some("fast") {
+            return match selected["fastServiceTier"].as_str() {
+                Some("fast") => Ok(Some("fast")),
+                Some("priority") => Ok(Some("priority")),
+                _ => Err(Error::new(
+                    "INVALID_REQUEST",
+                    "Fast mode is not available for this model",
+                )),
+            };
+        }
+        Ok(standard)
     }
     async fn compact_idle_session(&self, session: &Value, p: &Value) -> Result<Value> {
         use std::sync::atomic::Ordering;
@@ -471,15 +554,8 @@ impl Core {
         crate::codex::settings(&rpc, &root).await?;
         let model = p["model"].as_str().unwrap_or(s(session, "model"));
         let effort = p["effort"].as_str().unwrap_or(s(session, "effort"));
-        if !model.is_empty() {
-            self.check_model(model, effort).await?;
-        } else {
-            ensure(
-                effort.is_empty(),
-                "INVALID_REQUEST",
-                "Select a model before reasoning effort",
-            )?;
-        }
+        let response_speed = p["responseSpeed"].as_str();
+        self.check_turn_model(model, effort, response_speed).await?;
         let mut cursor = None::<String>;
         let mut seen = HashSet::new();
         let mut source = None;
@@ -571,6 +647,7 @@ impl Core {
                 crate::tasks::ComposerOptions {
                     model: p["model"].as_str(),
                     effort: p["effort"].as_str(),
+                    response_speed,
                     permission_mode: p["permissionMode"].as_str().unwrap_or("workspace"),
                     mode: p["mode"].as_str().unwrap_or("default"),
                     attachments: None,

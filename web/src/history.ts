@@ -34,16 +34,3 @@ export function mergeHistory(
   for (const page of pages) for (const entry of page) result.set(historyKey(entry), entry);
   return [...result.values()];
 }
-
-export function withLiveText(
-  entries: HistoryEntry[],
-  live: Map<string, HistoryEntry>,
-): HistoryEntry[] {
-  const result = new Map(entries.map((entry) => [historyKey(entry), entry]));
-  for (const [key, entry] of live) {
-    const saved = result.get(key);
-    if (!saved || String(saved.item?.text || '').length < String(entry.item?.text || '').length)
-      result.set(key, entry);
-  }
-  return [...result.values()];
-}

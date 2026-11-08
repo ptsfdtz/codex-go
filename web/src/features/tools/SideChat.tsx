@@ -1,3 +1,6 @@
+import { TaskProgress } from '../TaskProgress';
+import { useHistory } from '../use-history';
+import { LoadingPlaceholder } from '../LoadingPlaceholder';
 import { errorText, t, useLocale } from '../../i18n';
 import { Select } from '../../components/Select';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -65,9 +68,7 @@ export function SideChat({
   const [project, setProject] = useState(initialProject);
   const [sessionId, setSessionId] = useState(initialSession);
   const [permission, setPermission] = useState('workspace');
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
-  const history = useRef(entries);
-  history.current = entries;
+  const { entries, current: history, update: setEntries } = useHistory();
   const [cursor, setCursor] = useState<string>();
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -369,7 +370,11 @@ export function SideChat({
       } else {
         const result = await request<{ turn?: Turn }>('turn.start', {
           sessionId: target,
-          ...turnOptions(chat ? { ...source, mode: 'default', skills: [] } : source, permission),
+          ...turnOptions(
+            chat ? { ...source, mode: 'default', skills: [] } : source,
+            permission,
+            supports('turnResponseSpeed'),
+          ),
         });
         if (transport === liveConnection.current && identity.current === target) {
           activityVersion.current++;
@@ -458,6 +463,12 @@ export function SideChat({
             </option>
           ))}
         </Select>
+        <TaskProgress
+          entries={entries}
+          active={!!activeTurn}
+          turnId={active?.upstreamTurnId || activeTurn}
+          stale={!connected}
+        />
         <IconButton
           icon={Plus}
           label={t('新建侧边对话')}
@@ -519,7 +530,7 @@ export function SideChat({
               <p>{t('选择已有会话，或发送消息开始新的对话。')}</p>
             </div>
           )}
-          {loading && !entries.length && <p role="status">{t('正在读取会话…')}</p>}
+          {loading && !entries.length && <LoadingPlaceholder conversation />}
           <ActivityStages entries={entries} activeTurn={active?.upstreamTurnId || activeTurn}>
             {(entry) => {
               const user = entry.item?.type === 'userMessage' || entry.item?.role === 'user';

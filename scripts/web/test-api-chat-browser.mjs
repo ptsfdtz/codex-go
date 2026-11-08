@@ -284,7 +284,8 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '新对话', exact: true }).click();
   await picker.click();
-  await page.getByRole('button', { name: '重置思维强度', exact: true }).click();
+  await page.locator('.model-picker-model-toggle').click();
+  await page.getByRole('button', { name: 'model-b · 我的接口', exact: true }).click();
   await page.keyboard.press('Escape');
   await editor.fill('第二个对话');
   await editor.press('Enter');
@@ -376,12 +377,7 @@ try {
       .content.includes('当然可以'),
   );
   mode = 'normal';
-  // Shared composer UI and responsive settings remain unchanged.
-  await page.getByRole('button', { name: '添加附件和操作', exact: true }).click();
-  await page.getByRole('menuitem', { name: '更多操作', exact: true }).click();
-  await page.getByRole('menuitem', { name: '展开编辑器', exact: true }).click();
-  await screenshot('expanded-editor.png');
-  await page.getByRole('button', { name: '收起编辑器', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '添加附件和操作', exact: true }).count(), 0);
   await page.setViewportSize({ width: 390, height: 844 });
   if (await page.locator('.api-chat.with-sidebar').count())
     await page.locator('.api-chat-row.active > button:first-child').click();

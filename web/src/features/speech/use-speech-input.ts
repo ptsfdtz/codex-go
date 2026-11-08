@@ -25,6 +25,7 @@ type SpeechWindow = Window & {
 type Phase = 'idle' | 'starting' | 'listening' | 'stopping';
 type Session = {
   recognition: Recognition;
+  original: string;
   expected: string;
   before: string;
   after: string;
@@ -114,6 +115,13 @@ export function useSpeechInput({
     const session = current.current;
     if (session) release(session);
   }
+  function discard() {
+    const session = current.current;
+    if (!session) return;
+    release(session);
+    if (latest.current.value === session.expected && session.expected !== session.original)
+      latest.current.onText(session.original);
+  }
   function stop() {
     const session = current.current;
     if (!session || session.finishing) return;
@@ -150,6 +158,7 @@ export function useSpeechInput({
     const text = latest.current.value;
     const session: Session = {
       recognition,
+      original: text,
       expected: text,
       before: text.slice(0, node.selectionStart ?? text.length),
       after: text.slice(node.selectionEnd ?? text.length),
@@ -270,5 +279,6 @@ export function useSpeechInput({
     start,
     stop,
     cancel,
+    discard,
   };
 }

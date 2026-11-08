@@ -105,16 +105,17 @@ impl Store {
             return Err(Error::forbidden());
         }
         let cap = match kind {
-            "desktop" => row.get::<_, i32>("max_hosts"),
-            "mobile" => row.get("max_mobile_devices"),
-            "web" => 16,
-            "adminWeb" => 8,
+            "desktop" => Some(row.get::<_, i32>("max_hosts")),
+            "mobile" => Some(row.get("max_mobile_devices")),
+            "web" => None,
+            "adminWeb" => Some(8),
             _ => return Err(Error::invalid()),
         };
-        if existing
-            .as_ref()
-            .is_none_or(|r| !r.get::<_, bool>("active"))
-        {
+        if let Some(cap) = cap.filter(|_| {
+            existing
+                .as_ref()
+                .is_none_or(|r| !r.get::<_, bool>("active"))
+        }) {
             let count:i64=tx.query_one("SELECT count(*) FROM devices WHERE account_id=$1 AND kind=$2 AND revoked_at IS NULL",&[&account.id,&kind]).await?.get(0);
             if count >= i64::from(cap) {
                 return Err(Error::limit());

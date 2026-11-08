@@ -6,7 +6,10 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const origin = process.env.COMPOSER_TEST_ORIGIN || 'http://127.0.0.1:1430';
 const out = new URL('../../artifacts/project-settings/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 try {
   const context = await browser.newContext({
     locale: 'zh-CN',
@@ -49,7 +52,7 @@ try {
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page
     .getByRole('navigation', { name: '设置分类' })
-    .getByRole('button', { name: '对话', exact: true })
+    .getByRole('button', { name: '项目', exact: true })
     .click();
   await page
     .getByRole('region', { name: '项目管理' })
@@ -113,13 +116,6 @@ try {
           React.createElement(
             'div',
             { className: 'panel-stack' },
-            ...['查看归档对话', '未发送草稿', '同步电脑已有对话'].map((name) =>
-              React.createElement(
-                'button',
-                { key: name, className: 'settings-action' },
-                React.createElement('strong', null, name),
-              ),
-            ),
             React.createElement(ProjectSettings, {
               request,
               projects,

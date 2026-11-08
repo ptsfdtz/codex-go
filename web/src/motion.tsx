@@ -14,12 +14,31 @@ export function motionDuration(milliseconds: number) {
   return matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : milliseconds;
 }
 
+export function useMotionRetention(active: boolean, duration: number) {
+  const [retained, setRetained] = useState(active);
+  useLayoutEffect(() => {
+    if (active) {
+      setRetained(true);
+      return;
+    }
+    const timer = setTimeout(() => setRetained(false), motionDuration(duration));
+    return () => clearTimeout(timer);
+  }, [active, duration]);
+  return active || retained;
+}
+
 // Retain exiting content long enough for CSS transitions. Reopening cancels the
 // exit, so rapid toggles reverse the current transition instead of restarting.
-export function MotionPresence({ children }: { children: ReactNode }) {
+export function MotionPresence({
+  children,
+  duration = 280,
+}: {
+  children: ReactNode;
+  duration?: number;
+}) {
   const active = !!children;
   const last = useRef(children);
-  const [retained, setRetained] = useState(active);
+  const retained = useMotionRetention(active, duration);
   const [entered, setEntered] = useState(false);
   const container = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -35,17 +54,9 @@ export function MotionPresence({ children }: { children: ReactNode }) {
     return () => cancelAnimationFrame(frame);
   }, [active]);
   useLayoutEffect(() => {
-    if (active) {
-      last.current = children;
-      setRetained(true);
-    }
+    if (active) last.current = children;
   }, [active, children]);
-  useLayoutEffect(() => {
-    if (active) return;
-    const timer = setTimeout(() => setRetained(false), motionDuration(200));
-    return () => clearTimeout(timer);
-  }, [active]);
-  if (!active && !retained) return null;
+  if (!retained) return null;
   return (
     <PresenceContext.Provider value={active}>
       <div
@@ -74,8 +85,9 @@ export function usePopoverMotion() {
     const toggle = (event: Event) => {
       animation?.cancel();
       if ((event as ToggleEvent).newState !== 'open') return;
-      const duration = motionDuration(160);
-      const transform = duration <= 100 ? 'none' : 'translateY(4px) scale(0.97)';
+      const duration = motionDuration(200);
+      const offset = node.style.getPropertyValue('--popover-offset') || '6px';
+      const transform = duration <= 100 ? 'none' : `translateY(${offset}) scale(0.97)`;
       animation = node.animate(
         [
           { opacity: 0, transform },
@@ -313,6 +325,10 @@ export function useSidebarMotion(open: boolean) {
     const before = previous.current;
     if (before?.node === node && before.open === open && before.desktop === desktop) return;
     const width = sidebar.getBoundingClientRect().width;
+    const fullPage = !desktop && getComputedStyle(scrim).display === 'none';
+    // iOS navigation keeps the previous page behind the incoming page, with
+    // one-third travel rather than moving both pages like a carousel.
+    const sidebarTravel = fullPage ? width / 3 : width;
     // Read interrupted positions before cancelling any timeline.
     const sidebarStyle = getComputedStyle(sidebar);
     const sidebarOffset = running.current.has(sidebar)
@@ -321,17 +337,34 @@ export function useSidebarMotion(open: boolean) {
         : new DOMMatrix(sidebarStyle.transform).m41
       : before?.open
         ? 0
-        : -width;
+        : -sidebarTravel;
+    const pageTransform = running.current.has(node) ? getComputedStyle(node).transform : 'none';
+    const pageOffset =
+      pageTransform !== 'none'
+        ? new DOMMatrix(pageTransform).m41
+        : before?.open && fullPage
+          ? width
+          : 0;
     const sidebarOpacity = running.current.has(sidebar)
       ? sidebarStyle.opacity
       : before?.open
         ? '1'
         : '0';
+    const parallaxOpacity = running.current.has(sidebar)
+      ? sidebarStyle.opacity
+      : before?.open
+        ? '1'
+        : '0.8';
     const margin = running.current.has(node)
       ? parseFloat(getComputedStyle(node).marginLeft)
       : before?.open && desktop
         ? width
         : 0;
+    const pageOpacity = running.current.has(node)
+      ? getComputedStyle(node).opacity
+      : before?.open
+        ? '0'
+        : '1';
     const scrimOpacity = running.current.has(scrim)
       ? getComputedStyle(scrim).opacity
       : before?.open
@@ -340,6 +373,7 @@ export function useSidebarMotion(open: boolean) {
     for (const [element, animation] of running.current) {
       animation.cancel();
       element.style.visibility = '';
+      element.removeAttribute('data-page-motion');
     }
     running.current.clear();
     previous.current = { node, open, desktop };
@@ -365,20 +399,39 @@ export function useSidebarMotion(open: boolean) {
       animation.onfinish = () => {
         if (running.current.get(element) !== animation) return;
         element.style.visibility = '';
+        element.removeAttribute('data-page-motion');
         running.current.delete(element);
       };
     };
     if (duration > 100) {
       animate(sidebar, [
-        { transform: `translateX(${sidebarOffset}px)` },
-        { transform: `translateX(${open ? 0 : -width}px)` },
+        {
+          transform: `translateX(${sidebarOffset}px)`,
+          ...(fullPage ? { opacity: parallaxOpacity } : {}),
+        },
+        {
+          transform: `translateX(${open ? 0 : -sidebarTravel}px)`,
+          ...(fullPage ? { opacity: open ? 1 : 0.8 } : {}),
+        },
       ]);
       if (desktop)
         animate(node, [{ marginLeft: `${margin}px` }, { marginLeft: `${open ? width : 0}px` }]);
+      else if (fullPage) {
+        node.setAttribute('data-page-motion', '');
+        animate(node, [
+          { transform: `translateX(${pageOffset}px)` },
+          { transform: `translateX(${open ? width : 0}px)` },
+        ]);
+      }
     } else {
       animate(sidebar, [{ opacity: sidebarOpacity }, { opacity: open ? 1 : 0 }]);
+      if (fullPage) {
+        node.setAttribute('data-page-motion', '');
+        animate(node, [{ opacity: pageOpacity }, { opacity: open ? 0 : 1 }]);
+      }
     }
-    if (!desktop) animate(scrim, [{ opacity: scrimOpacity }, { opacity: open ? 1 : 0 }]);
+    if (!desktop && !fullPage)
+      animate(scrim, [{ opacity: scrimOpacity }, { opacity: open ? 1 : 0 }]);
   });
   useLayoutEffect(() => {
     const animations = running.current;
@@ -386,6 +439,7 @@ export function useSidebarMotion(open: boolean) {
       for (const [element, animation] of animations) {
         animation.cancel();
         element.style.visibility = '';
+        element.removeAttribute('data-page-motion');
       }
       animations.clear();
       const node = ref.current;
@@ -397,13 +451,30 @@ export function useSidebarMotion(open: boolean) {
           }
         : undefined;
     };
-    window.addEventListener('resize', reset);
+    let width = window.innerWidth;
+    const resize = () => {
+      if (width === window.innerWidth) return;
+      width = window.innerWidth;
+      reset();
+    };
+    window.addEventListener('resize', resize);
     return () => {
-      window.removeEventListener('resize', reset);
+      window.removeEventListener('resize', resize);
       reset();
     };
   }, []);
   return ref;
+}
+
+// A visible but stationary reveal: reading content must not slide around on
+// navigation, and keyboard navigation must remain immediate.
+export function animateContentChange(node: HTMLElement) {
+  if (document.documentElement.dataset.motionInput === 'keyboard') return;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return node.animate([{ opacity: reduced ? 0.7 : 0 }, { opacity: 1 }], {
+    duration: motionDuration(200),
+    easing: getComputedStyle(document.documentElement).getPropertyValue('--ease-out').trim(),
+  });
 }
 
 // Animate navigation identity, never live data updates or streaming tokens.
@@ -412,47 +483,8 @@ export function useContentMotion<T extends HTMLElement = HTMLElement>(identity: 
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
-    const animation = node.animate([{ opacity: 0.7 }, { opacity: 1 }], {
-      duration: motionDuration(180),
-      easing: 'ease-out',
-    });
-    return () => animation.cancel();
+    const animation = animateContentChange(node);
+    return () => animation?.cancel();
   }, [identity]);
-  return ref;
-}
-
-// One bounded height transition for an explicit composer expansion. Ordinary
-// typing and streamed content do not trigger measurements or delayed input.
-export function useExpansionMotion(expanded: boolean) {
-  const ref = useRef<HTMLDivElement>(null);
-  const previous = useRef<{ expanded: boolean; height: number } | undefined>(undefined);
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const before = previous.current;
-    const height = node.getBoundingClientRect().height;
-    previous.current = { expanded, height };
-    const observer = new ResizeObserver(() => {
-      if (previous.current?.expanded === expanded)
-        previous.current.height = node.getBoundingClientRect().height;
-    });
-    observer.observe(node);
-    let animation: Animation | undefined;
-    if (
-      before &&
-      before.expanded !== expanded &&
-      !matchMedia('(max-width: 760px)').matches &&
-      motionDuration(280) > 100
-    ) {
-      animation = node.animate([{ height: `${before.height}px` }, { height: `${height}px` }], {
-        duration: 280,
-        easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
-      });
-    }
-    return () => {
-      observer.disconnect();
-      animation?.cancel();
-    };
-  }, [expanded]);
   return ref;
 }

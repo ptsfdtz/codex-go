@@ -1,0 +1,57 @@
+.loading-placeholder {
+  pointer-events: none;
+}
+.loading-placeholder :is(i, b, .loading-bubble) {
+  display: block;
+  background: color-mix(in srgb, var(--text) 9%, var(--bg));
+  border-radius: 6px;
+}
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 8px;
+}
+.loading-row b {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.loading-row i {
+  height: 12px;
+  width: 65%;
+}
+.loading-row:nth-child(2) i {
+  width: 48%;
+}
+.loading-row:nth-child(3) i {
+  width: 57%;
+}
+.loading-conversation {
+  width: 100%;
+  padding-block: 24px;
+}
+.loading-bubble {
+  width: 46%;
+  height: 44px;
+  margin: 0 0 30px auto;
+  border-radius: 22px !important;
+}
+.loading-bubble-short {
+  width: 32%;
+}
+.loading-lines {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 40px;
+}
+.loading-lines i {
+  height: 13px;
+  width: 92%;
+}
+.loading-lines i:nth-child(2) {
+  width: 80%;
+}
+.loading-lines i:nth-child(3) {
+  width: 52%;
+}

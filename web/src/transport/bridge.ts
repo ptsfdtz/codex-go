@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import { exclusive } from '../coordination';
 import { HostSocket } from './host';
-import type { HostGrant } from '../host-book';
+import type { HostGrant } from './host';
 
 export type Packet = {
   eventId?: string;

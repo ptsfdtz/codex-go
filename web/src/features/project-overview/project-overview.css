@@ -5,6 +5,7 @@
   position: relative;
 }
 .popover.project-overview {
+  transform-origin: top right;
   right: 16px;
   top: 56px;
   width: min(310px, calc(100vw - 24px));

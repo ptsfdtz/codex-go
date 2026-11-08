@@ -1,5 +1,6 @@
 //! Authorized authoritative thread indexes, never thread copies.
 use crate::{ensure, paths, s, service::Core, Error, Result};
+use futures_util::{stream, StreamExt, TryStreamExt};
 use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -200,39 +201,51 @@ impl Core {
             }
         }
         // Persisted archive membership takes precedence over this fallback.
-        let mut loaded_threads = Vec::new();
-        for id in loaded {
-            if self.store.thread_deleted(id.as_str().unwrap())? {
-                continue;
-            }
-            ensure(
-                started.elapsed() < Duration::from_secs(60),
-                "SYNC_LIMIT",
-                "Thread index sync timed out; index unchanged",
-            )?;
-            let response = rpc
-                .request_timeout(
-                    "thread/read",
-                    json!({"threadId":id,"includeTurns":false}),
-                    Duration::from_secs(15),
-                )
-                .await;
-            let response = match response {
-                Ok(response) => response,
-                Err(_) if self.store.thread_deleted(id.as_str().unwrap())? => continue,
-                Err(error) => return Err(error),
-            };
-            rpc.validate("v2/ThreadReadResponse", &response)?;
-            ensure(
-                response["thread"]["id"] == id,
-                "UPSTREAM_PROTOCOL_ERROR",
-                "Loaded thread identity mismatch",
-            )?;
-            // A desktop continuation can move cwd while thread/list still
-            // returns the rollout's original directory. Prefer the live
-            // public metadata for this identity, even without a duplicate.
-            resolved.insert(id.as_str().unwrap().to_owned(), response["thread"].clone());
-            loaded_threads.push(response["thread"].clone());
+        // Bound in-flight public reads without blocking the event reader. Keep
+        // all results local until every response and the final index validate.
+        let loaded_threads: Vec<Value> = stream::iter(loaded)
+            .map(|id| {
+                let rpc = &rpc;
+                async move {
+                    if self.store.thread_deleted(id.as_str().unwrap())? {
+                        return Ok(None);
+                    }
+                    ensure(
+                        started.elapsed() < Duration::from_secs(60),
+                        "SYNC_LIMIT",
+                        "Thread index sync timed out; index unchanged",
+                    )?;
+                    let response = rpc
+                        .request_timeout(
+                            "thread/read",
+                            json!({"threadId":id,"includeTurns":false}),
+                            Duration::from_secs(15),
+                        )
+                        .await;
+                    let response = match response {
+                        Ok(response) => response,
+                        Err(_) if self.store.thread_deleted(id.as_str().unwrap())? => {
+                            return Ok(None)
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    rpc.validate("v2/ThreadReadResponse", &response)?;
+                    ensure(
+                        response["thread"]["id"] == id,
+                        "UPSTREAM_PROTOCOL_ERROR",
+                        "Loaded thread identity mismatch",
+                    )?;
+                    Ok(Some(response["thread"].clone()))
+                }
+            })
+            .buffer_unordered(4)
+            .try_filter_map(|thread| async { Ok(thread) })
+            .try_collect()
+            .await?;
+        // Live metadata wins over stale rollout directories, regardless of the
+        // order in which independent reads complete.
+        for thread in &loaded_threads {
+            resolved.insert(s(thread, "id").to_owned(), thread.clone());
         }
         for archived in [false, true] {
             let mut cursor = Value::Null;

@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { loadWebModule } from './load-web-module.mjs';
 import ts from 'typescript';
-const requireWeb = createRequire(new URL('../../web/package.json', import.meta.url));
-const i18next = requireWeb('i18next');
+const { t, setLanguagePreference, errorText } = await loadWebModule('i18n/index');
 const root = new URL('../../', import.meta.url);
 const readJson = async (path) => JSON.parse(await readFile(new URL(path, root), 'utf8'));
 const en = await readJson('web/src/i18n/en.json'),
@@ -15,6 +14,9 @@ assert.deepEqual(
 );
 const tokens = (text) => [...text.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1]).sort();
 for (const key of Object.keys(en)) {
+  for (const value of [en[key], zh[key]]) {
+    assert(!/\$t\(|\{\{(?!\w+\}\})/.test(value), `Unsupported translation syntax: ${key}`);
+  }
   assert(en[key].trim() && zh[key].trim(), `Empty translation: ${key}`);
   assert.deepEqual(tokens(en[key]), tokens(zh[key]), `Interpolation mismatch: ${key}`);
   assert(!/\p{Script=Han}/u.test(en[key]), `Chinese text in English translation: ${key}`);
@@ -77,26 +79,21 @@ for (const [, key] of html.matchAll(/data-i18n(?:-aria-label)?="([^"]+)"/g))
   assert(Object.hasOwn(en, key), `Missing admin HTML key: ${key}`);
 assert.deepEqual(failures, [], 'Extract user-facing text to the catalogs');
 for (const locale of ['en', 'zh-CN']) {
-  const instance = i18next.createInstance();
-  await instance.init({
-    lng: locale,
-    fallbackLng: 'en',
-    resources: { en: { translation: en }, 'zh-CN': { translation: zh } },
-    keySeparator: false,
-    nsSeparator: false,
-    interpolation: { escapeValue: false },
-  });
+  setLanguagePreference(locale);
   assert.equal(
-    instance.t('files.changed', { count: 1 }),
+    t('files.changed', { count: 1 }),
     locale === 'en' ? '1 file changed' : '1 个文件已更改',
   );
   assert.equal(
-    instance.t('files.changed', { count: 2 }),
+    t('files.changed', { count: 2 }),
     locale === 'en' ? '2 files changed' : '2 个文件已更改',
   );
+  assert.equal(t('unknown.key'), 'unknown.key');
+  assert.equal(t('toString'), 'toString');
+  assert(errorText('WORKSPACE_FORBIDDEN: unknown diagnostic').includes('unknown diagnostic'));
   const value = '<script>{{name}} & 用户</script>';
   assert(
-    instance.t('remove.project.confirm', { name: value }).includes(value),
+    t('remove.project.confirm', { name: value }).includes(value),
     'Interpolation preserves user data verbatim; React/DOM render it as text',
   );
 }

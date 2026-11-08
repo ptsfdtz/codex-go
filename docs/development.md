@@ -63,6 +63,8 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 ## 功能定向回归
 
+加载占位与工具调用展示：`node --test scripts/web/test-tool-presentation.mjs`、`node scripts/web/test-loading-tools-browser.mjs`。浏览器脚本复用 Playwright 环境与 `COMPOSER_TEST_ORIGIN`（默认 1542），使用真实组件及受控记录覆盖加载/空态、Skill/插件/MCP/动态工具进度、结果与失败；证据在 `artifacts/loading-tools/`，不执行真实工具。
+
 | 功能                   | 检查入口                                                                                                                             |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | 参考设计整页与模式切换 | `pnpm test:reference-design-browser`，复用 `COMPOSER_TEST_ORIGIN`（默认 1430）与 Playwright；证据在 `artifacts/reference-design/`    |
@@ -79,6 +81,7 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 | 会话图片路径授权       | `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib session_image_path_tests`                                         |
 | 输入发送动效与改动标签 | `pnpm test:send-motion-browser`，复用 `COMPOSER_TEST_ORIGIN`（默认 1497）及 Playwright；截图和结果在 `artifacts/send-motion/`        |
 | 动效与设置             | `pnpm test:ui-browser`、`pnpm test:motion-browser`、`pnpm test:sidebar-motion-browser`                                               |
+| iOS 风格弹层与分类切换 | `pnpm test:ios-motion-browser`，复用 Playwright 和 `COMPOSER_TEST_ORIGIN`（默认 1542）；证据在 `artifacts/ios-motion/`               |
 | 侧边栏拖动与自动隐藏   | `pnpm test:sidebar-resize-browser`，`SIDEBAR_RESIZE_TEST_ORIGIN` 默认 `http://127.0.0.1:1512`                                        |
 | 手机侧栏与紧凑设置     | `node scripts/web/test-mobile-settings-browser.mjs`，复用 `COMPOSER_TEST_ORIGIN` / Playwright；效果图在 `artifacts/mobile-settings/` |
 | 下拉选择与菜单         | `pnpm test:dropdowns-browser`，`DROPDOWN_TEST_ORIGIN` 默认 `http://127.0.0.1:1434/`                                                  |
@@ -91,7 +94,7 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 侧边栏拖动检查复用 Playwright，先运行 `pnpm --filter @agentdeck/web exec vite --mode cloud-dev --host 127.0.0.1 --port 1512 --strictPort`。脚本挂载真实 App，在隔离浏览器中拦截账户接口及外部请求，覆盖主聊天和 AgentChat 的桌面鼠标拖动、主区连续布局、宽度保存、过窄立即隐藏及重新打开、键盘调宽/收起/重置、Esc/失焦/窗口缩放清理，以及 320/390px 手机整页项目列表、隐藏调宽控件、新建和返回。证据在 `artifacts/sidebar-resize/`，不连接真实账户、Host 或模型。
 
-参考设计检查挂载真实 App 并替换传输，覆盖整页列表/会话/新建、长按与滚动取消、权限底部弹层、相机/照片/文件菜单、上下文摘要、智能体入口、模型强度、深浅主题与 Codex↔AgentChat 草稿保留。原图在 `docs/ui-references/2026-11-03/`。各浏览器脚本可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有 Chromium；Windows 的 `PLAYWRIGHT_MODULE` 使用 `file:///C:/.../playwright/index.mjs`。这些检查不代替 Safari、真实手机输入法、相机和 PWA 实机验收。
+参考设计检查挂载真实 App 并替换传输，覆盖整页列表/会话/新建、长按与滚动取消、权限底部弹层、相机/照片/文件菜单、上下文摘要、智能体入口、模型强度、深浅主题与 Codex↔AgentChat 草稿保留。历史参考原图可从 Git 历史恢复。各浏览器脚本可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已有 Chromium；Windows 的 `PLAYWRIGHT_MODULE` 使用 `file:///C:/.../playwright/index.mjs`。这些检查不代替 Safari、真实手机输入法、相机和 PWA 实机验收。
 
 手机输入区矩阵在同一脚本中启用：PowerShell 设置 `$env:REFERENCE_MOBILE_STRESS='1'` 后运行 `pnpm test:reference-design-browser`。每引擎覆盖 320/360/375/390/414/430px、844/480/320px 高度与深浅主题，共 36 个组合；逐项检查紧凑单行、编辑、两次异步麦克风拒绝、计划标签、权限/模型弹层、运行中队列及停止、展开与多行输入，并额外模拟键盘平移。使用正常动效，核对控件边缘命中、至少 44px 触控范围、菜单可视边界和错误不改变输入框高度。`REFERENCE_ARTIFACT_DIR` 可指定 `artifacts/` 下的独立输出目录，保存 `mobile-matrix.json`；跨引擎并行时必须使用不同目录。`REFERENCE_NATIVE_SPEECH=1` 额外使用隔离 Chromium 的原生语音 API 验证拒绝路径，不修改用户浏览器权限或连接真实 Host，不能代替 iPhone 原生权限弹窗实测。
 
@@ -104,6 +107,8 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 任务提醒回归复用上述 Playwright 和本地 Vite 环境；挂载真实 App 并拦截账户/Host 请求，检查任务结束、同步/异步提问、待审批、未读蓝点、去重和持久化、状态补读与窄屏布局。系统通知使用测试替身，不请求操作系统权限；结果和截图输出到 `artifacts/task-notifications/`，不执行真实模型或审批操作。
 
 自动项目登记真实接口测试须设置 `AGENTDECK_TEST_OFFICIAL_CODEX` 为已验证的官方程序绝对路径，并追加 `-- --include-ignored`，不调用模型。性能测试须使用独立固定的生产构建目录，避免并行构建替换资源。首屏预算恢复为全部已加载 JS 的 decodedBodySize 总和严格小于 450000 字节，包含字典及依赖，不按分块排除；中英文各运行三轮，并检查未使用的设置、编辑器、历史与连接分块未被首屏加载。浏览器脚本的环境变量及实际覆盖以对应脚本为准。
+
+长历史专项：`node scripts/web/test-history-performance-browser.mjs`，`HISTORY_TEST_ORIGIN` 默认 `http://127.0.0.1:1538`，使用普通 Vite 开发服务。覆盖 1,000 条历史的连续更新布局读取、向前补页锚点、500 条折叠工具记录的延迟挂载、Markdown 最新回调及同批事件状态一致性；输出 `artifacts/history-performance/report.json`。首屏与长历史检查仅在本地按需运行，不作为 CI 或发布门槛；测试不调用真实 Host、账户或模型。
 
 AgentChat 跨标签存储回归为 `pnpm test:api-chat-storage-browser`，复用本地 Vite 与 Playwright；使用两个真实页面和 IndexedDB 检查最终回复恢复、孤立生成恢复、无广播删除/并发保存、重载及账户隔离，不调用供应商。发送和持久恢复要求浏览器支持 Web Locks；不支持时保留草稿及现有记录，显示提示并阻止发送，不能猜测另一标签页的请求已结束。
 
@@ -138,3 +143,5 @@ Host 语言检查：`cargo test --locked --manifest-path desktop/core/Cargo.toml
 生产 TLS 分块回归为 `pnpm test:tls-bundle-browser`：先构建并在回环端口 1599 启动 Vite preview，复用 Playwright 和本机 OpenSSL。脚本仅在临时目录创建证书，通过回环 WebSocket 转接到本地 TLS 1.3 服务，验证正确 pin 的握手/数据交换、错误 pin 不释放应用数据、分块在连接前不加载且各小于 500 kB；不连接真实 Host。根证书与 TLS 代码分包仅改善独立缓存和单块大小，首次连接合计约 551 kB，未削减根证书或改变加密及 pin 校验。
 
 Pages 候选在 Windows Git Bash 中构建时须排除 `VITE_BASE_PATH` 的 MSYS 环境路径转换。构建后运行 `GITHUB_REPOSITORY=ptsfdtz/codex-go node scripts/web/check-pages-build.mjs`，核对首页所有资源均使用仓库部署前缀且实际存在；这项产物检查不代替浏览器跨域连接或真实设备验收。
+
+输入联想与完成横幅：`node scripts/web/test-composer-suggestions-browser.mjs`，复用 `PLAYWRIGHT_MODULE`、`PLAYWRIGHT_CHROMIUM_EXECUTABLE` 和 `COMPOSER_TEST_ORIGIN`（默认 1430）。挂载真实 Composer/TaskBanners，技能目录为隔离替身，不连接真实 Host；截图输出 `artifacts/composer-suggestions/`。

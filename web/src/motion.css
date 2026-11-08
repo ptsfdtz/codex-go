@@ -1,10 +1,11 @@
 :root {
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --ease-drawer: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --motion-press: 120ms;
   --motion-fast: 160ms;
   --motion-panel: 200ms;
+  --motion-modal: 280ms;
   --motion-drawer: 320ms;
 }
 
@@ -16,6 +17,12 @@
   pointer-events: none;
 }
 .motion-presence[data-motion='closed'] > :not(.menu-scrim):not(dialog) {
+  opacity: 0;
+}
+.motion-presence > .menu-scrim {
+  transition: opacity var(--motion-panel) var(--ease-out);
+}
+.motion-presence[data-motion='closed'] > .menu-scrim {
   opacity: 0;
 }
 .follow-latest {
@@ -126,8 +133,8 @@ button:disabled {
   transform: translateY(0) scale(1);
   transform-origin: center;
   transition:
-    opacity var(--motion-panel) var(--ease-out),
-    transform var(--motion-panel) var(--ease-out);
+    opacity var(--motion-modal) var(--ease-out),
+    transform var(--motion-modal) var(--ease-drawer);
 }
 .modal::backdrop {
   background: transparent;
@@ -136,7 +143,7 @@ button:disabled {
 }
 .modal[data-motion='closed'] {
   opacity: 0;
-  transform: translateY(8px) scale(0.97);
+  transform: translateY(16px) scale(0.94);
 }
 .modal[data-motion='closed']::backdrop {
   background: transparent;
@@ -200,7 +207,7 @@ button:disabled {
   }
   .modal {
     opacity: 0;
-    transform: translateY(8px) scale(0.97);
+    transform: translateY(16px) scale(0.94);
   }
   .modal::backdrop {
     background: transparent;
@@ -224,6 +231,14 @@ button:disabled {
   }
 }
 @media (max-width: 760px) {
+  .conversation-layout[data-page-motion] {
+    position: relative;
+    z-index: 33;
+    background: var(--bg);
+  }
+  .with-sidebar .conversation-layout:not([data-page-motion]) {
+    visibility: hidden;
+  }
   .with-sidebar .conversation-layout {
     margin-left: 0;
   }
@@ -247,6 +262,22 @@ button:disabled {
     visibility: visible;
     pointer-events: auto;
   }
+  .permission-sheet.modal,
+  .settings-modal.modal {
+    transition:
+      opacity var(--motion-modal) var(--ease-out),
+      transform var(--motion-modal) var(--ease-drawer);
+  }
+  .permission-sheet.modal[data-motion='closed'],
+  .settings-modal.modal[data-motion='closed'] {
+    transform: translateY(100%);
+  }
+  @starting-style {
+    .permission-sheet.modal,
+    .settings-modal.modal {
+      transform: translateY(100%);
+    }
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -265,6 +296,8 @@ button:disabled {
   .card.login,
   button:active:not(:disabled):not(.menu-scrim):not(.sidebar-scrim),
   .motion-presence[data-motion='closed'] > .popover,
+  .permission-sheet.modal[data-motion='closed'],
+  .settings-modal.modal[data-motion='closed'],
   .modal[data-motion='closed'] {
     transform: none;
   }
@@ -272,6 +305,8 @@ button:disabled {
     .popover,
     .composer-menu,
     .modal,
+    .permission-sheet.modal,
+    .settings-modal.modal,
     .with-sidebar .sidebar,
     .card.login {
       transform: none;
@@ -313,32 +348,6 @@ button:disabled {
     opacity: 0;
   }
 }
-.effort-fill {
-  transition: width 200ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.effort-thumb {
-  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.effort-slider:active .effort-fill,
-.effort-slider:active .effort-thumb {
-  transition-duration: 80ms;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .is-ultra .effort-ultra-glow::after {
-    animation: effort-starlight 3s ease-in-out infinite alternate;
-  }
-}
-@keyframes effort-starlight {
-  from {
-    opacity: 0.4;
-    transform: translateX(-2px);
-  }
-  to {
-    opacity: 0.95;
-    transform: translateX(2px);
-  }
-}
-
 /* Shared state changes: content fades, while layout changes stay local to
    accordions and keyed lists. Streaming text keeps its reading position. */
 .panel-content,
@@ -351,12 +360,10 @@ button:disabled {
 .question-options,
 .queue-entry,
 .project-setting,
-.host-device-card,
 .computer-entry,
 .session-row,
 .file-list > button,
 .search-result,
-.draft-entry,
 .host-update-notice,
 .mode-chip,
 .turn,
@@ -400,12 +407,10 @@ button:disabled {
   .question-fields,
   .queue-entry,
   .project-setting,
-  .host-device-card,
   .computer-entry,
   .session-row,
   .file-list > button,
   .search-result,
-  .draft-entry,
   .host-update-notice,
   .mode-chip,
   .turn,
@@ -438,22 +443,22 @@ button:disabled {
       transform: none;
     }
   }
-  .effort-fill,
-  .effort-thumb {
-    transition: none;
-  }
 }
 
 /* Native floating surfaces: one reversible CSS timeline, including top-layer
    removal. Older engines retain native dismiss/focus and the WAAPI fallback. */
 [popover] {
-  opacity: 0;
-  transform: translateY(4px) scale(0.98);
   transition:
-    opacity var(--motion-fast) var(--ease-out),
-    transform var(--motion-fast) var(--ease-out),
-    display var(--motion-fast) allow-discrete,
-    overlay var(--motion-fast) allow-discrete;
+    opacity var(--motion-panel) var(--ease-out),
+    transform var(--motion-panel) var(--ease-out),
+    display var(--motion-panel) allow-discrete,
+    overlay var(--motion-panel) allow-discrete;
+}
+/* Closed must beat .popover's visible defaults, including during top-layer
+   exit retention. Otherwise those menus disappear without fading out. */
+[popover]:not(:popover-open) {
+  opacity: 0;
+  transform: translateY(var(--popover-offset, 6px)) scale(0.97);
 }
 [popover]:popover-open {
   opacity: 1;
@@ -462,7 +467,7 @@ button:disabled {
 @starting-style {
   [popover]:popover-open {
     opacity: 0;
-    transform: translateY(4px) scale(0.98);
+    transform: translateY(var(--popover-offset, 6px)) scale(0.97);
   }
 }
 
@@ -474,7 +479,6 @@ summary,
 .file-tab,
 .file-tree-row,
 .branch-file,
-.settings-action,
 .api-provider-row,
 .api-conversation,
 .composer-feedback,
@@ -573,6 +577,7 @@ summary,
 }
 @media (prefers-reduced-motion: reduce) {
   [popover],
+  [popover]:not(:popover-open),
   [popover]:popover-open {
     transform: none;
   }
@@ -586,6 +591,7 @@ summary,
 .composer-attachment,
 .composer-resources,
 .queued-messages,
+.queued-message,
 .plan-decision,
 .composer-drop-hint,
 .selection-quote,
@@ -600,6 +606,7 @@ summary,
   .composer-attachment,
   .composer-resources,
   .queued-messages,
+  .queued-message,
   .plan-decision,
   .composer-drop-hint,
   .selection-quote,

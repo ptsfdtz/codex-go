@@ -1,5 +1,10 @@
-import { ConversationMenu } from './features/ConversationMenu';
-import { AgentTray } from './features/AgentTray';
+import { useHistory } from './features/use-history';
+const ConversationMenu = deferred<
+  React.ComponentProps<typeof import('./features/ConversationMenu').ConversationMenu>
+>(() => import('./features/ConversationMenu').then((m) => ({ default: m.ConversationMenu })));
+const AgentTray = deferred<React.ComponentProps<typeof import('./features/AgentTray').AgentTray>>(
+  () => import('./features/AgentTray').then((m) => ({ default: m.AgentTray })),
+);
 import { usePageDrafts } from './features/page-drafts';
 import { useToolTabs } from './features/tools/tool-tabs';
 const SettingsContents = deferred<
@@ -9,7 +14,7 @@ const Login = deferred<React.ComponentProps<typeof import('./features/Login').Lo
   import('./features/Login').then((m) => ({ default: m.Login })),
 );
 import { errorText, t, useLocale } from './i18n';
-import { MotionPresence, useSidebarMotion } from './motion';
+import { MotionPresence, useMotionRetention, useSidebarMotion } from './motion';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
 import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
@@ -32,18 +37,20 @@ import { hostName as cloudHostName, migrateHostNames, type HostName } from './fe
 const AccountPassword = deferred<Record<string, never>>(() =>
   import('./AccountPassword').then((module) => ({ default: module.AccountPassword })),
 );
-import type { HostGrant } from './host-book';
 import { contentText } from './content-text';
 const RichContent = deferred<React.ComponentProps<typeof import('./RichContent').RichContent>>(() =>
   import('./RichContent').then((m) => ({ default: m.RichContent })),
 );
+const UserMessageImages = deferred<
+  React.ComponentProps<typeof import('./RichContent').UserMessageImages>
+>(() => import('./RichContent').then((m) => ({ default: m.UserMessageImages })));
 import { Timeline } from './Timeline';
 import { readHistoryPage } from './history-page';
 const ActivityStages = deferred<
   React.ComponentProps<typeof import('./features/activity/ActivityStages').ActivityStages>
 >(() => import('./features/activity/ActivityStages').then((m) => ({ default: m.ActivityStages })));
 import { historyKey, mergeHistory, type HistoryEntry } from './history';
-import { applyProgress, historyError, mergeHistorySnapshot, finalItem } from './conversation';
+import { historyError, mergeHistorySnapshot, finalItem } from './conversation';
 
 import type {
   Host,
@@ -58,6 +65,8 @@ import type {
 } from './workspace';
 import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
+import { LoadingPlaceholder } from './features/LoadingPlaceholder';
+import { TaskBanners } from './features/notifications/TaskBanners';
 import { useTaskAttention } from './features/notifications/use-task-attention';
 import './features/notifications/task-attention.css';
 import { messageQuestions, confirmedAnswers } from './features/question-replies';
@@ -119,36 +128,35 @@ const ProjectsPanel = deferred<
 >(() => import('./features/Panels').then((module) => ({ default: module.ProjectsPanel })));
 
 import { IconButton, Modal } from './ui';
+import { AnswerFeedback, AnswerTime, ForkAnswerIcon } from './features/AnswerFeedback';
+import { MessageBubble } from './features/MessageBubble';
 import {
   Menu,
   ChevronDown,
   ChevronLeft,
+  ChevronsUpDown,
   Check,
   Computer,
+  LaptopMinimal,
   MoreHorizontal,
   FolderOpen,
+  Folder,
   Search,
-  History,
   Copy,
   Quote,
-  Pencil,
   RotateCcw,
   GitFork,
   SquarePen,
   X,
 } from 'lucide-react';
-import { ReconnectLoop, connectionLabels, connectionError } from './transport/reconnect';
+import { connectionLabels, type ReconnectLoop } from './transport/reconnect';
 import type { ConnectionState } from './transport/reconnect';
-import {
-  EventCheckpoint,
-  missedEvents,
-  RebaseRequired,
-  changesDirectory,
-} from './transport/resume';
-import type { Packet } from './transport/bridge';
 const TaskProgress = deferred<
   React.ComponentProps<typeof import('./features/TaskProgress').TaskProgress>
->(() => import('./features/TaskProgress').then((m) => ({ default: m.TaskProgress })));
+>(
+  () => import('./features/TaskProgress').then((m) => ({ default: m.TaskProgress })),
+  () => null,
+);
 const MessageEditor = deferred<
   React.ComponentProps<typeof import('./features/MessageEditor').MessageEditor>
 >(() => import('./features/MessageEditor').then((module) => ({ default: module.MessageEditor })));
@@ -156,7 +164,10 @@ import { answerActions } from './features/answer-actions';
 
 const HostUpdates = deferred<
   React.ComponentProps<typeof import('./features/HostUpdates').HostUpdates>
->(() => import('./features/HostUpdates').then((module) => ({ default: module.HostUpdates })));
+>(
+  () => import('./features/HostUpdates').then((module) => ({ default: module.HostUpdates })),
+  () => null,
+);
 const FileWorkspace = deferred<
   React.ComponentProps<typeof import('./features/files/FileWorkspace').FileWorkspace>
 >(
@@ -189,6 +200,15 @@ import {
 
 export function App() {
   useLocale();
+  const [bubbleColor, setBubbleColor] = usePreference(
+    'agentdeck.web.bubble-color',
+    'default',
+    (value): value is string =>
+      typeof value === 'string' && ['default', 'blue', 'green', 'purple', 'gray'].includes(value),
+  );
+  useEffect(() => {
+    document.documentElement.dataset.bubbleColor = bubbleColor;
+  }, [bubbleColor]);
   const [mode, setMode] = usePreference<WorkMode>(
     'agentdeck.web.work-mode',
     'codex',
@@ -198,7 +218,7 @@ export function App() {
   return mode === 'api' ? (
     <ApiChatGate modeControl={modeControl} />
   ) : (
-    <CodexApp modeControl={modeControl} />
+    <CodexApp modeControl={modeControl} bubbleColor={bubbleColor} setBubbleColor={setBubbleColor} />
   );
 }
 function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
@@ -238,7 +258,15 @@ function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
     />
   );
 }
-function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
+function CodexApp({
+  modeControl,
+  bubbleColor,
+  setBubbleColor,
+}: {
+  modeControl: React.ReactNode;
+  bubbleColor: string;
+  setBubbleColor: (value: string) => void;
+}) {
   useLocale();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [scope, setScope] = useState('');
@@ -250,16 +278,12 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const [host, setHost] = useState<Host>();
   const [snapshot, setSnapshot] = useState<Snapshot>({});
   const [session, setSession] = useState<string>();
-  const [history, setHistoryState] = useState<HistoryEntry[]>([]);
-  const [viewRevision, setViewRevision] = useState(0);
-  const historyRef = useRef(history);
-  function setHistory(update: React.SetStateAction<HistoryEntry[]>, progress = false) {
-    const next = typeof update === 'function' ? update(historyRef.current) : update;
-    if (next === historyRef.current) return;
-    historyRef.current = next;
-    setHistoryState(next);
-    if (progress) setViewRevision((revision) => revision + 1);
-  }
+  const {
+    entries: history,
+    current: historyRef,
+    revision: viewRevision,
+    update: setHistory,
+  } = useHistory();
   const renderedHistory = history;
   const [historyCursor, setHistoryCursor] = useState<string | undefined>();
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -281,9 +305,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const [upstreamRetry, setUpstreamRetry] = useState('');
   const [capabilities, setCapabilities] = useState<Capabilities>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobile, setMobile] = useState(() => matchMedia('(max-width:760px)').matches);
   const conversationElement = useSidebarMotion(sidebarOpen);
   const [panel, setPanel] = useState('');
   const [manageSession, setManageSession] = useState<Session>();
+  const [menuLoaded, setMenuLoaded] = useState(false);
   const [menu, setMenu] = useState(false),
     [workspaceMenu, setWorkspaceMenu] = useState(false);
   const [search, setSearch] = useState(''),
@@ -297,7 +323,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   >({});
   const [receiptBlocked, setReceiptBlocked] = useState(false);
   const [receiptNotice, setReceiptNotice] = useState('');
-  const [messageAction, setMessageAction] = useState<{ entry: HistoryEntry; kind: string }>();
+  const [messageAction, setMessageAction] = useState<{
+    entry: HistoryEntry;
+    kind: 'revise' | 'read' | 'fork';
+  }>();
   const [editText, setEditText] = useState('');
   const [editError, setEditError] = useState('');
   const messageActionPending = useRef(false);
@@ -331,6 +360,8 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   const [observedUsage, setObservedUsage] =
     useState<Parameters<typeof ComposerStatus>[0]['observedUsage']>();
   const [fileWorkspaceOpen, setFileWorkspaceOpen] = useState(false);
+  const toolsVisible = fileWorkspaceOpen && !!host;
+  const retainTools = useMotionRetention(toolsVisible, 320);
   const [fileWorkspaceWide, setFileWorkspaceWide] = useState(false);
   const toolTabs = useToolTabs(JSON.stringify([scope, host?.hostId]));
   const [filePaneWidth, setFilePaneWidth] = usePreference(
@@ -528,7 +559,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   }, [connected, host?.hostId]);
   useEffect(() => {
     const media = matchMedia('(max-width:760px)');
-    const changed = (event: MediaQueryListEvent) => setSidebarOpen(!event.matches);
+    const changed = (event: MediaQueryListEvent) => {
+      setMobile(event.matches);
+      setSidebarOpen(!event.matches);
+    };
     media.addEventListener('change', changed);
     return () => media.removeEventListener('change', changed);
   }, []);
@@ -965,312 +999,49 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     }
     setHost(next);
     hostRef.current = next;
-    const checkpoint = new EventCheckpoint();
-    let configuration: { caps: Capabilities; models: Model[] } | undefined;
-    let upstreamRetryTurn = '';
-
-    function consume(packets: Packet[], baselineKeys?: Set<string>) {
-      let entries = historyRef.current;
-      for (const packet of packets) {
-        attentionRef.current.receive(packet);
-        const payload = packet.payload || {};
-        const selected = packet.sessionId === sessionRef.current;
-        if (selected && ['turn.progress', 'upstream.progress'].includes(packet.action || '')) {
-          const turnId = payload.upstreamTurnId || payload.turnId;
-          const itemId = payload.itemId || (payload.item as { id?: string } | undefined)?.id;
-          const key =
-            typeof turnId === 'string' && typeof itemId === 'string'
-              ? historyKey({ turnId, item: { id: itemId } })
-              : undefined;
-          // A baseline read may already contain buffered text. Do not append
-          // that text a second time. Completed items are authoritative; an
-          // interrupted baseline is checked once at the terminal boundary.
-          if (
-            key &&
-            baselineKeys?.has(key) &&
-            (String(payload.method).endsWith('Delta') ||
-              String(payload.method).endsWith('/delta') ||
-              payload.method === 'item/started')
-          ) {
-            uncertainBaseline.current.add(key);
-          } else {
-            entries = applyProgress(entries, packet);
-          }
-          if (payload.method === 'item/completed') {
-            const item = payload.item as { id?: string } | undefined;
-            if (typeof turnId === 'string' && item?.id)
-              uncertainBaseline.current.delete(historyKey({ turnId, item: { id: item.id } }));
-          }
-          if (payload.method === 'turn/started') {
-            activityVersion.current++;
-            managedActiveTurn.current = packet.turnId;
-            setActiveTurn(
-              packet.turnId || String(turnId || (payload.turn as { id?: string })?.id || ''),
-            );
-          }
-          if (payload.method === 'error') {
-            const detail = payload.error as { message?: string } | undefined;
-            if (payload.willRetry === true) {
-              upstreamRetryTurn = String(turnId || '');
-              setUpstreamRetry(String(detail?.message || payload.message || t('Codex 正在重试')));
-            } else {
-              upstreamRetryTurn = '';
-              setUpstreamRetry('');
-              if (detail?.message || payload.message)
-                setError(String(detail?.message || payload.message));
-            }
-          } else if (
-            upstreamRetryTurn &&
-            String(turnId) === upstreamRetryTurn &&
-            String(payload.method).startsWith('item/')
-          ) {
-            upstreamRetryTurn = '';
-            setUpstreamRetry('');
-          }
-        }
-        if (selected && packet.action === 'queue.changed') setQueueRevision((value) => value + 1);
-        if (selected && packet.action === 'session.tokenUsage')
-          setObservedUsage(
-            payload.tokenUsage as Parameters<typeof ComposerStatus>[0]['observedUsage'],
-          );
-        const terminalEvent =
-          /^(?:turn\.(?:completed|failed|interrupted)|upstream\.turn\.completed)$/.test(
-            packet.action || '',
-          );
-        if (selected && (terminalEvent || packet.action === 'goal.updated'))
-          setStatusRevision((n) => n + 1);
-        if (selected && terminalEvent) {
-          activityVersion.current++;
-          terminalVersion.current++;
-          setActiveTurn(undefined);
-          managedActiveTurn.current = undefined;
-          setUpstreamRetry('');
-          // Some old sources omit the final item after interruption. Only that
-          // exceptional baseline needs one latest-page read, never each delta.
-          if (uncertainBaseline.current.size) {
-            uncertainBaseline.current.clear();
-            scheduleRefresh(true);
-          }
-        }
-        if (selected && packet.action === 'session.deleted') {
-          selectSession(undefined, false);
-          entries = [];
-        }
-        if (selected && packet.action === 'session.historyChanged') {
-          entries = [];
-          historyVersion.current++;
-          historyStarted.current = false;
-          setHistoryReady(false);
-          setHistoryCursor(undefined);
-          scheduleRefresh(true);
-        }
-        if (selected && packet.action === 'session.contentChanged') {
-          // A different local runtime saved content. Read one latest page and
-          // merge by native identity, retaining older pages and reading position.
-          // Hidden pages catch up on visibilitychange instead of doing disk reads.
-          if (document.visibilityState === 'visible') scheduleRefresh(true);
-        }
-        if (
-          packet.action === 'sessions.synced' &&
-          Array.isArray(payload.contentSessionIds) &&
-          payload.contentSessionIds.includes(sessionRef.current) &&
-          document.visibilityState === 'visible'
-        )
-          scheduleRefresh(true);
-        if (changesDirectory(packet)) scheduleRefresh(false);
-      }
-      setHistory(entries, true);
-    }
-
     try {
-      const loop = new ReconnectLoop(
-        async (context) => {
-          let recovering = true;
-          let buffered: Packet[] = [];
-          let bufferedBytes = 0;
-          let flushTimer: ReturnType<typeof setTimeout> | undefined;
-          const grant = await api<HostGrant>(
-            '/api/v1/hosts/' + encodeURIComponent(next.hostId) + '/access',
-            { method: 'POST' },
-          );
-          if (!context.current() || epoch !== connectionEpoch.current) return;
-          if (
-            grant.hostId !== next.hostId ||
-            !/^[a-f0-9]{64}$/i.test(grant.fingerprint) ||
-            !/^[A-Za-z0-9_-]{43}$/.test(grant.credential)
-          )
-            throw new Error(t('电脑授权信息无效，请更新 Host'));
-          const { Bridge } = await import('./transport/bridge');
-          if (!context.current() || epoch !== connectionEpoch.current) return;
-          const value = new Bridge(scope);
-          context.own(() => {
-            if (flushTimer !== undefined) clearTimeout(flushTimer);
-            if (heartbeat.current) clearInterval(heartbeat.current);
-            if (bridge.current === value) bridge.current = undefined;
-            value.close();
-          });
-          value.onEvent((packet) => {
-            if (!context.current() || epoch !== connectionEpoch.current) return;
-            if (packet.type === 'closed') {
-              context.closed(new Error(packet.message || t('电脑连接已断开')));
-              return;
-            }
-            if (packet.type === 'receipt') {
-              setReceiptBlocked(value.awaitingReceipt);
-              if (!value.awaitingReceipt)
-                setReceiptNotice(t('核对完成，草稿已保留。请确认结果后再发送。'));
-              if (!recovering) scheduleRefresh(false);
-              return;
-            }
-            if (packet.type !== 'event') return;
-            buffered.push(packet);
-            bufferedBytes += JSON.stringify(packet).length;
-            if (buffered.length > 4096 || bufferedBytes > 8 * 1024 * 1024) {
-              context.closed(new Error(t('同步积压过大，正在重新建立连接')));
-              return;
-            }
-            if (!recovering && flushTimer === undefined)
-              flushTimer = setTimeout(() => {
-                flushTimer = undefined;
-                if (!context.current()) return;
-                const batch = buffered;
-                buffered = [];
-                bufferedBytes = 0;
-                try {
-                  checkpoint.live(batch, consume);
-                } catch (error) {
-                  context.closed(
-                    error instanceof Error ? error : new Error(t('Event stream interrupted')),
-                  );
-                }
-              }, 40);
-          });
-          await value.connect(grant);
-          if (!context.current()) return;
-          context.linked();
-          bridge.current = value;
-          // Heartbeats do not wait for history reads or recovery.
-          heartbeat.current = setInterval(() => {
-            void value
-              .probe()
-              .then(() => value.reconcile())
-              .catch(() => value.close());
-          }, 30000);
-          const snap = await value.request<Snapshot>('snapshot.get', {});
-          // Reconnecting may follow a Host upgrade; refresh its feature flags.
-          const [caps, modelList] = await Promise.all([
-            value.request<Capabilities>('system.capabilities', {}),
-            value.request<{ models?: Model[] }>('models.list', {}).catch(() => ({
-              models: configuration?.models || [],
-            })),
-          ]);
-          configuration = { caps, models: modelList.models || [] };
-          if (!context.current() || epoch !== connectionEpoch.current) return;
-          setSnapshot(snap);
-          setCapabilities(configuration.caps);
-          setModels(configuration.models);
-          setReceiptBlocked(value.awaitingReceipt);
-          const saved =
-            sessionRef.current ||
-            (draftProjectRef.current !== undefined
-              ? `new:${draftProjectRef.current}`
-              : localStorage.getItem('agentdeck.web.selection.' + scope + '.' + next.hostId));
-          const savedProject = saved?.startsWith('new:') ? saved.slice(4) : undefined;
-          const chosen =
-            snap.sessions?.find((s) => s.sessionId === saved) ||
-            (!saved ? snap.sessions?.find((s) => s.archived !== 1) : undefined);
-          const restoredProject =
-            chosen?.projectId ||
-            snap.projects?.find((project) => project.projectId === savedProject)?.projectId ||
-            (configuration.caps.features?.projectlessChat
-              ? chatProject
-              : snap.projects?.[0]?.projectId) ||
-            '';
-          setSelectedProject(restoredProject);
-          if (!chosen && saved?.startsWith('new:')) draftProjectRef.current = restoredProject;
-          if (chosen?.sessionId !== sessionRef.current) selectSession(chosen?.sessionId);
-
-          let replay: Packet[] = [];
-          let rebase = checkpoint.cursor === undefined || !historyStarted.current || !snap.cursor;
-          let historyUsable = true;
-          if (!rebase && snap.cursor) {
-            try {
-              replay = await missedEvents(
-                (action, payload) => value.request(action, payload),
-                checkpoint.cursor!,
-                snap.cursor,
-                context.current,
-              );
-            } catch (error) {
-              if (error instanceof RebaseRequired) rebase = true;
-              else throw error;
-            }
-          }
-          const selected = sessionRef.current;
-          let baselineKeys: Set<string> | undefined;
-          if (rebase) {
-            // Retain the readable view while fetching. Once the cursor expires,
-            // old pages may contain missed revisions, so replace them with one
-            // authoritative latest page and let the user page backwards again.
-            const version = historyVersion.current;
-            if (selected) {
-              try {
-                const page = await historyPage(value, selected);
-                if (!context.current()) return;
-                if (selected === sessionRef.current && version === historyVersion.current) {
-                  const chronological = [...page.data].reverse();
-                  baselineKeys = new Set(chronological.map(historyKey));
-                  setHistory(chronological, true);
-                  setHistoryCursor(page.nextCursor);
-                  historyStarted.current = true;
-                  setHistoryReady(true);
-                  setHistoryFailure('');
-                }
-              } catch (error) {
-                if (!context.current()) return;
-                if (selected === sessionRef.current && version === historyVersion.current) {
-                  setHistoryFailure(historyError(error));
-                  setHistoryReady(false);
-                  historyUsable = false;
-                }
-                // History is independently retryable; a readable transport must
-                // not remain labelled "reconnecting" because history failed.
-              }
-            }
-            checkpoint.reset(snap.cursor);
-            replay = [];
-          }
-          if (!context.current()) return;
-          // Replay and already-received live frames are merged in one batch.
-          // Checkpoint deduplication prevents replay/live overlap and late events.
-          const running = snap.turns?.find(
-            (t) =>
-              t.sessionId === selected &&
-              ['queued', 'running', 'waitingApproval'].includes(t.status || ''),
-          );
-          managedActiveTurn.current = running?.turnId;
-          setActiveTurn(running?.turnId);
-          checkpoint.apply(replay, consume);
-          checkpoint.live(buffered, (packets) => consume(packets, baselineKeys));
-          buffered = [];
-          bufferedBytes = 0;
-          recovering = false;
-          if (selected && historyStarted.current && historyUsable) setHistoryReady(true);
-          localStorage.setItem('agentdeck.web.host.' + scope, next.hostId);
-        },
-        (state, error) => {
-          if (epoch !== connectionEpoch.current) return;
-          setConnectionState(state);
-          setConnected(state === 'connected');
-          setBusy(state === 'connecting');
-          if (state === 'connected' || state === 'syncing') setConnectionFailure('');
-          else if (state === 'retrying') setConnectionFailure(connectionError(error));
-          else if (state === 'blocked')
-            setConnectionFailure(String(error || t('连接需要重新授权')));
-        },
-      );
-      reconnect.current = loop;
-      loop.start();
+      const { startHostConnection } = await import('./transport/host-connection');
+      if (epoch !== connectionEpoch.current) return;
+      startHostConnection(next, epoch, {
+        setReceiptNotice,
+        reconnect,
+        connectionEpoch,
+        bridge,
+        setConnected,
+        setBusy,
+        setError,
+        setConnectionFailure,
+        setUpstreamRetry,
+        setCapabilities,
+        setModels,
+        selectSession,
+        setSnapshot,
+        historyRef,
+        attentionRef,
+        sessionRef,
+        uncertainBaseline,
+        activityVersion,
+        managedActiveTurn,
+        setActiveTurn,
+        setQueueRevision,
+        setObservedUsage,
+        setStatusRevision,
+        terminalVersion,
+        scheduleRefresh,
+        historyVersion,
+        historyStarted,
+        setHistoryReady,
+        setHistoryCursor,
+        setHistory,
+        scope,
+        heartbeat,
+        setReceiptBlocked,
+        draftProjectRef,
+        setSelectedProject,
+        historyPage,
+        setHistoryFailure,
+        setConnectionState,
+      });
     } catch (error) {
       if (epoch === connectionEpoch.current) {
         setConnectionFailure(String(error));
@@ -1278,6 +1049,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       }
     }
   }
+
   connectRef.current = (h) => void connect(h);
 
   async function loadOlderHistory() {
@@ -1413,7 +1185,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
       } else {
         const result = await connection.request<{ turn?: Turn }>('turn.start', {
           sessionId: id,
-          ...turnOptions(chat ? { ...source, mode: 'default', skills: [] } : source, permission),
+          ...turnOptions(
+            chat ? { ...source, mode: 'default', skills: [] } : source,
+            permission,
+            supports('turnResponseSpeed'),
+          ),
         });
         if (epoch === connectionEpoch.current && sessionRef.current === id) {
           activityVersion.current++;
@@ -1567,6 +1343,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     else setError(t('此代理会话尚未同步或不在授权项目中'));
   }
   function openPanel(name: string) {
+    if (name === 'side') {
+      showTool('chat');
+      return;
+    }
     if (chat && ['files', 'git', 'skills', 'goal'].includes(name)) {
       setError(t('普通聊天不使用项目文件、技能或任务目标。请先切换到项目。'));
       return;
@@ -1577,7 +1357,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     }
     setMenu(false);
     setWorkspaceMenu(false);
-    setSettingsChild(name === 'drafts' && panel === 'settings');
     if (name === 'manage') setManageSession(current);
     if (name === 'computers') {
       setSettingsTab('computers');
@@ -1598,6 +1377,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   async function runMessageAction() {
     if (
       !messageAction ||
+      messageAction.kind === 'read' ||
       !session ||
       busy ||
       receiptBlocked ||
@@ -1631,27 +1411,23 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         );
         if (latest.threadStatus !== 'idle' || !latest.turn?.upstreamTurnId)
           throw new Error(t('请先停止或核对当前任务'));
-        if (kind === 'revert')
-          await request('sessions.revert', {
-            sessionId: id,
-            beforeTurnId: entry.turnId,
-            expectedLastTurnId: latest.turn.upstreamTurnId,
-          });
-        else
-          await request('sessions.revise', {
-            sessionId: id,
-            beforeTurnId: entry.turnId,
-            expectedLastTurnId: latest.turn.upstreamTurnId,
-            itemId: entry.item?.id,
-            text: editText.trim(),
-            permissionMode: permission,
-            mode: draft.mode,
-            ...Object.fromEntries(
-              Object.entries(resolveComposerModelPreferences(draft, models)).filter(
-                ([, value]) => value,
-              ),
+        await request('sessions.revise', {
+          sessionId: id,
+          beforeTurnId: entry.turnId,
+          expectedLastTurnId: latest.turn.upstreamTurnId,
+          itemId: entry.item?.id,
+          text: editText.trim(),
+          permissionMode: permission,
+          mode: draft.mode,
+          ...(supports('turnResponseSpeed') && draft.responseSpeed
+            ? { responseSpeed: draft.responseSpeed }
+            : {}),
+          ...Object.fromEntries(
+            Object.entries(resolveComposerModelPreferences(draft, models)).filter(
+              ([, value]) => value,
             ),
-          });
+          ),
+        });
         if (epoch === connectionEpoch.current && sessionRef.current === id) {
           historyVersion.current++;
           setHistory([]);
@@ -1684,28 +1460,17 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     if (entry)
       requestAnimationFrame(() =>
         document
-          .querySelector<HTMLButtonElement>(
-            `[data-history-key="${CSS.escape(historyKey(entry))}"] button.message-edit-action`,
+          .querySelector<HTMLElement>(
+            `[data-history-key="${CSS.escape(historyKey(entry))}"] .message-content[tabindex]`,
           )
           ?.focus({ preventScroll: true }),
       );
   }
-  const [settingsChild, setSettingsChild] = useState(false);
   const [settingsTab, setSettingsTab] = usePreference(
     'agentdeck.web.settingsTab',
     'general',
     (value): value is string =>
-      typeof value === 'string' &&
-      [
-        'general',
-        'configuration',
-        'conversations',
-        'shortcuts',
-        'computers',
-        'data',
-        'diagnostics',
-        'account',
-      ].includes(value),
+      typeof value === 'string' && ['general', 'conversations', 'computers'].includes(value),
   );
   const titles: Record<string, string> = {
     settings: t('设置'),
@@ -1716,32 +1481,38 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
     skills: t('技能'),
     queue: t('待发送消息'),
     projects: t('项目'),
-    drafts: t('未发送草稿'),
     find: t('在会话中查找'),
     search: t('搜索会话'),
     history: t('会话历史'),
   };
   const targetSession =
     snapshot.sessions?.find((s) => s.sessionId === manageSession?.sessionId) || current;
+  const entriesByTurn = useMemo(() => {
+    const turns = new Map<string | undefined, HistoryEntry[]>();
+    for (const entry of renderedHistory) {
+      const entries = turns.get(entry.turnId);
+      if (entries) entries.push(entry);
+      else turns.set(entry.turnId, [entry]);
+    }
+    return turns;
+  }, [renderedHistory]);
   const answers = answerActions(
     renderedHistory,
     snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId || activeTurn,
     contentText,
   );
+  const canEditUserMessage =
+    connected &&
+    !busy &&
+    !receiptBlocked &&
+    !activeTurn &&
+    historyReady &&
+    current?.archived !== 1 &&
+    canManage(current) &&
+    supports('sessionHistoryRevert');
   const matches = renderedHistory.filter(
     (entry) => find.trim() && contentText(entry.item).toLowerCase().includes(find.toLowerCase()),
   );
-  const visibleDrafts =
-    panel === 'drafts'
-      ? Object.entries(drafts).filter(([key, d]) => {
-          const [account, id] = JSON.parse(key);
-          return (
-            account === scope &&
-            id === host?.hostId &&
-            (d.text || d.attachments.length || d.skills.length || d.references?.length)
-          );
-        })
-      : [];
   const matchingSessions = (snapshot.sessions || []).filter((s) =>
     `${s.title || ''} ${snapshot.projects?.find((p) => p.projectId === s.projectId)?.name || ''}`
       .toLowerCase()
@@ -1766,7 +1537,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
   if (signedIn === null) return <main className="center">{t('加载中…')}</main>;
   if (!signedIn) return <Login onLogin={() => location.reload()} />;
   if (mustChangePassword) return <AccountPassword />;
-  const toolsVisible = fileWorkspaceOpen && !!host;
   const filesAvailable = connected && !!selectedProject && selectedProject !== chatProject;
   const filesVisible =
     toolsVisible && ['files', 'changes'].includes(toolTabs.activeTab?.tool || '');
@@ -1784,6 +1554,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         sessions={snapshot.sessions || []}
         unread={attention.unread}
         connected={connected}
+        loading={
+          !!host &&
+          !snapshot.sessions &&
+          (busy || ['connecting', 'retrying', 'syncing'].includes(connectionState))
+        }
         projects={projects}
         chatAvailable={connected && supports('projectlessChat')}
         onChat={() => {
@@ -1839,12 +1614,13 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
         setFilter={setFilter}
       />
       <section
-        className={`conversation-layout ${toolsVisible ? 'with-file-workspace' : ''} ${fileWorkspaceWide ? 'file-workspace-wide' : ''}`}
+        className={`conversation-layout ${retainTools ? 'with-file-workspace' : ''} ${fileWorkspaceWide ? 'file-workspace-wide' : ''}`}
         ref={conversationElement}
         style={{ '--file-pane-width': `${filePaneWidth}%` } as React.CSSProperties}
       >
         <section
           className={`conversation${!session ? ' is-new-conversation' : ''}`}
+          inert={mobile && toolsVisible}
           onPointerDownCapture={(event) => {
             if (session && (event.target as Element).closest('.timeline, .composer-wrap'))
               attention.read(session);
@@ -1861,6 +1637,12 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
             if (session) attention.read(session);
           }}
         >
+          <TaskBanners
+            notices={attention.notices.filter((notice) => notice.sessionId !== session)}
+            sessions={snapshot.sessions || []}
+            onOpen={chooseSession}
+            onDismiss={attention.dismiss}
+          />
           <header className="topbar">
             <IconButton
               icon={session || matchMedia('(max-width:760px)').matches ? ChevronLeft : Menu}
@@ -1934,6 +1716,17 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 )}
               </MotionPresence>
             </div>
+            {activeTurn && (
+              <TaskProgress
+                entries={renderedHistory}
+                active={!!activeTurn}
+                turnId={
+                  snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
+                  activeTurn
+                }
+                stale={!connected}
+              />
+            )}
             <span
               className={`connection ${connected ? 'online-text' : ''}`}
               data-connection-state={connectionState}
@@ -2007,41 +1800,46 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               <IconButton
                 icon={MoreHorizontal}
                 label={t('更多操作')}
-                onClick={() => setMenu(!menu)}
-              />
-              <ConversationMenu
-                key={JSON.stringify([scope, host?.hostId, session])}
-                open={menu}
-                onClose={() => setMenu(false)}
-                session={current}
-                connected={connected}
-                blocked={busy || receiptBlocked}
-                capabilities={capabilities}
-                request={request}
-                directory={
-                  !chat
-                    ? projects.find((p) => p.projectId === selectedProject)?.canonicalPath
-                    : undefined
-                }
-                onPanel={openPanel}
-                onTools={
-                  host
-                    ? () => {
-                        setMenu(false);
-                        openTools();
-                      }
-                    : undefined
-                }
-                onChanged={() => refresh(false)}
-                onSelect={chooseSession}
-                onError={setError}
-                onSideChat={(sessionId) => {
-                  toolTabs.openTool('chat', selectedProject, undefined, false, sessionId);
-                  setFileWorkspaceOpen(true);
-                  setPanel('');
-                  if (matchMedia('(max-width:1300px)').matches) setSidebarOpen(false);
+                onClick={() => {
+                  setMenuLoaded(true);
+                  setMenu(!menu);
                 }}
               />
+              {menuLoaded && (
+                <ConversationMenu
+                  key={JSON.stringify([scope, host?.hostId, session])}
+                  open={menu}
+                  onClose={() => setMenu(false)}
+                  session={current}
+                  connected={connected}
+                  blocked={busy || receiptBlocked}
+                  capabilities={capabilities}
+                  request={request}
+                  directory={
+                    !chat
+                      ? projects.find((p) => p.projectId === selectedProject)?.canonicalPath
+                      : undefined
+                  }
+                  onPanel={openPanel}
+                  onTools={
+                    host
+                      ? () => {
+                          setMenu(false);
+                          openTools();
+                        }
+                      : undefined
+                  }
+                  onChanged={() => refresh(false)}
+                  onSelect={chooseSession}
+                  onError={setError}
+                  onSideChat={(sessionId) => {
+                    toolTabs.openTool('chat', selectedProject, undefined, false, sessionId);
+                    setFileWorkspaceOpen(true);
+                    setPanel('');
+                    if (matchMedia('(max-width:1300px)').matches) setSidebarOpen(false);
+                  }}
+                />
+              )}
             </div>
           </header>
           {host && connected && (
@@ -2112,17 +1910,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               </div>
             )}
           </MotionPresence>
-          {activeTurn && (
-            <TaskProgress
-              entries={renderedHistory}
-              active={!!activeTurn}
-              turnId={
-                snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId ||
-                activeTurn
-              }
-              stale={!connected}
-            />
-          )}
           {renderedHistory.length > 0 && (
             <SelectionQuote
               key={draftKey}
@@ -2177,7 +1964,14 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         ['agentMessage', 'assistantMessage'].includes(type) ||
                         item.role === 'assistant',
                       text = contentText(item),
-                      actionText = assistant ? answers.get(entry) : text,
+                      actionText = assistant ? answers.get(entry) : undefined,
+                      separateLocalImages = mobile && user && supports('sessionMessageImages'),
+                      onlyLocalImages =
+                        separateLocalImages &&
+                        !text &&
+                        Array.isArray(item.content) &&
+                        item.content.length > 0 &&
+                        item.content.every((part) => part?.type === 'localImage'),
                       editing =
                         messageAction?.kind === 'revise' &&
                         historyKey(messageAction.entry) === historyKey(entry);
@@ -2187,55 +1981,73 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                         key={historyKey(entry)}
                         data-history-key={historyKey(entry)}
                       >
-                        <div className={`message-content${editing ? ' editing-message' : ''}`}>
-                          {editing ? (
-                            <MessageEditor
-                              text={editText}
-                              busy={busy}
-                              disabled={
-                                !connected ||
-                                busy ||
-                                receiptBlocked ||
-                                !!activeTurn ||
-                                !historyReady ||
-                                current?.archived === 1 ||
-                                !canManage(current)
-                              }
-                              error={editError}
-                              onChange={setEditText}
-                              onCancel={cancelMessageEdit}
-                              onSend={() => void runMessageAction()}
-                            />
-                          ) : (
-                            <RichContent
-                              entry={entry}
-                              images={
-                                connected &&
-                                supports('projectImagePreview') &&
-                                selectedProject &&
-                                !chat
-                                  ? {
-                                      request,
-                                      projectId: selectedProject,
-                                      root:
-                                        projects.find(
-                                          (project) => project.projectId === selectedProject,
-                                        )?.canonicalPath || '',
-                                    }
-                                  : undefined
-                              }
-                              sessionImages={connected && supports('sessionMessageImages')}
-                              connection={bridge.current}
-                              sessionId={session || ''}
-                              onFile={supports('projectTextPreview') ? openFile : undefined}
-                              onAgent={openAgent}
-                            />
-                          )}
-                        </div>
-                        {(user || assistant) && actionText && !editing && (
-                          <div className="message-actions">
+                        {separateLocalImages && !editing && (
+                          <UserMessageImages
+                            entry={entry}
+                            connection={connected ? bridge.current : undefined}
+                            sessionId={session || ''}
+                          />
+                        )}
+                        {(!onlyLocalImages || editing) && (
+                          <MessageBubble
+                            className={`message-content${editing ? ' editing-message' : ''}`}
+                            onEdit={
+                              user && text && canEditUserMessage && !editing
+                                ? () => editMessage(entry)
+                                : undefined
+                            }
+                          >
+                            {editing ? (
+                              <MessageEditor
+                                text={editText}
+                                busy={busy}
+                                disabled={
+                                  !connected ||
+                                  busy ||
+                                  receiptBlocked ||
+                                  !!activeTurn ||
+                                  !historyReady ||
+                                  current?.archived === 1 ||
+                                  !canManage(current)
+                                }
+                                error={editError}
+                                onChange={setEditText}
+                                onCancel={cancelMessageEdit}
+                                onSend={() => void runMessageAction()}
+                              />
+                            ) : (
+                              <RichContent
+                                entry={entry}
+                                images={
+                                  connected &&
+                                  supports('projectImagePreview') &&
+                                  selectedProject &&
+                                  !chat
+                                    ? {
+                                        request,
+                                        projectId: selectedProject,
+                                        root:
+                                          projects.find(
+                                            (project) => project.projectId === selectedProject,
+                                          )?.canonicalPath || '',
+                                      }
+                                    : undefined
+                                }
+                                sessionImages={connected && supports('sessionMessageImages')}
+                                separateLocalImages={separateLocalImages}
+                                connection={bridge.current}
+                                sessionId={session || ''}
+                                onFile={supports('projectTextPreview') ? openFile : undefined}
+                                onAgent={openAgent}
+                              />
+                            )}
+                          </MessageBubble>
+                        )}
+                        {actionText && !editing && (
+                          <div className="message-actions answer-actions">
                             <IconButton
                               icon={Copy}
+                              className="answer-copy"
                               label={t('复制消息')}
                               onClick={() =>
                                 void navigator.clipboard
@@ -2243,8 +2055,19 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                                   .catch((e) => setError(String(e)))
                               }
                             />
+                            {mobile && (
+                              <AnswerFeedback
+                                answerKey={JSON.stringify([
+                                  scope,
+                                  host?.hostId,
+                                  session,
+                                  historyKey(entry),
+                                ])}
+                              />
+                            )}
                             <IconButton
                               icon={Quote}
+                              className="answer-action-desktop"
                               label={t('引用消息')}
                               onClick={() =>
                                 updateDraft({
@@ -2257,30 +2080,19 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                             />
                             <IconButton
                               icon={Search}
+                              className="answer-action-desktop"
                               label={t('阅读完整消息')}
                               onClick={() => {
                                 setMessageAction({
-                                  entry: assistant
-                                    ? { ...entry, item: { ...item, text: actionText } }
-                                    : entry,
+                                  entry: { ...entry, item: { ...item, text: actionText } },
                                   kind: 'read',
                                 });
                               }}
                             />
-                            {user && supports('sessionHistoryRevert') && (
-                              <IconButton
-                                icon={Pencil}
-                                className="message-edit-action"
-                                label={t('编辑并重新发送')}
-                                disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                                onClick={() => {
-                                  editMessage(entry);
-                                }}
-                              />
-                            )}
-                            {assistant && supports('sessionHistoryRevert') && (
+                            {supports('sessionHistoryRevert') && (
                               <IconButton
                                 icon={RotateCcw}
+                                className="answer-action-desktop"
                                 label={t('重试此回答')}
                                 disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
                                 onClick={() => {
@@ -2302,26 +2114,22 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                             )}
                             {supports('sessionForkAtTurn') && (
                               <IconButton
-                                icon={GitFork}
+                                icon={mobile ? ForkAnswerIcon : GitFork}
                                 label={t('从此处分叉')}
                                 disabled={busy || receiptBlocked || !!activeTurn}
                                 onClick={() => setMessageAction({ entry, kind: 'fork' })}
                               />
                             )}
-                            {supports('sessionHistoryRevert') && user && (
-                              <IconButton
-                                icon={History}
-                                label={t('回退到此消息之前')}
-                                disabled={busy || receiptBlocked || !!activeTurn || !historyReady}
-                                onClick={() => setMessageAction({ entry, kind: 'revert' })}
-                              />
+                            {mobile && (
+                              <AnswerTime timestamp={entry.completedAtMs ?? entry.startedAtMs} />
                             )}
                           </div>
                         )}
-                        {!activeTurn &&
+                        {!user &&
+                          !activeTurn &&
                           renderedHistory[entryIndex + 1]?.turnId !== entry.turnId && (
                             <TurnChanges
-                              entries={renderedHistory.filter((e) => e.turnId === entry.turnId)}
+                              entries={entriesByTurn.get(entry.turnId)!}
                               projectRoot={
                                 snapshot.projects?.find((p) => p.projectId === current?.projectId)
                                   ?.canonicalPath
@@ -2333,35 +2141,38 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   }}
                 </ActivityStages>
               )}
-              {!renderedHistory.length && !historyFailure && (
+              {!renderedHistory.length &&
+                !historyFailure &&
+                session &&
+                !historyReady &&
+                (connected ||
+                  busy ||
+                  ['connecting', 'retrying', 'syncing'].includes(connectionState)) && (
+                  <LoadingPlaceholder conversation />
+                )}
+              {!renderedHistory.length && !historyFailure && !(session && !historyReady) && (
                 <div className="empty">
-                  {session && !historyReady ? (
-                    <p>{t('正在读取会话历史…')}</p>
-                  ) : (
-                    <>
-                      <div
-                        className="empty-symbol"
-                        aria-hidden="true"
-                        style={{
-                          maskImage: `url("${agentDeckMark}")`,
-                          WebkitMaskImage: `url("${agentDeckMark}")`,
-                        }}
-                      />
-                      <h1>{chat ? t('聊点什么？') : t('What can we build?')}</h1>
-                      <p>
-                        {connected
-                          ? chat
-                            ? t('无需选择项目，直接开始对话。')
-                            : t('选择项目，开始一段 Codex 对话。')
-                          : t('连接你的电脑，随时继续工作。')}
-                      </p>
-                      {!connected && (
-                        <button onClick={() => openPanel('computers')}>
-                          <Computer size={17} />
-                          {t('连接电脑')}
-                        </button>
-                      )}
-                    </>
+                  <div
+                    className="empty-symbol"
+                    aria-hidden="true"
+                    style={{
+                      maskImage: `url("${agentDeckMark}")`,
+                      WebkitMaskImage: `url("${agentDeckMark}")`,
+                    }}
+                  />
+                  <h1>{chat ? t('聊点什么？') : t('What can we build?')}</h1>
+                  <p>
+                    {connected
+                      ? chat
+                        ? t('无需选择项目，直接开始对话。')
+                        : t('选择项目，开始一段 Codex 对话。')
+                      : t('连接你的电脑，随时继续工作。')}
+                  </p>
+                  {!connected && (
+                    <button onClick={() => openPanel('computers')}>
+                      <Computer size={17} />
+                      {t('连接电脑')}
+                    </button>
                   )}
                 </div>
               )}
@@ -2370,10 +2181,11 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           {!session && (
             <div className="new-conversation-context">
               <div className="new-context-row">
-                <Computer size={20} aria-hidden="true" />
+                <LaptopMinimal size={20} aria-hidden="true" />
                 {hosts.length ? (
                   <Select
                     aria-label={t('切换电脑')}
+                    chevron={ChevronsUpDown}
                     value={host?.hostId || ''}
                     onValueChange={(id) => {
                       const next = hosts.find((item) => item.hostId === id);
@@ -2392,9 +2204,10 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 )}
               </div>
               <div className="new-context-row">
-                <FolderOpen size={20} aria-hidden="true" />
+                <Folder size={20} aria-hidden="true" />
                 <Select
                   aria-label={t('切换项目')}
+                  chevron={ChevronsUpDown}
                   value={selectedProject}
                   disabled={!connected}
                   onValueChange={(id) => {
@@ -2418,6 +2231,9 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           {selectedProject && (
             <Composer
               key={draftKey}
+              request={request}
+              projectId={selectedProject}
+              sessionId={session}
               draft={draft}
               placeholder={
                 activeTurn
@@ -2661,7 +2477,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               onClose={() => setFileWorkspaceOpen(false)}
             />
             {toolTabs.tabs.map((tab) => {
-              const visible = toolsVisible && tab.id === toolTabs.active;
+              const visible = retainTools && tab.id === toolTabs.active;
               const fileProject = tab.projectId;
               const tabFilesAvailable = connected && !!fileProject && fileProject !== chatProject;
               return (
@@ -2777,7 +2593,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                       {tab.projectId && (
                         <SshTerminal
                           request={request}
-                          visible={visible}
+                          visible={toolsVisible && visible}
                           connected={connected && supports('projectTerminal')}
                           projectId={tab.projectId}
                           directory={
@@ -2799,13 +2615,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           <Modal
             wide={messageAction.kind === 'read'}
             compact={messageAction.kind !== 'read'}
-            title={
-              messageAction.kind === 'read'
-                ? t('消息')
-                : messageAction.kind === 'fork'
-                  ? t('从此处分叉')
-                  : t('回退会话')
-            }
+            title={messageAction.kind === 'read' ? t('消息') : t('从此处分叉')}
             onClose={() => {
               if (!busy) setMessageAction(undefined);
             }}
@@ -2832,11 +2642,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               </div>
             ) : (
               <div className="panel-stack">
-                <p>
-                  {messageAction.kind === 'fork'
-                    ? t('从该原生轮次创建独立会话？')
-                    : t('回退此消息和之后的轮次？此操作会改变电脑上的原会话。')}
-                </p>
+                <p>{t('从该原生轮次创建独立会话？')}</p>
                 <div className="button-row">
                   <button disabled={busy} onClick={() => setMessageAction(undefined)}>
                     {t('取消')}
@@ -2845,11 +2651,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                     disabled={busy || receiptBlocked || !canManage(current)}
                     onClick={() => void runMessageAction()}
                   >
-                    {busy
-                      ? t('处理中…')
-                      : messageAction.kind === 'fork'
-                        ? t('创建分叉')
-                        : t('确认回退')}
+                    {busy ? t('处理中…') : t('创建分叉')}
                   </button>
                 </div>
                 {error && <p className="error">{errorText(error)}</p>}
@@ -2863,24 +2665,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
           <Modal
             wide={['git', 'files', 'history', 'settings'].includes(panel)}
             title={titles[panel] || panel}
-            className={
-              panel === 'settings' || (panel === 'drafts' && settingsChild) ? 'settings-modal' : ''
-            }
-            header={
-              panel === 'drafts' && settingsChild ? (
-                <div className="modal-navigation">
-                  <IconButton
-                    icon={ChevronLeft}
-                    label={t('返回设置')}
-                    onClick={() => {
-                      setSettingsChild(false);
-                      setPanel('settings');
-                    }}
-                  />
-                  <h2>{t('未发送草稿')}</h2>
-                </div>
-              ) : undefined
-            }
+            className={panel === 'settings' ? 'settings-modal' : ''}
             onClose={() => setPanel('')}
           >
             <div
@@ -2891,7 +2676,7 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                 panel,
                 manageSession?.sessionId,
               ])}
-              className={`panel-content ${panel === 'drafts' && settingsChild ? 'settings-subpage' : ''}`}
+              className="panel-content"
             >
               {panel === 'settings' && (
                 <SettingsContents
@@ -2899,18 +2684,15 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   setSettingsTab={setSettingsTab}
                   theme={theme}
                   setTheme={setTheme}
+                  bubbleColor={bubbleColor}
+                  setBubbleColor={setBubbleColor}
                   notification={notification}
                   setNotification={setNotification}
                   setError={setError}
                   connected={connected}
                   request={request}
-                  models={models}
                   supports={supports}
-                  setFilter={setFilter}
-                  setSidebarOpen={setSidebarOpen}
                   setPanel={setPanel}
-                  openPanel={openPanel}
-                  syncIndex={syncIndex}
                   host={host}
                   projects={projects}
                   hostName={hostName}
@@ -2919,7 +2701,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
                   setSelectedProject={setSelectedProject}
                   selectSession={selectSession}
                   directoryFailure={directoryFailure}
-                  connectionState={connectionState}
                   connectionFailure={connectionFailure}
                   hosts={hosts}
                   connect={connect}
@@ -2990,45 +2771,6 @@ function CodexApp({ modeControl }: { modeControl: React.ReactNode }) {
               )}
               {['goal', 'queue', 'manage'].includes(panel) && connected && !session && (
                 <p className="muted">{t('请先选择会话。')}</p>
-              )}
-              {panel === 'drafts' && (
-                <div className="panel-stack">
-                  {visibleDrafts.length ? (
-                    <p className="muted">{t('仅保留在当前标签页，关闭后不会保存。')}</p>
-                  ) : (
-                    <div className="panel-empty" role="status">
-                      {t('暂无未发送草稿')}
-                    </div>
-                  )}
-                  {visibleDrafts.map(([key, d]) => {
-                    const id = JSON.parse(key)[2] as string;
-                    return (
-                      <button
-                        className="draft-entry"
-                        key={key}
-                        onClick={() => {
-                          if (id.startsWith('new:')) {
-                            setSelectedProject(id.slice(4));
-                            selectSession(undefined);
-                          } else selectSession(id);
-                          setPanel('');
-                        }}
-                      >
-                        <strong>
-                          {snapshot.sessions?.find((s) => s.sessionId === id)?.title || t('新对话')}
-                        </strong>
-                        <span>
-                          {d.text.slice(0, 180) ||
-                            t('{{p0}} 个附件 · {{p1}} 个技能 · {{p2}} 个引用', {
-                              p0: d.attachments.length,
-                              p1: d.skills.length,
-                              p2: d.references?.length || 0,
-                            })}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
               )}
               {panel === 'search' && (
                 <div className="panel-stack">

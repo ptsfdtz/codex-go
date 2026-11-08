@@ -1,5 +1,5 @@
 import { t, useLocale } from '../../i18n';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ChevronRight,
   Layers,
@@ -9,7 +9,11 @@ import {
   Image,
   Bot,
   Brain,
+  BookOpen,
+  Puzzle,
+  Wrench,
 } from 'lucide-react';
+import { toolPresentation } from './tool-presentation';
 import { historyKey, type HistoryEntry } from '../../history';
 import { contentText } from '../../content-text';
 
@@ -41,7 +45,16 @@ export function activityStages(entries: HistoryEntry[], activeTurn?: string) {
     }
   });
   const last = stages.at(-1);
-  if (last?.activity && activeTurn && entries[last.indices[0]!]!.turnId === activeTurn)
+  if (
+    last?.activity &&
+    activeTurn &&
+    entries[last.indices[0]!]!.turnId === activeTurn &&
+    last.indices.some(
+      (index) =>
+        entries[index]?.item?.status === 'inProgress' ||
+        (!entries[index]?.item?.status && !entries[index]?.completedAtMs),
+    )
+  )
     last.active = true;
   return stages;
 }
@@ -68,6 +81,17 @@ function stageLabel(entries: HistoryEntry[]) {
 }
 
 function stageSummary(entries: HistoryEntry[], active: boolean) {
+  const calls = entries.map((entry) => toolPresentation(entry.item || {}));
+  if (calls.every((call) => call.kind)) {
+    const first = calls[0]!;
+    const names = [...new Set(calls.map((call) => call.name))].join('、');
+    const failed = calls.some((call) => call.status === 'failed');
+    const running = calls.some((call) => call.status === 'running');
+    return {
+      icon: first.kind === 'skill' ? BookOpen : first.kind === 'plugin' ? Puzzle : Wrench,
+      label: `${calls.every((call) => call.kind === first.kind) ? (first.kind === 'skill' ? t('读取技能') : first.kind === 'plugin' ? t('插件调用') : first.kind === 'mcp' ? t('MCP 调用') : t('工具调用')) : t('工具调用')} · ${names}${failed ? ` · ${t('调用失败')}` : running ? ` · ${t('执行中')}` : ''}`,
+    };
+  }
   const types = new Set(entries.map((entry) => String(entry.item?.type)));
   if (types.size === 1) {
     const type = String(entries[0]?.item?.type);
@@ -117,27 +141,42 @@ export function ActivityStages({
       const index = stage.indices[0]!;
       return children(entries[index]!, index);
     }
-    const { icon: Icon, label } = stageSummary(
-      stage.indices.map((index) => entries[index]!),
-      stage.active,
-    );
-    return (
-      <details
-        className="activity-stage"
-        key={stage.key}
-        data-history-key={stage.key}
-        data-active={stage.active || undefined}
-      >
-        <summary>
-          <Icon size={17} aria-hidden="true" />
-          <span>{label}</span>
-          {stage.active && <span className="activity-dot" aria-label={t('执行中')} />}
-          <ChevronRight className="activity-stage-chevron" size={14} aria-hidden="true" />
-        </summary>
-        <div className="activity-stage-items">
-          {stage.indices.map((index) => children(entries[index]!, index))}
-        </div>
-      </details>
-    );
+    return <ActivityGroup key={stage.key} stage={stage} entries={entries} renderEntry={children} />;
   });
+}
+
+function ActivityGroup({
+  stage,
+  entries,
+  renderEntry,
+}: {
+  stage: ReturnType<typeof activityStages>[number];
+  entries: HistoryEntry[];
+  renderEntry: (entry: HistoryEntry, index: number) => ReactNode;
+}) {
+  const [visited, setVisited] = useState(false);
+  const { icon: Icon, label } = stageSummary(
+    stage.indices.map((index) => entries[index]!),
+    stage.active,
+  );
+  return (
+    <details
+      className="activity-stage"
+      data-history-key={stage.key}
+      data-active={stage.active || undefined}
+      onToggle={(event) => {
+        if (event.target === event.currentTarget && event.currentTarget.open) setVisited(true);
+      }}
+    >
+      <summary>
+        <Icon size={17} aria-hidden="true" />
+        <span>{label}</span>
+        {stage.active && <span className="activity-dot" aria-label={t('执行中')} />}
+        <ChevronRight className="activity-stage-chevron" size={14} aria-hidden="true" />
+      </summary>
+      <div className="activity-stage-items">
+        {visited && stage.indices.map((index) => renderEntry(entries[index]!, index))}
+      </div>
+    </details>
+  );
 }

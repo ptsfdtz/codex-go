@@ -5,6 +5,7 @@ import { displayCommand } from '../command-display';
 import { overviewData, type OverviewSource } from './overview-data';
 import { errorText, t, useLocale } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
+import { MotionPresence } from '../../motion';
 import {
   ArrowUpRight,
   FileDiff,
@@ -143,154 +144,160 @@ export function ProjectOverview({
       >
         <FileDiff size={19} strokeWidth={1.6} aria-hidden="true" />
       </button>
-      {open && (
-        <section className="popover project-overview" aria-label={t('项目概览')}>
-          <div className="project-overview-heading">
-            <span title={project.canonicalPath || project.name}>{project.name}</span>
-            {gitRead && (
-              <IconButton
-                icon={RefreshCw}
-                label={t('刷新项目概览')}
-                disabled={loading}
-                onClick={() => setRevision((value) => value + 1)}
-              />
-            )}
-            <IconButton
-              icon={X}
-              label={t('关闭项目概览')}
-              onClick={() => {
-                setOpen(false);
-                trigger.current?.focus();
-              }}
-            />
-          </div>
-          {gitRead ? (
-            <>
-              <button
-                className="project-overview-changes"
-                disabled={!value?.available}
-                onClick={() => navigate(onChanges)}
-              >
-                <FileDiff size={17} />
-                <span>{t('改动')}</span>
-                {value?.available && (
-                  <strong>
-                    {value.files.length}
-                    {value.truncated ? '+' : ''}
-                    <small> {t(' 个文件')}</small>
-                  </strong>
-                )}
-                <GitBranch size={15} className="project-overview-branch" />
-              </button>
-              <div className="project-overview-state" role="status">
-                {loading && t('正在读取工作区…')}
-                {result.error && (
-                  <>
-                    <span className="error">{errorText(result.error)}</span>
-                    <button onClick={() => setRevision((value) => value + 1)}>
-                      {t('重试读取')}
-                    </button>
-                  </>
-                )}
-                {value && !value.available && t('此项目没有可用的 Git 工作区。')}
-                {value?.available && !value.files.length && t('工作区干净，暂无未提交改动。')}
-              </div>
-              {value?.truncated && (
-                <p className="project-overview-caption">{t('变更数量已达到读取上限')}</p>
+      <MotionPresence>
+        {open && (
+          <section className="popover project-overview" aria-label={t('项目概览')}>
+            <div className="project-overview-heading">
+              <span title={project.canonicalPath || project.name}>{project.name}</span>
+              {gitRead && (
+                <IconButton
+                  icon={RefreshCw}
+                  label={t('刷新项目概览')}
+                  disabled={loading}
+                  onClick={() => setRevision((value) => value + 1)}
+                />
               )}
-            </>
-          ) : (
-            <p className="project-overview-caption">{t('当前电脑尚不支持读取 Git 改动')}</p>
-          )}
-          <section className="project-overview-section" aria-label={t('后台进程')}>
-            <h3>{t('后台进程')}</h3>
-            {processes.length ? (
-              processes.map((entry) => (
+              <IconButton
+                icon={X}
+                label={t('关闭项目概览')}
+                onClick={() => {
+                  setOpen(false);
+                  trigger.current?.focus();
+                }}
+              />
+            </div>
+            {gitRead ? (
+              <>
+                <button
+                  className="project-overview-changes"
+                  disabled={!value?.available}
+                  onClick={() => navigate(onChanges)}
+                >
+                  <FileDiff size={17} />
+                  <span>{t('改动')}</span>
+                  {value?.available && (
+                    <strong>
+                      {value.files.length}
+                      {value.truncated ? '+' : ''}
+                      <small> {t(' 个文件')}</small>
+                    </strong>
+                  )}
+                  <GitBranch size={15} className="project-overview-branch" />
+                </button>
+                <div className="project-overview-state" role="status">
+                  {loading && t('正在读取工作区…')}
+                  {result.error && (
+                    <>
+                      <span className="error">{errorText(result.error)}</span>
+                      <button onClick={() => setRevision((value) => value + 1)}>
+                        {t('重试读取')}
+                      </button>
+                    </>
+                  )}
+                  {value && !value.available && t('此项目没有可用的 Git 工作区。')}
+                  {value?.available && !value.files.length && t('工作区干净，暂无未提交改动。')}
+                </div>
+                {value?.truncated && (
+                  <p className="project-overview-caption">{t('变更数量已达到读取上限')}</p>
+                )}
+              </>
+            ) : (
+              <p className="project-overview-caption">{t('当前电脑尚不支持读取 Git 改动')}</p>
+            )}
+            <section className="project-overview-section" aria-label={t('后台进程')}>
+              <h3>{t('后台进程')}</h3>
+              {processes.length ? (
+                processes.map((entry) => (
+                  <button
+                    type="button"
+                    className="project-overview-row"
+                    key={JSON.stringify([entry.turnId, entry.item?.id])}
+                    title={displayCommand(String(entry.item?.command))}
+                    disabled={!onEntry}
+                    onClick={() => navigate(() => onEntry?.(entry))}
+                  >
+                    <Terminal size={16} />
+                    <span>{displayCommand(String(entry.item?.command))}</span>
+                    <i className="activity-dot" aria-label={t('正在执行命令')} />
+                  </button>
+                ))
+              ) : (
+                <p className="project-overview-empty">{t('当前会话暂无运行中的命令')}</p>
+              )}
+            </section>
+            <section className="project-overview-section" aria-label={t('来源')}>
+              <div className="project-overview-section-title">
+                <h3>{t('来源')}</h3>
+                {onAddSources && (
+                  <IconButton icon={Plus} label={t('添加图片')} onClick={onAddSources} />
+                )}
+              </div>
+              {(allSources ? sources : sources.slice(0, 3)).map((source, index) => (
                 <button
                   type="button"
                   className="project-overview-row"
-                  key={JSON.stringify([entry.turnId, entry.item?.id])}
-                  title={displayCommand(String(entry.item?.command))}
-                  disabled={!onEntry}
-                  onClick={() => navigate(() => onEntry?.(entry))}
+                  key={source.id}
+                  title={source.name || t('会话历史图片')}
+                  disabled={
+                    source.kind === 'file'
+                      ? !fileBrowser
+                      : source.kind === 'history-image' && (!connection || !sessionId)
+                  }
+                  onClick={() =>
+                    source.kind === 'file'
+                      ? navigate(() => onFile(source.path))
+                      : setPreview(source)
+                  }
                 >
-                  <Terminal size={16} />
-                  <span>{displayCommand(String(entry.item?.command))}</span>
-                  <i className="activity-dot" aria-label={t('正在执行命令')} />
+                  {source.kind === 'draft-image' ? (
+                    <img
+                      className="project-overview-thumbnail"
+                      alt=""
+                      src={`data:${source.attachment.mime};base64,${source.attachment.data}`}
+                    />
+                  ) : source.kind === 'file' ? (
+                    <FileText size={16} />
+                  ) : (
+                    <Image size={16} />
+                  )}
+                  <span>{source.name || `${t('会话历史图片')} ${index + 1}`}</span>
                 </button>
-              ))
-            ) : (
-              <p className="project-overview-empty">{t('当前会话暂无运行中的命令')}</p>
-            )}
-          </section>
-          <section className="project-overview-section" aria-label={t('来源')}>
-            <div className="project-overview-section-title">
-              <h3>{t('来源')}</h3>
-              {onAddSources && (
-                <IconButton icon={Plus} label={t('添加图片')} onClick={onAddSources} />
+              ))}
+              {!sources.length && (
+                <p className="project-overview-empty">{t('当前会话暂无附件或文件引用')}</p>
               )}
+              {sources.length > 3 && (
+                <button
+                  type="button"
+                  className="project-overview-row project-overview-all"
+                  onClick={() => setAllSources((value) => !value)}
+                >
+                  <ChevronDown size={15} />
+                  <span>{allSources ? t('收起') : t('查看全部来源')}</span>
+                  <small>{sources.length}</small>
+                </button>
+              )}
+            </section>
+            <div className="project-overview-footer">
+              {fileBrowser && (
+                <button type="button" onClick={() => navigate(onFiles)}>
+                  <FolderOpen size={16} />
+                  <span>{t('浏览项目文件')}</span>
+                  <ArrowUpRight size={14} />
+                </button>
+              )}
+              <p>{t('当前会话')}</p>
             </div>
-            {(allSources ? sources : sources.slice(0, 3)).map((source, index) => (
-              <button
-                type="button"
-                className="project-overview-row"
-                key={source.id}
-                title={source.name || t('会话历史图片')}
-                disabled={
-                  source.kind === 'file'
-                    ? !fileBrowser
-                    : source.kind === 'history-image' && (!connection || !sessionId)
-                }
-                onClick={() =>
-                  source.kind === 'file' ? navigate(() => onFile(source.path)) : setPreview(source)
-                }
-              >
-                {source.kind === 'draft-image' ? (
-                  <img
-                    className="project-overview-thumbnail"
-                    alt=""
-                    src={`data:${source.attachment.mime};base64,${source.attachment.data}`}
-                  />
-                ) : source.kind === 'file' ? (
-                  <FileText size={16} />
-                ) : (
-                  <Image size={16} />
-                )}
-                <span>{source.name || `${t('会话历史图片')} ${index + 1}`}</span>
-              </button>
-            ))}
-            {!sources.length && (
-              <p className="project-overview-empty">{t('当前会话暂无附件或文件引用')}</p>
-            )}
-            {sources.length > 3 && (
-              <button
-                type="button"
-                className="project-overview-row project-overview-all"
-                onClick={() => setAllSources((value) => !value)}
-              >
-                <ChevronDown size={15} />
-                <span>{allSources ? t('收起') : t('查看全部来源')}</span>
-                <small>{sources.length}</small>
-              </button>
-            )}
           </section>
-          <div className="project-overview-footer">
-            {fileBrowser && (
-              <button type="button" onClick={() => navigate(onFiles)}>
-                <FolderOpen size={16} />
-                <span>{t('浏览项目文件')}</span>
-                <ArrowUpRight size={14} />
-              </button>
-            )}
-            <p>{t('当前会话')}</p>
-          </div>
-        </section>
-      )}
-      {preview && (
-        <Modal title={preview.name || t('会话历史图片')} onClose={() => setPreview(undefined)}>
-          <SourceImage source={preview} connection={connection} sessionId={sessionId} />
-        </Modal>
-      )}
+        )}
+      </MotionPresence>
+      <MotionPresence>
+        {preview && (
+          <Modal title={preview.name || t('会话历史图片')} onClose={() => setPreview(undefined)}>
+            <SourceImage source={preview} connection={connection} sessionId={sessionId} />
+          </Modal>
+        )}
+      </MotionPresence>
     </div>
   );
 }

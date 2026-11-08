@@ -4,7 +4,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = new URL('../../artifacts/performance/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 const report = [];
 try {
   for (const [label, origin] of [
@@ -68,7 +71,7 @@ try {
         if (label === 'after') {
           assert(
             !initial.scripts.some((s) =>
-              /Markdown-|FileWorkspace-|Panels-|ApiChat-|tls-|Composer-|RichContent-|SettingsContents-|bridge-/.test(
+              /Markdown-|FileWorkspace-|Panels-|ApiChat-|tls-|Composer-|RichContent-|SettingsContents-|bridge-|host-connection-|ConversationMenu-/.test(
                 s.name,
               ),
             ),
@@ -93,8 +96,8 @@ try {
         await page.getByRole('button', { name: settings, exact: true }).click();
         const nav = page.getByRole('navigation', { name: categories });
         for (const name of english
-          ? ['Conversations', 'General', 'Computers', 'Data', 'General']
-          : ['对话', '常规', '电脑', '数据', '常规']) {
+          ? ['General', 'Projects', 'Computers', 'General']
+          : ['常规', '项目', '电脑', '常规']) {
           await nav.getByRole('button', { name, exact: true }).click();
         }
         await page.getByRole('button', { name: english ? 'Close' : '关闭', exact: true }).click();

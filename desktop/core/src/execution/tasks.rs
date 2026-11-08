@@ -8,6 +8,7 @@ use std::{
 pub(crate) struct ComposerOptions<'a> {
     pub(crate) model: Option<&'a str>,
     pub(crate) effort: Option<&'a str>,
+    pub(crate) response_speed: Option<&'a str>,
     pub(crate) permission_mode: &'a str,
     pub(crate) mode: &'a str,
     pub(crate) attachments: Option<&'a Value>,
@@ -153,6 +154,7 @@ impl Core {
             attachments,
             skills,
             None,
+            None,
         )
         .await
     }
@@ -168,6 +170,7 @@ impl Core {
         attachments: Option<&Value>,
         skills: Option<&Value>,
         references: Option<&Value>,
+        response_speed: Option<&str>,
     ) -> Result<Value> {
         self.start_composer_reserving(
             session_id,
@@ -179,6 +182,7 @@ impl Core {
             attachments,
             skills,
             references,
+            response_speed,
             None,
         )
         .await
@@ -193,6 +197,7 @@ impl Core {
             None,
             "workspace",
             "goal",
+            None,
             None,
             None,
             None,
@@ -212,6 +217,7 @@ impl Core {
         attachments: Option<&Value>,
         skills: Option<&Value>,
         references: Option<&Value>,
+        response_speed: Option<&str>,
         goal_resume_revision: Option<&str>,
     ) -> Result<Value> {
         ensure(
@@ -271,6 +277,7 @@ impl Core {
                 ComposerOptions {
                     model,
                     effort,
+                    response_speed,
                     permission_mode,
                     mode,
                     attachments,
@@ -294,6 +301,7 @@ impl Core {
         let ComposerOptions {
             model,
             effort,
+            response_speed,
             permission_mode,
             mode,
             attachments,
@@ -319,15 +327,9 @@ impl Core {
         )?;
         let selected_model = model.unwrap_or(s(&session, "model")).to_owned();
         let selected_effort = effort.unwrap_or(s(&session, "effort")).to_owned();
-        if !selected_model.is_empty() {
-            self.check_model(&selected_model, &selected_effort).await?;
-        } else {
-            ensure(
-                selected_effort.is_empty(),
-                "INVALID_REQUEST",
-                "Select a model before reasoning effort",
-            )?;
-        }
+        let service_tier = self
+            .check_turn_model(&selected_model, &selected_effort, response_speed)
+            .await?;
 
         let root = paths::root(&self.store, s(&session, "projectId"))?;
         codex::settings(rpc, &root).await?;
@@ -585,6 +587,9 @@ impl Core {
         }
         if !selected_effort.is_empty() {
             params["effort"] = json!(selected_effort);
+        }
+        if let Some(tier) = service_tier {
+            params["serviceTierForTurn"] = json!(tier);
         }
         self.store
             .set_meta(&format!("composerMode:{session_id}"), mode)?;

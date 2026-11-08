@@ -5,7 +5,10 @@ import { mkdir } from 'node:fs/promises';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = new URL('../../artifacts/queue/', import.meta.url);
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 try {
   const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1100, height: 800 } });
   page.setDefaultTimeout(6000);
@@ -22,6 +25,7 @@ try {
     const { Composer } = await import('/src/features/Composer.tsx');
     document.getElementById('root').style.display = 'none';
     const el = document.createElement('div');
+    el.className = 'shell';
     el.style =
       'height:100dvh;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:24px';
     document.body.append(el);
@@ -122,7 +126,11 @@ try {
     window.renderQueue();
     if (font) await document.fonts.load('14px QueueTest');
   }, !!font);
-  const send = (id) => page.getByRole('button', { name: `提前发送消息 ${id}`, exact: true });
+  const send = (id) =>
+    page
+      .getByRole('button', { name: `引导对话 ${id}`, exact: true })
+      .or(page.getByRole('button', { name: `提前发送消息 ${id}`, exact: true }));
+  const more = (id) => page.getByRole('button', { name: `更多操作 ${id}`, exact: true });
   const del = (id) => page.getByRole('button', { name: `删除待发送消息 ${id}`, exact: true });
   await page.waitForFunction(
     () =>
@@ -143,6 +151,11 @@ try {
     const queue = await page.locator('.queued-messages').boundingBox();
     const composer = await page.locator('.composer').boundingBox();
     assert(queue.y + queue.height <= composer.y + 1);
+    const actions = await page.locator('.queued-actions').first().boundingBox();
+    const bubble = await page.locator('.queued-content').first().boundingBox();
+    assert(actions.y + actions.height <= bubble.y);
+    assert(Math.abs(actions.x + actions.width - bubble.x - bubble.width) < 2);
+    assert(await page.getByPlaceholder('跟进', { exact: true }).isVisible());
     await page.waitForTimeout(200);
     await page.screenshot({ path: fileURLToPath(new URL(`${name}.png`, out)) });
   }
@@ -159,6 +172,11 @@ try {
   assert(
     !calls.some((call) => call.action === 'turn.interruptActive' || call.action === 'queue.start'),
   );
+  await more('two').click();
+  await del('two').waitFor();
+  await page.keyboard.press('Escape');
+  await del('two').waitFor({ state: 'hidden' });
+  await more('two').click();
   await del('two').click();
   await page.locator('.queued-messages').waitFor({ state: 'detached' });
   async function reset(change) {
@@ -179,6 +197,24 @@ try {
     inputRevision: 'r',
     input: [{ type: 'text', text: '继续完成测试' }],
   };
+  await reset({
+    entries: [
+      { ...plain, input: [{ type: 'text', text: '设计需要做的和 iPhone 原生效果完全一致' }] },
+    ],
+    active: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
+  await page.waitForTimeout(200);
+  const preview = await page.locator('.queued-text').boundingBox();
+  assert(preview.height >= 48, 'The steering bubble shows both lines before expansion');
+  assert.deepEqual(
+    await page
+      .locator('.composer.is-follow-up .composer-toolbar button:visible')
+      .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label'))),
+    ['添加附件和操作', '语音输入', '停止'],
+  );
+  await page.screenshot({ path: fileURLToPath(new URL('steering-390-dark.png', out)) });
   await reset({ entries: [plain], active: false });
   await send('plain').click();
   await send('plain').waitFor({ state: 'detached' });
@@ -221,7 +257,9 @@ try {
     ],
   });
   assert(await send('plain').isDisabled());
+  await more('plain').click();
   assert(await del('plain').isEnabled());
+  await page.keyboard.press('Escape');
   await page.evaluate(() => {
     window.holdRead = true;
     window.revision++;
@@ -235,7 +273,7 @@ try {
   assert.equal(await send('new-context').count(), 1);
   assert.deepEqual(errors, []);
   console.log(
-    'Queued messages: steering, idle start, delete, capabilities, resources, failure retention, context isolation and 3 screenshots passed.',
+    'Queued messages: steering, idle start, delete, capabilities, resources, failure retention, context isolation and responsive screenshots passed.',
   );
 } finally {
   await browser.close();
