@@ -9,7 +9,11 @@ import {
   Image,
   Bot,
   Brain,
+  BookOpen,
+  Puzzle,
+  Wrench,
 } from 'lucide-react';
+import { toolPresentation } from './tool-presentation';
 import { historyKey, type HistoryEntry } from '../../history';
 import { contentText } from '../../content-text';
 
@@ -41,7 +45,16 @@ export function activityStages(entries: HistoryEntry[], activeTurn?: string) {
     }
   });
   const last = stages.at(-1);
-  if (last?.activity && activeTurn && entries[last.indices[0]!]!.turnId === activeTurn)
+  if (
+    last?.activity &&
+    activeTurn &&
+    entries[last.indices[0]!]!.turnId === activeTurn &&
+    last.indices.some(
+      (index) =>
+        entries[index]?.item?.status === 'inProgress' ||
+        (!entries[index]?.item?.status && !entries[index]?.completedAtMs),
+    )
+  )
     last.active = true;
   return stages;
 }
@@ -68,6 +81,17 @@ function stageLabel(entries: HistoryEntry[]) {
 }
 
 function stageSummary(entries: HistoryEntry[], active: boolean) {
+  const calls = entries.map((entry) => toolPresentation(entry.item || {}));
+  if (calls.every((call) => call.kind)) {
+    const first = calls[0]!;
+    const names = [...new Set(calls.map((call) => call.name))].join('、');
+    const failed = calls.some((call) => call.status === 'failed');
+    const running = calls.some((call) => call.status === 'running');
+    return {
+      icon: first.kind === 'skill' ? BookOpen : first.kind === 'plugin' ? Puzzle : Wrench,
+      label: `${calls.every((call) => call.kind === first.kind) ? (first.kind === 'skill' ? t('读取技能') : first.kind === 'plugin' ? t('插件调用') : first.kind === 'mcp' ? t('MCP 调用') : t('工具调用')) : t('工具调用')} · ${names}${failed ? ` · ${t('调用失败')}` : running ? ` · ${t('执行中')}` : ''}`,
+    };
+  }
   const types = new Set(entries.map((entry) => String(entry.item?.type)));
   if (types.size === 1) {
     const type = String(entries[0]?.item?.type);

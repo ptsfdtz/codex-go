@@ -1,4 +1,5 @@
 import { useHistory } from '../use-history';
+import { LoadingPlaceholder } from '../LoadingPlaceholder';
 import { errorText, t, useLocale } from '../../i18n';
 import { Select } from '../../components/Select';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -522,7 +523,7 @@ export function SideChat({
               <p>{t('选择已有会话，或发送消息开始新的对话。')}</p>
             </div>
           )}
-          {loading && !entries.length && <p role="status">{t('正在读取会话…')}</p>}
+          {loading && !entries.length && <LoadingPlaceholder conversation />}
           <ActivityStages entries={entries} activeTurn={active?.upstreamTurnId || activeTurn}>
             {(entry) => {
               const user = entry.item?.type === 'userMessage' || entry.item?.role === 'user';

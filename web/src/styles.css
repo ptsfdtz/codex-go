@@ -831,6 +831,26 @@ small,
   white-space: nowrap;
   max-width: 390px;
 }
+.tool-record:has(.tool-state) > summary > span:first-of-type {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-state {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tool-record[data-tool-state='failed'] > summary .tool-state {
+  color: var(--warning);
+}
+.tool-call-details section {
+  margin-block: 12px;
+}
+.tool-call-details strong {
+  font-size: 12px;
+  color: var(--text);
+}
 .tool-body {
   border-left: 1px solid var(--border);
   margin: 8px 0 12px 7px;
@@ -1049,6 +1069,7 @@ small,
   padding: 12px 12px 9px;
   box-shadow: 0 2px 6px #00000003;
 }
+
 .composer.is-expanded {
   --composer-border-color: var(--border);
 }

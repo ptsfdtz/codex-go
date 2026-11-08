@@ -63,6 +63,8 @@ PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs pnpm 
 
 ## 功能定向回归
 
+加载占位与工具调用展示：`node --test scripts/web/test-tool-presentation.mjs`、`node scripts/web/test-loading-tools-browser.mjs`。浏览器脚本复用 Playwright 环境与 `COMPOSER_TEST_ORIGIN`（默认 1542），使用真实组件及受控记录覆盖加载/空态、Skill/插件/MCP/动态工具进度、结果与失败；证据在 `artifacts/loading-tools/`，不执行真实工具。
+
 | 功能                   | 检查入口                                                                                                                             |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | 参考设计整页与模式切换 | `pnpm test:reference-design-browser`，复用 `COMPOSER_TEST_ORIGIN`（默认 1430）与 Playwright；证据在 `artifacts/reference-design/`    |

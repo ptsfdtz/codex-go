@@ -19,7 +19,11 @@ import {
   ChevronRight,
   Users,
   Minimize2,
+  BookOpen,
+  Puzzle,
 } from 'lucide-react';
+import { toolPresentation } from './features/activity/tool-presentation';
+import { ToolCallDetails } from './features/activity/ToolCallDetails';
 import { type MessageImageSource } from './features/message-images/MessageImage';
 import { DiffText } from './features/DiffText';
 import { displayCommand } from './features/command-display';
@@ -348,41 +352,48 @@ function ToolContent({
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState(false);
   const type = String(item.type || '');
+  const info = toolPresentation(item);
+  const call = ['mcpToolCall', 'dynamicToolCall'].includes(type);
   const rawCommand = String(item.command || '');
   const command = type === 'commandExecution' ? displayCommand(rawCommand) : '';
   const Icon =
-    (
-      {
-        commandExecution: Terminal,
-        fileChange: FileDiff,
-        webSearch: Globe,
-        mcpToolCall: Wrench,
-        imageView: Image,
-        imageGeneration: Image,
-        collabAgentToolCall: Users,
-        contextCompaction: Minimize2,
-      } as Record<string, typeof Terminal>
-    )[type] || Wrench;
-  const label =
-    (
-      {
-        commandExecution: t('Ran command'),
-        fileChange: t('Edited files'),
-        webSearch: t('Searched the web'),
-        mcpToolCall: t('tool.used', {
-          server: item.server || t('tool.fallback'),
-          tool: item.tool ? ` · ${item.tool}` : '',
-        }),
-        imageView: t('Viewed image'),
-        imageGeneration: t('Generated image'),
-        collabAgentToolCall: t('Agent activity'),
-        contextCompaction: t('Compacted context'),
-      } as Record<string, string>
-    )[type] ||
-    type ||
-    t('Activity');
+    info.kind === 'skill'
+      ? BookOpen
+      : info.kind === 'plugin'
+        ? Puzzle
+        : (
+            {
+              commandExecution: Terminal,
+              fileChange: FileDiff,
+              webSearch: Globe,
+              mcpToolCall: Wrench,
+              imageView: Image,
+              imageGeneration: Image,
+              collabAgentToolCall: Users,
+              contextCompaction: Minimize2,
+            } as Record<string, typeof Terminal>
+          )[type] || Wrench;
+  const label = info.kind
+    ? `${info.kind === 'skill' ? t('读取技能') : info.kind === 'plugin' ? t('插件调用') : info.kind === 'mcp' ? t('MCP 调用') : t('工具调用')} · ${info.name}`
+    : (
+        {
+          commandExecution: t('Ran command'),
+          fileChange: t('Edited files'),
+          webSearch: t('Searched the web'),
+          mcpToolCall: t('tool.used', {
+            server: item.server || t('tool.fallback'),
+            tool: item.tool ? ` · ${item.tool}` : '',
+          }),
+          imageView: t('Viewed image'),
+          imageGeneration: t('Generated image'),
+          collabAgentToolCall: t('Agent activity'),
+          contextCompaction: t('Compacted context'),
+        } as Record<string, string>
+      )[type] ||
+      type ||
+      t('Activity');
   const preview =
-    type === 'commandExecution'
+    type === 'commandExecution' && info.kind !== 'skill'
       ? command.replace(/\s+/g, ' ')
       : type === 'webSearch'
         ? String(item.query || '')
@@ -390,10 +401,15 @@ function ToolContent({
   const changes = Array.isArray(item.changes)
     ? (item.changes as { path?: string; kind?: unknown; diff?: string }[])
     : [];
-  const text = type === 'commandExecution' ? body : body || JSON.stringify(item, null, 2);
+  const text = call
+    ? ''
+    : type === 'commandExecution'
+      ? body
+      : body || JSON.stringify(item, null, 2);
   return (
     <details
       className="tool-record"
+      data-tool-state={info.status}
       onToggle={(event) => {
         if (event.target === event.currentTarget) setOpen(event.currentTarget.open);
       }}
@@ -404,82 +420,84 @@ function ToolContent({
           {label}
           {preview && <span className="tool-preview">{preview}</span>}
         </span>
-        {item.status === 'inProgress' && <span className="activity-dot" />}
+        {info.kind && (
+          <span className="tool-state">
+            {info.status === 'running'
+              ? t('执行中')
+              : info.status === 'failed'
+                ? t('调用失败')
+                : info.status === 'completed'
+                  ? t('已完成')
+                  : t('状态未知')}
+          </span>
+        )}
+        {info.status === 'running' && <span className="activity-dot" />}
         <ChevronRight size={14} />
       </summary>
-      <div className="tool-body">
-        {open && children}
-        {type === 'commandExecution' && (
-          <>
-            <pre className="command">{command}</pre>
-            <div className="tool-meta">
-              {typeof item.cwd === 'string' && <span>{item.cwd}</span>}
-              {item.exitCode !== undefined && item.exitCode !== null && (
-                <span>
-                  {t('Exit ')}
-                  {String(item.exitCode)}
-                </span>
-              )}
-              {item.durationMs !== undefined && (
-                <span>
-                  {String(item.durationMs)} {t(' ms')}
-                </span>
-              )}
-              {item.processId !== undefined && (
-                <span>
-                  {t('Process ')}
-                  {String(item.processId)}
-                </span>
-              )}
-            </div>
-          </>
-        )}
-        {type === 'fileChange' && changes.length ? (
-          changes.map((change, index) => (
-            <div key={index}>
-              <strong>{change.path}</strong>
-              {onFile && change.path && (
-                <button className="text-button" onClick={() => onFile(change.path!)}>
-                  {t('Preview current file')}
-                </button>
-              )}
-              {change.diff && <DiffText text={change.diff} />}
-            </div>
-          ))
-        ) : text ? (
-          <pre>{full ? text : text.slice(0, 16000)}</pre>
-        ) : null}
-        {onAgent &&
-          [
-            ...new Set(
-              [
-                item.agentThreadId,
-                ...(Array.isArray(item.receiverThreadIds) ? item.receiverThreadIds : []),
-              ].filter((id): id is string => typeof id === 'string'),
-            ),
-          ].map((id) => (
-            <button key={id} className="text-button" onClick={() => onAgent(id)}>
-              {t('Open agent conversation')}
+      {open && (
+        <div className="tool-body">
+          {open && children}
+          {call && <ToolCallDetails item={item} />}
+          {type === 'commandExecution' && (
+            <>
+              <pre className="command">{command}</pre>
+              <div className="tool-meta">
+                {typeof item.cwd === 'string' && <span>{item.cwd}</span>}
+                {item.exitCode !== undefined && item.exitCode !== null && (
+                  <span>
+                    {t('Exit ')}
+                    {String(item.exitCode)}
+                  </span>
+                )}
+                {item.durationMs !== undefined && (
+                  <span>
+                    {String(item.durationMs)} {t(' ms')}
+                  </span>
+                )}
+                {item.processId !== undefined && (
+                  <span>
+                    {t('Process ')}
+                    {String(item.processId)}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+          {type === 'fileChange' && changes.length ? (
+            changes.map((change, index) => (
+              <div key={index}>
+                <strong>{change.path}</strong>
+                {onFile && change.path && (
+                  <button className="text-button" onClick={() => onFile(change.path!)}>
+                    {t('Preview current file')}
+                  </button>
+                )}
+                {change.diff && <DiffText text={change.diff} />}
+              </div>
+            ))
+          ) : !call && text ? (
+            <pre>{full ? text : text.slice(0, 16000)}</pre>
+          ) : null}
+          {onAgent &&
+            [
+              ...new Set(
+                [
+                  item.agentThreadId,
+                  ...(Array.isArray(item.receiverThreadIds) ? item.receiverThreadIds : []),
+                ].filter((id): id is string => typeof id === 'string'),
+              ),
+            ].map((id) => (
+              <button key={id} className="text-button" onClick={() => onAgent(id)}>
+                {t('Open agent conversation')}
+              </button>
+            ))}
+          {!call && text.length > 16000 && (
+            <button className="text-button" onClick={() => setFull(!full)}>
+              {full ? t('收起') : t('读取完整输出')}
             </button>
-          ))}
-        {text.length > 16000 && (
-          <button className="text-button" onClick={() => setFull(!full)}>
-            {full ? t('收起') : t('读取完整输出')}
-          </button>
-        )}
-        {type === 'mcpToolCall' && (
-          <details className="technical-details">
-            <summary>{t('Arguments and result')}</summary>
-            <pre>
-              {JSON.stringify(
-                { arguments: item.arguments, result: item.result, error: item.error },
-                null,
-                2,
-              )}
-            </pre>
-          </details>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </details>
   );
 }

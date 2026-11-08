@@ -1141,5 +1141,18 @@
   "已运行 {{p0}} 条命令": "Ran {{p0}} commands",
   "已修改 {{p0}} 个文件": "Modified {{p0}} files",
   "方案模式": "Plan mode",
-  "追求目标": "Pursue a goal"
+  "追求目标": "Pursue a goal",
+  "读取技能": "Read skill",
+  "插件调用": "Plugin call",
+  "MCP 调用": "MCP call",
+  "调用进度": "Progress",
+  "调用结果": "Result",
+  "结构化结果": "Structured result",
+  "调用失败": "Failed",
+  "调用参数": "Arguments",
+  "等待工具返回结果…": "Waiting for tool results…",
+  "没有可显示的返回内容": "No displayable result",
+  "工具返回了 {{p0}} 个媒体内容": "The tool returned {{p0}} media items",
+  "已完成": "Completed",
+  "状态未知": "Status unknown"
 }

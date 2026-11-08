@@ -65,6 +65,7 @@ import type {
 } from './workspace';
 import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
+import { LoadingPlaceholder } from './features/LoadingPlaceholder';
 import { useTaskAttention } from './features/notifications/use-task-attention';
 import './features/notifications/task-attention.css';
 import { messageQuestions, confirmedAnswers } from './features/question-replies';
@@ -1545,6 +1546,11 @@ function CodexApp({
         sessions={snapshot.sessions || []}
         unread={attention.unread}
         connected={connected}
+        loading={
+          !!host &&
+          !snapshot.sessions &&
+          (busy || ['connecting', 'retrying', 'syncing'].includes(connectionState))
+        }
         projects={projects}
         chatAvailable={connected && supports('projectlessChat')}
         onChat={() => {
@@ -2121,35 +2127,38 @@ function CodexApp({
                   }}
                 </ActivityStages>
               )}
-              {!renderedHistory.length && !historyFailure && (
+              {!renderedHistory.length &&
+                !historyFailure &&
+                session &&
+                !historyReady &&
+                (connected ||
+                  busy ||
+                  ['connecting', 'retrying', 'syncing'].includes(connectionState)) && (
+                  <LoadingPlaceholder conversation />
+                )}
+              {!renderedHistory.length && !historyFailure && !(session && !historyReady) && (
                 <div className="empty">
-                  {session && !historyReady ? (
-                    <p>{t('正在读取会话历史…')}</p>
-                  ) : (
-                    <>
-                      <div
-                        className="empty-symbol"
-                        aria-hidden="true"
-                        style={{
-                          maskImage: `url("${agentDeckMark}")`,
-                          WebkitMaskImage: `url("${agentDeckMark}")`,
-                        }}
-                      />
-                      <h1>{chat ? t('聊点什么？') : t('What can we build?')}</h1>
-                      <p>
-                        {connected
-                          ? chat
-                            ? t('无需选择项目，直接开始对话。')
-                            : t('选择项目，开始一段 Codex 对话。')
-                          : t('连接你的电脑，随时继续工作。')}
-                      </p>
-                      {!connected && (
-                        <button onClick={() => openPanel('computers')}>
-                          <Computer size={17} />
-                          {t('连接电脑')}
-                        </button>
-                      )}
-                    </>
+                  <div
+                    className="empty-symbol"
+                    aria-hidden="true"
+                    style={{
+                      maskImage: `url("${agentDeckMark}")`,
+                      WebkitMaskImage: `url("${agentDeckMark}")`,
+                    }}
+                  />
+                  <h1>{chat ? t('聊点什么？') : t('What can we build?')}</h1>
+                  <p>
+                    {connected
+                      ? chat
+                        ? t('无需选择项目，直接开始对话。')
+                        : t('选择项目，开始一段 Codex 对话。')
+                      : t('连接你的电脑，随时继续工作。')}
+                  </p>
+                  {!connected && (
+                    <button onClick={() => openPanel('computers')}>
+                      <Computer size={17} />
+                      {t('连接电脑')}
+                    </button>
                   )}
                 </div>
               )}

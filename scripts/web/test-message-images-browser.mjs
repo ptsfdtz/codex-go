@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = fileURLToPath(new URL('../../artifacts/message-images/', import.meta.url));
 await mkdir(out, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+});
 try {
   const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1100, height: 800 } });
   page.setDefaultTimeout(6000);

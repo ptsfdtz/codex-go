@@ -10,6 +10,16 @@
 
 本次发布目录为 `/opt/agentdeck/releases/web-bbf892440488-20261107T194309Z/web`。回退入口为 `/var/backups/agentdeck/web-only-20261107T194309Z/previous-web.txt`，指向上一版 `/opt/agentdeck/releases/web-87a04d0cf3d9-20261107T102129Z/web`。授权、清单及结果见 `artifacts/web-release-20261108/`。下文各批次验收是历史记录，以本节为当前部署状态。
 
+## 加载占位与工具调用展示（2026-11-08，源码，未部署）
+
+初次连接/同步且尚无快照时，项目及最近会话列表显示骨架占位，取得空快照后才显示“暂无”；已有列表在刷新时保留。主会话和侧边会话初次读取历史时显示消息骨架，失败后保留既有错误与重试入口。占位为静态无交互元素，带加载状态说明，不播放重复动效或伪造消息。
+
+按用户澄清，本批补齐聊天过程展示，不增加插件安装、管理或手动执行 API。原生 `commandActions` 明确读取 `SKILL.md` 时标记技能名称；MCP 根据 `appContext` / `pluginId` 区分插件，动态工具显示 namespace/tool。折叠摘要显示调用名称及失败/运行状态，展开后分别展示进度、文字结果、结构化结果、错误、耗时和调用参数；长输出按需展开，未知状态不推断成功，媒体块只提示数量，不自动请求外部图片或执行工具返回内容。Host 协议、授权及发送语义未改。
+
+本批 3 项工具解析单元、加载/工具受控浏览器检查、长历史专项和修改文件定向 ESLint 通过；覆盖 320/390/1100px 深浅主题，结果与截图见 `artifacts/loading-tools/verification.json`。长历史仍为跟随更新旧行读取 0、补页锚点漂移 0、500 条折叠工具按需挂载。整合后的 Web 类型、ESLint 与 1165 项双语检查已通过。没有调用真实插件、MCP 或模型，未做实体手机/Safari验收，未部署。
+
+随后 Web 类型检查及生产构建通过；并行修改产生的两项双语检查问题已修复并通过复核。图片回归脚本补齐已有 Chromium 路径覆盖后通过，验证历史附件预览、图片授权/哈希、失败重试、外部图片不自动读取及上下文切换清理；首次因缺少默认 headless-shell 启动失败不计为产品验证。
+
 ## 动效恢复与切换反馈（2026-11-08，源码，未部署）
 
 进一步参考 [Ionic iOS 页面转场](https://github.com/ionic-team/ionic-framework/blob/main/core/src/utils/transition/ios.transition.ts)、[Ionic 弹层](https://github.com/ionic-team/ionic-framework/blob/main/core/src/components/modal/animations/ios.enter.ts)、[Vaul 抽屉](https://github.com/emilkowalski/vaul/blob/main/src/style.css)及 [Motion 布局动画](https://motion.dev/docs/layout-animations)，沿用 CSS/WAAPI 实现，不新增动画依赖。手机设置以 280ms 从底部整页进入/退出，桌面弹窗从 0.94 倍轻缩放进入；原生 dialog、焦点恢复及退出 inert 保持。Presence 默认保留时间同步为 280ms，避免离场被提前卸载。手机页面推进时底层列表移动三分之一宽度并轻微变暗；设置分类选中块可连续改向滑动，内容按分类方向短距离淡入，键盘即时切换，减少动态效果取消移动。此为 iOS 风格过渡，不包含交互式手势返回或拖拽弹层。
