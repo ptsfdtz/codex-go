@@ -25,7 +25,7 @@ agentdeck projects add /绝对路径/项目
 agentdeck start
 ```
 
-当前稳定版为 [0.4.3](https://github.com/ptsfdtz/codex-go/releases/tag/v0.4.3)。首次启动自动下载并校验固定的官方 Codex 运行时；需要认证时执行 `agentdeck codex-login`，AgentDeck 登录与 Codex/OpenAI 认证相互独立。Windows 可通过安装器创建的“Codex shared”入口或 `agentdeck desktop` 打开共享桌面，CLI 使用 `agentdeck codex`。Windows 桌面↔Web 续聊已有用户实测；0.4.3 已完成 Linux x64/ARM64 真实验收；Windows/macOS 本次实机验收经用户授权豁免，未测范围见[功能状态与验证](docs/status.md)。macOS Intel 暂不发布。
+当前稳定版为 [0.4.4](https://github.com/ptsfdtz/codex-go/releases/tag/v0.4.4)。首次启动自动下载并校验固定的官方 Codex 运行时；需要认证时执行 `agentdeck codex-login`，AgentDeck 登录与 Codex/OpenAI 认证相互独立。Windows 可通过安装器创建的“Codex shared”入口或 `agentdeck desktop` 打开共享桌面，CLI 使用 `agentdeck codex`。Windows 桌面↔Web 续聊已有用户实测；0.4.4 四平台已构建并校验，本次实机端到端验收经用户授权豁免，未测范围见[功能状态与验证](docs/status.md)。macOS Intel 暂不发布。
 
 安装包不依赖 Node、pnpm、Rust 或 WebView2。安装后在网页选择电脑和项目，打开或新建对话。电脑需保持在线；手机使用浏览器或将站点添加到主屏幕。
 

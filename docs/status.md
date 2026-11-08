@@ -4,19 +4,21 @@
 
 截至 2026-11-08。此处维护当前结论；早期部署和逐轮测试流水查阅 Git 历史。源码已实现、Web 已部署、Host 已安装与真实端到端验收分别记录，不能相互替代。
 
-## 0.4.4 候选与 PR 修复（2026-11-08，尚未正式发布）
+## 0.4.4 正式发布与 PR 修复（2026-11-08）
 
 PR #12 的 Windows 失败来自开发文档与下拉框脚本的 Prettier 检查，已在 `070ecce` 修复；`13ab8db` 独立提交导航执行圆点，`8b037af4c85e131d676c33d502801d9b26033014` 修正手机闪电左侧的旧测试断言。最终提交的 PR pull_request CI 与 Cloud 检查通过，本地 31 项 Web 单元、协议生成物、依赖审计、下拉框及整页参考界面回归通过。
 
 [0.4.4 候选构建](https://github.com/ptsfdtz/codex-go/actions/runs/42448091939) 全部成功，绑定上述源码。归档 SHA-256 为 `892322dc492cea7adf4e3513f1f290e131859901e3d32f081bd333fc590ad10d`，完整候选验证通过；Web 版本 `58e0a32c2073d1ca51d967276f0c39e88b2062e199cfcd167c8cc162084f429c`。四平台 Host 包已上传候选下载路径，公开校验文件与清单一致，本机候选 CLI 报告 0.4.4。证据与归档在 `artifacts/release-0.4.4/`。
 
-尚未完成本批 Windows x64、Linux x64/ARM64、macOS ARM64 真实端到端验收。用户已明确授权“豁免 合并到main分支并且发布0.4.4”，授权记录在 `scripts/release/waivers/0.4.4.json`。未将 CI 或 CLI 版本检查记作实机通过；未切换生产 Web、云端或 Host 稳定指针，稳定版本仍为 0.4.3。
+本批 Windows x64、Linux x64/ARM64、macOS ARM64 真实端到端验收未完成，用户明确授权“豁免 合并到main分支并且发布0.4.4”，授权记录在 `scripts/release/waivers/0.4.4.json`。未将 CI 或 CLI 版本检查记作实机通过。
+
+PR #12 已合并 main（`12fcb7e`）。[正式发布流程](https://github.com/ptsfdtz/codex-go/actions/runs/42450560521) 全部成功，原样晋升候选；[v0.4.4](https://github.com/ptsfdtz/codex-go/releases/tag/v0.4.4) 已正式发布，四平台 Host 稳定更新指针为 0.4.4。发布授权边界的 32 项 Python 检查通过。
 
 ## 当前生产 Web（2026-11-08）
 
-Web/PWA 已部署提交 `ce6ccc0fe8b5e002a9e49b755269874fbc492703`，包含加载占位、工具调用展示、输入联想、任务横幅和模型选择改动。公网版本为 `e655ab0711c3a527c92746cdb4f0bf844d0de4e4075ddcfe3762ca3d72d57ca9`。按本次授权豁免测试。生产部署完成数据库与配置备份、原子切换及健康检查，公网核验通过 135 个构建文件和 560 个保留资源，版本清单为 no-store。
+生产 Web/PWA、云端及备用 Pages 已部署上述同批候选。生产 Web 版本为 `58e0a32c2073d1ca51d967276f0c39e88b2062e199cfcd167c8cc162084f429c`，源码为 `8b037af4c85e131d676c33d502801d9b26033014`。部署完成生产备份、健康检查、Web/Pages 全文件及四平台下载校验，最后开放稳定更新；公网版本与 stable.txt 已再次核对。
 
-发布目录为 `/opt/agentdeck/releases/web-e655ab0711c3-20261108T025058Z/web`。两次部署的构建文件哈希完全一致，最终部署记录绑定到上述提交。恢复到本批之前的版本使用 `/var/backups/agentdeck/web-only-20261108T024929Z/previous-web.txt`。最终授权、清单及报告见 `artifacts/web-deploy-20261108T025045Z/`。下文的测试记录属于各开发批次。
+发布目录为 `/opt/agentdeck/releases/0.4.4`，回退信息位于 `/var/backups/agentdeck/publish-0.4.4-20261108T052336Z/`，包含 previous-web.txt 和 previous-cloud.txt。发布不代表现有电脑 Host 已自动重启升级；本机此前安装的 0.4.3 状态与本批未测范围分开记录。下文开发检查属于对应开发批次，不作为本批实机验收。
 
 输入区的计划、目标和技能标签在源码中统一为紧凑胶囊样式，使用相同的底色、图标颜色及关闭区尺寸。长名称单行省略。Web 类型检查和输入联想浏览器回归通过。
 
