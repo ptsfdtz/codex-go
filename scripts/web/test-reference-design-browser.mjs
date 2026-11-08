@@ -725,7 +725,7 @@ try {
         const shortcut = model.locator('.model-picker-heading > .model-fast-toggle');
         const headingBox = await heading.boundingBox();
         const shortcutBox = await shortcut.boundingBox();
-        assert(shortcutBox && shortcutBox.x >= headingBox.x + headingBox.width - 1);
+        assert(shortcutBox && shortcutBox.x + shortcutBox.width <= headingBox.x + 1);
         const pressed = await shortcut.getAttribute('aria-pressed');
         await shortcut.click();
         assert.equal(await shortcut.getAttribute('aria-pressed'), String(pressed !== 'true'));

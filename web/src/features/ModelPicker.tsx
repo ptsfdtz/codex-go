@@ -1,7 +1,7 @@
 import { positionPopover, useMenuPopover } from '../components/popover';
 import { t, useLocale } from '../i18n';
 import { useId, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, RotateCcw, Zap } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Zap } from 'lucide-react';
 import type { Draft, Model } from '../workspace';
 import { resolveComposerModelPreferences } from './composer-preferences';
 import { Collapse } from '../motion';
@@ -52,7 +52,6 @@ export function ModelPicker({
   models,
   disabled,
   onChange,
-  allowDefault = true,
   allowResponseSpeed = false,
   onOpenChange,
 }: {
@@ -60,7 +59,6 @@ export function ModelPicker({
   models: Model[];
   disabled: boolean;
   onChange: (change: Partial<Draft>) => void;
-  allowDefault?: boolean;
   allowResponseSpeed?: boolean;
   onOpenChange?: (open: boolean, panel: HTMLDivElement) => void;
 }) {
@@ -182,72 +180,23 @@ export function ModelPicker({
           </div>
           <Collapse open={modelExpanded}>
             <div className="model-picker-models" role="group" aria-label={t('模型')}>
-              {allowDefault && (
-                <button
-                  type="button"
-                  className={`model-picker-option ${!draft.model ? 'selected' : ''}`}
-                  aria-pressed={!draft.model}
-                  disabled={disabled}
-                  onClick={() => choose('')}
-                >
-                  <span>{t('跟随电脑默认模型')}</span>
-                  {!draft.model && <Check size={18} />}
-                </button>
-              )}
               {models.map((m) => {
                 const value = m.model || m.id;
+                const selected = model === m;
                 return value ? (
                   <button
                     type="button"
                     key={value}
-                    className={`model-picker-option ${draft.model === value ? 'selected' : ''}`}
-                    aria-pressed={draft.model === value}
+                    className={`model-picker-option ${selected ? 'selected' : ''}`}
+                    aria-pressed={selected}
                     disabled={disabled}
                     onClick={() => choose(value)}
                   >
                     <span>{modelLabel(m)}</span>
-                    {draft.model === value && <Check size={18} />}
+                    {selected && <Check size={18} />}
                   </button>
                 ) : null;
               })}
-              <button
-                type="button"
-                className="model-picker-option model-picker-reset"
-                disabled={disabled || !draft.effort}
-                onClick={() => onChange({ effort: '' })}
-              >
-                <span>{t('重置思维强度')}</span>
-                <RotateCcw size={17} aria-hidden="true" />
-              </button>
-              {showSpeed && (
-                <div className="model-speed" role="group" aria-label={t('响应速度')}>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={draft.responseSpeed === undefined}
-                    onClick={() => onChange({ responseSpeed: undefined })}
-                  >
-                    {t('跟随会话')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={draft.responseSpeed === 'default'}
-                    onClick={() => onChange({ responseSpeed: 'default' })}
-                  >
-                    {t('标准模式')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    aria-pressed={fast}
-                    onClick={enableFast}
-                  >
-                    <Zap size={14} aria-hidden="true" />
-                    {t('快速模式')}
-                  </button>
-                </div>
-              )}
             </div>
           </Collapse>
 

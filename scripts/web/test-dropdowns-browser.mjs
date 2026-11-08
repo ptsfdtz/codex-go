@@ -334,11 +334,13 @@ try {
   const speed = page.getByRole('group', { name: '响应速度' });
   assert.equal(await speed.count(), 0);
   await page.locator('.model-picker-model-toggle').click();
-  for (const name of ['标准模式', '快速模式', '跟随会话']) {
-    const button = speed.getByRole('button', { name, exact: true });
-    await button.click();
-    assert.equal(await button.getAttribute('aria-pressed'), 'true');
-  }
+  assert.equal(await speed.count(), 0);
+  assert.equal(await page.getByRole('button', { name: '跟随电脑默认模型', exact: true }).count(), 0);
+  const fast = page.locator('.model-fast-toggle');
+  await fast.click();
+  assert.equal(await fast.getAttribute('aria-pressed'), 'true');
+  await fast.click();
+  assert.equal(await fast.getAttribute('aria-pressed'), 'false');
   const models = page.getByRole('group', { name: '模型', exact: true });
   await models.getByRole('button', { name: 'Model B', exact: true }).click();
   assert.equal(await modelTrigger.innerText(), 'Model B');
@@ -352,7 +354,7 @@ try {
   assert(await models.getByRole('button', { name: 'Model A', exact: true }).isVisible());
   await page.keyboard.press('Escape');
   checks.push(
-    'model choices and response speeds stay accessible in the expanded list and update the controlled draft',
+    'expanded list contains only models; heading lightning toggles speed and model choices update the draft',
   );
   // Anchored button menus use one keyboard contract and expose open state.
   for (const [name, selector] of [['切换工作模式', '.mode-menu']]) {

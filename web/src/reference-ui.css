@@ -269,34 +269,6 @@
   color: var(--muted);
   min-height: 24px;
 }
-.model-speed {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 2px;
-  border-top: 1px solid var(--border);
-  padding-top: 4px;
-}
-.model-speed > button {
-  justify-content: center;
-  gap: 4px;
-  min-height: 44px;
-  padding: 4px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.15;
-  text-align: center;
-}
-.model-speed > button[aria-pressed='true'] {
-  color: var(--text);
-  background: var(--hover);
-}
-.model-speed > button[aria-pressed='true'] > svg {
-  color: var(--accent);
-  fill: currentColor;
-}
 .shell .composer-status {
   display: flex;
   align-items: center;
@@ -810,16 +782,25 @@
 }
 .model-picker-heading > .model-picker-model-toggle {
   grid-column: 2;
+  grid-row: 1;
   min-width: 0;
 }
 .model-picker-heading > .model-fast-toggle {
-  grid-column: 3;
-  justify-self: start;
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
   align-self: start;
   width: 44px;
   height: 44px;
   min-height: 44px;
   padding: 0 0 12px;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+.model-picker-heading > .model-fast-toggle:hover,
+.model-picker-heading > .model-fast-toggle:active,
+.model-picker-heading > .model-fast-toggle[aria-pressed='true'] {
+  background: transparent;
 }
 .model-picker-heading > .model-fast-toggle[aria-pressed='true'] {
   color: var(--accent);
@@ -829,10 +810,6 @@
   padding: 6px;
   border-radius: 20px;
   background: var(--soft);
-}
-.model-picker-popup .model-picker-reset {
-  display: flex;
-  color: var(--muted);
 }
 .model-picker-popup .effort-slider {
   --effort-inset: 32px;

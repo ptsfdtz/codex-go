@@ -284,7 +284,8 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '新对话', exact: true }).click();
   await picker.click();
-  await page.getByRole('button', { name: '重置思维强度', exact: true }).click();
+  await page.locator('.model-picker-model-toggle').click();
+  await page.getByRole('button', { name: 'model-b · 我的接口', exact: true }).click();
   await page.keyboard.press('Escape');
   await editor.fill('第二个对话');
   await editor.press('Enter');
