@@ -4,19 +4,9 @@
 
 以下命令均从仓库根目录执行。单次上线授权或验收豁免仅适用于用户明确授权的当次范围，不作为后续发布依据。
 
-## 0.4.2 单次授权入口
+## 历史单次发布授权
 
-2026-10-30 用户明确授权“本次豁免，正式发布 0.4.2”，范围记录在 `scripts/release/waivers/0.4.2.json`。`.github/workflows/publish-0.4.2.yml` 仅从 `release` 分支晋升固定哈希的原始候选，部署和下载发布脚本通过 `waiver_042.py` 校验身份与完整性；未测项目不生成通过报告。生产备份、健康、全量公开资源校验和禁止降级仍执行。此入口不能接受其他版本或重封候选，默认发布工作流和下述全平台门槛继续适用于后续发布。
-
-## 0.4.3 单次 Windows/macOS 豁免入口
-
-2026-11-01 用户授权“windows和macos目前无法验证 你先豁免”。范围仅为本次精确 `candidate-0.4.3` 的 Windows x64、macOS ARM64 实机端到端验收；这两平台仍记为未测。授权及候选哈希保存在 `scripts/release/waivers/0.4.3.json`，入口为 `.github/workflows/publish-0.4.3.yml`，不沿用 0.4.2 授权。
-
-`waiver_043.py` 先核对固定源码、候选清单、原始校验器与豁免记录，再执行原始候选完整性校验，并要求 Linux x64/ARM64 的六项真实验收、官方运行时及脱敏证据哈希全部有效。工作流固定候选及实测证据归档哈希，只晋升已合并 main 的原始产物；生产备份、禁止降级、服务健康、全部 Web/下载资源校验及 VPS→Pages→稳定指针的顺序保持。默认四平台 `gate.py` 和通用发布流程未放宽，后续版本不能使用此入口。
-
-## 0.4.4 单次授权入口
-
-2026-11-08 用户明确授权“豁免 合并到main分支并且发布0.4.4”。`scripts/release/waivers/0.4.4.json` 记录四平台本批实机端到端验收豁免，未测项目保持未测。`publish-0.4.4.yml` 与 `waiver_044.py` 仅接受固定源码、归档、清单和授权哈希的原始候选，源码须已合并 main；保留生产备份、禁止降级、服务健康及 Web/下载全文件校验，依次部署 VPS、Pages、稳定更新和正式 Release。通用门槛不变。
+0.4.2、0.4.3、0.4.4 均已发布，对应的一次性入口已移除。后续版本走下述候选、实机验收及正式晋升流程。历史资料见[授权记录与校验器](https://github.com/ptsfdtz/codex-go/tree/ce22c2a27a828fa038cfbcd2e26c2cf1562fb17e/scripts/release)和[发布工作流](https://github.com/ptsfdtz/codex-go/tree/ce22c2a27a828fa038cfbcd2e26c2cf1562fb17e/.github/workflows)。
 
 ## 下载发布与 VPS
 
@@ -28,7 +18,7 @@ SSH 私钥、服务器登录密码、数据库连接串、反向代理密钥和 
 
 云端 HTTP 只应由受控反向代理访问，PostgreSQL 只在本机或隔离容器网络开放；当前数据库驱动使用 NoTls，不应用于未加密的公网数据库连接。代理覆盖客户端传入的 `X-Forwarded-For` 和 `X-AgentDeck-Proxy-Token`，后者与云端 `AGENTDECK_PROXY_TOKEN` 使用同一随机值；不匹配时云端只按连接对端限流。示例 `replace-with-*` 值不能用于真实密钥。Nginx 不记录 Cookie、Authorization、隧道票据、请求体或带秘密的环境值。SSH 应在确认密钥登录与恢复入口可用后关闭密码登录并限制运维账户；不要在没有备用入口时直接修改线上 SSH 策略。
 
-Docker 构建通过显式 COPY 只引入 Rust 源码、清单和管理页；`.dockerignore` 排除环境配置、私钥、备份和本机目录。Compose 的 cloud 容器以非 root 用户运行，文件系统只读、移除 capabilities、禁止新增权限。生产 systemd 不是 Compose，此配置不代表线上服务已加固；部署前仍须实际核对服务账户、SSH、文件权限、端口和代理配置。
+Docker 的构建阶段显式复制 Rust 源码、清单、管理页和共用语言模块，使用 Node 生成管理页语言响应。最终镜像只安装云端服务及其系统运行依赖。`.dockerignore` 排除环境配置、私钥、备份和本机目录。Compose 的 cloud 容器以非 root 用户运行，文件系统只读、移除 capabilities、禁止新增权限。生产 systemd 不是 Compose，此配置不代表线上服务已加固；部署前仍须实际核对服务账户、SSH、文件权限、端口和代理配置。
 
 云端 API 新增每进程最多 128 个处理中的 HTTP 请求、每 IP 突发 240/每秒恢复 60 的 API 限流、三个刷新入口共享每 IP 突发 30/每秒恢复 0.5 的限流；可信代理认证后才采用转发 IP。请求体在进入业务处理前限制为 16 KiB/10 秒，数据库连接获取/建立/回收各限 5 秒，Host 控制连接按设备限制重连频率。进入业务后的写操作不被统一超时取消。上述限制不替代反向代理的请求头、连接数和网络攻击防护。
 
@@ -50,7 +40,7 @@ Docker 构建通过显式 COPY 只引入 Rust 源码、清单和管理页；`.do
 | 重启与恢复       | 空闲重启后自动重连、身份与历史保持；实际断线重连后核对任务结果，不丢审批、不重复发送未知结果任务       |
 | 本次改动         | 在各平台真实链路中验证变更功能及相关旧客户端兼容；涉及更新时验证下载安装、空闲切换、就绪判定与失败恢复 |
 
-发布自动化（0.4.3 单次授权入口已在线执行）：推送代码只运行检查，不再自动发布或部署 Pages。在 GitHub Actions 的 **Prepare candidate** 选择 `release` 分支，填写公开版本号 `X.Y.Z` 和更新说明；构建 Windows/Linux/macOS Host、正式 Web、Pages 与云端，生成绑定提交及全部文件 SHA-256 的 `candidate.json`，保存为 `candidate-X.Y.Z` 预发布。随后只上传不可变候选下载文件，不切换生产 Web、云端或稳定指针，供实测机验证真正的下载安装。正式流程 **Promote tested release** 仅下载这批产物，强制验证 Windows x64、Linux x64/ARM64、macOS arm64 的实测记录，备份并部署 VPS、核对健康和公开文件、部署 Pages，最后开放稳定更新并生成 `vX.Y.Z` 正式 Release。构建、证据验证、VPS、Pages 任一步失败都不进入后续步骤；VPS/Pages 跨服务并非原子事务，部署部分成功时需核对 Actions 及备份后重试，不能宣称全部发布完成。下载发布脚本本身也强制验收门槛，缺少证据不得手动推进稳定指针；正式晋升拒绝用较低版本覆盖现有稳定版。
+推送代码只运行检查，不再自动发布或部署 Pages。在 GitHub Actions 的 **Prepare candidate** 选择 `release` 分支，填写公开版本号 `X.Y.Z` 和更新说明；构建 Windows/Linux/macOS Host、正式 Web、Pages 与云端，生成绑定提交及全部文件 SHA-256 的 `candidate.json`，保存为 `candidate-X.Y.Z` 预发布。随后只上传不可变候选下载文件，不切换生产 Web、云端或稳定指针，供实测机验证真正的下载安装。正式流程 **Promote tested release** 仅下载这批产物，强制验证 Windows x64、Linux x64/ARM64、macOS arm64 的实测记录，备份并部署 VPS、核对健康和公开文件、部署 Pages，最后开放稳定更新并生成 `vX.Y.Z` 正式 Release。构建、证据验证、VPS、Pages 任一步失败都不进入后续步骤；VPS/Pages 跨服务并非原子事务，部署部分成功时需核对 Actions 及备份后重试，不能宣称全部发布完成。下载发布脚本本身也强制验收门槛，缺少证据不得手动推进稳定指针；正式晋升拒绝用较低版本覆盖现有稳定版。
 
 候选版下载并解包后，用 Python ≥3.11 生成实测记录模板；模板所有检查默认为未通过，不生成模拟通过记录：
 
@@ -80,10 +70,21 @@ gh release upload candidate-X.Y.Z e2e-evidence.tar.gz
 
 正式 Web：[agent.ptsfdtz.top](https://agent.ptsfdtz.top/)，管理端 [/admin](https://agent.ptsfdtz.top/admin)。生产使用现有 Nginx、Rust/systemd 和 PostgreSQL 17，Cloudflare 仅做 DNS。云端账户 schema v3 支持电脑证书/地址登记、会话绑定的短期凭据、撤销和刷新轮换；VPS 继续只转发加密业务字节。
 
+### 配置可选的移动后台通知
+
+新版云端启动时创建 PostgreSQL v8 订阅表并关联现有登录会话。需要启用 Web Push 时，在云端的 `/etc/agentdeck/cloud.env` 或备用 Compose 的受保护环境文件中提供以下两项。私钥为空时后台通知关闭，页面内仍能处理审批。
+
+| 变量                           | 值                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| `AGENTDECK_PUSH_VAPID_PRIVATE` | 为该部署生成并持久保存的 P-256 私钥标量，按 32 字节无填充 base64url 编码 |
+| `AGENTDECK_PUSH_CONTACT`       | 推送服务可用来联系运维人员的 `mailto:` 或 `https:` 地址                  |
+
+同一部署的云端实例使用同一密钥。云端使用该密钥签发推送凭据，并派生订阅加密密钥。轮换后用户需在原设备设置中重新开启后台通知。候选环境使用独立密钥与测试设备，检查服务商收到请求、锁屏内容、点击后的 Host 授权和已处理审批的结果。部署时使用现有云端备份和版本切换流程。变量示例见[云端配置模板](../server/deploy/.env.example)。
+
 `pnpm host:package` 在当前平台构建发布包，输出到 `artifacts/host-downloads/`：
 
 ```text
-install.sh / install.ps1 / install-codex.ps1
+install.sh / install.ps1
 releases/stable.txt
 releases/版本号/agentdeck-windows-x64.zip[.sha256]
 releases/版本号/agentdeck-linux-x64.tar.gz[.sha256]
@@ -92,6 +93,10 @@ releases/版本号/agentdeck-macos-arm64.tar.gz[.sha256]
 ```
 
 使用 `AGENTDECK_RELEASE_VERSION` 指定不可变发布目录。CI 构建 Windows x64、Linux x64/ARM64 和 macOS arm64；单独运行打包命令仅生成 Host 包，不满足正式发布准入。完整候选版须包含 Web、云端、安装脚本、版本清单及实测证据；正式流程输出的 `agentdeck-downloads.tar.gz` 包含这些文件，供已通过门槛的部署使用。Linux ARM64 基于 Ubuntu 24.04，x64 基于 Ubuntu 22.04，macOS arm64 使用 GitHub macOS 15 runner；macOS 包未签名/公证。旧独立 Linux workflow 和桌面安装器发布路径已移除。
+
+Host 首次启动会下载并校验官方 Codex 运行时。新版候选只带两个 Host 安装入口。旧候选通过正式晋升门槛时，清单内的 `install-codex.ps1` 仍按原哈希校验并随包保留。VPS 原有同名下载地址继续兼容早期说明。
+
+新版 Shell 安装器兼容含桌面代理和省略代理的两种 Linux 包结构，macOS arm64 包仍须带代理。0.4.2 至 0.4.4 的 Linux 原生更新器使用各自内嵌的安装脚本，直接升级需要包内的代理文件。只要这些客户端仍能直升，标准 Linux 发布包就继续携带代理。
 
 Web 构建自动生成 `version.json`，与资源一同部署并保持该清单不缓存。生产 Nginx 的 Web 根目录指向独立符号链接 `/opt/agentdeck/web-current`，与云端程序入口 `/opt/agentdeck/current` 分开。单独 Web 部署保留旧入口与配置备份，校验公开版本和文件哈希；若需要平滑重载，等待新配置和版本生效后再判断结果，不仅凭 reload 命令返回认定上线成功。
 

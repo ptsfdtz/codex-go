@@ -2,7 +2,7 @@
 
 [项目介绍](../README.md) · [开发入口](../AGENTS.md)
 
-以下面向稳定版 0.4.2；官方运行时、共享入口及尚未完成的验收见[运行时验收](runtime.md)。
+安装步骤面向稳定版，开发版功能单独标注。[当前版本](status.md#当前生产-web2026-11-08) · [运行时验收](runtime.md)
 
 ## 安装与使用
 
@@ -17,19 +17,9 @@ agentdeck start
 agentdeck autostart enable
 ```
 
-```sh
-# Linux x64 / ARM64：只会下载安装已发布的对应架构包
-curl -fsSL https://agent.ptsfdtz.top/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-agentdeck login --username NAME
-agentdeck projects add /绝对路径/项目
-# 首次启动自动下载并校验官方运行时
-agentdeck start
-agentdeck autostart enable
-```
+Linux x64 / ARM64 和 macOS arm64 使用同一安装入口：
 
 ```sh
-# macOS arm64（Apple Silicon）：0.4.2 包已发布，完整实机验收待补
 curl -fsSL https://agent.ptsfdtz.top/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 agentdeck login --username NAME
@@ -38,7 +28,7 @@ agentdeck start
 agentdeck autostart enable
 ```
 
-Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`，Linux 为 `~/.local/share/agentdeck`，macOS 为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如当前终端找不到命令，请新开终端。ZIP/tar.gz 内另有 `start.ps1` / `start.sh`，可直接启动已配置的 Host。安装器和发布包覆盖 Windows x64、Linux x64/ARM64 和 macOS arm64；各平台首次启动自动下载固定官方 Codex 包并校验来源和文件哈希；macOS 用户登录后通过 launchd 自启，包未签名/公证。macOS Intel 暂不发布。四个平台包均已发布；macOS 线上安装、升级和真实模型，以及 ARM64 完整实机链路尚未验收，本次发布按用户授权豁免。
+Windows 安装位置为 `%LOCALAPPDATA%/Programs/AgentDeck`。Linux 和 macOS 的安装位置为 `~/.local/share/agentdeck`，命令入口为 `~/.local/bin`。Windows 安装后如找不到命令，请新开终端。ZIP/tar.gz 内的 `start.ps1` / `start.sh` 可启动已配置的 Host。各平台首次启动自动下载并校验固定官方 Codex 包。macOS arm64 通过 launchd 自启，包未签名或公证。各发行版的实机验收范围见[功能状态](status.md)。
 
 密码在终端隐藏输入，不支持明文 `--password` 参数。临时密码会在登录过程中引导修改并重新登录。登录、项目管理等命令会按需启动本机管理服务；Codex 缺失或配置错误时仍能登录、查看状态和诊断。
 
@@ -78,17 +68,22 @@ Host CLI 使用 `agentdeck --lang zh-CN help` 或 `agentdeck status --lang en` �
 
 如果电脑记录为结果不确定或找不到旧回执，请先检查相关会话、待发送队列和电脑上的实际结果，再勾选“我已核对实际结果，确认可以继续操作”，点击“确认核对并恢复编辑”。确认前网页会再次查询回执并检查电脑状态；仍在处理、查询失败或回执已变化时不能解除保护。该操作只释放浏览器的发送限制，不删除 Host 的防重记录，也不自动重发草稿。侧边对话自身的“上一条发送结果曾不确定”还需在查看实际会话后点击“已核对，继续编辑草稿”。
 
-## 工作区工具栏（源码新增，尚未发布）
+## 工作区工具栏与项目终端
 
-连接电脑后，点击对话顶部的“工具”按钮，打开右侧工具栏。文件、改动、SSH 终端和侧边对话共用同一位置，可切换、拖动分隔线调宽或扩大显示。桌面端保留左侧主对话；手机端切换显示，关闭工具栏返回主对话。
+连接电脑后，从对话顶部“工具”打开文件、改动、项目终端或侧边对话。手机可在工具与主对话间返回。文件和改动支持多标签、文件查找、Git 工作区及分支比较。
 
-“侧边对话”提供独立的项目与会话选择器，可打开已有会话，或直接发送消息新建另一条对话。两边的消息、输入草稿、模型选择与审批按会话处理；切换工具或关闭工具栏保留本页侧边草稿，刷新网页不承诺保留草稿。发生未知发送结果时，先核对实际会话及操作回执，再点击“已核对，继续编辑草稿”，不会自动重发。
+项目终端在当前标签所绑定的已授权项目目录启动电脑本机 shell，以该系统用户权限运行。工具栏提供 Tab、Esc、Ctrl+C、Ctrl+D 和方向键。要在该 shell 使用 SSH，可按电脑自身的 OpenSSH 配置运行命令。收起工具栏会保留终端；关闭终端标签、断开网页连接或撤销设备会结束该终端。旧 Host 会提示升级。
 
-“SSH 终端”需要新版 Host，以及电脑上的 OpenSSH 客户端（`ssh`）。填写主机名、IP 或电脑 SSH 配置中的别名；用户名、端口和私钥路径可选，留空使用电脑上的 SSH 配置。私钥路径必须是电脑上的绝对路径，私钥文件不上传到网页；密码、密钥口令及首次主机指纹确认均在终端中输入。终端提供 Tab、Esc、Ctrl+C、Ctrl+D 和方向键按钮，也可直接使用键盘及粘贴。
+快捷键包括打开改动的 `Ctrl+Shift+G`、打开文件的 `Ctrl+P` 和打开侧边对话的 `Ctrl+Alt+S`。Ctrl 加反引号可打开项目终端。
 
-SSH 从当前电脑访问服务器，不从 VPS 发起。终端只属于当前浏览器连接，不同标签页不能互相读写；切换工具保持 SSH，关闭工具栏、刷新网页、连接断开或撤销设备会结束 SSH。恢复后需手动连接，不自动重发命令；需要持续运行的远程任务可自行使用服务器上的 tmux 等工具。Host 活跃 SSH 终端会阻止空闲更新切换，请先断开终端。旧 Host 显示升级提示。
+## 手机端续接与审查（开发版）
 
-快捷键：`Ctrl+Shift+G` 打开改动，`Ctrl+P` 打开文件，Ctrl 加反引号键打开 SSH，`Ctrl+Alt+S` 打开侧边对话。终端内的键盘输入交给 SSH，不触发主对话查找。
+- 首次使用，在设置的“电脑”页选择电脑操作系统，按指引在开发电脑安装、登录并授权项目。电脑上线后核对 Codex 就绪状态。临时无法确认账户身份时，使用重试或回到前台重新检查。
+- 在常规设置开启本机文字草稿后，主输入框的未发送文字最多保留七天。直接收到发送确认后清除对应版本。响应丢失时先核对回执，恢复界面保留原稿供人工确认。刷新后附件需重新选择。
+- 从手机列表进入“需要我处理”查看各电脑的待办。离线电脑显示状态未知。开启后台任务提醒后，待审批和待回答会显示通用通知；完成提醒可单独开启。iPhone 先添加到主屏幕，再从主屏幕应用内启用。
+- 在会话搜索中输入关键词，点击“搜索消息正文”。新 Host 分批读取已授权消息，支持继续搜索和取消。点结果查看原文。旧 Host 仍支持按会话标题和项目名查找。
+- 在工作区或分支差异中点击增删行旁的加号，填写意见并选择“加入当前草稿”，查看内容后手动发送。分支比较包含对应的提交标识。
+- 新版 Host 单个附件和每条消息合计均为 2 MiB，最多四个。Web 按所连 Host 实际公布的限额处理日志和图片。
 
 ## 后台运行与持久化
 

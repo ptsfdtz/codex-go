@@ -8,7 +8,9 @@
 
 日常自动检查只在 PR 与 main 推送运行；release/功能分支没有 PR 时不自动跑 CI，可手动运行 AgentDeck CI / Cloud service。PR 更新会取消同一 PR 的旧检查，main 连续推送会取消该分支旧检查；手动与候选构建不自动取消。main 保留合并后的检查，避免仅验证分支而漏掉合并结果。
 
-日常 AgentDeck CI 保留 Windows、Linux x64/ARM64、macOS ARM64 的现有 Clippy/测试，以及 Windows 上的 Web 类型、格式、协议、单元、双语、依赖审计与构建，但不生成 Host 发布压缩包。手动 AgentDeck CI 会完整打包四平台 Host；Prepare candidate 继续通过 version 输入完整生成 Host、Web/Pages 和云端产物，原有发布门禁不变。Cloud service 日常保留数据库安全测试、审计和 Docker 构建，仅手动/候选构建生成独立云端二进制附件。
+日常 AgentDeck CI 保留 Windows、Linux x64/ARM64、macOS ARM64 的现有 Clippy/测试，以及 Windows 上的 Web 类型、格式、协议、单元、双语、依赖审计与构建，但不生成 Host 发布压缩包。手动 AgentDeck CI 会完整打包四平台 Host；Prepare candidate 继续通过 version 输入完整生成 Host、Web/Pages 和云端产物。Cloud service 在 Cargo 构建阶段用仓库锁定版本的 Node 读取共用 TypeScript 词典，也运行数据库安全测试、Rust 依赖审计和 Docker 构建。修改语言模块会触发云端检查。独立云端二进制附件由手动或候选构建生成。
+
+Linux 和 macOS 的 Host 检查由 Rust 与系统 shell 完成。只有手动或候选打包时安装 Node。
 
 ## 开发与验证
 
@@ -29,7 +31,7 @@ AgentChat 回归：`pnpm test:api-chat-browser`（复用下方 Playwright 变量
 | `packages/`                                      | 共用连接协议、锁定 Codex 生成 schema            |
 | `scripts/host/`                                  | 安装、开发启动、打包与下载发布                  |
 
-开发 Host 需要 Rust MSVC ≥1.88、Visual Studio C++ 和 Windows SDK，或 Linux/macOS Rust 与原生编译工具；Web/发布脚本需要 Node 22.22.3、pnpm 12.3.4。不再检查 WebView2。
+开发 Host 需要 Rust MSVC ≥1.88、Visual Studio C++ 和 Windows SDK，或 Linux/macOS Rust 与原生编译工具。云端源码构建还需要 Node 22.22.3 生成管理页语言响应。Web 和发布脚本使用 Node 22.22.3 与 pnpm 12.3.4。
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -124,6 +126,23 @@ AgentChat 跨标签存储回归为 `pnpm test:api-chat-storage-browser`，复用
 
 运行时权限配置兼容测试使用同一 `AGENTDECK_TEST_OFFICIAL_CODEX` 变量，追加 `-- --include-ignored` 可运行官方接口检查。它在临时 `CODEX_HOME` 中分别设置未指定、read-only、workspace-write、danger-full-access，并检查受信任项目局部配置；使用 Windows 启动参数，核对全局/项目配置、项目列表与临时会话权限，确认两份配置文件保持不变。不读取日常认证、不调用模型；Linux 上运行只证明官方配置覆盖和会话元数据行为，不能代替 Windows MXC 实际读写隔离、权限切换和共享运行时重启验收。
 
+## Codex 手机端连续操作
+
+先启动本地 Vite（例如在仓库根目录运行 `pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1592 --strictPort`），将 `COMPOSER_TEST_ORIGIN` 和 `RECOVERY_TEST_ORIGIN` 都设为 `http://127.0.0.1:1592`。以下命令复用 `PLAYWRIGHT_MODULE` 和可选 `PLAYWRIGHT_CHROMIUM_EXECUTABLE`。相关路径的 PR 会在独立 Chromium 环境运行以下四项检查，后台推送脚本会自行启动本地服务。
+
+```sh
+node scripts/web/test-mobile-continuity-browser.mjs
+node scripts/web/test-recovery-browser.mjs
+node scripts/web/test-mobile-review-browser.mjs
+node scripts/web/test-background-push-browser.mjs
+```
+
+连续操作检查覆盖身份查询和续期遇到 503、页面返回和前进、展开并定位工具输出、草稿刷新与回执核对。审查检查覆盖跨电脑待办、打开旧消息原文、新增行及删除行的意见、旧 Host 与新 Host 附件限额。浏览器替换账户或 Host 传输来重复触发指定故障。Host 侧并发预留、历史授权、游标与附件解码由 `cargo test --locked --manifest-path desktop/core/Cargo.toml --lib` 验证。云端 PostgreSQL 测试沿用 Cloud 工作流的独立测试库及 `AGENTDECK_TEST_DATABASE_URL`。
+
+加密附件传输专项复用本地 Vite 和 Playwright。运行 `cargo test --locked --manifest-path desktop/core/Cargo.toml --test attachment_transport -- --ignored --nocapture`，在临时 Host 和固定证书 TLS 连接上检查 2 MiB 临界值。提供 `ATTACHMENT_TEST_RELAY_CONFIG` 可使用隔离云端的双票据转发，字段见[传输测试入口](../scripts/web/test-attachment-relay-browser.mjs)。浏览器后台通知测试通过开发者协议唤醒实际安装的 Service Worker。
+
+候选实测时分别记录 iPhone 主屏幕 PWA 和 Android 手机的中文输入、系统返回、刷新恢复草稿、Wi-Fi 与蜂窝切换、锁屏推送及点击后实际审批的结果。核对同一会话的实际执行次数、最新审批状态和设备撤销后的投递情况。当前批次的实测进展见[功能状态与验证](status.md)。
+
 ## 工作区工具栏与终端定向检查
 
 ```sh
@@ -141,6 +160,12 @@ cargo test --locked --manifest-path desktop/core/Cargo.toml --lib ssh_terminal -
 最后一条 Rust 命令额外运行 Linux 本机 OpenSSH 集成测试，需要 `/usr/sbin/sshd`、`ssh` 与 `ssh-keygen`。测试在临时目录生成密钥和配置，只监听随机回环端口，使用临时 known_hosts，不修改日常 SSH 身份或 AgentDeck 状态；实际核对指纹、连接 PTY、中文输出、缩放、输入去重、连接归属和设备清理。不能据此认定 Windows ConPTY、macOS、密码/口令认证或云端整链路已经验收。
 
 ## 中英文定向检查
+
+语言资源沿用 LiteMark 的 TypeScript 模块结构。每种语言有独立目录，由 [Web 语言注册表](../web/src/i18n/config.ts) 汇总。`TranslationKey` 从英文词典推导，`t('historySearch.noMatches')` 可以在编辑器补全，写错键会导致类型检查失败。[LiteMark 的语言注册表](https://github.com/ptsfdtz/LiteMark/blob/c4759d4556b252cfe57aee2e04f1930d635eac2e/src/locales/config.ts)
+
+添加手机端文案时，在[英文模块](../web/src/i18n/en/mobile.ts)和[中文模块](../web/src/i18n/zh-CN/mobile.ts)中填写相同的语义键。新增功能模块由两种语言各自的 `index.ts` 导出。既有界面使用的原文键集中在 `legacy.ts`。Web 插值使用 `{{name}}`。复数用[共用文案模块](../web/src/i18n/en/common.ts)中的 `files.changed` 为例，英文分别填写单数和复数，中文只填通用形式，调用处传入数值 `count`。
+
+云端构建时直接读取上述 TypeScript 模块，将生成的管理页响应嵌入二进制。原有 `/admin/locales/en.json` 和 `/admin/locales/zh-CN.json` 继续服务缓存中的客户端。Host CLI 的中英文提示在 [Rust 语言表](../desktop/core/src/i18n/zh_cn.rs) 中维护，保留英文原文、前后空格及 `{name}`、`{}` 等占位符。
 
 `node scripts/web/check-i18n.mjs` 校验中英文资源键、插值参数、复数与源码提取。启动本地 Vite 后运行 `PLAYWRIGHT_MODULE=/tmp/agentdeck-browser/node_modules/playwright/index.mjs I18N_TEST_ORIGIN=http://127.0.0.1:1430 node scripts/web/test-i18n-browser.mjs`。脚本挂载真实 Web 组件并从仓库提供管理页及语言目录，拦截全部账户/Host 请求；不访问真实账户或执行模型任务。覆盖语言检测与切换、跨标签同步、草稿/表单保留、延迟组件、通知、安全插值和英文窄屏，结果与截图在 `artifacts/i18n/`。已有中文浏览器回归显式指定 `zh-CN`。
 
