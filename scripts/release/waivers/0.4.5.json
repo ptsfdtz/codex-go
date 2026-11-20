@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "version": "0.4.5",
+  "commit": "6cf8c529478b2c591a7bd8162d9662efb1c42b86",
+  "candidateSha256": "234dbe501ced3d146a7e6db63afa3b7b6117e86b921cc9f4492e459ea04ef2b0",
+  "archiveSha256": "05ae5799badfb9b53eb0f66346003d7e9f58948c52b2a58c1ba825736e7dc19c",
+  "authorizedBy": "repository owner in the release conversation",
+  "authorizedOn": "2026-11-20",
+  "authorization": "跳过四平台实机验收，部署后通过生产 Web 实测。接受 RUSTSEC-2026-0387 和 RUSTSEC-2026-0543，仅本版豁免后发布。",
+  "observed": "Candidate workflow 44747756539 built the artifacts. Four-platform real-device E2E was waived and remains untested.",
+  "waived": [
+    "complete same-candidate real E2E on Windows x64, Linux x64, Linux ARM64 and macOS ARM64, including installation, upgrade, real model tasks, continuation, sandbox/approval regression and restart/reconnect"
+  ],
+  "retained": [
+    "exact candidate source and all artifact hashes",
+    "no downgrade of stable release",
+    "production backup and deployment health checks",
+    "complete public Web and download hash verification"
+  ],
+  "scope": "Only this immutable 0.4.5 candidate."
+}

@@ -16,7 +16,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorized-045:
+    if: inputs.version == '0.4.5'
+    uses: ./.github/workflows/publish-0.4.5.yml
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    secrets: inherit
+
   verify:
+    if: inputs.version != '0.4.5'
     runs-on: ubuntu-latest
     outputs:
       commit: ${{ steps.verify.outputs.commit }}
