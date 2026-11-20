@@ -64,10 +64,7 @@ impl Config {
     /// Match service configuration precedence for local terminal/diagnostic use.
     pub fn codex_executable(&self) -> Result<PathBuf> {
         let requested = self.requested_codex_executable()?;
-        if let Some(compatible) = runtime_compatibility::remembered(&requested)? {
-            return Ok(compatible);
-        }
-        Ok(requested)
+        Ok(runtime_compatibility::available().unwrap_or(requested))
     }
     fn requested_codex_executable(&self) -> Result<PathBuf> {
         if std::env::var_os("AGENTDECK_CODEX_EXE").is_none() {

@@ -193,8 +193,7 @@ async fn control(State(state): State<Arc<Control>>, Json(request): Json<Value>) 
                 state.core.publish();
                 Ok(json!({"success":true}))
             }
-            // Approval must use the code-checking action above. Desktop IPC is
-            // kept compatible, but this endpoint cannot bypass that check.
+            // This endpoint requires the code-checking action above for approval.
             "pair.confirm" if request["approve"] != false => Err(Error::new(
                 "INVALID_REQUEST",
                 "Use pair.approve with the six-digit code",

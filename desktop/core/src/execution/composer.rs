@@ -5,7 +5,8 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
 use std::{io::Write, path::Path};
 
-pub const MAX_ATTACHMENT_BYTES: usize = 512 * 1024;
+pub const MAX_ATTACHMENT_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_ATTACHMENT_TOTAL_BYTES: usize = 2 * 1024 * 1024;
 
 #[cfg(test)]
 mod attachment_tests {
@@ -16,13 +17,16 @@ mod attachment_tests {
     }
 
     #[test]
-    fn accepts_four_files_at_individual_limit() {
-        let files = Value::Array((0..4).map(|_| attachment(MAX_ATTACHMENT_BYTES)).collect());
+    fn accepts_one_large_file_or_four_files_at_total_limit() {
+        decode_attachments(&json!([attachment(MAX_ATTACHMENT_BYTES)])).unwrap();
+        let size = MAX_ATTACHMENT_TOTAL_BYTES / 4;
+        let files = Value::Array((0..4).map(|_| attachment(size)).collect());
         let decoded = decode_attachments(&files).unwrap();
         assert_eq!(decoded.len(), 4);
-        assert!(decoded
-            .iter()
-            .all(|(_, bytes)| bytes.len() == MAX_ATTACHMENT_BYTES));
+        assert!(decoded.iter().all(|(_, bytes)| bytes.len() == size));
+        assert!(
+            decode_attachments(&json!([attachment(MAX_ATTACHMENT_BYTES), attachment(1)])).is_err()
+        );
     }
 
     #[test]
@@ -84,6 +88,7 @@ pub fn decode_attachments(files: &Value) -> Result<Vec<(String, Vec<u8>)>> {
         .ok_or_else(|| Error::new("INVALID_REQUEST", "Attachments must be an array"))?;
     ensure(files.len() <= 4, "INVALID_REQUEST", "最多添加 4 个附件")?;
     let mut result = Vec::new();
+    let mut total_bytes = 0;
     for file in files {
         protocol::fields(file, &["name", "data"], &[])?;
         protocol::text(file, "name", 1, 120)?;
@@ -102,7 +107,7 @@ pub fn decode_attachments(files: &Value) -> Result<Vec<(String, Vec<u8>)>> {
         ensure(
             encoded.len() <= MAX_ATTACHMENT_BYTES.div_ceil(3) * 4,
             "INVALID_REQUEST",
-            "单个附件不能超过 512 KiB",
+            "单个附件不能超过 2 MiB",
         )?;
         let bytes = STANDARD
             .decode(encoded)
@@ -110,7 +115,13 @@ pub fn decode_attachments(files: &Value) -> Result<Vec<(String, Vec<u8>)>> {
         ensure(
             bytes.len() <= MAX_ATTACHMENT_BYTES,
             "INVALID_REQUEST",
-            "单个附件不能超过 512 KiB",
+            "单个附件不能超过 2 MiB",
+        )?;
+        total_bytes += bytes.len();
+        ensure(
+            total_bytes <= MAX_ATTACHMENT_TOTAL_BYTES,
+            "INVALID_REQUEST",
+            "附件合计不能超过 2 MiB",
         )?;
         result.push((name.to_owned(), bytes));
     }

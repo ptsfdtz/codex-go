@@ -84,6 +84,11 @@ impl Core {
         let root = paths::root(&self.store, s(&session, "projectId"))?;
         let rpc = self.upstream()?;
         let thread_id = &session["upstreamThreadId"];
+        ensure(
+            !self.store.thread_deleted(s(&session, "upstreamThreadId"))?,
+            "NOT_FOUND",
+            "History source was deleted",
+        )?;
         let read = rpc
             .request(
                 "thread/read",
@@ -142,7 +147,17 @@ impl Core {
                 "Repeated history cursor",
             )?;
         }
-        paths::root(&self.store, s(&session, "projectId"))?;
+        let current = self.store.session(session_id)?;
+        ensure(
+            current["upstreamThreadId"] == *thread_id
+                && current["projectId"] == session["projectId"]
+                && !self.store.thread_deleted(s(&session, "upstreamThreadId"))?
+                && paths::equal(&root, &paths::root(&self.store, s(&session, "projectId"))?)
+                && rpc.alive.load(std::sync::atomic::Ordering::SeqCst)
+                && self.upstream()?.generation == rpc.generation,
+            "SYNC_CONFLICT",
+            "History source or project authorization changed",
+        )?;
         Ok((rpc, page))
     }
     pub async fn session_image(
@@ -337,6 +352,28 @@ impl Core {
         limit: usize,
         direction: &str,
     ) -> Result<Value> {
+        let (page, oversized) = self
+            .bounded_history_page(session_id, cursor, limit, direction)
+            .await?;
+        if !oversized {
+            return Ok(
+                json!({"sessionId":session_id,"source":"upstream-persisted","sortDirection":direction,"data":page["data"],"nextCursor":page["nextCursor"],"resource":null}),
+            );
+        }
+        let entry = &page["data"][0];
+        let content = entry.to_string().into_bytes();
+        Ok(
+            json!({"sessionId":session_id,"source":"upstream-persisted","sortDirection":direction,"data":[],"nextCursor":page["nextCursor"],"resource":{"cursor":cursor,"sha256":format!("{:x}",Sha256::digest(&content)),"bytes":content.len(),"itemId":entry["item"]["id"],"turnId":entry["turnId"],"chunkBytes":CHUNK_BYTES}}),
+        )
+    }
+    /// Search uses the same adaptive page boundaries as opening a result in the UI.
+    pub(crate) async fn bounded_history_page(
+        &self,
+        session_id: &str,
+        cursor: Option<&str>,
+        limit: usize,
+        direction: &str,
+    ) -> Result<(Value, bool)> {
         ensure(
             (1..=50).contains(&limit),
             "INVALID_REQUEST",
@@ -347,11 +384,8 @@ impl Core {
             let (_, page) = self
                 .history_source(session_id, cursor, limit, direction)
                 .await?;
-            let bytes = page.to_string().into_bytes();
-            if bytes.len() <= PAGE_BYTES {
-                return Ok(
-                    json!({"sessionId":session_id,"source":"upstream-persisted","sortDirection":direction,"data":page["data"],"nextCursor":page["nextCursor"],"resource":null}),
-                );
+            if page.to_string().len() <= PAGE_BYTES {
+                return Ok((page, false));
             }
             if limit > 1 {
                 limit = (limit / 2).max(1);
@@ -363,10 +397,7 @@ impl Core {
                 "UPSTREAM_PROTOCOL_ERROR",
                 "Invalid oversized history page",
             )?;
-            let content = data[0].to_string().into_bytes();
-            return Ok(
-                json!({"sessionId":session_id,"source":"upstream-persisted","sortDirection":direction,"data":[],"nextCursor":page["nextCursor"],"resource":{"cursor":cursor,"sha256":format!("{:x}",Sha256::digest(&content)),"bytes":content.len(),"itemId":data[0]["item"]["id"],"turnId":data[0]["turnId"],"chunkBytes":CHUNK_BYTES}}),
-            );
+            return Ok((page, true));
         }
     }
     pub async fn upstream_history_content(

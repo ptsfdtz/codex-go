@@ -17,6 +17,9 @@ use tokio::{
 };
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
+#[path = "cloud_push.rs"]
+mod push;
+
 const SAVED_KEY: &str = "cloudSessionProtectedV1";
 
 // An explicitly configured private cloud CA replaces public roots for both
@@ -443,6 +446,9 @@ impl Core {
             expires_at: chrono::Utc::now().timestamp() + tokens.access_expires_in.min(600) as i64,
             tokens,
         };
+        // Changing the account starts a new notification journal window.
+        self.store
+            .set_meta(&push::cursor_key(&saved), &self.store.cursor()?)?;
         self.cloud.write(self, Some(&saved))?;
         self.cloud.identity(&saved);
         *slot = Some(saved);
@@ -545,7 +551,8 @@ async fn control(core: &Arc<Core>, changed: &mut watch::Receiver<u64>) -> Result
         core.store.set_meta("lanEnabled", "true")?;
         core.listen(address).await?;
     }
-    register(core, &saved, &host).await?;
+    let mut push_available = register(core, &saved, &host).await?;
+    let mut push_worker: Option<AbortTask> = None;
     let mut request = format!(
         "{}/api/v1/relay/control",
         saved.origin.replacen("https:", "wss:", 1)
@@ -586,6 +593,7 @@ async fn control(core: &Arc<Core>, changed: &mut watch::Receiver<u64>) -> Result
                         ControlMessage::Ready{version,host_id}=>{
                             ensure(!ready&&version==VERSION&&host_id==host,"CLOUD_IDENTITY_MISMATCH","云端电脑身份不匹配")?;
                             ready=true;{let mut status=core.cloud.status.write().unwrap();status.online=true;status.error=None;}core.publish();
+                            if let Some(window)=push_available { push_worker=Some(push::start(core, &saved,window)); }
                         },
                         ControlMessage::OpenTunnel{tunnel_id,host_ticket,expires_at,client_device_id}=>{
                             ensure(ready&&security::valid_token(&host_ticket)&&uuid::Uuid::parse_str(&tunnel_id).is_ok()&&uuid::Uuid::parse_str(&client_device_id).is_ok(),"CLOUD_PROTOCOL_ERROR","云端转发请求无效")?;
@@ -605,17 +613,21 @@ async fn control(core: &Arc<Core>, changed: &mut watch::Receiver<u64>) -> Result
                 ensure(received.elapsed()<Duration::from_secs(75),"CLOUD_UNAVAILABLE","云端心跳超时，正在重连")?;
                 let current=core.cloud.access(core).await?;
                 core.refresh_network().await?;
-                register(core,&current,&host).await?;
+                let available=register(core,&current,&host).await?;
+                if ready && (available != push_available || push_worker.as_ref().is_some_and(|task|task.0.is_finished())) {
+                    push_worker=available.map(|window|push::start(core,&current,window));
+                }
+                push_available=available;
                 socket.send(Message::Ping(Vec::new().into())).await.map_err(|_|Error::new("CLOUD_UNAVAILABLE","云端连接中断"))?;
             }
         }
     }
     Ok(())
 }
-async fn register(core: &Core, saved: &Saved, host: &str) -> Result<()> {
+async fn register(core: &Core, saved: &Saved, host: &str) -> Result<Option<push::Window>> {
     let endpoint = format!("https://{}:{}", core.address.read().unwrap(), core.port);
-    let _:Value=reply(core.cloud.client.put(format!("{}/api/v1/hosts/self",saved.origin)).bearer_auth(&saved.tokens.access_token).json(&json!({"hostId":host,"displayName":std::env::var("COMPUTERNAME").unwrap_or_else(|_|"AgentDeck computer".into()),"fingerprint":core.tls.fingerprint,"endpoints":[endpoint]})).send().await.map_err(network_error)?).await?;
-    Ok(())
+    let response:Value=reply(core.cloud.client.put(format!("{}/api/v1/hosts/self",saved.origin)).bearer_auth(&saved.tokens.access_token).json(&json!({"hostId":host,"displayName":std::env::var("COMPUTERNAME").unwrap_or_else(|_|"AgentDeck computer".into()),"fingerprint":core.tls.fingerprint,"endpoints":[endpoint]})).send().await.map_err(network_error)?).await?;
+    Ok(serde_json::from_value(response["pushWindow"].clone()).ok())
 }
 struct AbortTask(JoinHandle<()>);
 impl Drop for AbortTask {

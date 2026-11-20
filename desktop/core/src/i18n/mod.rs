@@ -1,8 +1,9 @@
 //! Human-facing CLI text only. Protocol codes, JSON output and upstream diagnostics
 //! retain their original identities and language.
-use std::{collections::HashMap, sync::OnceLock};
+use std::sync::OnceLock;
+mod zh_cn;
+
 static LANGUAGE: OnceLock<bool> = OnceLock::new();
-static CHINESE: OnceLock<HashMap<String, String>> = OnceLock::new();
 
 fn is_chinese(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
@@ -53,13 +54,11 @@ pub fn text(key: &str) -> String {
         }
     });
     if chinese {
-        CHINESE
-            .get_or_init(|| {
-                serde_json::from_str(include_str!("zh-CN.json")).expect("valid bundled CLI catalog")
-            })
-            .get(key)
-            .cloned()
-            .unwrap_or_else(|| key.into())
+        zh_cn::MESSAGES
+            .binary_search_by_key(&key, |(source, _)| *source)
+            .map(|index| zh_cn::MESSAGES[index].1)
+            .unwrap_or(key)
+            .to_owned()
     } else {
         key.into()
     }
@@ -101,12 +100,11 @@ mod tests {
     }
     #[test]
     fn catalogs_preserve_format_parameters() {
-        let catalog: HashMap<String, String> =
-            serde_json::from_str(include_str!("zh-CN.json")).unwrap();
+        assert!(zh_cn::MESSAGES.windows(2).all(|pair| pair[0].0 < pair[1].0));
         let pattern = regex::Regex::new(r"\{\w*\}").unwrap();
-        for (key, value) in catalog {
-            let mut a: Vec<_> = pattern.find_iter(&key).map(|m| m.as_str()).collect();
-            let mut b: Vec<_> = pattern.find_iter(&value).map(|m| m.as_str()).collect();
+        for (key, value) in zh_cn::MESSAGES {
+            let mut a: Vec<_> = pattern.find_iter(key).map(|m| m.as_str()).collect();
+            let mut b: Vec<_> = pattern.find_iter(value).map(|m| m.as_str()).collect();
             a.sort();
             b.sort();
             assert_eq!(a, b, "{key}");

@@ -1,6 +1,7 @@
 pub mod approval;
 pub mod composer;
 pub(crate) mod history;
+pub(crate) mod history_search;
 pub(crate) mod observation;
 pub(crate) mod queue;
 pub mod sessions;

@@ -394,10 +394,7 @@ impl Core {
         entry: &Value,
     ) -> Result<Value> {
         let id = s(session, "sessionId");
-        let _permit = self
-            .task_limit
-            .try_acquire()
-            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
+        let _reservation = self.reserve_task(id)?;
         ensure(
             self.verified.load(Ordering::SeqCst),
             "SANDBOX_UNVERIFIED",
@@ -409,17 +406,6 @@ impl Core {
             }),
             "CONFLICT",
             "Stop or reconcile existing work before starting a queued message",
-        )?;
-        let active = self
-            .store
-            .turns(None)?
-            .iter()
-            .filter(|turn| ["queued", "running", "waitingApproval"].contains(&s(turn, "status")))
-            .count();
-        ensure(
-            active + self.busy.lock().unwrap().len() < crate::service::MAX_CONCURRENT_TASKS,
-            "RATE_LIMITED",
-            "Five tasks are already active",
         )?;
         let latest = self.latest_upstream_turn(id).await?;
         ensure(
@@ -788,6 +774,58 @@ mod tests {
             0,
             local,
         )
+    }
+
+    #[test]
+    fn task_reservations_allow_fifth_queued_start_and_reject_sixth() {
+        let directory = tempfile::tempdir().unwrap();
+        let core = core(Arc::new(
+            Store::open(&directory.path().join("tasks.db")).unwrap(),
+        ));
+        core.store
+            .exec(
+                "INSERT INTO projects VALUES('p','project','root','identity',1,'today')",
+                [],
+            )
+            .unwrap();
+        for id in ["a", "b", "c", "d", "e", "f"] {
+            core.store
+                .exec(
+                    "INSERT INTO sessions VALUES(?1,'p',?1,'chat','idle','today','today')",
+                    [id],
+                )
+                .unwrap();
+        }
+        for id in ["a", "b", "c", "d"] {
+            core.store
+                .exec(
+                    "INSERT INTO turns VALUES(?1,?1,NULL,'running','today',NULL,NULL)",
+                    [id],
+                )
+                .unwrap();
+        }
+        // queue.start has already locked its conversation. A queue read in a
+        // different conversation must not consume a task slot either.
+        core.busy
+            .lock()
+            .unwrap()
+            .extend(["e".to_owned(), "f".to_owned()]);
+        let fifth = core.reserve_task("e").unwrap();
+        assert!(matches!(core.reserve_task("f"), Err(error) if error.code == "RATE_LIMITED"));
+        drop(fifth);
+        let fifth = core.reserve_task("e").unwrap();
+        core.store
+            .exec(
+                "INSERT INTO turns VALUES('e','e',NULL,'queued','today',NULL,NULL)",
+                [],
+            )
+            .unwrap();
+        drop(fifth);
+        assert!(matches!(core.reserve_task("f"), Err(error) if error.code == "RATE_LIMITED"));
+        core.store
+            .exec("UPDATE turns SET status='completed' WHERE turnId='a'", [])
+            .unwrap();
+        assert!(core.reserve_task("f").is_ok());
     }
 
     #[test]

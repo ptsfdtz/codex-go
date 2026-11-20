@@ -44,6 +44,7 @@ pub struct Core {
     pub(crate) thread_index_changed: Notify,
     pub(crate) thread_index_pending: Mutex<HashMap<String, String>>,
     pub task_limit: Semaphore,
+    pub(crate) starting_tasks: Mutex<HashSet<String>>,
     pub connected: Mutex<HashMap<String, usize>>,
     pub authorization_changed: Notify,
     pub address: RwLock<String>,
@@ -98,6 +99,7 @@ impl Core {
             thread_index_changed: Notify::new(),
             thread_index_pending: Mutex::new(HashMap::new()),
             task_limit: Semaphore::new(MAX_CONCURRENT_TASKS),
+            starting_tasks: Mutex::new(HashSet::new()),
             connected: Mutex::new(HashMap::new()),
             authorization_changed: Notify::new(),
             address: RwLock::new(address),
@@ -702,6 +704,12 @@ impl Core {
                 Ok(json!({"sessions":self.store.visible_sessions(p["projectId"].as_str())?}))
             }
             "sessions.observe" => self.observe_session(s(p, "sessionId")).await,
+            "sessions.historySearch" => tokio::time::timeout(
+                Duration::from_secs(25),
+                self.search_history(s(p, "query"), p["projectId"].as_str(), p["cursor"].as_str()),
+            )
+            .await
+            .map_err(|_| Error::new("UPSTREAM_TIMEOUT", "History search timed out"))?,
             "sessions.history" => {
                 self.upstream_history_ordered(
                     s(p, "sessionId"),
@@ -775,6 +783,9 @@ impl Core {
                 }
                 Ok(json!({"approvals":self.store.approvals(p["sessionId"].as_str())?}))
             }
+            "approvals.status" => self
+                .store
+                .approval_status(s(p, "sessionId"), s(p, "approvalId")),
             "approvals.decide" => self.decide_with_answers(
                 s(p, "sessionId"),
                 s(p, "turnId"),

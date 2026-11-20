@@ -9,7 +9,7 @@ use agentdeck_service::{
 use fs2::FileExt;
 use serde_json::{json, Value};
 use std::{
-    io::BufRead,
+    ffi::OsString,
     path::PathBuf,
     sync::{atomic::Ordering, Arc},
     time::Duration,
@@ -41,7 +41,7 @@ async fn main() {
             args.len() == 4 && sandbox_probe(&PathBuf::from(&args[2]), &PathBuf::from(&args[3]));
         std::process::exit(if passed { 0 } else { 3 });
     }
-    if let Err(e) = run().await {
+    if let Err(e) = run(args.get(1..).unwrap_or_default()).await {
         agentdeck_service::host::log(&e.code, &e.message);
         println!(
             "{}",
@@ -50,14 +50,16 @@ async fn main() {
         std::process::exit(1);
     }
 }
-async fn run() -> Result<()> {
-    let login_only = std::env::var("AGENTDECK_LOGIN_ONLY").as_deref() == Ok("1");
-    let headless = std::env::var("AGENTDECK_HEADLESS").as_deref() == Ok("1");
+async fn run(args: &[OsString]) -> Result<()> {
+    ensure(
+        !args.iter().any(|arg| arg == "--desktop-stdio")
+            && std::env::var("AGENTDECK_LOGIN_ONLY").as_deref() != Ok("1"),
+        "UNSUPPORTED",
+        "Remove --desktop-stdio or clear AGENTDECK_LOGIN_ONLY, then use agentdeck serve or agentdeck login",
+    )?;
     security::verify_host_integrity()?;
     let _ = rustls::crypto::ring::default_provider().install_default();
-    if !login_only {
-        agentdeck_service::host::shared_runtime::initialize()?;
-    }
+    agentdeck_service::host::shared_runtime::initialize()?;
     let directory = agentdeck_service::host::data_dir()?;
     security::restrict_directory(&directory)
         .map_err(|e| Error::new(&e.code, &format!("准备服务数据目录失败：{}", e.message)))?;
@@ -98,7 +100,7 @@ async fn run() -> Result<()> {
         .parse::<u16>()
         .map_err(|_| Error::new("CONFIG_ERROR", "Invalid port"))?;
     ensure(port > 1024, "CONFIG_ERROR", "Invalid port")?;
-    let (tx, mut output) = tokio::sync::mpsc::channel::<Value>(32);
+    let (tx, mut local_events) = tokio::sync::mpsc::channel::<Value>(32);
     let core = Core::new(store, tls, address.clone(), port, tx);
     core.listen(&address).await?;
     core.store.recover()?;
@@ -106,95 +108,20 @@ async fn run() -> Result<()> {
     core.store.set_meta("sandboxVerifiedVersion", "")?;
     core.store.set_meta("sandboxProbeVersion", "")?;
     core.store.retain()?;
-    let owner = core.clone();
-    let writer = tokio::spawn(async move {
-        use tokio::io::AsyncWriteExt;
-        let mut stdout = tokio::io::stdout();
-        while let Some(v) = output.recv().await {
-            if headless {
-                if v["type"] == "error" {
-                    agentdeck_service::host::log(
-                        v["payload"]["code"].as_str().unwrap_or("SERVICE_ERROR"),
-                        v["payload"]["message"].as_str().unwrap_or("Service error"),
-                    );
-                }
-                continue;
-            }
-            let line = format!("{v}\n");
-            if stdout.write_all(line.as_bytes()).await.is_err() || stdout.flush().await.is_err() {
-                owner.request_stop();
-                break;
+    let diagnostics = tokio::spawn(async move {
+        while let Some(v) = local_events.recv().await {
+            if v["type"] == "error" {
+                agentdeck_service::host::log(
+                    v["payload"]["code"].as_str().unwrap_or("SERVICE_ERROR"),
+                    v["payload"]["message"].as_str().unwrap_or("Service error"),
+                );
             }
         }
     });
     agentdeck_service::cloud::Cloud::start(&core).await?;
-    if login_only {
-        let origin = std::env::var("AGENTDECK_CLOUD_ORIGIN")
-            .map_err(|_| Error::new("CONFIG_ERROR", "AGENTDECK_CLOUD_ORIGIN is required"))?;
-        let username = std::env::var("AGENTDECK_CLOUD_USERNAME")
-            .map_err(|_| Error::new("CONFIG_ERROR", "AGENTDECK_CLOUD_USERNAME is required"))?;
-        let password_path = std::env::var_os("AGENTDECK_CLOUD_PASSWORD_FILE")
-            .map(PathBuf::from)
-            .ok_or_else(|| {
-                Error::new("CONFIG_ERROR", "AGENTDECK_CLOUD_PASSWORD_FILE is required")
-            })?;
-        let password = std::fs::read_to_string(&password_path)
-            .map_err(|_| Error::new("CONFIG_ERROR", "Cannot read cloud login secret"))?;
-        let _ = std::fs::remove_file(&password_path);
-        let password = password.trim_end_matches(['\r', '\n']);
-        core.cloud_login(&origin, &username, password).await?;
-        core.shutdown().await;
-        return Ok(());
-    }
-    let _management = if headless {
-        Some(agentdeck_service::management::Management::start(core.clone(), &directory).await?)
-    } else {
-        None
-    };
+    let _management =
+        agentdeck_service::management::Management::start(core.clone(), &directory).await?;
     core.publish();
-    eprintln!("AGENTDECK_DIAG published");
-    let (commands, mut input) = tokio::sync::mpsc::channel::<Value>(8);
-    let owner = core.clone();
-    if !headless {
-        std::thread::spawn(move || {
-            let stdin = std::io::stdin();
-            let mut reader = stdin.lock();
-            loop {
-                let mut bytes = vec![];
-                let count = std::io::Read::take(&mut reader, 65537).read_until(b'\n', &mut bytes);
-                match count {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        if n > 65536 || !bytes.ends_with(b"\n") {
-                            break;
-                        }
-                        let v: Value = match serde_json::from_slice(&bytes) {
-                            Ok(v) => v,
-                            Err(_) => break,
-                        };
-                        if commands.blocking_send(v).is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-            owner.request_stop();
-        });
-    }
-    let owner = core.clone();
-    let actions = tokio::spawn(async move {
-        while let Some(v) = input.recv().await {
-            let id = v["localRequestId"].clone();
-            match owner.local_action(v).await {
-                Ok(false) => break,
-                Ok(true) => {}
-                Err(e) => owner.emit(
-                    "error",
-                    json!({"localRequestId":id,"code":e.code,"message":e.message}),
-                ),
-            }
-        }
-    });
     let owner = core.clone();
     let refresh = tokio::spawn(async move {
         let mut count = 0;
@@ -229,20 +156,15 @@ async fn run() -> Result<()> {
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
-    if headless {
-        tokio::select! {
-            _ = core.stop.notified() => {},
-            result = shutdown_signal() => { result?; core.request_stop(); },
-        }
-    } else {
-        core.stop.notified().await;
+    tokio::select! {
+        _ = core.stop.notified() => {},
+        result = shutdown_signal() => { result?; core.request_stop(); },
     }
     core.shutdown().await;
-    actions.abort();
     refresh.abort();
     git_poll.abort();
     supervisor.abort();
-    writer.abort();
+    diagnostics.abort();
     Ok(())
 }
 

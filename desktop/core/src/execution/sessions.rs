@@ -529,21 +529,7 @@ impl Core {
     async fn revise_idle_session(&self, session: &Value, p: &Value) -> Result<Value> {
         use std::sync::atomic::Ordering;
         let id = s(session, "sessionId");
-        let _permit = self
-            .task_limit
-            .try_acquire()
-            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
-        let active = self
-            .store
-            .turns(None)?
-            .iter()
-            .filter(|turn| ["queued", "running", "waitingApproval"].contains(&s(turn, "status")))
-            .count();
-        ensure(
-            active + self.busy.lock().unwrap().len() <= crate::service::MAX_CONCURRENT_TASKS,
-            "RATE_LIMITED",
-            "Five tasks are already active",
-        )?;
+        let _reservation = self.reserve_task(id)?;
         ensure(
             self.verified.load(Ordering::SeqCst),
             "SANDBOX_UNVERIFIED",

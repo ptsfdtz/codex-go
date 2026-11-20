@@ -473,11 +473,27 @@ impl Store {
             json!({"approvalId":row["approvalId"],"sessionId":row["sessionId"],"turnId":row["turnId"],"method":row["method"],"status":row["status"],"context":redact_value(context),"createdAt":row["createdAt"],"expiresAt":row["expiresAt"],"allowedDecisions":decisions}),
         )
     }
+    pub(crate) fn approval_status(&self, session_id: &str, approval_id: &str) -> Result<Value> {
+        let session = self.session(session_id)?;
+        let project = s(&session, "projectId");
+        crate::paths::root(self, project)?;
+        self.one(
+            "SELECT a.status FROM approvals a JOIN sessions s ON s.sessionId=a.sessionId
+            JOIN projects p ON p.projectId=s.projectId
+            WHERE a.approvalId=? AND a.sessionId=? AND p.projectId=? AND p.enabled=1",
+            [approval_id, session_id, project],
+        )
+    }
     pub fn approvals(&self, id: Option<&str>) -> Result<Vec<Value>> {
-        self.approval_rows(id)?
-            .iter()
-            .map(|v| self.public_approval(v))
-            .collect()
+        let rows = self.query(
+            "SELECT a.*,s.upstreamThreadId FROM approvals a
+             JOIN sessions s ON s.sessionId=a.sessionId JOIN projects p ON p.projectId=s.projectId
+             WHERE p.enabled=1 AND a.status IN ('pending','sending')
+               AND (?1 IS NULL OR s.sessionId=?1) ORDER BY a.createdAt",
+            [id],
+        )?;
+        let (_, visible) = self.catalog_view(Vec::new(), rows)?;
+        visible.iter().map(|v| self.public_approval(v)).collect()
     }
     // The native authority replaced history. Remove journal previews rather than
     // allowing stale local turns to reappear beside the fresh native prefix.
@@ -811,21 +827,34 @@ impl Store {
             .into_iter()
             .map(Self::indexed_session)
             .collect::<Result<Vec<_>>>()?;
-        let turns=Self::query_db(&tx,"SELECT * FROM turns WHERE status IN ('queued','running','waitingApproval','unknown') ORDER BY startedAt",[])?;
+        let mut turns=Self::query_db(&tx,"SELECT * FROM turns WHERE status IN ('queued','running','waitingApproval','unknown') ORDER BY startedAt",[])?;
         let rows = Self::query_db(
             &tx,
             "SELECT * FROM approvals WHERE status IN ('pending','sending') ORDER BY createdAt",
             [],
         )?;
-        let approvals: Vec<_> = rows
-            .iter()
-            .map(|r| self.public_approval(r))
-            .collect::<Result<_>>()?;
+        let mut recent_questions=Self::query_db(&tx,
+            "SELECT q.sessionId,q.itemId FROM question_item_events q JOIN sessions s ON s.sessionId=q.sessionId
+             JOIN projects p ON p.projectId=s.projectId LEFT JOIN session_options o ON o.sessionId=s.sessionId
+             WHERE p.enabled=1 AND COALESCE(o.archived,0)=0 ORDER BY q.eventId DESC LIMIT 64",[])?;
         tx.commit()?;
         drop(db);
         let (projects, sessions) = self.catalog_view(projects, sessions)?;
+        let visible: std::collections::HashSet<&str> =
+            sessions.iter().map(|r| s(r, "sessionId")).collect();
+        turns.retain(|row| visible.contains(s(row, "sessionId")));
+        let approvals: Vec<_> = rows
+            .iter()
+            .filter(|row| visible.contains(s(row, "sessionId")))
+            .map(|row| self.public_approval(row))
+            .collect::<Result<_>>()?;
+        let mut seen = std::collections::HashSet::new();
+        recent_questions.retain(|q| {
+            visible.contains(s(q, "sessionId"))
+                && seen.insert((s(q, "sessionId").to_owned(), s(q, "itemId").to_owned()))
+        });
         Ok(
-            json!({"cursor":cursor[0]["id"].as_i64().unwrap_or(0).to_string(),"host":{"hostId":host[0]["value"],"status":if ready{"connected"}else{"disconnected"},"codexVersion":crate::codex::VERSION},"projects":projects,"sessions":sessions,"turns":turns,"approvals":approvals}),
+            json!({"cursor":cursor[0]["id"].as_i64().unwrap_or(0).to_string(),"host":{"hostId":host[0]["value"],"status":if ready{"connected"}else{"disconnected"},"codexVersion":crate::codex::VERSION},"projects":projects,"sessions":sessions,"turns":turns,"approvals":approvals,"recentQuestions":recent_questions}),
         )
     }
 }
@@ -835,6 +864,96 @@ use rusqlite::OptionalExtension;
 mod catalog_tests {
     use super::*;
     use crate::thread_index::ThreadIndexEntry;
+
+    #[test]
+    fn snapshot_limits_active_turns_and_approvals_to_visible_sessions() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::open(&temp.path().join("state.db")).unwrap();
+        let ts = now();
+        for id in ["hidden", "revoked", "visible"] {
+            let path = temp.path().join(id);
+            std::fs::create_dir(&path).unwrap();
+            let project = crate::paths::add_local(&store, &path).unwrap();
+            let project_id = s(&project, "projectId");
+            store
+                .exec(
+                    "INSERT INTO sessions VALUES(?,?,?,?,'idle',?,?)",
+                    params![id, project_id, id, id, ts, ts],
+                )
+                .unwrap();
+            if id == "hidden" {
+                store.apply_thread_index(&[], None).unwrap();
+            }
+            store
+                .exec(
+                    "INSERT INTO turns VALUES(?,?,NULL,'completed',?,NULL,NULL)",
+                    params![id, id, ts],
+                )
+                .unwrap();
+            store.exec(
+                "INSERT INTO approvals VALUES(?,?,?,'item/tool/requestUserInput','pending','{}',?,'test',?,?,NULL)",
+                params![id,id,id,id,ts,ts],
+            ).unwrap();
+            if id == "revoked" {
+                crate::paths::remove_local(&store, project_id).unwrap();
+            }
+            store
+                .exec(
+                    "UPDATE turns SET status='waitingApproval' WHERE turnId=?",
+                    [id],
+                )
+                .unwrap();
+        }
+        let snapshot = store.snapshot(true).unwrap();
+        for key in ["sessions", "turns", "approvals"] {
+            let ids: Vec<_> = snapshot[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| s(row, "sessionId"))
+                .collect();
+            assert_eq!(ids, ["visible"], "{key}");
+        }
+        assert_eq!(json!(store.approvals(None).unwrap()), snapshot["approvals"]);
+        assert!(store.approvals(Some("hidden")).unwrap().is_empty());
+        assert!(store.approvals(Some("revoked")).unwrap().is_empty());
+        assert_eq!(store.approval_rows(None).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn approval_status_is_scoped_and_never_returns_approval_context() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::open(&temp.path().join("state.db")).unwrap();
+        let project = crate::paths::add_local(&store, temp.path()).unwrap();
+        let id = s(&project, "projectId");
+        for session in ["one", "two"] {
+            store
+                .exec(
+                    "INSERT INTO sessions VALUES(?,?,?,?,'idle',?,?)",
+                    params![session, id, session, session, now(), now()],
+                )
+                .unwrap();
+        }
+        store
+            .exec(
+                "INSERT INTO turns VALUES('t','one','native','completed',?,NULL,NULL)",
+                [now()],
+            )
+            .unwrap();
+        store.exec("INSERT INTO approvals VALUES('a','one','t','test','resolved','secret context','0','test',?,?,?)",params![now(),now(),now()]).unwrap();
+        assert_eq!(
+            store.approval_status("one", "a").unwrap(),
+            json!({"status":"resolved"})
+        );
+        assert_eq!(
+            store.approval_status("two", "a").unwrap_err().code,
+            "NOT_FOUND"
+        );
+        store
+            .exec("UPDATE projects SET enabled=0 WHERE projectId=?", [id])
+            .unwrap();
+        assert!(store.approval_status("one", "a").is_err());
+    }
 
     #[test]
     fn native_catalog_hides_stale_rows_preserves_archives_and_commits_empty_views() {

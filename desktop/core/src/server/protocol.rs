@@ -100,6 +100,7 @@ pub fn parse(v: Value) -> Result<Request> {
         "projects.remove" | "git.status" | "git.branches" => (&["projectId"], &[]),
         "sessions.list" => (&[], &["projectId"]),
         "approvals.list" => (&[], &["sessionId"]),
+        "approvals.status" => (&["sessionId", "approvalId"], &[]),
         "sessions.create" => (&["projectId", "title"], &[]),
         "sessions.detail" => (&["sessionId"], &["before", "limit"]),
         "sessions.goal.resume" => (&["sessionId", "expectedGoalRevision"], &[]),
@@ -115,6 +116,7 @@ pub fn parse(v: Value) -> Result<Request> {
         ),
         "sessions.observe" => (&["sessionId"], &[]),
         "sessions.history" => (&["sessionId"], &["cursor", "limit", "sortDirection"]),
+        "sessions.historySearch" => (&["query"], &["projectId", "cursor"]),
         "sessions.historyContent" => (
             &["sessionId", "sha256", "offset"],
             &["cursor", "sortDirection"],
@@ -195,6 +197,14 @@ pub fn parse(v: Value) -> Result<Request> {
         _ => return Err(Error::new("INVALID_REQUEST", "Unsupported action")),
     };
     fields(p, required, optional)?;
+    if r.action == "sessions.historySearch" {
+        text(p, "query", 1, 128)?;
+        ensure(
+            !crate::s(p, "query").trim().is_empty(),
+            "INVALID_REQUEST",
+            "Search text required",
+        )?;
+    }
     if r.action.starts_with("ssh.") || r.action.starts_with("terminal.") {
         crate::ssh_terminal::validate(&r.action, p)?;
     }
@@ -377,7 +387,9 @@ pub fn parse(v: Value) -> Result<Request> {
                 p,
                 key,
                 0,
-                if r.action.starts_with("sessions.history") {
+                if r.action == "sessions.historySearch" {
+                    262144
+                } else if r.action.starts_with("sessions.history") {
                     32768
                 } else {
                     160

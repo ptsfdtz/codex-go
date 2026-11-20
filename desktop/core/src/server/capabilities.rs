@@ -61,6 +61,7 @@ pub fn describe_profile(
         "browser": false,
         "automationManagement": false
     });
+    features["sessionHistorySearch"] = Value::Bool(true);
     features["projectTerminal"] = json!(true);
     features["turnResponseSpeed"] = Value::Bool(true);
     features["nativeQueueStart"] =
@@ -69,6 +70,8 @@ pub fn describe_profile(
         Value::Bool(protocol == crate::rpc::ProtocolVersion::DesktopBaseline);
     features["gitBranchCompare"] = Value::Bool(true);
     features["multipleDevices"] = Value::Bool(true);
+    features["backgroundNotifications"] = Value::Bool(true);
+    features["approvalStatus"] = Value::Bool(true);
     features["hostUpdateCheck"] = Value::Bool(true);
     features["hostUpdateManage"] = Value::Bool(true);
     features["projectlessChat"] = Value::Bool(true);
@@ -105,6 +108,6 @@ pub fn describe_profile(
             "externalThreadSync": false
         },
         "features": features,
-        "limits": {"attachmentCount": 4, "attachmentBytes": 524288, "attachmentTotalBytes": 2097152}
+        "limits": {"attachmentCount": 4, "attachmentBytes": crate::composer::MAX_ATTACHMENT_BYTES, "attachmentTotalBytes": crate::composer::MAX_ATTACHMENT_TOTAL_BYTES}
     })
 }

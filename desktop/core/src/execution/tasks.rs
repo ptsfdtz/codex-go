@@ -17,7 +17,54 @@ pub(crate) struct ComposerOptions<'a> {
     pub(crate) skills: Option<&'a Value>,
     pub(crate) goal_resume_revision: Option<&'a str>,
 }
+pub(crate) struct TaskReservation<'a> {
+    core: &'a Core,
+    session: &'a str,
+    _permit: tokio::sync::SemaphorePermit<'a>,
+}
+impl Drop for TaskReservation<'_> {
+    fn drop(&mut self) {
+        self.core
+            .starting_tasks
+            .lock()
+            .unwrap()
+            .remove(self.session);
+    }
+}
 impl Core {
+    /// Reserve before the first await. A start already recorded in turns occupies
+    /// a single slot, and unrelated session operations do not reserve task capacity.
+    pub(crate) fn reserve_task<'a>(&'a self, session: &'a str) -> Result<TaskReservation<'a>> {
+        let permit = self
+            .task_limit
+            .try_acquire()
+            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
+        let mut starting = self.starting_tasks.lock().unwrap();
+        ensure(
+            !starting.contains(session),
+            "CONFLICT",
+            "Session task is already starting",
+        )?;
+        let active = self.store.query(
+            "SELECT sessionId FROM turns WHERE status IN ('queued','running','waitingApproval')",
+            [],
+        )?;
+        let pending = starting
+            .iter()
+            .filter(|id| !active.iter().any(|t| s(t, "sessionId") == id.as_str()))
+            .count();
+        ensure(
+            active.len() + pending < crate::service::MAX_CONCURRENT_TASKS,
+            "RATE_LIMITED",
+            "Five tasks are already active",
+        )?;
+        starting.insert(session.to_owned());
+        Ok(TaskReservation {
+            core: self,
+            session,
+            _permit: permit,
+        })
+    }
     pub fn upstream(&self) -> Result<Arc<Rpc>> {
         ensure(
             self.ready.load(Ordering::SeqCst),
@@ -234,10 +281,7 @@ impl Core {
             "Invalid permission mode",
         )?;
         let rpc = self.upstream()?;
-        let _permit = self
-            .task_limit
-            .try_acquire()
-            .map_err(|_| Error::new("RATE_LIMITED", "Five task starts are active"))?;
+        let _reservation = self.reserve_task(session_id)?;
         {
             let mut busy = self.busy.lock().unwrap();
             let current = self.store.session(session_id)?;
@@ -255,17 +299,6 @@ impl Core {
                 }),
                 "CONFLICT",
                 "Session has active or unreconciled turn",
-            )?;
-            let active = self
-                .store
-                .turns(None)?
-                .iter()
-                .filter(|v| ["queued", "running", "waitingApproval"].contains(&s(v, "status")))
-                .count();
-            ensure(
-                active + busy.len() < crate::service::MAX_CONCURRENT_TASKS,
-                "RATE_LIMITED",
-                "Five tasks are already active",
             )?;
             busy.insert(session_id.into());
         }

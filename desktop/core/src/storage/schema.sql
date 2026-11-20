@@ -6,6 +6,21 @@ CREATE TABLE IF NOT EXISTS turns(turnId TEXT PRIMARY KEY,sessionId TEXT NOT NULL
 CREATE UNIQUE INDEX IF NOT EXISTS turn_upstream ON turns(sessionId,upstreamTurnId) WHERE upstreamTurnId IS NOT NULL;
 CREATE TABLE IF NOT EXISTS events(eventId INTEGER PRIMARY KEY AUTOINCREMENT,sessionId TEXT,turnId TEXT,seq INTEGER NOT NULL,action TEXT NOT NULL,payloadJson TEXT NOT NULL,ts TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS events_session ON events(sessionId,eventId);
+-- A routing hint is an observed completed item. Its answer status comes from
+-- authorized native history when opening the conversation.
+CREATE INDEX IF NOT EXISTS events_question_items ON events(eventId DESC)
+    WHERE action IN ('turn.progress','upstream.progress') AND
+          json_extract(payloadJson,'$.method')='item/completed' AND
+          json_array_length(payloadJson,'$.item.questions')>0;
+CREATE VIEW IF NOT EXISTS question_item_events AS
+    SELECT e.eventId,e.ts,e.sessionId,json_extract(e.payloadJson,'$.item.id') AS itemId FROM events e
+    WHERE e.action IN ('turn.progress','upstream.progress') AND
+          json_extract(e.payloadJson,'$.method')='item/completed' AND
+          json_array_length(e.payloadJson,'$.item.questions')>0 AND
+          json_extract(e.payloadJson,'$.item.type') IN ('agentMessage','assistantMessage') AND
+          json_type(e.payloadJson,'$.item.id')='text' AND length(json_extract(e.payloadJson,'$.item.id')) BETWEEN 1 AND 512 AND
+          EXISTS (SELECT 1 FROM json_each(e.payloadJson,'$.item.questions') q
+                  WHERE CASE WHEN q.type='object' THEN json_type(q.value,'$.title')='text' ELSE 0 END);
 CREATE TABLE IF NOT EXISTS approvals(approvalId TEXT PRIMARY KEY,sessionId TEXT NOT NULL REFERENCES sessions(sessionId),turnId TEXT NOT NULL REFERENCES turns(turnId),method TEXT NOT NULL,status TEXT NOT NULL,contextJson TEXT NOT NULL,upstreamRequestJson TEXT NOT NULL,generation TEXT NOT NULL,createdAt TEXT NOT NULL,expiresAt TEXT NOT NULL,resolvedAt TEXT);
 CREATE UNIQUE INDEX IF NOT EXISTS approval_upstream ON approvals(generation,upstreamRequestJson);
 CREATE TABLE IF NOT EXISTS devices(deviceId TEXT PRIMARY KEY,displayName TEXT NOT NULL,credentialHash TEXT NOT NULL UNIQUE,createdAt TEXT NOT NULL,revokedAt TEXT);
