@@ -1,9 +1,14 @@
+FROM node:22.22.3-bookworm-slim AS node
+
 FROM rust:1.90-bookworm AS build
 WORKDIR /build
-COPY server/Cargo.toml server/Cargo.lock ./server/
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY .node-version ./
+COPY server/Cargo.toml server/Cargo.lock server/build.rs server/build-admin-locales.mjs server/admin-locales.ts ./server/
 COPY server/src ./server/src
 COPY server/admin ./server/admin
-COPY web/src/i18n/*.json ./web/src/i18n/
+COPY web/package.json ./web/
+COPY web/src/i18n ./web/src/i18n
 COPY packages/connection-protocol/Cargo.toml ./packages/connection-protocol/
 COPY packages/connection-protocol/src ./packages/connection-protocol/src
 RUN cargo build --release --locked --manifest-path server/Cargo.toml

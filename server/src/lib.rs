@@ -3,6 +3,7 @@ pub mod api;
 pub mod chat;
 pub mod config;
 mod http_security;
+pub mod push;
 pub mod relay;
 pub mod security;
 pub mod storage;
@@ -91,6 +92,7 @@ impl IntoResponse for Error {
 }
 
 pub struct State {
+    pub push: Option<push::Push>,
     pub chat: chat::Chat,
     pub config: config::Config,
     pub store: storage::Store,
@@ -103,6 +105,7 @@ impl State {
         let store = storage::Store::open(&config.database_url).await?;
         let passwords = security::Passwords::new().await?;
         Ok(Arc::new(Self {
+            push: push::Push::environment()?,
             chat: chat::Chat::environment()?,
             hub: relay::Hub::new(config.max_tunnels),
             config,

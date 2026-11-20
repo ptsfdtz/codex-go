@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 /* global window, document, localStorage, navigator, Event, StorageEvent */
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { adminCatalog } from '../../server/admin-locales.ts';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const origin = process.env.I18N_TEST_ORIGIN || 'http://127.0.0.1:1434/';
 const out = new URL('../../artifacts/i18n/', import.meta.url);
@@ -336,19 +337,15 @@ try {
   await admin.route('**/admin/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path.startsWith('/api/')) return route.fallback();
-    let file =
-      path === '/admin/'
-        ? 'server/admin/index.html'
-        : path.startsWith('/admin/locales/')
-          ? 'web/src/i18n/' + path.split('/').at(-1)
-          : 'server/admin/' + path.split('/').at(-1);
+    const locale = /^\/admin\/locales\/(en|zh-CN)\.json$/.exec(path)?.[1];
+    if (locale) return route.fulfill({ json: adminCatalog(locale) });
+    const file =
+      path === '/admin/' ? 'server/admin/index.html' : 'server/admin/' + path.split('/').at(-1);
     const contentType = file.endsWith('.js')
       ? 'application/javascript'
-      : file.endsWith('.json')
-        ? 'application/json'
-        : file.endsWith('.css')
-          ? 'text/css'
-          : 'text/html';
+      : file.endsWith('.css')
+        ? 'text/css'
+        : 'text/html';
     await route.fulfill({
       contentType,
       body: await readFile(new URL('../../' + file, import.meta.url), 'utf8'),

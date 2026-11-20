@@ -1,14 +1,8 @@
 import { useSyncExternalStore } from 'react';
-import en from './en.json';
-import zhCN from './zh-CN.json';
+import { translations, type Locale, type TranslationKey } from './config';
 
-// Source-language messages already use their text as keys. Reuse the English
-// catalog's complete key set instead of shipping the same Chinese strings twice.
-// The build retains only non-identity translations in the Chinese JSON module.
-const chinese = { ...Object.fromEntries(Object.keys(en).map((key) => [key, key])), ...zhCN };
-
-export type LanguagePreference = 'system' | 'zh-CN' | 'en';
-export type Locale = 'zh-CN' | 'en';
+export type { Locale, TranslationKey } from './config';
+export type LanguagePreference = 'system' | Locale;
 export const languageStorageKey = 'agentdeck.language';
 const valid = (value: unknown): value is LanguagePreference =>
   value === 'system' || value === 'zh-CN' || value === 'en';
@@ -45,20 +39,20 @@ export function useLocale() {
 }
 export const getLocale = (): Locale => locale;
 export const getLanguagePreference = () => preference;
-export function t(key: string, values?: Record<string, unknown>): string {
-  const catalog: Record<string, string> = locale === 'en' ? en : chinese;
-  const fallback: Record<string, string> = en;
+export function t(key: TranslationKey, values?: Record<string, unknown>): string {
+  let lookup: string = key;
+  const catalog: Record<string, string> = translations[locale];
   if (typeof values?.count === 'number') {
     const suffix =
       values.count === 0 && Object.hasOwn(catalog, `${key}_zero`)
         ? 'zero'
         : plurals[locale].select(values.count);
-    if (Object.hasOwn(catalog, `${key}_${suffix}`)) key = `${key}_${suffix}`;
+    if (Object.hasOwn(catalog, `${key}_${suffix}`)) lookup = `${key}_${suffix}`;
   }
-  const template = Object.hasOwn(catalog, key)
-    ? catalog[key]!
-    : Object.hasOwn(fallback, key)
-      ? fallback[key]!
+  const template = Object.hasOwn(catalog, lookup)
+    ? catalog[lookup]!
+    : Object.hasOwn(translations.en, key)
+      ? translations.en[key]
       : key;
   // Catalogs intentionally support literal keys and {{name}} only. Replacement
   // is one pass: user values cannot introduce nested translations or markup.
@@ -105,10 +99,10 @@ apply();
 
 // Only apply to application error fields. Conversation text, filenames and API/model
 // identifiers are rendered verbatim. Retain upstream/OS diagnostics when unknown.
-const catalogs: Record<string, string>[] = [en, chinese];
 const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const patterns = catalogs.flatMap((catalog) =>
-  Object.entries(catalog).map(([key, value]) => {
+const patterns = Object.values(translations).flatMap((catalog) =>
+  (Object.keys(catalog) as TranslationKey[]).map((key) => {
+    const value = catalog[key];
     const names: string[] = [];
     const parts = value.split(/(\{\{\w+\}\})/);
     if (parts.length === 1) return { key, value };

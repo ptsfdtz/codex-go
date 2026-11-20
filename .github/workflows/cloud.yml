@@ -6,11 +6,10 @@ on:
       [
         'server/**',
         'packages/connection-protocol/**',
-        '.github/workflows/cloud.yml',
+        'web/src/i18n/**',
+        'web/package.json',
         '.node-version',
-        'package.json',
-        'pnpm-lock.yaml',
-        'pnpm-workspace.yaml',
+        '.github/workflows/cloud.yml',
         'rust-toolchain.toml',
         '.dockerignore',
       ]
@@ -19,11 +18,10 @@ on:
       [
         'server/**',
         'packages/connection-protocol/**',
-        '.github/workflows/cloud.yml',
+        'web/src/i18n/**',
+        'web/package.json',
         '.node-version',
-        'package.json',
-        'pnpm-lock.yaml',
-        'pnpm-workspace.yaml',
+        '.github/workflows/cloud.yml',
         'rust-toolchain.toml',
         '.dockerignore',
       ]
@@ -51,6 +49,9 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: dtolnay/rust-toolchain@1.90.0
       - uses: Swatinem/rust-cache@v2
         with:
@@ -81,8 +82,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
-      - uses: pnpm/action-setup@v4
-      - run: pnpm install --frozen-lockfile
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: rustfmt, clippy

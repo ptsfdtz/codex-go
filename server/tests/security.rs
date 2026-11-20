@@ -58,6 +58,37 @@ async fn cloud_authentication_and_secret_boundaries() {
     });
     let http = reqwest::Client::new();
     let base = format!("http://{address}");
+    // Cached admin clients use these URLs and the existing flat plural keys.
+    for (locale, label, one, other) in [
+        (
+            "en",
+            "Language",
+            "{{count}} file changed",
+            "{{count}} files changed",
+        ),
+        (
+            "zh-CN",
+            "语言",
+            "{{count}} 个文件已更改",
+            "{{count}} 个文件已更改",
+        ),
+    ] {
+        let response = http
+            .get(format!("{base}/admin/locales/{locale}.json"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/json; charset=utf-8"
+        );
+        let catalog: Value = response.json().await.unwrap();
+        assert_eq!(catalog["language.label"], label);
+        assert_eq!(catalog["files.changed_one"], one);
+        assert_eq!(catalog["files.changed_other"], other);
+        assert_eq!(catalog["files.changed"], other);
+    }
     let too_large = http
         .post(format!("{base}/api/v1/auth/login"))
         .header(header::ORIGIN, "https://security-test.invalid")

@@ -83,3 +83,27 @@ CREATE TABLE IF NOT EXISTS chat_keys(
 );
 CREATE INDEX IF NOT EXISTS chat_key_account ON chat_keys(account_id);
 INSERT INTO migrations(version) VALUES(7) ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS web_push_subscriptions(
+    device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    endpoint_hash TEXT NOT NULL UNIQUE,
+    include_completion BOOLEAN NOT NULL DEFAULT false,
+    vapid_key TEXT NOT NULL,
+    sealed BYTEA NOT NULL
+);
+ALTER TABLE web_push_subscriptions ADD COLUMN IF NOT EXISTS subscribed_at TIMESTAMPTZ NOT NULL DEFAULT now();
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM migrations WHERE version=8) THEN
+        CREATE FUNCTION remove_revoked_web_push() RETURNS trigger LANGUAGE plpgsql AS $fn$
+        BEGIN
+            DELETE FROM web_push_subscriptions WHERE session_id=NEW.id;
+            RETURN NEW;
+        END $fn$;
+        CREATE TRIGGER remove_revoked_web_push AFTER UPDATE OF revoked_at ON sessions
+            FOR EACH ROW WHEN (OLD.revoked_at IS NULL AND NEW.revoked_at IS NOT NULL)
+            EXECUTE FUNCTION remove_revoked_web_push();
+        INSERT INTO migrations(version) VALUES(8);
+    END IF;
+END $$;

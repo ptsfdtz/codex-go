@@ -17,9 +17,17 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{net::SocketAddr, sync::Arc};
 
+fn admin_locale(body: &'static [u8]) -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        body,
+    )
+}
+
 pub fn router(state: Arc<State>) -> Router {
     let web_origins = state.config.web_origins.clone();
     Router::new()
+        .merge(crate::push::router())
         .merge(crate::chat::router())
         .route("/health/live", get(|| async { Json(json!({"ok":true})) }))
         .route("/health/ready", get(health))
@@ -112,21 +120,11 @@ pub fn router(state: Arc<State>) -> Router {
         )
         .route(
             "/admin/locales/en.json",
-            get(|| async {
-                (
-                    [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-                    include_str!("../../web/src/i18n/en.json"),
-                )
-            }),
+            get(|| async { admin_locale(include_bytes!(concat!(env!("OUT_DIR"), "/en.json"))) }),
         )
         .route(
             "/admin/locales/zh-CN.json",
-            get(|| async {
-                (
-                    [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-                    include_str!("../../web/src/i18n/zh-CN.json"),
-                )
-            }),
+            get(|| async { admin_locale(include_bytes!(concat!(env!("OUT_DIR"), "/zh-CN.json"))) }),
         )
         .route(
             "/admin/style.css",
@@ -694,7 +692,10 @@ async fn register_host(
             )
             .await?;
     }
-    Ok(Json(json!({"hostId":input.host_id})))
+    let window = crate::push::window(&state, &auth.account_id)
+        .await
+        .unwrap_or(Value::Null);
+    Ok(Json(json!({"hostId":input.host_id,"pushWindow":window})))
 }
 fn valid_lan_endpoint(value: &str) -> bool {
     let Ok(uri) = value.parse::<axum::http::Uri>() else {
