@@ -47,6 +47,8 @@ jobs:
   cloud:
     needs: validate
     uses: ./.github/workflows/cloud.yml
+    with:
+      version: ${{ inputs.version }}
     secrets: inherit
 
   candidate:

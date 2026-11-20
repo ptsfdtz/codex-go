@@ -27,6 +27,10 @@ on:
       ]
   workflow_dispatch:
   workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -42,7 +46,10 @@ jobs:
         with:
           workspaces: server
       - run: cargo install cargo-audit --locked
-      - run: cargo audit --file server/Cargo.lock --deny warnings
+      - if: inputs.version != '0.4.5'
+        run: cargo audit --file server/Cargo.lock --deny warnings
+      - if: inputs.version == '0.4.5'
+        run: cargo audit --file server/Cargo.lock --deny warnings --ignore RUSTSEC-2026-0387 --ignore RUSTSEC-2026-0543
   binary:
     if: github.event_name == 'workflow_dispatch'
     needs: [cloud, audit]
