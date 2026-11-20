@@ -57,8 +57,10 @@ export type Snapshot = {
   projects?: Project[];
   turns?: Turn[];
   approvals?: Approval[];
+  recentQuestions?: { sessionId: string; itemId: string }[];
 };
 export type Capabilities = {
+  upstreamReady?: boolean;
   features?: Record<string, boolean>;
   codexVersion?: string;
   limits?: Record<string, number>;

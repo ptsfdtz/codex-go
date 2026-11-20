@@ -14,7 +14,7 @@ const surfaces = `
   .composer-attachment, .composer-drop-hint, .composer-speech-status,
   .resource-chip, .goal-status, .queued-message, .queued-messages, .queued-content, .queue-entry,
   .queued-text, .selection-quote,
-  .effort-slider, .effort-rail, .effort-fill, .turn-changes, .diff-text, .file-preview,
+  .effort-slider, .effort-rail, .effort-fill, .turn-changes, .diff-text,
   .tool-tab, .file-tab, .file-filter, .file-tree-row, .branch-file, .branch-help > div,
   .branch-select-field > div,
   .branch-modes, .branch-modes label > span, .branch-count, .branch-file-filter, .branch-file-status,

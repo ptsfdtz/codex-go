@@ -20,7 +20,7 @@ import {
 import type { Request } from '../../workspace';
 import { IconButton } from '../../ui';
 import { isProjectImage, readProjectImage } from '../project-image';
-import { CodePreview, type ScrollPosition } from './CodePreview';
+import { CodePreview, type DiffReview, type ScrollPosition } from './CodePreview';
 import { FileIcon, FileTree, type DirectoryState } from './FileTree';
 import {
   closeTab,
@@ -64,6 +64,7 @@ export function FileWorkspace({
   onExpand,
   onClose,
   onReference,
+  review,
 }: {
   embedded?: boolean;
   request: Request;
@@ -81,6 +82,7 @@ export function FileWorkspace({
   expanded: boolean;
   onExpand: () => void;
   onClose: () => void;
+  review?: DiffReview;
   onReference: (reference: FileReference) => void;
 }) {
   useLocale();
@@ -470,7 +472,12 @@ export function FileWorkspace({
       </header>
       {comparing ? (
         visible && (
-          <BranchComparison request={request} projectId={projectId} supported={gitBranchCompare} />
+          <BranchComparison
+            review={review}
+            request={request}
+            projectId={projectId}
+            supported={gitBranchCompare}
+          />
         )
       ) : (
         <div className="file-workspace-body">
@@ -575,6 +582,7 @@ export function FileWorkspace({
                         findToken={findToken}
                         text={content.text}
                         path={active.path}
+                        review={review}
                         diff={active.view === 'diff'}
                         untracked={content.untracked}
                         position={positions.current.get(scrollKey)}

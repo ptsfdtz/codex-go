@@ -45,8 +45,7 @@ body:has(.shell) {
 .empty-symbol {
   touch-action: pinch-zoom;
 }
-.connection-recovery,
-.task-progress {
+.connection-recovery {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -275,35 +274,9 @@ small,
   overflow: auto;
   scrollbar-width: thin;
 }
-.rail-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 9px 10px;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: left;
-}
-.rail-heading > span:first-of-type {
-  flex: 1;
-}
 .chat-entry.active {
   background: var(--hover);
   color: var(--text);
-}
-.rail-heading > .icon-button {
-  width: 27px;
-  height: 27px;
-}
-.rail-heading > .icon-button svg {
-  width: 15px;
-  height: 15px;
-}
-.rail-heading > .rotate {
-  transform: rotate(180deg);
 }
 .rail-filters {
   display: flex;
@@ -716,7 +689,6 @@ small,
   margin: 5px 0;
 }
 .rich-content pre,
-.file-preview,
 .technical-details pre {
   font:
     12px/1.75 ui-monospace,
@@ -942,7 +914,6 @@ small,
       .context-usage,
       .mode-chip,
       .permission,
-      button.rail-heading,
       .tool-record > summary,
       .technical-details > summary
     ):hover:not(:disabled):not(.danger):not(.error) {
@@ -954,7 +925,6 @@ small,
       .sidebar-footer > button:first-child,
       .session-row > .session,
       .popover > button,
-      .file-list > button,
       .skill-info,
       .project-setting > button:first-child,
       .settings-nav > button,
@@ -1057,10 +1027,11 @@ small,
 }
 .composer {
   --composer-border-color: transparent;
+  position: relative;
   border: 1px solid var(--composer-border-color);
   background: var(--soft);
-  border-radius: 25px;
-  padding: 12px 12px 9px;
+  border-radius: var(--radius-composer);
+  padding: 12px 12px 10px;
   box-shadow: 0 2px 6px #00000003;
 }
 
@@ -1071,15 +1042,16 @@ small,
   width: 100%;
   background: transparent;
   border: 0;
-  padding: 3px 7px 9px;
+  padding: 2px 6px 8px;
   outline: 0;
   resize: none;
-  min-height: 66px;
-  max-height: 220px;
-  field-sizing: content;
+  min-height: 36px;
+  max-height: none;
+  field-sizing: fixed;
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.6;
   display: block;
+  scrollbar-width: thin;
 }
 .composer textarea::placeholder {
   color: var(--muted);
@@ -1088,6 +1060,7 @@ small,
   display: flex;
   align-items: center;
   gap: 4px;
+  min-height: 36px;
 }
 .composer-toolbar > .menu-anchor > .icon-button {
   border: 1px solid var(--border);
@@ -1372,8 +1345,12 @@ small,
 .composer-resources {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 6px 8px;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 10px;
+  max-height: min(220px, 25dvh);
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .resource-chip {
   display: inline-flex;
@@ -1478,12 +1455,6 @@ small,
 }
 .popover > button > span:first-of-type {
   flex: 1;
-}
-.popover > .menu-caption {
-  color: var(--muted);
-  font-size: 11px;
-  padding: 0 12px;
-  margin: 0 0 8px;
 }
 .topbar:has(.top-menu) {
   position: relative;
@@ -1780,35 +1751,6 @@ small,
   overflow-wrap: anywhere;
   max-height: 300px;
 }
-.file-list > button {
-  display: flex;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  border-radius: 7px;
-  gap: 9px;
-  padding: 10px 8px;
-  font-size: 13px;
-  text-align: left;
-}
-.file-list > button > span {
-  flex: 1;
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
-.file-list > button > small {
-  font-size: 10px;
-}
-.file-list > button.selected {
-  background: var(--soft);
-}
-.file-preview {
-  white-space: pre;
-  overflow: auto;
-  max-height: 50vh;
-  font-size: 12px;
-  margin: 0;
-}
 .diff-text {
   font:
     11px/1.7 ui-monospace,
@@ -2056,7 +1998,7 @@ small,
   scrollbar-width: thin;
 }
 .settings-heading {
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 .settings-heading h2 {
   font-size: 22px;
@@ -2074,8 +2016,13 @@ small,
   flex-direction: column;
 }
 .settings-section {
-  padding: 22px 0;
+  margin: 0;
+  padding: 20px 0;
   border-top: 1px solid var(--border);
+}
+.settings-section:first-child {
+  border-top: 0;
+  padding-top: 0;
 }
 .settings-section h3 {
   margin: 0;
@@ -2090,9 +2037,6 @@ small,
   max-width: 52%;
   min-width: 120px;
 }
-.settings-section .panel-stack > button {
-  align-self: flex-start;
-}
 .settings-body .panel-stack > button {
   align-self: flex-start;
 }
@@ -2101,7 +2045,6 @@ small,
   color: var(--danger);
 }
 
-/* Mobile settings: compact navigation and grouped cards. */
 .host-device-icon {
   display: grid;
   width: 36px;
@@ -2111,17 +2054,6 @@ small,
   border-radius: 10px;
   background: var(--hover);
   color: var(--muted);
-}
-.settings-section {
-  margin: 0;
-  padding: 20px 0;
-}
-.settings-section:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-.settings-heading {
-  margin-bottom: 24px;
 }
 .setting-row {
   display: flex !important;
@@ -2391,6 +2323,11 @@ small,
   }
 }
 @media (max-width: 760px) {
+  /* The sliding tool pane extends past the viewport while hidden. Native
+     focus restoration must scroll only the active pane, never the entire app. */
+  .shell:has(> .conversation-layout) {
+    overflow: clip;
+  }
   .shell {
     --sidebar-width: 300px;
   }
@@ -2440,16 +2377,8 @@ small,
   .composer-wrap {
     padding: 6px 12px 2px;
   }
-  .composer {
-    border-radius: 23px;
-    padding: 10px 8px 8px;
-  }
   .composer > textarea {
     font-size: 16px;
-    min-height: 62px;
-  }
-  .composer-toolbar {
-    gap: 1px;
   }
   .mode-chip > span {
     display: none;
@@ -2511,10 +2440,6 @@ small,
     border: 0;
     border-radius: 0;
   }
-  .settings-modal > .modal-body {
-    padding: 0;
-    max-height: none;
-  }
   .settings-nav {
     padding: 6px 8px;
   }
@@ -2529,20 +2454,16 @@ small,
     padding: 14px 14px 28px;
   }
   .settings-heading {
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
   .settings-heading h2 {
     font-size: 20px;
   }
   .settings-section {
-    padding: 20px 0;
-    margin: 0;
+    padding-block: 14px;
   }
   .settings-section > .setting-row {
     gap: 12px !important;
-  }
-  .settings-section .setting-row small {
-    font-size: 12px;
   }
   .settings-nav svg {
     width: 17px;
@@ -2866,24 +2787,6 @@ small,
   font: inherit;
 }
 
-/* Compact composer: resource row, growing editor, and a stable action rail. */
-.composer {
-  position: relative;
-  padding: 12px 12px 10px;
-  border-radius: var(--radius-composer);
-}
-.composer > textarea {
-  field-sizing: fixed;
-  min-height: 36px;
-  max-height: none;
-  padding: 2px 6px 8px;
-  line-height: 1.6;
-  scrollbar-width: thin;
-}
-.composer-toolbar {
-  min-height: 36px;
-  gap: 4px;
-}
 .composer-toolbar > .composer-add {
   width: 34px;
   height: 34px;
@@ -2894,10 +2797,6 @@ small,
 }
 .composer-toolbar > .composer-add:hover {
   background: var(--hover);
-}
-.composer-toolbar .composer-model {
-  flex: 1;
-  min-width: 0;
 }
 .composer-toolbar .permission-picker {
   flex-shrink: 0;
@@ -2915,14 +2814,6 @@ small,
   color: #b98a55;
   background: transparent;
   box-shadow: none;
-}
-.composer-resources {
-  align-items: center;
-  gap: 8px;
-  padding: 2px 4px 10px;
-  max-height: min(220px, 25dvh);
-  overflow-y: auto;
-  scrollbar-width: thin;
 }
 .composer-attachments {
   display: flex;
@@ -3689,15 +3580,6 @@ small,
 .host-name-row input {
   width: 100%;
 }
-@media (max-width: 760px) {
-  .settings-section {
-    padding-block: 14px;
-  }
-  .settings-heading {
-    margin-bottom: 16px;
-  }
-}
-
 .visually-hidden {
   position: absolute;
   width: 1px;

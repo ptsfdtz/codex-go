@@ -603,6 +603,8 @@ export function SideChat({
         active={!!activeTurn}
         permission={permission}
         onPermission={setPermission}
+        attachmentBytes={capabilities.limits?.attachmentBytes}
+        attachmentCount={capabilities.limits?.attachmentCount}
         attachmentTotalBytes={capabilities.limits?.attachmentTotalBytes}
         feedback={blocked ? t('发送结果尚未确认，请先核对任务状态。') : undefined}
         onSend={(kind) => void send(kind)}

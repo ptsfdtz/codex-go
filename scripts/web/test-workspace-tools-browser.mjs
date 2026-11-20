@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-/* global window, document, localStorage, TextEncoder, btoa, StorageEvent, getComputedStyle, navigator */
+/* global window, document, localStorage, TextEncoder, btoa, atob, StorageEvent, getComputedStyle, navigator */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -131,11 +131,14 @@ try {
             sessionManagement: true,
             sessionFork: true,
             attachments: true,
+            nativeQueue: true,
+            nativeQueueAttachments: true,
             activeTurnSteering: true,
             externalThreadObservation: true,
             latestUpstreamTurn: true,
             projectTerminal: window.sshSupported !== false,
           },
+          limits: { attachmentBytes: 2097152, attachmentTotalBytes: 2097152, attachmentCount: 4 },
         };
       if (action === 'models.list')
         return {
@@ -343,6 +346,14 @@ try {
   await host.getByRole('button', { name: '打开工具', exact: true }).click();
   assert.equal(await sideInput.inputValue(), 'SIDE-DRAFT');
   checks.push('file preview, tab switching and closing/reopening preserve side drafts');
+  const limitLog = {
+    name: 'trace.log',
+    mimeType: 'text/plain',
+    buffer: Buffer.alloc(2 * 1024 * 1024, 65),
+  };
+  const sideFiles = side.locator('input[type=file]:not([accept])');
+  await sideFiles.setInputFiles(limitLog);
+  await side.locator('.composer-attachment').getByText('trace.log').waitFor();
   await side.getByRole('button', { name: '发送', exact: true }).click();
   await page.waitForFunction(() =>
     window.calls.some(
@@ -355,6 +366,28 @@ try {
   await page.waitForFunction(
     () => document.querySelector('.side-chat textarea[aria-label="消息"]').value === '',
   );
+  assert.equal(
+    await page.evaluate(
+      () =>
+        atob(
+          window.calls.find((c) => c.action === 'turn.start' && c.payload.sessionId === 'side')
+            .payload.attachments[0].data,
+        ).length,
+    ),
+    2 * 1024 * 1024,
+  );
+  await sideFiles.setInputFiles(limitLog);
+  await side.locator('.composer-attachment').getByText('trace.log').waitFor();
+  await side.getByRole('button', { name: '加入队列', exact: true }).click();
+  await page.waitForFunction(() =>
+    window.calls.some(
+      (c) =>
+        c.action === 'queue.add' &&
+        c.payload.sessionId === 'side' &&
+        atob(c.payload.attachments[0].data).length === 2 * 1024 * 1024,
+    ),
+  );
+  checks.push('side composer sends and queues complete 2 MiB attachments on the selected Host');
   assert.equal(await mainInput.inputValue(), 'PRIMARY-DRAFT');
   await side.getByRole('button', { name: '新建侧边对话', exact: true }).click();
   assert.equal(await sideInput.inputValue(), 'NEW-SIDE-DRAFT');
@@ -718,7 +751,20 @@ try {
       JSON.stringify(
         await activePage.evaluate(() => ({
           text: document.body.innerText,
-          calls: window.calls,
+          calls: window.calls.map(({ action, payload }) => ({
+            action,
+            payload: {
+              ...payload,
+              ...(payload.attachments
+                ? {
+                    attachments: payload.attachments.map((f) => ({
+                      name: f.name,
+                      encodedLength: f.data.length,
+                    })),
+                  }
+                : {}),
+            },
+          })),
           errors: window.testErrors,
         })),
         null,

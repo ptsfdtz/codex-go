@@ -262,45 +262,6 @@
   background: #171717;
   color: #e7e7e7;
 }
-.ssh-connect {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  flex: 1;
-  padding: 24px;
-  overflow-y: auto;
-  background: var(--bg);
-  color: var(--text);
-}
-.ssh-connect h3,
-.ssh-connect p {
-  margin: 0;
-}
-.ssh-connect p {
-  line-height: 1.7;
-  font-size: 12px;
-}
-.ssh-connect label {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  font-size: 12px;
-}
-.ssh-connect input {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-.ssh-connect-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-.ssh-connect > button {
-  align-self: flex-start;
-  padding: 9px 24px;
-}
 .ssh-status {
   display: flex;
   align-items: center;
@@ -351,8 +312,5 @@
   .tools-header > button[aria-label='扩大工具栏'],
   .tools-header > button[aria-label='恢复并排工具'] {
     display: none;
-  }
-  .ssh-connect {
-    padding: 20px;
   }
 }

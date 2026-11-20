@@ -6,7 +6,13 @@ const AgentTray = deferred<React.ComponentProps<typeof import('./features/AgentT
   () => import('./features/AgentTray').then((m) => ({ default: m.AgentTray })),
 );
 import { usePageDrafts } from './features/page-drafts';
+import { LocalTextDrafts } from './features/local-text-drafts';
+import { useMobileNavigation, type MobileView } from './features/mobile-navigation';
 import { useToolTabs } from './features/tools/tool-tabs';
+import type { HistoryMatch } from './features/HistorySearch';
+const HistorySearch = deferred<
+  React.ComponentProps<typeof import('./features/HistorySearch').HistorySearch>
+>(() => import('./features/HistorySearch').then((m) => ({ default: m.HistorySearch })));
 const SettingsContents = deferred<
   React.ComponentProps<typeof import('./features/SettingsContents').SettingsContents>
 >(() => import('./features/SettingsContents').then((m) => ({ default: m.SettingsContents })));
@@ -18,7 +24,7 @@ import { MotionPresence, useMotionRetention, useSidebarMotion } from './motion';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './styles.css';
 import agentDeckMark from '../../assets/branding/agentdeck-mark.svg';
-import { api, accountEvent } from './cloud';
+import { api, accountEvent, CloudError } from './cloud';
 import type { Bridge } from './transport/bridge';
 const ReceiptRecovery = deferred<
   React.ComponentProps<typeof import('./features/recovery/ReceiptRecovery').ReceiptRecovery>
@@ -66,6 +72,18 @@ import type {
 import { emptyDraft, canManage, chatProject, isSessionWorking } from './workspace';
 import { Sidebar } from './features/Sidebar';
 import { LoadingPlaceholder } from './features/LoadingPlaceholder';
+import {
+  approvalNotice,
+  attentionRoute,
+  notificationLocation,
+  type AttentionRoute,
+  type AttentionDestination,
+} from './features/notifications/attention-route';
+const AttentionInbox = deferred<
+  React.ComponentProps<typeof import('./features/notifications/AttentionInbox').AttentionInbox>
+>(() =>
+  import('./features/notifications/AttentionInbox').then((m) => ({ default: m.AttentionInbox })),
+);
 import { TaskBanners } from './features/notifications/TaskBanners';
 import { useTaskAttention } from './features/notifications/use-task-attention';
 import './features/notifications/task-attention.css';
@@ -214,11 +232,43 @@ export function App() {
     'codex',
     (value): value is WorkMode => value === 'codex' || value === 'api',
   );
+  const [notificationTarget, setNotificationTarget] = useState<AttentionDestination>();
+  useEffect(() => {
+    const receive = (target: AttentionDestination | undefined) => {
+      if (target) {
+        setMode('codex');
+        setNotificationTarget(target);
+      }
+    };
+    receive(notificationLocation());
+    const message = (e: MessageEvent) => {
+      if (
+        e.data?.type === 'agentdeck.openAttention' &&
+        (!e.origin || e.origin === location.origin)
+      ) {
+        receive(attentionRoute(e.data));
+        e.ports[0]?.postMessage('received');
+      }
+    };
+    const navigate = () => receive(notificationLocation());
+    navigator.serviceWorker?.addEventListener('message', message);
+    window.addEventListener('hashchange', navigate);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', message);
+      window.removeEventListener('hashchange', navigate);
+    };
+  }, []);
   const modeControl = <ModeSwitcher mode={mode} onChange={setMode} />;
   return mode === 'api' ? (
     <ApiChatGate modeControl={modeControl} />
   ) : (
-    <CodexApp modeControl={modeControl} bubbleColor={bubbleColor} setBubbleColor={setBubbleColor} />
+    <CodexApp
+      notificationTarget={notificationTarget}
+      setNotificationTarget={setNotificationTarget}
+      modeControl={modeControl}
+      bubbleColor={bubbleColor}
+      setBubbleColor={setBubbleColor}
+    />
   );
 }
 function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
@@ -259,21 +309,28 @@ function ApiChatGate({ modeControl }: { modeControl: React.ReactNode }) {
   );
 }
 function CodexApp({
+  notificationTarget,
+  setNotificationTarget,
   modeControl,
   bubbleColor,
   setBubbleColor,
 }: {
+  notificationTarget?: AttentionDestination;
+  setNotificationTarget: (target: AttentionDestination | undefined) => void;
   modeControl: React.ReactNode;
   bubbleColor: string;
   setBubbleColor: (value: string) => void;
 }) {
   useLocale();
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [identityUnavailable, setIdentityUnavailable] = useState(false);
+  const retryIdentity = useRef<() => void>(undefined);
   const [scope, setScope] = useState('');
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const connectionEpoch = useRef(0);
   const accountEpoch = useRef(0);
   const [hosts, setHosts] = useState<Host[]>([]);
+  const [directoryScope, setDirectoryScope] = useState('');
   const [directoryFailure, setDirectoryFailure] = useState('');
   const [host, setHost] = useState<Host>();
   const [snapshot, setSnapshot] = useState<Snapshot>({});
@@ -290,6 +347,11 @@ function CodexApp({
   const [historyFailure, setHistoryFailure] = useState('');
   const [historyReady, setHistoryReady] = useState(false);
   const [drafts, setDrafts] = usePageDrafts(scope);
+  const localTextDrafts = useMemo(() => new LocalTextDrafts(scope), [scope]);
+  const currentTextStore = useRef(localTextDrafts);
+  currentTextStore.current = localTextDrafts;
+  const [, updateDraftPreference] = useState(0);
+  const rememberDrafts = localTextDrafts.enabled();
   const sending = useRef(false);
   const [sendFailure, setSendFailure] = useState<{ key: string; message: string }>();
   const [error, setError] = useState('');
@@ -308,6 +370,10 @@ function CodexApp({
   const [mobile, setMobile] = useState(() => matchMedia('(max-width:760px)').matches);
   const conversationElement = useSidebarMotion(sidebarOpen);
   const [panel, setPanel] = useState('');
+  const [locatedHit, setLocatedHit] = useState<HistoryMatch>();
+  const [locatedEntry, setLocatedEntry] = useState<HistoryEntry>();
+  const [approvalUpdate, setApprovalUpdate] = useState('');
+  const [locationError, setLocationError] = useState('');
   const [manageSession, setManageSession] = useState<Session>();
   const [menuLoaded, setMenuLoaded] = useState(false);
   const [menu, setMenu] = useState(false),
@@ -335,7 +401,13 @@ function CodexApp({
     false,
     (value): value is boolean => typeof value === 'boolean',
   );
-  const attention = useTaskAttention(scope, host?.hostId, snapshot, notification);
+  const attention = useTaskAttention(
+    scope,
+    host?.hostId,
+    snapshot,
+    notification,
+    capabilities.features?.backgroundNotifications === true,
+  );
   const attentionRef = useRef(attention);
   attentionRef.current = attention;
   useEffect(() => {
@@ -405,6 +477,48 @@ function CodexApp({
     [modelPreferences, modelPreferenceKey, current?.model, current?.effort],
   );
   const storedDraft = drafts[draftKey];
+  const canRestoreDraft =
+    !!scope &&
+    !!host &&
+    !!selectedProject &&
+    (session
+      ? !!current
+      : snapshot.projects?.some((p) => p.projectId === selectedProject) ||
+        (selectedProject === chatProject && capabilities.features?.projectlessChat === true));
+  const latestDrafts = useRef(drafts);
+  latestDrafts.current = drafts;
+  const mainDraftProjects = useRef(new Map<string, string>());
+  const draftStorageFailure = () => setError(t('drafts.saveFailed'));
+  useEffect(() => {
+    if (!scope) return;
+    void localTextDrafts.prune().catch(draftStorageFailure);
+    const changed = (event: StorageEvent) => {
+      if (event.key === null || event.key === localTextDrafts.preference)
+        updateDraftPreference((value) => value + 1);
+    };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }, [localTextDrafts, scope]);
+  useEffect(() => {
+    if (!canRestoreDraft || !rememberDrafts) return;
+    mainDraftProjects.current.set(draftKey, selectedProject);
+    const text = localTextDrafts.restore(draftKey, latestDrafts.current[draftKey]?.text);
+    if (text && !latestDrafts.current[draftKey])
+      setDrafts((items) =>
+        items[draftKey] ? items : { ...items, [draftKey]: { ...emptyDraft(), text } },
+      );
+  }, [localTextDrafts, canRestoreDraft, rememberDrafts, draftKey, selectedProject, setDrafts]);
+  async function setRememberDrafts(value: boolean) {
+    try {
+      await localTextDrafts.setEnabled(value);
+      if (currentTextStore.current !== localTextDrafts) return;
+      if (value && canRestoreDraft && latestDrafts.current[draftKey]?.text)
+        await localTextDrafts.save(draftKey, latestDrafts.current[draftKey]!.text, selectedProject);
+      updateDraftPreference((revision) => revision + 1);
+    } catch {
+      draftStorageFailure();
+    }
+  }
   const draft = {
     ...(storedDraft || emptyDraft()),
     model: modelPreference.model,
@@ -416,6 +530,9 @@ function CodexApp({
     setPreferences((items) => ({ ...items, [preferenceKey]: next }));
   }
   function updateDraft(change: Partial<Draft>) {
+    if (canRestoreDraft) mainDraftProjects.current.set(draftKey, selectedProject);
+    if (canRestoreDraft && change.text !== undefined)
+      void localTextDrafts.save(draftKey, change.text, selectedProject).catch(draftStorageFailure);
     if (change.model !== undefined || change.effort !== undefined) {
       const next = {
         model: change.model ?? modelPreference.model,
@@ -436,13 +553,17 @@ function CodexApp({
     (!chat || !['composerSkills', 'projectFileBrowser', 'plan', 'goal'].includes(key)) &&
     supports(key);
   const [dismissedPlan, setDismissedPlan] = useState('');
-  const lastPlanMessage = [...renderedHistory]
-    .reverse()
-    .find((entry) =>
-      ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
-        String(entry.item?.type),
-      ),
-    );
+  const lastPlanMessage = useMemo(() => {
+    for (let index = renderedHistory.length - 1; index >= 0; index--) {
+      const entry = renderedHistory[index]!;
+      if (
+        ['userMessage', 'agentMessage', 'assistantMessage', 'plan'].includes(
+          String(entry.item?.type),
+        )
+      )
+        return entry;
+    }
+  }, [renderedHistory]);
   const pendingPlan =
     lastPlanMessage?.item?.type === 'plan' &&
     !Array.isArray(lastPlanMessage.item.plan) &&
@@ -488,6 +609,7 @@ function CodexApp({
     uncertainBaseline.current.clear();
     sessionRef.current = id;
     historyStarted.current = false;
+    setApprovalUpdate('');
     setSession(id);
     setHistory([]);
     setHistoryCursor(undefined);
@@ -508,6 +630,38 @@ function CodexApp({
         id || `new:${selectedProject}`,
       );
   }
+  const projectAccess = useMemo(() => {
+    if (!snapshot.projects) return undefined;
+    const ids = snapshot.projects.map((p) => p.projectId);
+    if (capabilities.features?.projectlessChat) ids.push(chatProject);
+    return JSON.stringify(ids.sort());
+  }, [snapshot.projects, capabilities.features?.projectlessChat]);
+  React.useLayoutEffect(() => {
+    if (!connected || !host || !projectAccess) return;
+    const allowed = new Set<string>(JSON.parse(projectAccess));
+    void localTextDrafts.pruneProjects(host.hostId, allowed).catch(draftStorageFailure);
+    const revokedKeys: string[] = [];
+    for (const [key, project] of mainDraftProjects.current) {
+      const [account, computer] = JSON.parse(key);
+      if (account === scope && computer === host.hostId && !allowed.has(project)) {
+        revokedKeys.push(key);
+        mainDraftProjects.current.delete(key);
+      }
+    }
+    if (revokedKeys.length)
+      setDrafts((items) => {
+        const next = { ...items };
+        for (const key of revokedKeys) delete next[key];
+        return next;
+      });
+    if (selectedProject && !allowed.has(selectedProject)) {
+      selectSession(undefined, false);
+      setSelectedProject('');
+      setPanel('');
+      setFileWorkspaceOpen(false);
+      if (matchMedia('(max-width:760px)').matches) setSidebarOpen(true);
+    }
+  }, [connected, host?.hostId, scope, projectAccess, localTextDrafts, selectedProject]);
 
   useEffect(() => {
     if (host && !session && draftProjectRef.current !== undefined)
@@ -572,8 +726,60 @@ function CodexApp({
   }, [theme]);
   useEffect(() => {
     let checking: Bridge | undefined;
+    let alive = true;
+    let identityPending: number | undefined;
+    let needsIdentity = true;
+    let attempts = 0;
+    let identityTimer: number | undefined;
+    let previousDraftStore: LocalTextDrafts | undefined;
+    async function checkIdentity(refresh = true) {
+      const generation = accountEpoch.current;
+      if (!alive || !needsIdentity || identityPending === generation) return;
+      window.clearTimeout(identityTimer);
+      identityPending = generation;
+      try {
+        const value = await api('/api/v1/web/session', {}, refresh);
+        if (!alive || generation !== accountEpoch.current) return;
+        if (
+          typeof value.accountId !== 'string' ||
+          !value.accountId ||
+          typeof value.cloudDeviceId !== 'string' ||
+          !value.cloudDeviceId
+        )
+          throw new Error('Invalid cloud identity response');
+        const nextScope = `${value.accountId}:${value.cloudDeviceId}`;
+        if (previousDraftStore && nextScope !== previousDraftStore.scope)
+          void previousDraftStore.setEnabled(false).catch(draftStorageFailure);
+        previousDraftStore = undefined;
+        needsIdentity = false;
+        setIdentityUnavailable(false);
+        setScope(nextScope);
+        setMustChangePassword(value.mustChangePassword === true);
+        setSignedIn(true);
+      } catch (error) {
+        if (!alive || generation !== accountEpoch.current) return;
+        if (error instanceof CloudError && error.status === 401) {
+          void previousDraftStore?.setEnabled(false).catch(draftStorageFailure);
+          previousDraftStore = undefined;
+          needsIdentity = false;
+          setIdentityUnavailable(false);
+          setSignedIn(false);
+        } else {
+          setIdentityUnavailable(true);
+          identityTimer = window.setTimeout(
+            () => void checkIdentity(),
+            Math.min(30000, 2000 * 2 ** Math.min(attempts++, 4)),
+          );
+        }
+      } finally {
+        if (identityPending === generation) identityPending = undefined;
+      }
+    }
+    retryIdentity.current = () => void checkIdentity();
+    void checkIdentity();
     const wake = () => {
       if (document.visibilityState === 'hidden') return;
+      void checkIdentity();
       reconnect.current?.wake();
       const connection = bridge.current;
       if (connection && checking !== connection && document.visibilityState === 'visible') {
@@ -598,8 +804,10 @@ function CodexApp({
       if (event.key?.startsWith('agentdeck.web.receipts.') && bridge.current)
         setReceiptBlocked(bridge.current.awaitingReceipt);
     };
-    const accountChanged = () => {
-      const generation = ++accountEpoch.current;
+    const accountChanged = (event: Event) => {
+      ++accountEpoch.current;
+      attempts = 0;
+      needsIdentity = true;
       reconnect.current?.stop();
       connectionEpoch.current++;
       bridge.current?.close();
@@ -611,6 +819,11 @@ function CodexApp({
       setHosts([]);
       setCapabilities({});
       setModels([]);
+      if (currentTextStore.current.scope) previousDraftStore = currentTextStore.current;
+      if (['logout', 'expired'].includes((event as CustomEvent).detail)) {
+        void previousDraftStore?.setEnabled(false).catch(draftStorageFailure);
+        previousDraftStore = undefined;
+      }
       setDrafts({});
       selectSession(undefined, false);
       setConnectionState('stopped');
@@ -618,16 +831,9 @@ function CodexApp({
       setSnapshot({});
       setPanel('');
       setSignedIn(null);
-      void api('/api/v1/web/session', {}, false)
-        .then((value) => {
-          if (generation !== accountEpoch.current) return;
-          setScope(`${value.accountId}:${value.cloudDeviceId}`);
-          setMustChangePassword(value.mustChangePassword === true);
-          setSignedIn(true);
-        })
-        .catch(() => {
-          if (generation === accountEpoch.current) setSignedIn(false);
-        });
+      setScope('');
+      setIdentityUnavailable(false);
+      void checkIdentity(false);
     };
     window.addEventListener('storage', receiptChanged);
     window.addEventListener('offline', offline);
@@ -637,6 +843,9 @@ function CodexApp({
     document.addEventListener('visibilitychange', wake);
     window.addEventListener(accountEvent, accountChanged);
     return () => {
+      alive = false;
+      retryIdentity.current = undefined;
+      window.clearTimeout(identityTimer);
       window.removeEventListener('storage', receiptChanged);
       window.removeEventListener('offline', offline);
       window.removeEventListener('online', wake);
@@ -682,7 +891,11 @@ function CodexApp({
         e.preventDefault();
         setPanel('find');
       }
-      if (e.altKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (
+        !matchMedia('(max-width:760px)').matches &&
+        e.altKey &&
+        ['ArrowLeft', 'ArrowRight'].includes(e.key)
+      ) {
         e.preventDefault();
         const sessions = snapshot.sessions?.filter((s) => s.archived !== 1) || [];
         const index = sessions.findIndex((s) => s.sessionId === session);
@@ -698,19 +911,6 @@ function CodexApp({
     return () => window.removeEventListener('keydown', key);
   }, [snapshot.sessions, session, scope, host, connected, selectedProject]);
 
-  useEffect(() => {
-    const generation = accountEpoch.current;
-    api('/api/v1/web/session')
-      .then((value) => {
-        if (generation !== accountEpoch.current) return;
-        setScope(`${value.accountId}:${value.cloudDeviceId}`);
-        setMustChangePassword(value.mustChangePassword === true);
-        setSignedIn(true);
-      })
-      .catch(() => {
-        if (generation === accountEpoch.current) setSignedIn(false);
-      });
-  }, []);
   useEffect(() => {
     if (!signedIn || mustChangePassword) return;
     let cancelled = false,
@@ -739,6 +939,7 @@ function CodexApp({
             migrationFailure = t('旧电脑名称尚未同步到服务器，正在重试；本地名称已保留。');
           }
           if (cancelled || generation !== accountEpoch.current) return;
+          setDirectoryScope(scope);
           setHosts(hostValue.hosts || []);
           setDirectoryFailure(migrationFailure);
           if (
@@ -1116,6 +1317,7 @@ function CodexApp({
       return;
     const sourceKey = draftKey,
       epoch = connectionEpoch.current;
+    const savedRevision = planText === undefined ? localTextDrafts.revision(sourceKey) : undefined;
     let targetKey = sourceKey;
     let createdSession: string | undefined;
     sending.current = true;
@@ -1142,10 +1344,16 @@ function CodexApp({
         createdSession = id;
         startingSession.current = id;
         targetKey = JSON.stringify([scope, host?.hostId, id]);
+        mainDraftProjects.current.set(targetKey, selectedProject);
+        void localTextDrafts.settle(sourceKey, savedRevision, targetKey).catch(draftStorageFailure);
         const selection = { model: source.model, effort: source.effort };
         saveComposerModelPreferences(targetKey, selection);
         setModelPreferences((items) => ({ ...items, [targetKey]: selection }));
-        setDrafts((items) => ({ ...items, [targetKey]: source }));
+        setDrafts((items) => {
+          const next = { ...items, [targetKey]: source };
+          if (planText === undefined && items[sourceKey] === storedDraft) delete next[sourceKey];
+          return next;
+        });
         selectSession(id);
         // sessions.create confirms a new empty thread. Codex cannot paginate
         // its rollout until the first turn starts, so don't race that read
@@ -1199,6 +1407,7 @@ function CodexApp({
       }
       if (epoch !== connectionEpoch.current) return;
       if (startingSession.current === createdSession) startingSession.current = undefined;
+      void localTextDrafts.settle(targetKey, savedRevision).catch(draftStorageFailure);
       setDrafts((items) => {
         const next = { ...items };
         for (const key of new Set([sourceKey, targetKey]))
@@ -1277,11 +1486,11 @@ function CodexApp({
     }
   }
 
-  function chooseSession(item: Session) {
+  function chooseSession(item: Session, source = snapshot) {
     attention.read(item.sessionId);
     setSelectedProject(item.projectId || '');
     selectSession(item.sessionId);
-    const running = snapshot.turns?.find(
+    const running = source.turns?.find(
       (t) =>
         t.sessionId === item.sessionId &&
         ['queued', 'running', 'waitingApproval'].includes(t.status || ''),
@@ -1290,6 +1499,146 @@ function CodexApp({
     setActiveTurn(running?.turnId);
     if (matchMedia('(max-width: 760px)').matches) setSidebarOpen(false);
   }
+  const requestedHost = useRef<AttentionRoute | undefined>(undefined);
+  useEffect(() => {
+    if (!notificationTarget || !scope || !signedIn || mustChangePassword) return;
+    const clear = () => {
+      setNotificationTarget(undefined);
+      if (notificationLocation())
+        window.history.replaceState(window.history.state, '', location.pathname + location.search);
+    };
+    if (notificationTarget === 'inbox' || notificationTarget.accountId !== scope.split(':')[0]) {
+      clear();
+      setPanel('attention');
+      return;
+    }
+    if (directoryScope !== scope) return;
+    const next = hosts.find((h) => h.hostId === notificationTarget.hostId);
+    if (!next || (!next.online && !(connected && host?.hostId === next.hostId))) {
+      clear();
+      setPanel('attention');
+      setError(t('目标电脑不可用，请刷新待办'));
+      return;
+    }
+    if (host?.hostId !== next.hostId || !connected || !bridge.current) {
+      if (requestedHost.current !== notificationTarget) {
+        requestedHost.current = notificationTarget;
+        void connect(next);
+      } else if (host?.hostId === next.hostId && connectionState === 'stopped') {
+        clear();
+        setPanel('attention');
+        setError(t('目标电脑不可用，请刷新待办'));
+      }
+      return;
+    }
+    let active = true;
+    const value = bridge.current;
+    void value
+      .request<Snapshot>('snapshot.get')
+      .then(async (fresh) => {
+        if (!active || value !== bridge.current) return;
+        const target = fresh.sessions?.find((s) => s.sessionId === notificationTarget.sessionId);
+        if (!target) {
+          clear();
+          setPanel('attention');
+          setError(t('会话已移除或授权已变化'));
+          return;
+        }
+        let result = '';
+        if (notificationTarget.approvalId) {
+          const { sessionId, approvalId } = notificationTarget;
+          try {
+            const { status } = await value.request<{ status: string }>('approvals.status', {
+              sessionId,
+              approvalId,
+            });
+            result = approvalNotice(status);
+            if (status !== 'pending' && status !== 'sending') {
+              fresh = {
+                ...fresh,
+                approvals: fresh.approvals?.filter((a) => a.approvalId !== approvalId),
+              };
+            }
+          } catch {
+            result = approvalNotice('unknown');
+          }
+        }
+        if (!active || value !== bridge.current) return;
+        setSnapshot((current) => (Number(current.cursor) > Number(fresh.cursor) ? current : fresh));
+        clear();
+        chooseSession(target, fresh);
+        setApprovalUpdate(result);
+        setPanel('');
+      })
+      .catch((e) => {
+        if (active) {
+          clear();
+          setPanel('attention');
+          setError(String(e));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    notificationTarget,
+    scope,
+    signedIn,
+    mustChangePassword,
+    directoryScope,
+    hosts,
+    host?.hostId,
+    connected,
+    connectionState,
+  ]);
+
+  function openHistoryMatch(hit: HistoryMatch) {
+    const target = snapshot.sessions?.find(
+      (s) => s.sessionId === hit.sessionId && s.projectId === hit.projectId,
+    );
+    if (!connected || !target) return;
+    const loaded =
+      sessionRef.current === hit.sessionId &&
+      historyRef.current.find((e) => e.turnId === hit.turnId && e.item?.id === hit.itemId);
+    chooseSession(target);
+    if (loaded) {
+      jumpTo(loaded);
+      return;
+    }
+    setLocatedEntry(undefined);
+    setLocationError('');
+    setLocatedHit(hit);
+    setPanel('located');
+  }
+
+  useEffect(() => {
+    if (
+      panel !== 'located' ||
+      !locatedHit ||
+      !connected ||
+      !bridge.current ||
+      session !== locatedHit.sessionId
+    )
+      return;
+    const connection = bridge.current;
+    let active = true;
+    void historyPage(connection, session, locatedHit.pageCursor || undefined)
+      .then((page) => {
+        if (!active || bridge.current !== connection) return;
+        const entry = page.data.find(
+          (e) => e.item?.id === locatedHit.itemId && e.turnId === locatedHit.turnId,
+        );
+        if (!entry) throw new Error(t('历史已变化，请重新搜索'));
+        setLocatedEntry(entry);
+      })
+      .catch((e) => {
+        if (active) setLocationError(String(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [panel, locatedHit, connected, session, host?.hostId, scope]);
+
   function newChat() {
     selectSession(undefined);
     setPanel('');
@@ -1482,7 +1831,9 @@ function CodexApp({
     queue: t('待发送消息'),
     projects: t('项目'),
     find: t('在会话中查找'),
+    attention: t('需要我处理'),
     search: t('搜索会话'),
+    located: t('历史消息原文'),
     history: t('会话历史'),
   };
   const targetSession =
@@ -1496,10 +1847,11 @@ function CodexApp({
     }
     return turns;
   }, [renderedHistory]);
-  const answers = answerActions(
-    renderedHistory,
-    snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId || activeTurn,
-    contentText,
+  const upstreamTurn =
+    snapshot.turns?.find((turn) => turn.turnId === activeTurn)?.upstreamTurnId || activeTurn;
+  const answers = useMemo(
+    () => answerActions(renderedHistory, upstreamTurn, contentText),
+    [renderedHistory, upstreamTurn],
   );
   const canEditUserMessage =
     connected &&
@@ -1510,31 +1862,118 @@ function CodexApp({
     current?.archived !== 1 &&
     canManage(current) &&
     supports('sessionHistoryRevert');
-  const matches = renderedHistory.filter(
-    (entry) => find.trim() && contentText(entry.item).toLowerCase().includes(find.toLowerCase()),
-  );
-  const matchingSessions = (snapshot.sessions || []).filter((s) =>
-    `${s.title || ''} ${snapshot.projects?.find((p) => p.projectId === s.projectId)?.name || ''}`
-      .toLowerCase()
-      .includes(search.trim().toLowerCase()),
-  );
+  const matches = useMemo(() => {
+    const query = find.trim().toLowerCase();
+    if (panel !== 'find' || !query) return [];
+    return renderedHistory.filter((entry) => contentText(entry.item).toLowerCase().includes(query));
+  }, [renderedHistory, find, panel]);
+  const matchingSessions = useMemo(() => {
+    if (panel !== 'search') return [];
+    const query = search.trim().toLowerCase();
+    const names = new Map(snapshot.projects?.map((p) => [p.projectId, p.name]));
+    return (snapshot.sessions || []).filter((s) =>
+      `${s.title || ''} ${names.get(s.projectId || '') || ''}`.toLowerCase().includes(query),
+    );
+  }, [panel, search, snapshot.sessions, snapshot.projects]);
   function jumpTo(entry: HistoryEntry) {
     setPanel('');
     timeline.current?.pause();
-    requestAnimationFrame(() => {
-      const key = historyKey(entry);
-      const node = Array.from(document.querySelectorAll<HTMLElement>('[data-history-key]')).find(
-        (n) => n.dataset.historyKey === key,
-      );
-      const stage = node?.closest<HTMLDetailsElement>('.activity-stage');
-      if (stage) stage.open = true;
-      node?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      node?.classList.add('search-highlight');
-      setTimeout(() => node?.classList.remove('search-highlight'), 2000);
-    });
+    const target = sessionRef.current;
+    const epoch = connectionEpoch.current;
+    void import('./features/activity/ActivityStages')
+      .then(({ activityStages }) => {
+        if (target !== sessionRef.current || epoch !== connectionEpoch.current) return;
+        const entries = historyRef.current;
+        const key = historyKey(entry);
+        const index = entries.findIndex((item) => historyKey(item) === key);
+        const groupKey = activityStages(entries).find(
+          (stage) => stage.activity && stage.indices.includes(index),
+        )?.key;
+        requestAnimationFrame(() => {
+          if (target === sessionRef.current && epoch === connectionEpoch.current)
+            timeline.current?.reveal(key, groupKey);
+        });
+      })
+      .catch((e) => setError(String(e)));
   }
 
-  if (signedIn === null) return <main className="center">{t('加载中…')}</main>;
+  const shell = useRef<HTMLDivElement>(null);
+  const mobileView: MobileView = {
+    page: sidebarOpen ? 'list' : toolsVisible ? 'tools' : 'conversation',
+    ...(!sidebarOpen && (session ? { session } : { project: selectedProject })),
+    ...(!sidebarOpen && toolsVisible && { toolTab: toolTabs.activeTab?.id }),
+    ...(panel && { panel }),
+    ...(panel === 'manage' && manageSession && { manage: manageSession.sessionId }),
+    ...(menu ? { menu: 'conversation' } : workspaceMenu ? { menu: 'workspace' } : {}),
+  };
+  useMobileNavigation(
+    mobile && signedIn && !mustChangePassword && host && snapshot.sessions && snapshot.projects
+      ? JSON.stringify([scope, host.hostId])
+      : undefined,
+    mobileView,
+    (view) => {
+      const destination = snapshot.sessions?.find((s) => s.sessionId === view.session);
+      const projectAllowed =
+        view.project === chatProject
+          ? supports('projectlessChat')
+          : snapshot.projects?.some((p) => p.projectId === view.project);
+      const list = view.page === 'list' || (!destination && !projectAllowed);
+      if (!list && destination) {
+        if (sessionRef.current !== destination.sessionId) chooseSession(destination);
+      } else if (!list && view.project) {
+        setSelectedProject(view.project);
+        if (sessionRef.current) selectSession(undefined);
+      }
+      setSidebarOpen(list);
+      const tab = view.page === 'tools' && toolTabs.tabs.find((item) => item.id === view.toolTab);
+      if (tab && !list) toolTabs.selectTab(tab.id);
+      setFileWorkspaceOpen(!list && !!tab);
+      const allowed = [
+        'settings',
+        'attention',
+        'search',
+        'history',
+        'find',
+        'goal',
+        'queue',
+        'skills',
+        'projects',
+        'manage',
+      ];
+      if (locatedHit?.sessionId === destination?.sessionId && locatedHit) allowed.push('located');
+      const managed =
+        view.manage && snapshot.sessions?.find((item) => item.sessionId === view.manage);
+      setManageSession(managed || undefined);
+      setPanel(
+        (!list || view.page === 'list') &&
+          allowed.includes(view.panel || '') &&
+          (!view.manage || managed)
+          ? view.panel!
+          : '',
+      );
+      setMenu(!list && view.menu === 'conversation');
+      setWorkspaceMenu(!list && view.menu === 'workspace');
+    },
+    shell,
+    current
+      ? { page: 'conversation', session: current.sessionId }
+      : draftProjectRef.current && selectedProject === draftProjectRef.current
+        ? { page: 'conversation', project: selectedProject }
+        : undefined,
+  );
+  if (signedIn === null)
+    return (
+      <main className="center">
+        {identityUnavailable ? (
+          <div>
+            <p role="status">{t('account.retryWhenOnline')}</p>
+            <button onClick={() => retryIdentity.current?.()}>{t('重试')}</button>
+          </div>
+        ) : (
+          t('加载中…')
+        )}
+      </main>
+    );
   if (!signedIn) return <Login onLogin={() => location.reload()} />;
   if (mustChangePassword) return <AccountPassword />;
   const filesAvailable = connected && !!selectedProject && selectedProject !== chatProject;
@@ -1542,6 +1981,7 @@ function CodexApp({
     toolsVisible && ['files', 'changes'].includes(toolTabs.activeTab?.tool || '');
   return (
     <div
+      ref={shell}
       className={`shell ${sidebarOpen ? 'with-sidebar' : ''} ${toolsVisible ? 'has-file-workspace' : ''}`}
     >
       <Sidebar
@@ -1609,6 +2049,7 @@ function CodexApp({
           openPanel('manage');
           setManageSession(s);
         }}
+        onAttention={() => openPanel('attention')}
         onSearch={() => openPanel('search')}
         filter={filter}
         setFilter={setFilter}
@@ -1759,7 +2200,8 @@ function CodexApp({
                       !busy &&
                       !receiptBlocked &&
                       supports('attachments') &&
-                      draft.attachments.length < 4 &&
+                      draft.attachments.length <
+                        Math.min(4, capabilities.limits?.attachmentCount ?? 4) &&
                       (!session || historyReady) &&
                       current?.archived !== 1
                         ? () =>
@@ -1877,6 +2319,12 @@ function CodexApp({
               </div>
             )}
           </MotionPresence>
+          {approvalUpdate && (
+            <div className="connection-recovery" role="status">
+              <span>{approvalUpdate}</span>
+              <IconButton icon={X} label={t('关闭提示')} onClick={() => setApprovalUpdate('')} />
+            </div>
+          )}
           <MotionPresence>
             {error && (
               <div className="connection-error" role="status">
@@ -2361,6 +2809,8 @@ function CodexApp({
               onChange={updateDraft}
               models={models}
               supports={composerSupports}
+              attachmentBytes={capabilities.limits?.attachmentBytes}
+              attachmentCount={capabilities.limits?.attachmentCount}
               attachmentTotalBytes={capabilities.limits?.attachmentTotalBytes}
               chat={chat}
               disabledReason={
@@ -2522,6 +2972,20 @@ function CodexApp({
                         expanded={fileWorkspaceWide}
                         onExpand={() => setFileWorkspaceWide((value) => !value)}
                         onClose={() => toolTabs.closeTab(tab.id)}
+                        review={
+                          fileProject === selectedProject
+                            ? {
+                                target: draftKey,
+                                add: (comment) => {
+                                  updateDraft({
+                                    text: draft.text ? draft.text + '\n\n' + comment : comment,
+                                  });
+                                  if (matchMedia('(max-width:760px)').matches)
+                                    setFileWorkspaceOpen(false);
+                                },
+                              }
+                            : undefined
+                        }
                         onReference={(reference) => {
                           const refs = draft.references || [];
                           if (reference.projectId !== selectedProject) return;
@@ -2661,7 +3125,9 @@ function CodexApp({
           <Modal
             wide={['git', 'files', 'history', 'settings'].includes(panel)}
             title={titles[panel] || panel}
-            className={panel === 'settings' ? 'settings-modal' : ''}
+            className={
+              panel === 'settings' ? 'main-panel-modal settings-modal' : 'main-panel-modal'
+            }
             onClose={() => setPanel('')}
           >
             <div
@@ -2676,12 +3142,15 @@ function CodexApp({
             >
               {panel === 'settings' && (
                 <SettingsContents
+                  upstreamReady={capabilities.upstreamReady}
                   settingsTab={settingsTab}
                   setSettingsTab={setSettingsTab}
                   theme={theme}
                   setTheme={setTheme}
                   bubbleColor={bubbleColor}
                   setBubbleColor={setBubbleColor}
+                  rememberDrafts={rememberDrafts}
+                  setRememberDrafts={setRememberDrafts}
                   notification={notification}
                   setNotification={setNotification}
                   setError={setError}
@@ -2768,16 +3237,66 @@ function CodexApp({
               {['goal', 'queue', 'manage'].includes(panel) && connected && !session && (
                 <p className="muted">{t('请先选择会话。')}</p>
               )}
+              {panel === 'attention' && (
+                <AttentionInbox
+                  scope={scope}
+                  hosts={hosts}
+                  name={hostName}
+                  currentId={connected ? host?.hostId : undefined}
+                  currentSnapshot={connected ? snapshot : undefined}
+                  currentBridge={connected ? bridge.current : undefined}
+                  open={(h, id) =>
+                    setNotificationTarget({
+                      accountId: scope.split(':')[0]!,
+                      hostId: h.hostId,
+                      sessionId: id,
+                    })
+                  }
+                />
+              )}
+              {panel === 'located' && (
+                <div className="panel-stack">
+                  <h3>{current?.title || t('未命名会话')}</h3>
+                  {locationError ? (
+                    <p role="alert">{locationError}</p>
+                  ) : !connected ? (
+                    <p>{t('电脑连接已断开')}</p>
+                  ) : locatedEntry && session === locatedHit?.sessionId && current ? (
+                    <div
+                      className="message-text"
+                      style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+                    >
+                      {contentText(locatedEntry.item)}
+                    </div>
+                  ) : (
+                    <p role="status">{t('加载中…')}</p>
+                  )}
+                  <button onClick={() => setPanel('')}>{t('返回会话')}</button>
+                </div>
+              )}
               {panel === 'search' && (
                 <div className="panel-stack">
                   <input
                     autoFocus
                     id="session-search"
                     aria-label={t('搜索会话')}
-                    placeholder={t('搜索会话名称或项目')}
+                    placeholder={
+                      supports('sessionHistorySearch')
+                        ? t('输入会话名称、项目或消息关键词')
+                        : t('搜索会话名称或项目')
+                    }
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
+                  {connected && supports('sessionHistorySearch') && search.trim() && (
+                    <HistorySearch
+                      key={JSON.stringify([scope, host?.hostId, search.trim()])}
+                      query={search.trim()}
+                      request={request}
+                      sessions={snapshot.sessions || []}
+                      onOpen={openHistoryMatch}
+                    />
+                  )}
                   {matchingSessions.map((s) => (
                     <button
                       className="search-result"
@@ -2794,7 +3313,9 @@ function CodexApp({
                       </span>
                     </button>
                   ))}
-                  {!matchingSessions.length && <p className="muted">{t('没有匹配的会话')}</p>}
+                  {!matchingSessions.length && (
+                    <p className="muted">{t('没有匹配的会话名称或项目')}</p>
+                  )}
                 </div>
               )}
               {panel === 'find' && (

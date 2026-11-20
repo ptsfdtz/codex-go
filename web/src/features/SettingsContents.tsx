@@ -2,7 +2,9 @@ import type React from 'react';
 import { t, useLocale } from '../i18n';
 import { Select } from '../components/Select';
 import { api } from '../cloud';
+import { HostSetup } from './HostSetup';
 import { LanguageSelect } from '../i18n/LanguageSelect';
+import { BackgroundNotifications } from './notifications/BackgroundNotifications';
 import { IconButton } from '../ui';
 import { MotionList } from '../motion';
 import { LogOut, RefreshCw } from 'lucide-react';
@@ -32,10 +34,13 @@ type Props = {
   setTheme: (value: string) => void;
   bubbleColor: string;
   setBubbleColor: (value: string) => void;
+  rememberDrafts: boolean;
+  setRememberDrafts: (value: boolean) => Promise<void>;
   notification: boolean;
   setNotification: (value: boolean) => void;
   setError: (value: string) => void;
   connected: boolean;
+  upstreamReady?: boolean;
   request: Request;
   supports: (feature: string) => boolean;
   setPanel: (value: string) => void;
@@ -62,10 +67,13 @@ export function SettingsContents({
   setTheme,
   bubbleColor,
   setBubbleColor,
+  rememberDrafts,
+  setRememberDrafts,
   notification,
   setNotification,
   setError,
   connected,
+  upstreamReady,
   request,
   supports,
   setPanel,
@@ -119,6 +127,14 @@ export function SettingsContents({
               </Select>
             </label>
             <label className="setting-row">
+              <span>{t('drafts.keepOnDevice')}</span>
+              <input
+                type="checkbox"
+                checked={rememberDrafts}
+                onChange={(event) => void setRememberDrafts(event.target.checked)}
+              />
+            </label>
+            <label className="setting-row">
               <span>{t('系统通知')}</span>
               <input
                 type="checkbox"
@@ -144,6 +160,11 @@ export function SettingsContents({
                   {t('通知偏好已保存，当前浏览器尚未允许通知；请在系统或网站设置中开启。')}
                 </p>
               )}
+            <BackgroundNotifications
+              key={scope}
+              scope={scope}
+              oldHost={connected && !supports('backgroundNotifications')}
+            />
           </section>
           <section className="settings-section setting-row">
             <div>
@@ -239,7 +260,12 @@ export function SettingsContents({
               </div>
             ))}
           </MotionList>
-          {!hosts.length && <p>{t('尚未绑定电脑。请先在电脑端登录同一账户。')}</p>}
+          <HostSetup
+            host={hosts.find((entry) => entry.hostId === host?.hostId) ?? host}
+            connected={connected}
+            ready={upstreamReady}
+            projectCount={projects.length}
+          />
           {host && (
             <HostNameEditor
               key={JSON.stringify([scope, host.hostId])}

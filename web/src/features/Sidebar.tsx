@@ -65,6 +65,7 @@ export function Sidebar({
   onComputers,
   onManage,
   onSearch,
+  onAttention,
   filter,
   setFilter,
   onSessionAction,
@@ -93,6 +94,7 @@ export function Sidebar({
   onComputers: () => void;
   onManage: (session: Session) => void;
   onSearch: () => void;
+  onAttention?: () => void;
   filter: string;
   setFilter: (s: string) => void;
   onSessionAction: (action: SessionAction, session: Session) => Promise<void>;
@@ -400,6 +402,11 @@ export function Sidebar({
           <IconButton icon={Search} label={t('搜索会话')} onClick={onSearch} />
         </div>
         <div className="sidebar-scroll">
+          {onAttention && (
+            <button className="desktop-rail-heading" onClick={onAttention}>
+              {t('需要我处理')}
+            </button>
+          )}
           {marked.length > 0 && (
             <section className="sidebar-marked" aria-label={t('已标记')}>
               <button

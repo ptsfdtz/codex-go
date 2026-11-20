@@ -101,6 +101,8 @@ export function Composer({
   sendBlocked = false,
   disabledReason,
   attachmentTotalBytes = 512 * 1024,
+  attachmentBytes,
+  attachmentCount,
   panels,
   placeholder,
   contextControl,
@@ -137,6 +139,8 @@ export function Composer({
   sendBlocked?: boolean;
   disabledReason?: string;
   attachmentTotalBytes?: number;
+  attachmentBytes?: number;
+  attachmentCount?: number;
 }) {
   useLocale();
   const menuId = useId();
@@ -351,6 +355,8 @@ export function Composer({
         files,
         latest.current.attachments,
         attachmentTotalBytes,
+        attachmentBytes,
+        attachmentCount,
       );
       if (mounted.current) onChange({ attachments });
     } catch (error) {

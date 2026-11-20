@@ -1,13 +1,20 @@
 import { t } from '../i18n';
-export const MAX_ATTACHMENT_BYTES = 512 * 1024;
+export const LEGACY_ATTACHMENT_BYTES = 512 * 1024;
+export const MAX_ATTACHMENT_TOTAL = 2 * 1024 * 1024;
+export const sizeLabel = (bytes: number) =>
+  bytes % 1048576 === 0 ? bytes / 1048576 + ' MiB' : Math.floor(bytes / 1024) + ' KiB';
 
 /** Re-encode oversized still images; ordinary files and animations retain their format. */
-export async function compressAttachment(file: File): Promise<File> {
-  if (file.size <= MAX_ATTACHMENT_BYTES) return file;
+export async function compressAttachment(
+  file: File,
+  maxBytes = LEGACY_ATTACHMENT_BYTES,
+): Promise<File> {
+  if (file.size <= maxBytes) return file;
   if (!['image/png', 'image/jpeg', 'image/webp', 'image/bmp'].includes(file.type))
     throw new Error(
-      t('{{p0}}：单文件最大 512 KiB，仅支持自动压缩 PNG、JPEG、WebP、BMP 静态图片', {
+      t('{{p0}}：单文件最大 {{limit}}，仅支持自动压缩 PNG、JPEG、WebP、BMP 静态图片', {
         p0: file.name,
+        limit: sizeLabel(maxBytes),
       }),
     );
   if (file.size > 64 * 1024 * 1024)
@@ -18,7 +25,12 @@ export async function compressAttachment(file: File): Promise<File> {
     for (let offset = 8; offset + 12 <= bytes.length; ) {
       const kind = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
       if (kind === 'acTL')
-        throw new Error(t('{{p0}}：动态 PNG 超过 512 KiB，请先在本地压缩', { p0: file.name }));
+        throw new Error(
+          t('{{p0}}：动态 PNG 超过 {{limit}}，请先在本地压缩', {
+            p0: file.name,
+            limit: sizeLabel(maxBytes),
+          }),
+        );
       if (kind === 'IDAT') break;
       offset += view.getUint32(offset) + 12;
     }
@@ -26,7 +38,12 @@ export async function compressAttachment(file: File): Promise<File> {
   // Animated WebP must not be silently converted into a still image.
   const header = new Uint8Array(await file.slice(0, 21).arrayBuffer());
   if (file.type === 'image/webp' && header[12] === 86 && header[15] === 88 && header[20]! & 2)
-    throw new Error(t('{{p0}}：动态 WebP 超过 512 KiB，请先在本地压缩', { p0: file.name }));
+    throw new Error(
+      t('{{p0}}：动态 WebP 超过 {{limit}}，请先在本地压缩', {
+        p0: file.name,
+        limit: sizeLabel(maxBytes),
+      }),
+    );
   const url = URL.createObjectURL(file);
   const image = new Image();
   const canvas = document.createElement('canvas');
@@ -55,7 +72,7 @@ export async function compressAttachment(file: File): Promise<File> {
         const blob = await new Promise<Blob | null>((resolve) =>
           canvas.toBlob(resolve, mime, quality),
         );
-        if (blob && blob.size > 0 && blob.size <= MAX_ATTACHMENT_BYTES) {
+        if (blob && blob.size > 0 && blob.size <= maxBytes) {
           const extension = blob.type === 'image/webp' ? 'webp' : 'png';
           return new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.${extension}`, {
             type: blob.type,
@@ -63,7 +80,7 @@ export async function compressAttachment(file: File): Promise<File> {
         }
       }
     }
-    throw new Error(t('无法压缩至 512 KiB，请先在本地缩小图片'));
+    throw new Error(t('无法压缩至 {{limit}}，请先在本地缩小图片', { limit: sizeLabel(maxBytes) }));
   } catch (error) {
     throw new Error(t('{{p0}}：图片自动压缩失败（{{p1}}）', { p0: file.name, p1: String(error) }));
   } finally {

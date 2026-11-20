@@ -7,11 +7,6 @@
   --control-size: 40px;
   --content-width: 840px;
 }
-@media (max-width: 760px) and (max-height: 480px) {
-  .shell .task-progress {
-    display: none;
-  }
-}
 .shell .topbar {
   height: 68px;
   gap: 8px;
@@ -115,17 +110,10 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.shell .task-progress {
-  font-size: 13px;
-  color: var(--muted);
-  padding-block: 8px;
-}
 .shell .composer-wrap {
   padding: 8px 32px 16px;
 }
 .shell .composer {
-  --composer-border-color: transparent;
-  padding: 12px 12px 10px;
   border-radius: var(--radius-composer);
   box-shadow: none;
 }
@@ -141,7 +129,6 @@
   line-height: 1.6;
 }
 .shell .composer-toolbar {
-  gap: 4px;
   min-height: 40px;
 }
 .composer-toolbar-spacer {
@@ -224,7 +211,7 @@
 .shell .composer-actions > .composer-mic[aria-pressed='true'] {
   color: var(--accent);
 }
-.shell .composer-actions > :is(.composer-stop, .composer-queue, .speech-button) {
+.shell .composer-actions > :is(.composer-stop, .composer-queue) {
   background: var(--accent);
   color: var(--accent-text);
 }
@@ -435,10 +422,6 @@
   height: 48px;
   padding-left: 6px;
 }
-.shell .desktop-sidebar .sidebar-mobile-settings,
-.shell .desktop-sidebar .sidebar-mobile-search {
-  display: none;
-}
 .shell .sidebar-brand > :is(.sidebar-mobile-settings, .sidebar-mobile-search) {
   display: none;
 }
@@ -478,9 +461,6 @@
 .settings-modal.modal {
   border-radius: 24px;
   background: var(--bg);
-}
-.settings-modal .settings-nav {
-  background: var(--rail);
 }
 .settings-modal .settings-nav > button {
   border-radius: 12px;
@@ -868,12 +848,6 @@
   .shell .sidebar-brand > .icon-button:not(.sidebar-mobile-settings):not(.sidebar-mobile-search) {
     display: none;
   }
-  .shell .desktop-sidebar .sidebar-mobile-settings,
-  .shell .desktop-sidebar .sidebar-mobile-search {
-    display: inline-flex;
-    width: 44px;
-    height: 44px;
-  }
   .shell .sidebar-brand > :is(.sidebar-mobile-settings, .sidebar-mobile-search) {
     display: inline-flex;
     width: 44px;
@@ -1189,9 +1163,6 @@
   .shell .activity-stage {
     margin-block: 4px 14px;
   }
-  .shell .task-progress {
-    font-size: 15px;
-  }
   .shell .agent-tray-trigger {
     min-height: 30px;
     margin-bottom: 14px;
@@ -1258,11 +1229,8 @@
     padding: 8px 6px 4px;
   }
   .shell .composer > textarea {
-    font-size: 16px;
     padding: 4px 8px;
     line-height: 24px;
-    min-height: 36px;
-    field-sizing: fixed;
   }
   .shell .composer-toolbar {
     gap: 0;
@@ -1273,7 +1241,6 @@
     margin-inline: -6px;
   }
   .shell .composer.is-compact {
-    position: relative;
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr) auto;
     align-items: center;

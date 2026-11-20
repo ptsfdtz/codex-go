@@ -54,7 +54,6 @@ button:active:not(:disabled):not(.menu-scrim):not(.sidebar-scrim) {
 button:disabled {
   transform: none;
 }
-.rail-heading > svg:last-child,
 .workspace-title > svg,
 .tool-record > summary > svg:last-child {
   transition: transform var(--motion-fast) var(--ease-out);
@@ -154,7 +153,6 @@ button:disabled {
 .connection-error,
 .history-error,
 .connection-recovery,
-.task-progress,
 .approval,
 .follow-latest,
 .resource-chip,
@@ -168,10 +166,9 @@ button:disabled {
     color var(--motion-fast) ease;
 }
 .motion-presence[data-motion='closed']
-  > :is(.connection-error, .history-error, .connection-recovery, .task-progress, .follow-latest) {
+  > :is(.connection-error, .history-error, .connection-recovery, .follow-latest) {
   opacity: 0;
 }
-.task-progress .dot,
 .connection[data-connection-state='connecting'] .dot,
 .connection[data-connection-state='retrying'] .dot,
 .connection[data-connection-state='syncing'] .dot {
@@ -221,7 +218,6 @@ button:disabled {
   .connection-error,
   .history-error,
   .connection-recovery,
-  .task-progress,
   .approval,
   .follow-latest,
   .resource-chip,
@@ -362,7 +358,6 @@ button:disabled {
 .project-setting,
 .computer-entry,
 .session-row,
-.file-list > button,
 .search-result,
 .host-update-notice,
 .mode-chip,
@@ -409,7 +404,6 @@ button:disabled {
   .project-setting,
   .computer-entry,
   .session-row,
-  .file-list > button,
   .search-result,
   .host-update-notice,
   .mode-chip,
@@ -480,7 +474,6 @@ summary,
 .file-tree-row,
 .branch-file,
 .api-provider-row,
-.api-conversation,
 .composer-feedback,
 .file-feedback,
 [role='status'],
@@ -517,7 +510,6 @@ summary,
 .file-changes-overview,
 .branch-comparison,
 .file-explorer,
-.panel-empty,
 .module-status {
   opacity: 1;
   transition: opacity var(--motion-panel) var(--ease-out);
@@ -530,7 +522,6 @@ summary,
   .file-changes-overview,
   .branch-comparison,
   .file-explorer,
-  .panel-empty,
   .module-status,
   [role='status'],
   [role='alert'] {

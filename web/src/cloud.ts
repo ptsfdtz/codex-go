@@ -20,7 +20,8 @@ async function csrfToken(): Promise<string> {
       credentials: 'include',
       signal: AbortSignal.timeout(15000),
     });
-    if (response.ok) csrf = (await response.json()).csrfToken || '';
+    if (!response.ok) throw new CloudError('Cloud CSRF request failed', response.status);
+    csrf = (await response.json()).csrfToken || '';
   }
   return csrf;
 }
@@ -40,16 +41,23 @@ export class CloudError extends Error {
 }
 export const accountEvent = 'agentdeck-account-changed';
 const accountKey = 'agentdeck.web.account-change.v1';
-export function notifyAccountChange() {
+export function notifyAccountChange(reason = 'changed') {
   csrf = '';
-  localStorage.setItem(accountKey, crypto.randomUUID());
-  window.dispatchEvent(new Event(accountEvent));
+  localStorage.setItem(accountKey, JSON.stringify([crypto.randomUUID(), reason]));
+  window.dispatchEvent(new CustomEvent(accountEvent, { detail: reason }));
 }
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.key === accountKey) {
       csrf = '';
-      window.dispatchEvent(new Event(accountEvent));
+      let reason = 'changed';
+      try {
+        const change = JSON.parse(event.newValue || 'null');
+        if (Array.isArray(change) && typeof change[1] === 'string') reason = change[1];
+      } catch {
+        /* Older tabs write a plain generation token. */
+      }
+      window.dispatchEvent(new CustomEvent(accountEvent, { detail: reason }));
     }
   });
 }
@@ -63,9 +71,9 @@ async function refresh(): Promise<boolean> {
     rememberCsrf(await session.json());
     return true;
   }
-  if (session.status !== 401) return false;
+  if (session.status !== 401) throw new CloudError('Cloud session check failed', session.status);
   const token = await csrfToken();
-  if (!token) return false;
+  if (!token) throw new Error('Missing CSRF token in cloud response');
   const response = await fetch(cloudEndpoint + '/api/v1/web/refresh', {
     method: 'POST',
     credentials: 'include',
@@ -74,7 +82,9 @@ async function refresh(): Promise<boolean> {
   });
   if (!response.ok) {
     csrf = '';
-    if (response.status === 401 && typeof window !== 'undefined') notifyAccountChange();
+    if (response.status !== 401)
+      throw new CloudError('Cloud session refresh failed', response.status);
+    if (typeof window !== 'undefined') notifyAccountChange('expired');
     return false;
   }
   rememberCsrf(await response.json());
@@ -114,7 +124,7 @@ export async function api<T = Record<string, unknown>>(
       ['/api/v1/web/login', '/api/v1/web/logout', '/api/v1/web/password'].includes(path) ||
       (init.method?.toUpperCase() === 'DELETE' && path.startsWith('/api/v1/devices/'))
     )
-      notifyAccountChange();
+      notifyAccountChange(path === '/api/v1/web/logout' ? 'logout' : 'changed');
     return result;
   });
 }

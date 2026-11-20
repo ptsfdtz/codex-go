@@ -98,7 +98,7 @@ export class Bridge {
     'projects.remove',
     'devices.revokeSelf',
   ]);
-  async connect(grant: HostGrant) {
+  async connect(grant: HostGrant, { checkReceipts = true } = {}) {
     this.hostId = grant.hostId;
     this.socket = await HostSocket.connect(
       grant.hostId,
@@ -165,7 +165,7 @@ export class Bridge {
       this.close();
       throw new Error('Host identity mismatch');
     }
-    await this.reconcile();
+    if (checkReceipts) await this.reconcile();
   }
   onEvent(handler: (value: Packet) => void) {
     this.events.push(handler);

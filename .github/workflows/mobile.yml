@@ -1,0 +1,50 @@
+name: Mobile Codex workflows
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'desktop/core/src/**'
+      - 'server/src/**'
+      - 'packages/connection-protocol/**'
+      - 'scripts/web/**'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - '.node-version'
+      - '.github/workflows/mobile.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mobile-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install isolated browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mobile-tools" --no-audit --no-fund playwright@1.58.2
+          node "$RUNNER_TEMP/mobile-tools/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Exercise mobile continuity, receipts and review
+        env:
+          COMPOSER_TEST_ORIGIN: http://127.0.0.1:1592
+          RECOVERY_TEST_ORIGIN: http://127.0.0.1:1592
+        run: |
+          export PLAYWRIGHT_MODULE="$RUNNER_TEMP/mobile-tools/node_modules/playwright/index.mjs"
+          pnpm --filter @agentdeck/web exec vite --host 127.0.0.1 --port 1592 --strictPort > "$RUNNER_TEMP/mobile-vite.log" 2>&1 &
+          vite_pid=$!
+          trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --retry 15 --retry-delay 1 --retry-connrefused "$COMPOSER_TEST_ORIGIN" -o /dev/null
+          node scripts/web/test-mobile-continuity-browser.mjs
+          node scripts/web/test-recovery-browser.mjs
+          node scripts/web/test-mobile-review-browser.mjs
+          node scripts/web/test-background-push-browser.mjs

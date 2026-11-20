@@ -4,15 +4,22 @@ import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { IconButton } from '../../ui';
 import { diffLines } from './workspace-state';
 
-const ROW = 22;
 const escape = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 export type ScrollPosition = { top: number; left: number };
+
+export type DiffReview = {
+  target: string;
+  add: (comment: string) => void;
+  base?: string;
+  head?: string;
+};
 
 export function CodePreview({
   text,
   path,
   diff = false,
+  review,
   diffLabel = t('工作区差异'),
   untracked = false,
   position,
@@ -23,12 +30,14 @@ export function CodePreview({
   text: string;
   path: string;
   diff?: boolean;
+  review?: DiffReview;
   diffLabel?: string;
   untracked?: boolean;
   position?: ScrollPosition;
   onScroll: (position: ScrollPosition) => void;
 }) {
   useLocale();
+  const rowHeight = review && diff && window.matchMedia('(pointer:coarse)').matches ? 44 : 22;
   const viewport = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const [height, setHeight] = useState(500),
@@ -102,11 +111,20 @@ export function CodePreview({
     if (!matches.length) return;
     const next = (index + matches.length) % matches.length;
     setMatch(next);
-    viewport.current?.scrollTo({ top: Math.max(0, matches[next]! * ROW - height / 3) });
+    viewport.current?.scrollTo({ top: Math.max(0, matches[next]! * rowHeight - height / 3) });
   }
+  const [anchor, setAnchor] = useState<{
+    target: string;
+    path: string;
+    location: string;
+    original: string;
+    base?: string;
+    head?: string;
+  }>();
+  const [opinion, setOpinion] = useState('');
   const count = diff ? changes.length : raw.length;
-  const start = Math.max(0, Math.floor(top / ROW) - 12),
-    end = Math.min(count, Math.ceil((top + height) / ROW) + 12);
+  const start = Math.max(0, Math.floor(top / rowHeight) - 12),
+    end = Math.min(count, Math.ceil((top + height) / rowHeight) + 12);
   return (
     <div
       className="file-code"
@@ -124,6 +142,48 @@ export function CodePreview({
           </span>
           <IconButton icon={Search} label={t('文件内查找')} onClick={showFind} />
         </div>
+      )}
+      {anchor && review && anchor.target === review.target && anchor.path === path && (
+        <form
+          className="diff-review-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!opinion.trim()) return;
+            const revision =
+              anchor.base && anchor.head ? ' (' + anchor.base + ' → ' + anchor.head + ')' : '';
+            review.add(
+              anchor.path +
+                ' · ' +
+                anchor.location +
+                revision +
+                '\n' +
+                anchor.original +
+                '\n' +
+                opinion.trim(),
+            );
+            setAnchor(undefined);
+            setOpinion('');
+          }}
+        >
+          <label>
+            {anchor.path} · {anchor.location}
+            <textarea
+              autoFocus
+              aria-label={t('行级意见')}
+              value={opinion}
+              onChange={(e) => setOpinion(e.target.value)}
+            />
+          </label>
+          <code>{anchor.original}</code>
+          <div>
+            <button type="submit" disabled={!opinion.trim()}>
+              {t('加入当前草稿')}
+            </button>
+            <button type="button" onClick={() => setAnchor(undefined)}>
+              {t('取消')}
+            </button>
+          </div>
+        </form>
       )}
       {find && (
         <form
@@ -146,7 +206,7 @@ export function CodePreview({
                 ? raw.findIndex((line) => line.toLowerCase().includes(value.toLowerCase()))
                 : -1;
               if (index >= 0)
-                viewport.current?.scrollTo({ top: Math.max(0, index * ROW - height / 3) });
+                viewport.current?.scrollTo({ top: Math.max(0, index * rowHeight - height / 3) });
             }}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
@@ -190,18 +250,24 @@ export function CodePreview({
         <div
           className="file-code-lines"
           style={{
-            height: count * ROW,
+            height: count * rowHeight,
             minWidth: `max(100%, calc(${columns + 2}ch + ${diff ? 100 : 62}px))`,
           }}
         >
           {Array.from({ length: end - start }, (_, offset) => {
             const index = start + offset,
               change = changes[index];
+            const canComment = review && (change?.kind === 'add' || change?.kind === 'remove');
+            const location = canComment
+              ? change.kind === 'add'
+                ? t('新侧第 {{line}} 行', { line: change.next })
+                : t('旧侧第 {{line}} 行', { line: change.old })
+              : '';
             return (
               <div
                 key={index}
                 className={`file-code-line ${change ? `file-diff-${change.kind}` : ''} ${find && query && matchingLines.has(index) ? 'is-match' : ''} ${find && query && selected === index ? 'is-current-match' : ''}`}
-                style={{ top: index * ROW }}
+                style={{ top: index * rowHeight, height: rowHeight, lineHeight: rowHeight + 'px' }}
               >
                 <span className="file-line-number" aria-hidden="true">
                   {diff ? `${change?.old ?? ''}` : index + 1}
@@ -210,6 +276,26 @@ export function CodePreview({
                   <span className="file-line-number file-new-line" aria-hidden="true">
                     {change?.next ?? ''}
                   </span>
+                )}
+                {canComment && (
+                  <button
+                    type="button"
+                    className="diff-line-comment"
+                    aria-label={t('评论{{location}}', { location })}
+                    onClick={() => {
+                      setAnchor({
+                        target: review.target,
+                        path,
+                        location,
+                        original: change.text,
+                        base: review.base,
+                        head: review.head,
+                      });
+                      setOpinion('');
+                    }}
+                  >
+                    +
+                  </button>
                 )}
                 {diff ? (
                   <code>{change?.text || ' '}</code>

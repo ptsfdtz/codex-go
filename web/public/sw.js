@@ -1,7 +1,89 @@
-/* global self, URL, fetch, Response */
+/* global self, URL, URLSearchParams, fetch, Response, MessageChannel, setTimeout, clearTimeout */
 // Network-only: never persist accounts, conversations, media, or API responses.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
+// Only opaque, non-authorization routing hints are accepted. Ignore titles,
+// links and message content even when supplied by a sender.
+function attentionTarget(data) {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (
+    !data ||
+    !uuid.test(data.accountId) ||
+    typeof data.hostId !== 'string' ||
+    !data.hostId.startsWith('host_') ||
+    !uuid.test(data.hostId.slice(5)) ||
+    typeof data.sessionId !== 'string' ||
+    !data.sessionId.startsWith('session_') ||
+    !uuid.test(data.sessionId.slice(8))
+  )
+    return {};
+  return {
+    accountId: data.accountId,
+    hostId: data.hostId,
+    sessionId: data.sessionId,
+    ...(typeof data.approvalId === 'string' &&
+    data.approvalId.startsWith('approval_') &&
+    uuid.test(data.approvalId.slice(9))
+      ? { approvalId: data.approvalId }
+      : {}),
+  };
+}
+self.addEventListener('push', (event) => {
+  let packet;
+  try {
+    packet = event.data?.json();
+  } catch {
+    /* Show a neutral fallback. */
+  }
+  const chinese = /^zh(?:-|$)/i.test(self.navigator.language || '');
+  const target = attentionTarget(packet);
+  const tag = /^[a-f0-9]{64}$/.test(packet?.eventKey)
+    ? 'agentdeck:' + packet.eventKey
+    : 'agentdeck:attention';
+  event.waitUntil(
+    self.registration.showNotification('AgentDeck', {
+      body: chinese ? '打开 AgentDeck 查看任务更新。' : 'Open AgentDeck to review a task update.',
+      icon: new URL('icons/icon-192.png', self.registration.scope).href,
+      tag,
+      data: target,
+    }),
+  );
+});
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = attentionTarget(event.notification.data);
+  event.waitUntil(
+    (async () => {
+      const url = new URL(self.registration.scope);
+      url.hash = 'attention?' + new URLSearchParams(target);
+      const windows = await self.clients.matchAll({ type: 'window' });
+      const client = windows.find((item) => {
+        const open = new URL(item.url);
+        return (
+          open.origin === url.origin &&
+          (open.pathname === url.pathname || open.pathname === url.pathname + 'index.html')
+        );
+      });
+      if (client) {
+        await client.focus();
+        const channel = new MessageChannel();
+        const received = await new Promise((resolve) => {
+          const timeout = setTimeout(() => resolve(false), 1000);
+          channel.port1.onmessage = (message) => {
+            clearTimeout(timeout);
+            resolve(message.data === 'received');
+          };
+          client.postMessage({ type: 'agentdeck.openAttention', ...target }, [channel.port2]);
+        });
+        channel.port1.close();
+        if (!received) await client.navigate(url.href);
+      } else {
+        await self.clients.openWindow(url.href);
+      }
+    })(),
+  );
+});
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   const scope = new URL(self.registration.scope);
@@ -28,6 +110,12 @@ self.addEventListener('fetch', (event) => {
           <a id="reconnect" href="./">Reconnect</a></main>
           <script>
           (() => {
+            const reconnect = document.getElementById('reconnect');
+            reconnect.href = location.href;
+            reconnect.addEventListener('click', (event) => {
+              event.preventDefault();
+              location.reload();
+            });
             let preference = 'system';
             try { preference = localStorage.getItem('agentdeck.language') || 'system'; } catch {}
             const chinese = preference === 'zh-CN' || (preference !== 'en' && /^zh(?:-|$)/i.test(navigator.language));

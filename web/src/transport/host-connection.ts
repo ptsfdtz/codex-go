@@ -1,10 +1,9 @@
 import type React from 'react';
-import { api } from '../cloud';
+import { getHostGrant } from './host-grant';
 import { t } from '../i18n';
 import type { Host, Capabilities, Model, Snapshot } from '../workspace';
 import { chatProject } from '../workspace';
 import type { Bridge, Packet } from './bridge';
-import type { HostGrant } from './host';
 import { historyKey, type HistoryEntry, type HistoryPage } from '../history';
 import { applyProgress, historyError } from '../conversation';
 import { ReconnectLoop, connectionError, type ConnectionState } from './reconnect';
@@ -235,17 +234,8 @@ export function startHostConnection(
         let buffered: Packet[] = [];
         let bufferedBytes = 0;
         let flushTimer: ReturnType<typeof setTimeout> | undefined;
-        const grant = await api<HostGrant>(
-          '/api/v1/hosts/' + encodeURIComponent(next.hostId) + '/access',
-          { method: 'POST' },
-        );
+        const grant = await getHostGrant(next.hostId);
         if (!context.current() || epoch !== connectionEpoch.current) return;
-        if (
-          grant.hostId !== next.hostId ||
-          !/^[a-f0-9]{64}$/i.test(grant.fingerprint) ||
-          !/^[A-Za-z0-9_-]{43}$/.test(grant.credential)
-        )
-          throw new Error(t('电脑授权信息无效，请更新 Host'));
         const { Bridge } = await import('./bridge');
         if (!context.current() || epoch !== connectionEpoch.current) return;
         const value = new Bridge(scope);

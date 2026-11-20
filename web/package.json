@@ -29,6 +29,7 @@
     "@types/react-dom": "19.2.2",
     "@vitejs/plugin-react": "4.7.0",
     "micromark-util-types": "2.0.3",
+    "terser": "5.47.1",
     "typescript": "5.9.3",
     "unified": "11.0.5",
     "vite": "6.4.1"

@@ -65,7 +65,9 @@ try {
   const before = await dialog.boundingBox();
   await dialog.getByRole('region', { name: '项目管理' }).waitFor();
   await nav.getByRole('button', { name: '电脑', exact: true }).click();
-  await dialog.getByText('尚未绑定电脑。请先在电脑端登录同一账户。').waitFor();
+  await dialog.getByRole('heading', { name: '连接开发电脑', exact: true }).waitFor();
+  await dialog.getByText('等待电脑登录同一账户', { exact: true }).waitFor();
+  await dialog.getByRole('combobox', { name: '电脑操作系统', exact: true }).waitFor();
   await nav.getByRole('button', { name: '项目', exact: true }).click();
   const after = await dialog.boundingBox();
   assert.equal(before.width, after.width);

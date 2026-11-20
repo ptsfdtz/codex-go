@@ -758,3 +758,46 @@
     transition: none;
   }
 }
+
+.diff-review-form {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem;
+}
+.diff-review-form label,
+.diff-review-form textarea {
+  display: block;
+  width: 100%;
+}
+.diff-review-form code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 5em;
+  overflow: auto;
+}
+.diff-review-form div {
+  display: flex;
+  gap: 0.5rem;
+}
+.file-code-line .diff-line-comment {
+  padding: 0 6px;
+  margin-right: 4px;
+  min-width: 26px;
+  min-height: 0;
+  height: 100%;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.file-code-line .diff-line-comment:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+@media (pointer: coarse) {
+  .file-code-line .diff-line-comment {
+    min-width: 44px;
+  }
+}

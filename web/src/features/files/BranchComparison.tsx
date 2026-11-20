@@ -19,7 +19,7 @@ import { IconButton } from '../../ui';
 import { FileIcon } from './FileTree';
 import './branch-comparison.css';
 import type { Request } from '../../workspace';
-import { CodePreview } from './CodePreview';
+import { CodePreview, type DiffReview } from './CodePreview';
 
 type Branches = {
   branches: { name: string; commit: string }[];
@@ -40,10 +40,12 @@ export function BranchComparison({
   request,
   projectId,
   supported,
+  review,
 }: {
   request: Request;
   projectId: string;
   supported: boolean;
+  review?: DiffReview;
 }) {
   useLocale();
   const [branches, setBranches] = useState<Branches>();
@@ -532,6 +534,7 @@ export function BranchComparison({
                         key={selected}
                         path={file?.path || ''}
                         text={diff.text}
+                        review={review && { ...review, base: result.base, head: result.head }}
                         diff
                         findToken={findToken}
                         onScroll={() => {}}

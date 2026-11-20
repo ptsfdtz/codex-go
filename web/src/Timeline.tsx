@@ -31,6 +31,7 @@ export class Timeline extends Component<
   private observer?: ResizeObserver;
   private itemsObserver?: MutationObserver;
   private transition?: Animation;
+  private cancelReveal?: () => void;
   private following = true;
   private userIntent = false;
   private touchY?: number;
@@ -55,6 +56,42 @@ export class Timeline extends Component<
   pause() {
     this.following = false;
     this.position = this.readPosition();
+  }
+  reveal(key: string, groupKey?: string) {
+    this.cancelReveal?.();
+    const root = this.element.current;
+    if (!root) return;
+    this.pause();
+    const observer = new MutationObserver(find);
+    const timeout = window.setTimeout(cancel, 3000);
+    function cancel() {
+      observer.disconnect();
+      window.clearTimeout(timeout);
+    }
+    function find() {
+      if (!root) return;
+      const node = root.querySelector<HTMLElement>(
+        `article[data-history-key="${CSS.escape(key)}"]`,
+      );
+      const group =
+        node?.closest<HTMLDetailsElement>('.activity-stage') ||
+        (groupKey &&
+          root.querySelector<HTMLDetailsElement>(
+            `details[data-history-key="${CSS.escape(groupKey)}"]`,
+          ));
+      if (group && !group.open) group.open = true;
+      if (!node) return;
+      cancel();
+      node.scrollIntoView({
+        block: 'center',
+        behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+      });
+      node.classList.add('search-highlight');
+      window.setTimeout(() => node.classList.remove('search-highlight'), 2000);
+    }
+    this.cancelReveal = cancel;
+    observer.observe(root, { childList: true, subtree: true });
+    find();
   }
   componentDidMount() {
     this.revealNewItems(
@@ -81,6 +118,7 @@ export class Timeline extends Component<
     if (this.content.current) this.observer.observe(this.content.current);
   }
   componentWillUnmount() {
+    this.cancelReveal?.();
     this.observer?.disconnect();
     this.itemsObserver?.disconnect();
     this.transition?.cancel();
