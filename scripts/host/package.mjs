@@ -1,7 +1,7 @@
 // Build runtime-only download packages. Node is used only during development/release.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 const platform =
   process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
@@ -95,6 +95,8 @@ writeFileSync(
   JSON.stringify({ version, platform, arch, file: filename, sha256 }, null, 2) + '\n',
 );
 writeFileSync(join(output, 'releases/stable.txt'), `${version}\n`);
-for (const script of ['install.sh', 'install.ps1', 'install-codex.ps1'])
+for (const script of ['install.sh', 'install.ps1'])
   cpSync(`scripts/host/${script}`, join(output, script));
+// Clear the retired installer from downloads built before Codex was managed by the Host.
+rmSync(join(output, 'install-codex.ps1'), { force: true });
 console.log(`Downloads: ${output}\n${filename}: ${sha256}`);

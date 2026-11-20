@@ -44,17 +44,34 @@ case "$expected" in *[!a-fA-F0-9]*|'') agentdeck_message 'Invalid checksum.' '�
 [ "${#expected}" -eq 64 ] || { agentdeck_message 'Invalid checksum length.' '校验和长度无效。' >&2; exit 1; }
 actual=$(hash_file "$temporary/$package"); actual=${actual%% *}
 [ "$actual" = "$expected" ] || { agentdeck_message 'Integrity check failed; installation was not changed.' '完整性校验失败；现有安装未更改。' >&2; exit 1; }
-mkdir "$temporary/package"
-tar -xzf "$temporary/$package" -C "$temporary/package"
-for name in agentdeck agentdeck-service agentdeck-codex-proxy start.sh; do [ -f "$temporary/package/$name" ] || { agentdeck_message "Release is missing $name" "发布包缺少 $name" >&2; exit 1; }; done
-chmod 755 "$temporary/package/agentdeck" "$temporary/package/agentdeck-service" "$temporary/package/agentdeck-codex-proxy" "$temporary/package/start.sh"
-"$temporary/package/agentdeck" --version
+package_dir="$temporary/package"
+mkdir "$package_dir"
+tar -xzf "$temporary/$package" -C "$package_dir"
+proxy=agentdeck-codex-proxy
+has_proxy() { [ -e "$1/$proxy" ] || [ -L "$1/$proxy" ]; }
+# Linux has no desktop integration. Keep accepting older archives that bundled
+# the proxy while preparing this embedded installer for future slimmer packages.
+set -- agentdeck agentdeck-service
+if [ "$platform" = macos ] || has_proxy "$package_dir"; then
+    set -- "$@" "$proxy"
+fi
+for name in "$@" start.sh; do
+    [ -f "$package_dir/$name" ] || { agentdeck_message "Release is missing $name" "发布包缺少 $name" >&2; exit 1; }
+    chmod 755 "$package_dir/$name"
+done
+"$package_dir/agentdeck" --version
 mkdir -p "$install_dir/versions" "$bin_dir"
 release_dir="$install_dir/versions/$version"
 if [ -e "$release_dir" ]; then
-    for name in agentdeck agentdeck-service agentdeck-codex-proxy; do cmp "$release_dir/$name" "$temporary/package/$name" || { agentdeck_message 'Existing release differs; it was preserved.' '已有版本内容不同；已保留原安装。' >&2; exit 1; }; done
+    # An existing release identifier cannot gain or lose the optional binary.
+    if has_proxy "$release_dir" && ! has_proxy "$package_dir"; then
+        set -- "$@" "$proxy"
+    fi
+    for name in "$@"; do
+        cmp "$release_dir/$name" "$package_dir/$name" || { agentdeck_message 'Existing release differs; it was preserved.' '已有版本内容不同；已保留原安装。' >&2; exit 1; }
+    done
 else
-    mv "$temporary/package" "$release_dir"
+    mv "$package_dir" "$release_dir"
 fi
 printf '%s\n' "$version" > "$release_dir/release.txt"
 printf '%s\n' "$origin" > "$release_dir/update-origin.txt"

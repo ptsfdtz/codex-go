@@ -21,7 +21,7 @@ class ReleaseGateTests(unittest.TestCase):
         self.candidate.mkdir()
         self.evidence.mkdir()
         self.manifest = {"schemaVersion": 1, "version": "1.2.3", "commit": "a" * 40, "artifacts": {}}
-        for name in ("web.tar.gz", "pages.tar.gz", "agentdeck-cloud", "install.ps1", "install.sh", "install-codex.ps1", "release-gate.py", "verify-shared-runtime.py"):
+        for name in ("web.tar.gz", "pages.tar.gz", "agentdeck-cloud", "install.ps1", "install.sh", "release-gate.py", "verify-shared-runtime.py"):
             self.artifact(name, b"unit-test artifact")
         for name in gate.RUNTIME_MANIFESTS.values():
             self.artifact("codex-runtime-manifests/" + name, (Path(__file__).resolve().parents[1] / "codex" / name).read_bytes())
@@ -65,6 +65,19 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_complete_matching_matrix_is_admitted(self):
         self.assertEqual(self.verify()["version"], "1.2.3")
+
+    def test_legacy_installer_remains_verified_when_present(self):
+        legacy_name = "install-codex.ps1"
+        legacy_path = self.candidate / legacy_name
+        legacy_path.write_bytes(b"unsealed installer")
+        with self.assertRaisesRegex(ValueError, "unverified legacy installer"):
+            gate.validate_candidate(self.candidate)
+        self.artifact(legacy_name, b"sealed legacy installer")
+        self.write(self.candidate / "candidate.json", self.manifest)
+        self.assertIn(legacy_name, gate.validate_candidate(self.candidate)["artifacts"])
+        legacy_path.write_bytes(b"changed legacy installer")
+        with self.assertRaisesRegex(ValueError, "Candidate integrity failure"):
+            gate.validate_candidate(self.candidate)
 
     def test_self_compiled_runtime_is_rejected(self):
         path = self.evidence / "windows-x64.json"

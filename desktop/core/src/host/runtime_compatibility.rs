@@ -130,10 +130,6 @@ pub fn origin(executable: &Path) -> Result<Value> {
 pub(super) fn available() -> Result<PathBuf> {
     paths::canonical(&installation()?.join(binary()))
 }
-pub(super) fn remembered(_requested: &Path) -> Result<Option<PathBuf>> {
-    // No path or digest from an old compatibility record can authorize a binary.
-    Ok(available().ok())
-}
 /// Resolve without executing an untrusted candidate. Installed packages are
 /// checked on every launch; a damaged managed installation fails closed.
 pub async fn official(requested: Result<PathBuf>) -> Result<PathBuf> {

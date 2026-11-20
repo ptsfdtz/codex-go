@@ -68,7 +68,7 @@ def validate_candidate(root):
     required = {f"releases/{manifest['version']}/agentdeck-{p}."
                 + ("zip" if p.startswith("windows") else "tar.gz") for p in PLATFORMS}
     required.update(("web.tar.gz", "pages.tar.gz", "agentdeck-cloud", "install.ps1",
-                     "install.sh", "install-codex.ps1", "releases/stable.txt", "release-gate.py"))
+                     "install.sh", "releases/stable.txt", "release-gate.py"))
     required.add(f"releases/{manifest['version']}/notes.txt")
     for target in PLATFORMS:
         archive = f"releases/{manifest['version']}/agentdeck-{target}." + ("zip" if target.startswith("windows") else "tar.gz")
@@ -77,6 +77,9 @@ def validate_candidate(root):
     required.add("verify-shared-runtime.py")
     if not required.issubset(artifacts):
         raise ValueError("Candidate is missing required platform/component artifacts")
+    legacy_installer = root / "install-codex.ps1"
+    if "install-codex.ps1" not in artifacts and (legacy_installer.exists() or legacy_installer.is_symlink()):
+        raise ValueError("Candidate contains an unverified legacy installer")
     for name, expected in artifacts.items():
         if not re.fullmatch(r"[0-9a-f]{64}", str(expected)) or digest(safe_file(root, name)) != expected:
             raise ValueError(f"Candidate integrity failure: {name}")
